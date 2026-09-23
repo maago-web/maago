@@ -104,6 +104,27 @@
 
 → 확인: `maago nope`이 사용법을 출력하고 0이 아닌 코드로 끝난다
 
+**계획**
+- 바꿀 파일: `cmd/maago/main.go`. 새 파일: `cmd/maago/main_test.go`
+- `main`은 `os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))` 한 줄. 판단은 모두 `run`에 두어 테스트가 프로세스를 띄우지 않고 부른다. 명령은 `os.Exit`를 부르지 않고 코드를 돌려준다
+- 명령 표: 이름과 `func(stdout, stderr io.Writer) int`의 슬라이스(순서가 정해져 사용법 문구가 흔들리지 않는다). 새 명령(M2의 `makemigrations` 등)은 한 줄 더하는 일이 된다
+- 명령마다 `flag.FlagSet`(`ContinueOnError`, 출력은 주입된 stderr, 기본 `Usage`는 끈다). M0에는 플래그가 없지만 모르는 플래그를 거부하는 자리다
+- 종료 코드: 0 성공·도움말, 1 검사 실패, 2 사용법 오류. 완료 때 DECISIONS의 D-68에 적는다
+  - `maago`(인자 없음)·모르는 명령·모르는 플래그·남는 위치 인자(`maago gen extra`) → 사용법을 stderr에, 2. 남는 인자를 조용히 버리지 않는다(PHILOSOPHY 6·7)
+  - `maago help`·`-h`·`--help`·`maago gen -h`(`flag.ErrHelp`) → 사용법을 stdout에, 0. 명령별 도움말은 없고 같은 사용법을 낸다
+- `gen`·`check`의 몸통은 7·8번에서 채운다. 그 전까지는 stderr에 `maago gen: not implemented yet (M0 task 7)` 한 줄과 함께 1. 아무것도 하지 않고 0으로 끝나면 "검사가 빠졌는데 통과"가 된다(PHILOSOPHY 7, D-64의 정신). 진단 형식(6번)이 아직 없어 평문이다
+- 문구는 영어(D-06)
+- 루트 패키지 blank import는 그대로 둔다. 7번에서 파이프라인 import로 바뀐다
+- 하지 않는 것: 서브커맨드 라이브러리(D-68), 명령별 도움말, 버전 명령(요청 없음)
+- 리뷰: codex(`ErrHelp`와 출력 방향, 종료 코드 대응, 위치 인자, 최상위 `-h`), fable(stub 문구에 힌트, 종료 코드는 DECISIONS로, 위치 인자, `SetOutput`·기본 Usage, 반대쪽 출력이 비었는지 확인, 명령 표 순서, `gen -h`) 모두 반영. 구현 리뷰: codex(출력 중복을 못 잡음 → `usage:` 횟수 검사, `gen --`·빈 인자 추가), fable(돌연변이 19개 중 17개를 잡음. 남은 둘: 쓰지 않는 `-help` 별칭 → 지움, 명령 순서 → 사용법 전체를 비교). `help gen`·`-h extra`의 남는 말을 거부하자는 지적(둘 다)은 받지 않음: 도움말 요청은 해가 없고, 도움말을 보여주는 것이 맞는 답이다
+
+→ 확인 (`cmd/maago`에서 `go test -count=1 ./...`. 모든 경우에 코드와 두 출력을 함께 본다: 한쪽에 나오면 다른 쪽은 비어 있어야 한다)
+1. `maago nope`, `maago` → stderr에 사용법(`gen`, `check` 포함), stdout 비어 있음, 2
+2. `maago help`, `-h`, `--help`, `gen -h` → stdout에 사용법, stderr 비어 있음, 0
+3. `maago gen -x` → stderr에 `-x`가 들어간 오류와 사용법, 2
+4. `maago gen extra` → stderr에 `extra`와 사용법, 2
+5. `maago gen`, `maago check` → stderr에 `not implemented`, 1
+6. 빌드한 바이너리로 `maago nope; echo $?`가 2
 ## 6. 진단(오류) 형식 (D-61, D-62, D-63, D-06)
 
 - 진단 하나 = 위치(`파일:줄:칸`) + 메시지 + 고치는 법. 고치는 법이 없는 진단은 만들 수 없게 한다
