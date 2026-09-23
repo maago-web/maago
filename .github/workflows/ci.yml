@@ -2,6 +2,9 @@ name: ci
 
 on: push
 
+permissions:
+  contents: read
+
 env:
   GOTOOLCHAIN: local
 
@@ -16,7 +19,10 @@ jobs:
           cache: false
       - run: go version
       - name: gofmt
-        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+        # gofmt -l exits 0 even when it lists files; a parse error must fail too
+        run: |
+          out=$(gofmt -l .)
+          test -z "$out" || { echo "$out"; exit 1; }
       - name: root module
         run: go vet ./... && go test ./...
       - name: cmd/maago module
