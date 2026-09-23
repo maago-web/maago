@@ -1,10 +1,5 @@
 # TODO
 
-## 첫 코드와 함께
-
-- [ ] reflect 금지 게이트(D-66): 코드와 생성 템플릿에 `reflect` import가 있으면 실패하는 테스트, 그리고 CI.
-      실제로 잡는지 `reflect`를 넣은 임시 파일로 확인할 것.
-
 ## 첫 릴리스 전
 
 - [ ] `cmd/maago/go.mod`의 `replace`를 뺀다. `replace`가 있으면 `go install …/cmd/maago@버전`이 거부한다.
