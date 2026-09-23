@@ -1,0 +1,18 @@
+cannot connect to the practice database
+  fix: start PostgreSQL, or set MAAGO_DATABASE_URL in .env
+blog/models.go: no models found
+  fix: embed maago.Model in a struct
+blog/models.go:3: package clause is missing
+  fix: add "package blog" as the first line
+blog/models.go:12:4: empty value for key "max"
+  fix: give max a number, like max=200
+blog/models.go:12:18: duplicate key "max" in Post.Title
+  fix: remove the second key
+blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
+  fix: did you mean "max"?
+blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
+  fix: remove the key
+blog/models.go:14:2: field Post.Body has no type
+  fix: add a type after the field name
+blog/urls.go:5:9: unknown route name "post_detial"
+  fix: did you mean "post_detail"?

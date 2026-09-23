@@ -94,10 +94,13 @@ github.com/maago-web/maago
 
 ```go
 type Diagnostic struct {
-    Pos Pos    // 파일:줄:칸
-    Msg string // 무엇이 틀렸나 (영어)
-    Fix string // 고치는 법 (영어, 필수)
+    pos token.Position // 파일:줄:칸. 파일 이름이 없으면 위치 없음
+    msg string         // 무엇이 틀렸나 (영어, 한 줄)
+    fix string         // 고치는 법 (영어, 한 줄, 필수)
 }
+
+func New(pos token.Position, msg, fix string) Diagnostic // 빈 msg·fix는 패닉
+func Write(w io.Writer, ds []Diagnostic) error          // 정렬, 중복 제거, 출력
 ```
 
 ```
@@ -105,7 +108,7 @@ blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
   fix: did you mean "max"? allowed: max, min, unique, index, default, choices, fk, label, help
 ```
 
-- 고치는 법이 빈 진단은 만들 수 없게 생성자에서 막는다 (D-62).
+- 고치는 법이 빈 진단은 만들 수 없게 생성자에서 막는다 (D-62). 필드가 비공개라 다른 패키지는 생성자로만 채울 수 있다.
 - 수준(경고/오류)은 없다. 진단은 모두 오류다 (D-63).
 - 출력은 파일·줄·칸 순으로 정렬하고, 같은 진단은 한 번만 낸다.
 - 위치가 파일 전체나 프로젝트 전체인 진단(예: DB 연결 실패)은 위치 없이 낸다.
