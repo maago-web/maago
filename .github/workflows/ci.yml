@@ -1,0 +1,24 @@
+name: ci
+
+on: push
+
+env:
+  GOTOOLCHAIN: local
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: 1.25.x
+          cache: false
+      - run: go version
+      - name: gofmt
+        run: test -z "$(gofmt -l . | tee /dev/stderr)"
+      - name: root module
+        run: go vet ./... && go test ./...
+      - name: cmd/maago module
+        working-directory: cmd/maago
+        run: go vet ./... && go test ./...

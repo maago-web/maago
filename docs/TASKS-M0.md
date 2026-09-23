@@ -77,6 +77,25 @@
 
 → 확인: 같은 명령을 로컬에서 돌려 통과한다. 3번의 임시 파일을 넣은 브랜치에서는 CI가 실패한다. CI는 두 모듈을 모두 돈다
 
+**계획**
+- 새 파일: `.github/workflows/ci.yml` 하나. 모든 브랜치의 push에서 돈다(임시 브랜치로 실패를 확인하기 위해). pull_request는 같은 저장소 브랜치면 push와 겹쳐 빼고, 외부 기여가 생기면 더한다
+- Go는 `1.25.x` 하나, `GOTOOLCHAIN=local`: 최소 버전(D-04)으로 실제 빌드한다. `auto`면 더 새 툴체인을 몰래 받아 확인이 빈다. 행렬은 두지 않는다(요청 없음)
+- 단계: `test -z "$(gofmt -l .)"`(루트에서 한 번, `cmd/maago`까지 훑는다. `gofmt -l`은 목록을 내도 0으로 끝나므로 `test -z`로 실패시킨다) → 모듈마다(`.`, `cmd/maago`) `go vet ./...`, `go test ./...`
+- reflect 게이트는 루트 모듈의 테스트다. 루트에서 `go test ./...`가 돌아야 한다(3번 리뷰)
+- 액션: `actions/checkout@v7`, `actions/setup-go@v7`(2026-09 최신 릴리스 확인). `cache: false`: 두 모듈 모두 `go.sum`이 없다
+- 하지 않는 것: 린터, 스크립트 파일(명령이 짧아 워크플로에 직접), 커밋 SHA 고정(공식 actions 조직의 메이저 태그로 충분)
+- push·원격 브랜치 삭제는 사람의 승인을 받는다(WORKFLOW)
+- 리뷰: codex(gofmt 종료 코드, fail-fast, GOTOOLCHAIN, 액션 버전 확인) 반영, SHA 고정·vendor는 받지 않음. fable(push 승인, 위반은 커밋 하나에 하나씩, 두 번째 모듈은 gofmt가 아니라 그 모듈만 잡는 실패로, `test -z`, GOTOOLCHAIN, cache, 트리거 중복·stable 행렬) 모두 반영
+
+→ 확인
+1. 워크플로의 명령을 로컬에서 그대로 돌려 통과. `gofmt` 단계는 안 된 파일을 넣으면 로컬에서도 0이 아닌 코드로 끝남
+2. (승인 후) `main` push → CI 통과, 로그의 `go version`이 1.25
+3. (승인 후) 임시 브랜치 `ci-check`에 위반을 커밋 하나씩 push. 각각 CI 실패:
+   a. `testdata/x.go`에 `import _ "reflect"` → 로그에 `D-66`과 경로
+   b. a를 되돌리고 `cmd/maago/x_test.go`에 실패하는 테스트 → `cmd/maago` 단계에서 실패
+   c. b를 되돌리고 gofmt 안 된 파일 → gofmt 단계에서 실패
+4. (승인 후) 임시 브랜치 삭제
+
 ## 5. CLI 틀 (D-68)
 
 - 단일 바이너리 `cmd/maago`(별도 모듈), `flag` 디스패치
