@@ -48,7 +48,7 @@ github.com/maago-web/maago
     │   └── postgres/                                                      M1·M2
     ├── practicedb/      연습용 DB 열기·닫기 (SQLite 메모리, PG 임시 스키마)      M2
     ├── migrate/         비교, 초안, 적용, 검증, allow-drop                    M2
-    ├── mapper/          SQL 파일 파서, 커버 조합, Go 번역                     M3
+    ├── mapper/          SQL 파일 파서, 커버 조합, Go 번역, PK 기본 CRUD         M3
     ├── web/             라우트 표 읽기, 뷰 어댑터·폼 생성, 템플릿 검사          M4
     └── admingen/        admin 코드 생성                                    M6
 ```
@@ -182,5 +182,5 @@ MAAGO_DATABASE_URL=sqlite:app.db
 |---|---|---|
 | A-1 | CLI의 DB 드라이버 의존 | `cmd/maago`를 별도 모듈로. 런타임 라이브러리는 의존 0 (D-03) |
 | A-2 | 프로젝트의 DB 선언 위치 | `.env`의 `MAAGO_DATABASE_URL`, 환경 변수가 우선 (D-08) |
-| A-3 | 타입 정보 | M1~M3은 `go/ast`만. M4에서 `golang.org/x/tools/go/packages`를 쓸지 정한다 |
+| A-3 | 타입 정보 | M1~M3은 `go/ast`만. M4에서 `golang.org/x/tools/go/packages`를 쓸지 정한다. 쓰면 루트 `go.mod`에 `require`가 생기므로(D-09) 그 코드를 `cmd/maago` 모듈에 둘지도 함께 정한다 |
 | A-4 | 외부 의존 원칙 | 런타임은 stdlib만. 생성기는 필요한 것을 쓰되 마이그레이션 로직은 자체 구현 (D-09) |
