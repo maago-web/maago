@@ -5,6 +5,11 @@
 - [ ] reflect 금지 게이트(D-66): 코드와 생성 템플릿에 `reflect` import가 있으면 실패하는 테스트, 그리고 CI.
       실제로 잡는지 `reflect`를 넣은 임시 파일로 확인할 것.
 
+## 첫 릴리스 전
+
+- [ ] `cmd/maago/go.mod`의 `replace`를 뺀다. `replace`가 있으면 `go install …/cmd/maago@버전`이 거부한다.
+      루트 모듈을 먼저 태그하고 그 버전을 `require`한다.
+
 ## 모델 태그
 
 - [ ] Django 필드 타입(~30)·필드 옵션(~20)·Meta 옵션(~20) 전체를 Maago 태그 원칙으로 옮긴 대응표.

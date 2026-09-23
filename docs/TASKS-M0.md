@@ -28,6 +28,25 @@
 
 → 확인: 두 모듈에서 각각 `go build ./...`가 통과하고, 루트 `go.mod`에 `require`가 없다
 
+**계획**
+- 새 파일: `go.mod`, `doc.go`(`package maago` 패키지 주석), `cmd/maago/go.mod`(모듈 경로 `github.com/maago-web/maago/cmd/maago`), `cmd/maago/main.go`
+- CLI 모듈 경로가 루트 아래여야 `cmd/maago`가 루트의 `internal/`을 import할 수 있다
+- 루트에 `.go` 파일이 없으면 `go build ./...`가 "matched no packages" 경고만 내고 통과해 확인이 비게 된다. `doc.go`로 패키지를 하나 둔다
+- `cmd/maago/main.go`는 루트 패키지를 blank import 하고 빈 `main`. import가 없으면 `go mod tidy`가 `require`를 지운다. 임시이고, 5번에서 실제 코드로 바뀐다
+- `.gitignore`에 `/cmd/maago/maago`: `go build ./...`가 그 자리에 바이너리를 떨군다
+- 루트의 `./...`는 `cmd/maago`를 포함하지 않는다. 모든 명령은 두 모듈에서 따로 돈다(4번 CI도)
+- 하지 않는 것: `go.work`(작업이 `replace`를 정했다), CI(4번). `go.sum` 확인(외부 의존이 없어 생기지 않는다)
+- 미룬 것: `replace`가 있는 모듈은 `go install …/cmd/maago@버전`이 거부한다. 첫 릴리스 전에 루트를 태그하고 `replace`를 뺀다 → TODO
+- 리뷰: codex(모듈 경로, `go test`, tidy의 go 버전), fable(`git diff`는 새 파일을 못 봄 → `tidy -diff`, D-04 확인, 경고 대신 `go list`, replace 고정) 모두 반영. 구현 리뷰: codex 없음, fable 두 가지 — 4번 확인을 경로 비교로 바꿈, Go 1.25로 실제 빌드하는 확인은 4번 CI에서
+
+→ 확인 (두 모듈 각각)
+1. `go build ./... && go vet ./... && go test ./...` 통과
+2. `grep -x 'go 1.25' go.mod` 통과, `grep toolchain go.mod` 비어 있음 (D-04)
+3. 루트: `go list ./...`가 정확히 `github.com/maago-web/maago`. `grep require go.mod` 비어 있음
+4. `cmd/maago`: `go mod tidy -diff` 통과. `go list -m -f '{{.Replace.Dir}}' github.com/maago-web/maago`가 `git rev-parse --show-toplevel`과 같음
+5. 임시로 루트에 `internal/x` 패키지를 두고 `cmd/maago`에서 import해 빌드되는지 본 뒤 지운다
+6. `gofmt -l .`가 비어 있음, `go build` 뒤 `git status`에 바이너리가 없음
+
 ## 3. reflect 금지 게이트 (D-66)
 
 - 런타임 코드(`_test.go` 제외)와 생성기 템플릿에 `reflect` import가 있으면 실패하는 테스트
