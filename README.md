@@ -8,6 +8,9 @@
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙
 - [DECISIONS.md](docs/DECISIONS.md) — 구체적인 결정
+- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — 내부 구조
+- [MILESTONES.md](docs/MILESTONES.md) — 만드는 순서
+- [WORKFLOW.md](docs/WORKFLOW.md) — 구현 루프
 - [TODO.md](docs/TODO.md) — 남은 일
 
 ## 라이선스
