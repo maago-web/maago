@@ -53,6 +53,23 @@
 
 → 확인: `reflect`를 import한 임시 파일을 넣으면 `go test ./...`가 파일 경로와 함께 실패하고, 지우면 통과한다
 
+**계획**
+- 새 파일: 루트 `noreflect_test.go`(package `maago`) 하나. 테스트 파일이라 게이트 자신은 대상이 아니다
+- 저장소 루트(= 루트 패키지 디렉터리)부터 `filepath.WalkDir`로 훑는다. `cmd/maago`는 별도 모듈이라 루트의 `go test ./...`에 안 잡히지만, 파일 트리를 걸으면 잡힌다(ARCHITECTURE §7 "저장소의 모든 비테스트 `.go` 파일")
+- `.go`(`_test.go` 제외): `go/parser`의 `ImportsOnly`로 import 경로만 본다. 별칭·blank·dot import 모두 경로로 잡힌다. 해석 실패는 건너뛰지 않고 실패로 낸다(PHILOSOPHY 7)
+- 생성기 템플릿: 아직 없다. 확장자를 `.tmpl`로 정하고, 파일 안에 `"reflect"` 문자열이 있으면 실패. Go로 해석할 수 없는 글이라 문자열 검사가 최선이다. 주석 속 `"reflect"`도 걸리는데, 그 편이 단순하다
+- 건너뛰는 디렉터리: `.git`만. `testdata/`도 본다. 골든 파일 속 생성 코드도 D-66의 범위다
+- 실패 메시지: `경로:줄:칸: imports "reflect"` + D-66, 고치는 법 한 줄. 모든 위반을 모아 한 번에 낸다(D-61)
+- 하지 않는 것: `unsafe` 등 다른 금지 목록(요청 없음), 사용자 프로젝트의 생성 코드 검사(생성기가 생긴 뒤 골든 테스트가 맡는다)
+
+→ 확인
+1. 루트 `go test ./...` 통과
+2. 루트에 `reflect`를 import한 `.go` 임시 파일 → 경로·줄과 함께 실패. 지우면 통과
+3. `cmd/maago/`와 `internal/x/` 아래 임시 파일, 별칭 import(`r "reflect"`)도 각각 실패
+4. `x_test.go`의 `reflect` import는 통과
+5. `.tmpl` 임시 파일 속 `"reflect"` → 실패
+6. 해석할 수 없는 `.go` 임시 파일 → 실패(건너뛰지 않음)
+
 ## 4. CI
 
 - `gofmt -l`, `go vet ./...`, `go test ./...`
