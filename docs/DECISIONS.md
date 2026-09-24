@@ -41,6 +41,7 @@ go-django) 분석에서 얻은 교훈은 `교훈 N`으로 표시한다. 두 원�
 | D-77 | v0 필드 타입은 `int64`·`int32`·`bool`·`float64`·`string`·`time.Time`·`[]byte`와 그 포인터. 방언별 대응은 [TASKS-M1.md](TASKS-M1.md)의 표. 그 밖의 타입은 D-18로 | v0 | 2026-09-24 |
 | D-78 | `fk=`는 같은 앱의 모델 이름만. 다른 앱의 모델은 U-06과 함께 정한다(M5) | v0 | 2026-09-24 |
 | D-79 | M1의 `models_gen.go`는 D-18의 주석(지원하지 않는 필드와 이유)만 담는다. DDL은 M2의 마이그레이션이, 이름 상수는 쓰는 곳이 생길 때 | v0 | 2026-09-24 |
+| D-80 | 태그 안에서 필드를 가리킬 때(`ordering=`, `unique=(a,b)`, `index=(a,b)`)는 Go 필드 이름을 쓴다(`ordering=-PublishedAt`) | v0 | `fk=Post`와 같이 태그 안의 이름이 모두 Go 쪽이 된다(PHILOSOPHY 4). 생성기가 struct 필드와 바로 대조한다. 2026-09-25 |
 
 ### 태그와 SQL의 기호
 
