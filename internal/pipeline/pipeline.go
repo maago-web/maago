@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/maago-web/maago/internal/diag"
+	"github.com/maago-web/maago/internal/project"
 )
 
 // Marker is the first line of every file maago generates. A file is
@@ -81,7 +82,7 @@ func Write(root string, files map[string][]byte) (removed []string, ds []diag.Di
 		case errors.Is(err, fs.ErrNotExist):
 			todo = append(todo, p)
 		case err != nil:
-			ds = append(ds, diag.New(at(p), "cannot read file: "+errText(err), "make sure the file can be read, then rerun maago gen"))
+			ds = append(ds, diag.New(at(p), "cannot read file: "+diag.OneLine(err.Error()), "make sure the file can be read, then rerun maago gen"))
 		case !isOwned(old):
 			ds = append(ds, notGenerated(p))
 		case !bytes.Equal(old, files[p]):
@@ -105,7 +106,7 @@ func Write(root string, files map[string][]byte) (removed []string, ds []diag.Di
 		if err != nil {
 			removeTemps(renames)
 			return nil, []diag.Diagnostic{diag.New(at(p),
-				"cannot write generated file: "+errText(err), "make sure the directory can be written, then rerun maago gen")}
+				"cannot write generated file: "+diag.OneLine(err.Error()), "make sure the directory can be written, then rerun maago gen")}
 		}
 		renames = append(renames, rename{tmp, dst, p})
 	}
@@ -113,7 +114,7 @@ func Write(root string, files map[string][]byte) (removed []string, ds []diag.Di
 		if err := os.Rename(r.tmp, r.dst); err != nil {
 			removeTemps(renames[i:])
 			return nil, []diag.Diagnostic{diag.New(at(r.path),
-				"cannot replace generated file: "+errText(err), "rerun maago gen; files already written are skipped")}
+				"cannot replace generated file: "+diag.OneLine(err.Error()), "rerun maago gen; files already written are skipped")}
 		}
 	}
 	for _, p := range owned {
@@ -121,7 +122,7 @@ func Write(root string, files map[string][]byte) (removed []string, ds []diag.Di
 			continue
 		}
 		if err := os.Remove(filepath.Join(root, filepath.FromSlash(p))); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			ds = append(ds, diag.New(at(p), "cannot remove old generated file: "+errText(err), "remove it by hand, or rerun maago gen"))
+			ds = append(ds, diag.New(at(p), "cannot remove old generated file: "+diag.OneLine(err.Error()), "remove it by hand, or rerun maago gen"))
 			continue
 		}
 		removed = append(removed, p)
@@ -146,7 +147,7 @@ func Check(root string, files map[string][]byte) []diag.Diagnostic {
 		case errors.Is(err, fs.ErrNotExist):
 			ds = append(ds, diag.New(at(p), "generated file is missing", "run maago gen"))
 		case err != nil:
-			ds = append(ds, diag.New(at(p), "cannot read file: "+errText(err), "make sure the file can be read"))
+			ds = append(ds, diag.New(at(p), "cannot read file: "+diag.OneLine(err.Error()), "make sure the file can be read"))
 		case !isOwned(old):
 			ds = append(ds, notGenerated(p))
 		case !bytes.Equal(old, files[p]):
@@ -161,51 +162,21 @@ func Check(root string, files map[string][]byte) []diag.Diagnostic {
 	return ds
 }
 
-// Owned returns the slash paths, sorted, of the files under root that maago
-// generated. It looks where go's ./... pattern looks: it skips directories
-// and files starting with "." or "_", testdata, vendor, and directories
-// holding another module. It follows root if root is a symbolic link, but
-// no link inside it.
+// Owned returns the slash paths, sorted, of the Go files under root that
+// maago generated. It looks where project.GoFiles looks.
 func Owned(root string) ([]string, []diag.Diagnostic) {
-	root, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		return nil, []diag.Diagnostic{diag.New(token.Position{}, "cannot read project: "+errText(err), "run maago in the project directory")}
-	}
+	files, ds := project.GoFiles(root)
 	var owned []string
-	var ds []diag.Diagnostic
-	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		rel, _ := filepath.Rel(root, path)
-		p := filepath.ToSlash(rel)
+	for _, p := range files {
+		b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(p)))
 		if err != nil {
-			ds = append(ds, diag.New(at(p), "cannot read project: "+errText(err), "make sure the directory can be read"))
-			return nil
-		}
-		name := d.Name()
-		if d.IsDir() {
-			if path == root {
-				return nil
-			}
-			if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") || name == "testdata" || name == "vendor" {
-				return filepath.SkipDir
-			}
-			if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !d.Type().IsRegular() || !strings.HasSuffix(name, ".go") || strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
-			return nil
-		}
-		b, err := os.ReadFile(path)
-		if err != nil {
-			ds = append(ds, diag.New(at(p), "cannot read file: "+errText(err), "make sure the file can be read"))
-			return nil
+			ds = append(ds, diag.New(at(p), "cannot read file: "+diag.OneLine(err.Error()), "make sure the file can be read"))
+			continue
 		}
 		if isOwned(b) {
 			owned = append(owned, p)
 		}
-		return nil
-	})
+	}
 	return owned, ds
 }
 
@@ -235,11 +206,6 @@ func notGenerated(p string) diag.Diagnostic {
 }
 
 func at(p string) token.Position { return token.Position{Filename: p} }
-
-// errText keeps an OS error on one line, as diag.New requires.
-func errText(err error) string {
-	return strings.NewReplacer("\r", `\r`, "\n", `\n`).Replace(err.Error())
-}
 
 // writeTemp writes b to a new temporary file in dst's directory, creating
 // the directory if needed, and returns the temporary file's name.

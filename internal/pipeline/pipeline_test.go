@@ -152,7 +152,7 @@ func TestGenWrites(t *testing.T) {
 func TestGenRemovesOnlyItsOwnStaleFiles(t *testing.T) {
 	root := t.TempDir()
 	marked := gen("stale")
-	for _, p := range []string{"old_gen.go", "blog/older_gen.go"} {
+	for _, p := range []string{"old_gen.go", "blog/older_gen.go", "blog/old_gen_test.go"} {
 		write(t, filepath.Join(root, p), marked)
 	}
 	// Not maago's, or outside what ./... covers: must survive.
@@ -177,7 +177,7 @@ func TestGenRemovesOnlyItsOwnStaleFiles(t *testing.T) {
 	if len(ds) > 0 {
 		t.Fatalf("unexpected errors:\n%s", text(ds))
 	}
-	if want := []string{"blog/older_gen.go", "old_gen.go"}; !slices.Equal(removed, want) {
+	if want := []string{"blog/old_gen_test.go", "blog/older_gen.go", "old_gen.go"}; !slices.Equal(removed, want) {
 		t.Errorf("removed %v, want %v", removed, want)
 	}
 	want := map[string]string{filepath.Join(root, "blog", "models_gen.go"): gen("new")}

@@ -55,12 +55,29 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 
 ## 2. 프로젝트 읽기 (`internal/project`)
 
-- 작업 디렉터리에서 위로 `go.mod`를 찾아 루트와 모듈 경로를 안다
-- `./...` 훑기(8번의 `Owned`와 같은 규칙)를 여기로 옮기고 `pipeline`이 이것을 쓴다
-- 앱 = `maago.Model`을 임베드한 struct가 있는 패키지(ARCHITECTURE §5). M1은 모델만 본다
+- 작업 디렉터리에서 위로 `go.mod`를 찾아 프로젝트 루트를 안다
+- `./...` 훑기(M0 8번의 `Owned`와 같은 규칙)를 여기로 옮기고 `pipeline`이 이것을 쓴다
+- 앱(= `maago.Model`을 임베드한 struct가 있는 패키지, ARCHITECTURE §5) 판정은 소스를 해석해야 하므로 4번이 한다
 - `pipeline`이 `project`를 import하므로 `project`는 `pipeline`의 타입(`Step`, `Run`)을 쓸 수 없다. 단계 조립은 둘을 모두 import하는 곳(9번)에서
 
-→ 확인: `go.mod`가 없으면 위치와 고치는 법이 있는 진단. 하위 모듈·`testdata`·`vendor` 안의 모델은 앱이 아니다. `pipeline`의 8번 테스트가 그대로 통과한다
+→ 확인: `go.mod`가 없으면 찾아본 디렉터리와 고치는 법이 있는 진단. 하위 모듈·`testdata`·`vendor` 안의 파일은 목록에 없다. `pipeline`의 테스트가 그대로 통과한다
+
+**계획**
+- 새 파일: `internal/project/project.go`, `project_test.go`. 바꿀 파일: `internal/pipeline/pipeline.go`(`Owned`가 `project.GoFiles`를 쓴다)
+- `Root(dir string) (string, []diag.Diagnostic)`: `dir`을 절대 경로로 만들고 symlink를 푼 뒤, 위로 `go.mod`가 있는 디렉터리를 찾는다. 부모가 자기 자신이면(파일 시스템·볼륨 루트) 멈춘다. 없으면 위치 없는 진단, 메시지에 찾기 시작한 디렉터리, fix `run maago inside a Go module; create one with go mod init`. `go.mod`의 `Stat` 오류가 "없음"이 아니면 그 오류로 진단
+- `GoFiles(root string) ([]string, []diag.Diagnostic)`: `root`의 symlink를 풀고(M0 8번의 `EvalSymlinks`를 여기로. `pipeline`을 symlink 루트로 직접 부르는 테스트가 있다), `./...` 규칙(M0 8번 그대로)으로 `.go` 파일(테스트 포함)의, 루트 기준 슬래시 경로를 정렬해 돌려준다. 표시가 있는 `_gen_test.go`도 생성물이므로(D-67) 빼지 않는다. 모델을 찾을 때 테스트 파일을 건너뛰는 일은 4번이 한다. 훑다 난 오류는 진단으로 모으고 계속 훑는다. 하위 디렉터리의 `go.mod`를 읽을 수 없으면 진단하고 들어가지 않는다(다른 모듈일 수 있고, gen은 파일을 지운다). `pipeline.Owned`는 이 목록을 읽어 표시만 본다. 훑기 규칙은 이제 여기 한 곳에만 있다
+- 모듈 경로(`module` 줄)는 읽지 않는다. M1에서 쓰는 곳이 없다(import 경로는 `maago` 자신의 것만 본다). 쓰는 곳이 생기면 더한다
+- "앱 = `maago.Model`을 임베드한 struct가 있는 패키지"의 판정은 Go 소스를 해석해야 하므로 4번(`model`)이 한다. `project`는 파일 목록까지
+- `project`는 `pipeline`을 import하지 않는다(순환). 단계 조립은 9번
+- 하지 않는 것: `go.work`, 모듈 경로, 빌드 태그 해석
+- 리뷰: codex(위로 찾기의 멈춤 조건, "없음" 외 `Stat` 오류, `GoFiles`도 symlink를 풂, 루트 기준 경로, 훑기 오류, symlink 디렉터리 테스트), fable(같은 symlink 회귀, 작업 본문을 계획에 맞춤, 진단에 디렉터리, `_test.go` 결정, macOS `/private/var`) 모두 반영. 구현 리뷰: codex(하위 `go.mod`의 읽기 오류를 모듈 아님으로 봄 → 진단하고 들어가지 않음, 상대 경로·읽기 오류 테스트), fable(`_test.go`를 빼면 표시 있는 `_gen_test.go`를 gen·check가 못 봄(D-67) → 다시 담음, 정렬되지 않음 → `slices.Sort`, 오류 경로 돌연변이 8개 → 테스트 추가, 같은 한 줄 함수가 두 곳 → `diag.OneLine`) 모두 반영
+
+→ 확인 (`go test -count=1 ./internal/project ./internal/pipeline`)
+1. 하위 디렉터리에서 `Root`가 위의 `go.mod` 디렉터리를 찾는다. symlink로 들어가도 같은 실제 경로(`EvalSymlinks`한 임시 디렉터리와 비교)
+2. `go.mod`가 없는 곳(임시 디렉터리)에서는 진단 하나, 메시지에 그 디렉터리, 고치는 법에 `go mod init`
+3. `GoFiles`가 M0 8번의 건너뛰기 규칙을 모두 지키고(`testdata`, `vendor`, `.`·`_`, 하위 모듈, symlink 파일과 symlink 디렉터리), `_test.go`도 담으며, 경로는 정렬된 슬래시 경로(`blog.go`가 `blog/…`보다 앞)
+5. 오류 경로: `Root(".")`(작업 디렉터리가 하위), 없는 디렉터리, 읽을 수 없는 하위 디렉터리(진단 하나, 나머지는 계속, 이름의 줄바꿈은 `\n`으로)
+4. `pipeline`의 테스트가 고치지 않고 그대로 통과한다
 
 ## 3. 태그 문법 (`internal/model`)
 

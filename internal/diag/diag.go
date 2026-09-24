@@ -30,6 +30,7 @@ func New(pos token.Position, msg, fix string) Diagnostic {
 	if strings.ContainsAny(msg, "\r\n") || strings.ContainsAny(fix, "\r\n") {
 		panic(fmt.Sprintf("diag: message and fix must be one line each: %q, %q", msg, fix))
 	}
+	pos.Filename = OneLine(pos.Filename)
 	// Clear what is never printed, so it cannot keep duplicates apart.
 	pos.Offset = 0
 	if pos.Filename == "" {
@@ -63,6 +64,12 @@ func Write(w io.Writer, ds []Diagnostic) error {
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// OneLine replaces line breaks in s with \r and \n escapes, for putting
+// text such as an OS error into a message.
+func OneLine(s string) string {
+	return strings.NewReplacer("\r", `\r`, "\n", `\n`).Replace(s)
 }
 
 // compare orders by every field, so that the unstable sort always puts
