@@ -6,12 +6,16 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/maago-web/maago/internal/diag"
 )
+
+// gen returns generated content: the marker, then body.
+func gen(body string) string { return Marker + "\n" + body }
 
 // snapshot returns every file under dir with its content.
 func snapshot(t *testing.T, dir string) map[string]string {
@@ -47,28 +51,40 @@ func fail(msg string) Step {
 	}
 }
 
+// generate returns a step that generates files.
+func generate(files map[string]string) Step {
+	return func(r *Run) []diag.Diagnostic {
+		for p, s := range files {
+			r.Files[p] = []byte(s)
+		}
+		return nil
+	}
+}
+
 func text(ds []diag.Diagnostic) string {
 	var b strings.Builder
 	diag.Write(&b, ds)
 	return b.String()
 }
 
+func assertUnchanged(t *testing.T, root string, before map[string]string) {
+	t.Helper()
+	if after := snapshot(t, root); !maps.Equal(before, after) {
+		t.Errorf("files changed:\nbefore %v\nafter  %v", before, after)
+	}
+}
+
 func TestGenStopsAtFailingStage(t *testing.T) {
 	root := t.TempDir()
-	write(t, filepath.Join(root, "keep.go"), "old")
+	write(t, filepath.Join(root, "keep.go"), gen("old"))
+	write(t, filepath.Join(root, "stale_gen.go"), gen("no longer generated, but errors must not remove it"))
 	before := snapshot(t, root)
 
 	ran := false
-	ds := Gen(root, [][]Step{
+	_, ds := Gen(root, [][]Step{
 		// A generator in the failing stage: its output must not be written.
-		{fail("first"), func(r *Run) []diag.Diagnostic {
-			r.Files["keep.go"] = []byte("overwritten")
-			return nil
-		}, fail("second")},
-		{func(r *Run) []diag.Diagnostic {
-			ran = true
-			return nil
-		}},
+		{fail("first"), generate(map[string]string{"keep.go": gen("overwritten")}), fail("second")},
+		{func(*Run) []diag.Diagnostic { ran = true; return nil }},
 	})
 
 	if out := text(ds); len(ds) != 2 || !strings.Contains(out, "first") || !strings.Contains(out, "second") {
@@ -77,19 +93,14 @@ func TestGenStopsAtFailingStage(t *testing.T) {
 	if ran {
 		t.Error("the stage after a failing stage ran")
 	}
-	if after := snapshot(t, root); !maps.Equal(before, after) {
-		t.Errorf("files changed:\nbefore %v\nafter  %v", before, after)
-	}
+	assertUnchanged(t, root, before)
 }
 
 func TestGenStopsAtSingleError(t *testing.T) {
 	root := t.TempDir()
 	ran := false
-	ds := Gen(root, [][]Step{
-		{fail("only"), func(r *Run) []diag.Diagnostic {
-			r.Files["new.go"] = []byte("x")
-			return nil
-		}},
+	_, ds := Gen(root, [][]Step{
+		{fail("only"), generate(map[string]string{"new.go": gen("x")})},
 		{func(*Run) []diag.Diagnostic { ran = true; return nil }},
 	})
 	if len(ds) != 1 || ran {
@@ -103,32 +114,27 @@ func TestGenStopsAtSingleError(t *testing.T) {
 func TestGenWrites(t *testing.T) {
 	root := t.TempDir()
 	same, changed := filepath.Join(root, "same.go"), filepath.Join(root, "changed.go")
-	write(t, same, "same")
-	write(t, changed, "old")
+	write(t, same, gen("same"))
+	write(t, changed, gen("old"))
 	past := time.Now().Add(-time.Hour).Truncate(time.Second)
 	if err := os.Chtimes(same, past, past); err != nil {
 		t.Fatal(err)
 	}
 
 	secondRan := false
-	ds := Gen(root, [][]Step{
+	removed, ds := Gen(root, [][]Step{
 		{func(*Run) []diag.Diagnostic { return nil }},
-		{func(r *Run) []diag.Diagnostic {
-			secondRan = true
-			r.Files["same.go"] = []byte("same")
-			r.Files["changed.go"] = []byte("new")
-			r.Files["sub/dir/new.go"] = []byte("fresh")
-			return nil
-		}},
+		{func(r *Run) []diag.Diagnostic { secondRan = true; return nil },
+			generate(map[string]string{"same.go": gen("same"), "changed.go": gen("new"), "sub/dir/new.go": gen("fresh")})},
 	})
 
-	if len(ds) > 0 {
-		t.Fatalf("unexpected errors:\n%s", text(ds))
+	if len(ds) > 0 || len(removed) > 0 {
+		t.Fatalf("unexpected errors or removals: %v\n%s", removed, text(ds))
 	}
 	if !secondRan {
 		t.Fatal("second stage did not run")
 	}
-	want := map[string]string{same: "same", changed: "new", filepath.Join(root, "sub", "dir", "new.go"): "fresh"}
+	want := map[string]string{same: gen("same"), changed: gen("new"), filepath.Join(root, "sub", "dir", "new.go"): gen("fresh")}
 	if got := snapshot(t, root); !maps.Equal(got, want) {
 		t.Errorf("files:\ngot  %v\nwant %v", got, want)
 	}
@@ -143,34 +149,203 @@ func TestGenWrites(t *testing.T) {
 	}
 }
 
-func TestWriteRejectsPathOutsideRoot(t *testing.T) {
+func TestGenRemovesOnlyItsOwnStaleFiles(t *testing.T) {
 	root := t.TempDir()
-	write(t, filepath.Join(root, "keep.go"), "old")
-	before := snapshot(t, root)
-
-	ds := Write(root, map[string][]byte{"ok.go": []byte("x"), "../escape.go": []byte("x"), "new\nline.go": []byte("x")})
-
-	if out := text(ds); len(ds) != 2 || !strings.Contains(out, "../escape.go") || !strings.Contains(out, "line.go") {
-		t.Errorf("want errors naming both bad paths, got:\n%s", out)
+	marked := gen("stale")
+	for _, p := range []string{"old_gen.go", "blog/older_gen.go"} {
+		write(t, filepath.Join(root, p), marked)
 	}
-	if after := snapshot(t, root); !maps.Equal(before, after) {
-		t.Errorf("files changed:\nbefore %v\nafter  %v", before, after)
+	// Not maago's, or outside what ./... covers: must survive.
+	keep := map[string]string{
+		"other_gen.go":           "// Code generated by stringer. DO NOT EDIT.\npackage x",
+		"testdata/a_gen.go":      marked,
+		"vendor/b_gen.go":        marked,
+		"_hidden/c_gen.go":       marked,
+		".dot/d_gen.go":          marked,
+		"_e_gen.go":              marked,
+		"submodule/go.mod":       "module sub",
+		"submodule/f_gen.go":     marked,
+		"blog/marker_second.go":  "//go:build x\n" + marked,
+		"blog/models_gen.go.txt": marked,
+	}
+	for p, s := range keep {
+		write(t, filepath.Join(root, filepath.FromSlash(p)), s)
+	}
+
+	removed, ds := Gen(root, [][]Step{{generate(map[string]string{"blog/models_gen.go": gen("new")})}})
+
+	if len(ds) > 0 {
+		t.Fatalf("unexpected errors:\n%s", text(ds))
+	}
+	if want := []string{"blog/older_gen.go", "old_gen.go"}; !slices.Equal(removed, want) {
+		t.Errorf("removed %v, want %v", removed, want)
+	}
+	want := map[string]string{filepath.Join(root, "blog", "models_gen.go"): gen("new")}
+	for p, s := range keep {
+		want[filepath.Join(root, filepath.FromSlash(p))] = s
+	}
+	if got := snapshot(t, root); !maps.Equal(got, want) {
+		t.Errorf("files:\ngot  %v\nwant %v", got, want)
 	}
 }
 
-func TestWriteFailureChangesNothing(t *testing.T) {
+// The CLI passes ".", and CRLF line endings come from git on Windows.
+func TestGenFromDotRemovesCRLFStaleFile(t *testing.T) {
 	root := t.TempDir()
-	write(t, filepath.Join(root, "a.go"), "old")
-	write(t, filepath.Join(root, "b"), "a regular file, so b/c.go cannot be written")
+	write(t, filepath.Join(root, "old_gen.go"), Marker+"\r\npackage x\r\n")
+	t.Chdir(root)
+
+	removed, ds := Gen(".", nil)
+
+	if len(ds) > 0 || !slices.Equal(removed, []string{"old_gen.go"}) {
+		t.Errorf("removed %v, errors:\n%s", removed, text(ds))
+	}
+}
+
+func TestSymlinks(t *testing.T) {
+	real := t.TempDir()
+	write(t, filepath.Join(real, "a_gen.go"), gen("a"))
+	outside := filepath.Join(t.TempDir(), "x_gen.go")
+	write(t, outside, gen("linked, not ours to remove"))
+	if err := os.Symlink(outside, filepath.Join(real, "link_gen.go")); err != nil {
+		t.Skip("cannot make symlinks:", err)
+	}
+	root := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(real, root); err != nil {
+		t.Fatal(err)
+	}
+
+	// Through a symlinked root, a_gen.go is found; the linked file is not.
+	if ds := Check(root, map[string][]byte{"a_gen.go": []byte(gen("a"))}); len(ds) > 0 {
+		t.Errorf("unexpected errors:\n%s", text(ds))
+	}
+	removed, ds := Gen(root, nil)
+	if len(ds) > 0 || !slices.Equal(removed, []string{"a_gen.go"}) {
+		t.Errorf("removed %v, errors:\n%s", removed, text(ds))
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Errorf("linked file removed: %v", err)
+	}
+}
+
+func TestGenRefusesToOverwriteHumanFile(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "blog", "models_gen.go"), "package blog // written by a person")
 	before := snapshot(t, root)
 
-	// a.go sorts first, so its temp file exists when b/c.go fails.
-	ds := Write(root, map[string][]byte{"a.go": []byte("new"), "b/c.go": []byte("x")})
+	_, ds := Gen(root, [][]Step{{generate(map[string]string{
+		"a.go":               gen("sorts first, must not be written either"),
+		"blog/models_gen.go": gen("x"),
+	})}})
 
-	if !strings.Contains(text(ds), "b/c.go") {
-		t.Errorf("want an error naming b/c.go, got:\n%s", text(ds))
+	if out := text(ds); len(ds) != 1 || !strings.Contains(out, "blog/models_gen.go: file was not generated by maago") {
+		t.Errorf("want one error naming the human file, got:\n%s", out)
 	}
-	if after := snapshot(t, root); !maps.Equal(before, after) {
-		t.Errorf("files changed or temp files left:\nbefore %v\nafter  %v", before, after)
+	assertUnchanged(t, root, before)
+}
+
+func TestRejectBadGeneratedFiles(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "old.go"), gen("old"))
+	write(t, filepath.Join(root, "a.go"), "package a")
+	before := snapshot(t, root)
+	files := map[string][]byte{
+		"a/../old.go":  []byte(gen("not clean")),
+		"../escape.go": []byte(gen("outside")),
+		"new\nline.go": []byte(gen("two lines")),
+		"a.go":         []byte("package a"), // matches the disk, but lacks the marker
+	}
+	for name, ds := range map[string][]diag.Diagnostic{
+		"Check": Check(root, files),
+		"Write": func() []diag.Diagnostic { _, ds := Write(root, files); return ds }(),
+	} {
+		if out := text(ds); len(ds) != 4 || !strings.Contains(out, "a/../old.go") || !strings.Contains(out, "a.go: generated content lacks the maago marker") {
+			t.Errorf("%s: want four errors, got:\n%s", name, out)
+		}
+	}
+	assertUnchanged(t, root, before)
+}
+
+func TestWriteFailureLeavesNoTempFiles(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write to a read-only directory")
+	}
+	root := t.TempDir()
+	write(t, filepath.Join(root, "a.go"), gen("old"))
+	locked := filepath.Join(root, "locked")
+	if err := os.Mkdir(locked, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(locked, 0o755)
+	before := snapshot(t, root)
+
+	// a.go sorts first, so its temp file exists when locked/b.go fails.
+	_, ds := Write(root, map[string][]byte{"a.go": []byte(gen("new")), "locked/b.go": []byte(gen("x"))})
+
+	if !strings.Contains(text(ds), "locked/b.go: cannot write generated file") {
+		t.Errorf("want a write error naming locked/b.go, got:\n%s", text(ds))
+	}
+	assertUnchanged(t, root, before)
+}
+
+func TestCheck(t *testing.T) {
+	files := map[string]string{"a_gen.go": gen("a"), "b_gen.go": gen("b"), "blog/c_gen.go": gen("c")}
+	generated := map[string][]byte{}
+	for p, s := range files {
+		generated[p] = []byte(s)
+	}
+	edit := func(root string) error {
+		return os.WriteFile(filepath.Join(root, "a_gen.go"), []byte(gen("edited by hand")), 0o644)
+	}
+	del := func(root string) error { return os.Remove(filepath.Join(root, "b_gen.go")) }
+	extra := func(root string) error {
+		return os.WriteFile(filepath.Join(root, "old_gen.go"), []byte(gen("old")), 0o644)
+	}
+	human := func(root string) error {
+		return os.WriteFile(filepath.Join(root, "blog", "c_gen.go"), []byte("package blog"), 0o644)
+	}
+
+	tests := []struct {
+		name    string
+		changes []func(string) error
+		want    []string // one diagnostic per entry
+	}{
+		{"untouched", nil, nil},
+		{"edited", []func(string) error{edit}, []string{"a_gen.go: generated file is out of date"}},
+		{"deleted", []func(string) error{del}, []string{"b_gen.go: generated file is missing"}},
+		{"extra", []func(string) error{extra}, []string{"old_gen.go: generated file is no longer generated"}},
+		{"human file", []func(string) error{human}, []string{"blog/c_gen.go: file was not generated by maago"}},
+		{"all at once", []func(string) error{edit, del, extra}, []string{
+			"a_gen.go: generated file is out of date",
+			"b_gen.go: generated file is missing",
+			"old_gen.go: generated file is no longer generated",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			if _, ds := Gen(root, [][]Step{{generate(files)}}); len(ds) > 0 {
+				t.Fatal(text(ds))
+			}
+			for _, change := range tt.changes {
+				if err := change(root); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := snapshot(t, root)
+
+			ds := Check(root, generated)
+
+			out := text(ds)
+			if len(ds) != len(tt.want) {
+				t.Errorf("want %d errors, got:\n%s", len(tt.want), out)
+			}
+			for _, w := range tt.want {
+				if !strings.Contains(out, w) {
+					t.Errorf("output lacks %q:\n%s", w, out)
+				}
+			}
+			assertUnchanged(t, root, before)
+		})
 	}
 }
