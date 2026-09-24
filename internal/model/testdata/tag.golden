@@ -1,0 +1,97 @@
+A `maago:"unique"`
+  unique@4:16 none
+B `maago:"max=200,unique,index"`
+  max@5:16 bare "200"@5:20
+  unique@5:24 none
+  index@5:31 none
+C `maago:"label='제목',help='a, b, and c'"`
+  label@6:16 string "제목"@6:22
+  help@6:31 string "a, b, and c"@6:36
+D `maago:"default='',label='''',help='it''s'"`
+  default@7:16 string ""@7:24
+  label@7:27 string "'"@7:33
+  help@7:38 string "it's"@7:43
+E `maago:"choices=draft/published/archived"`
+  choices@8:16 bare "draft"@8:24 "published"@8:30 "archived"@8:40
+F `maago:"choices=draft"`
+  choices@9:16 bare "draft"@9:24
+G `maago:"unique=(AuthorID,Title),unique=(Slug)"`
+  unique@10:16 group "AuthorID"@10:24 "Title"@10:33
+  unique@10:40 group "Slug"@10:48
+H `maago:"ordering=-PublishedAt,default=-1,default=1.5"`
+  ordering@11:16 bare "-PublishedAt"@11:25
+  default@11:38 bare "-1"@11:46
+  default@11:49 bare "1.5"@11:57
+I `json:"i,omitempty" maago:"fk=Post"`
+  fk@12:35 bare "Post"@12:38
+J `maago:"label='한글',max=10"`
+  label@13:16 string "한글"@13:22
+  max@13:31 bare "10"@13:35
+K `json:"k"`
+L `maago:"label='unclosed"`
+  blog/models.go:15:22: string in maago tag has no closing '
+    fix: close the string with '
+M `maago:"max=1,,unique"`
+  blog/models.go:16:22: unexpected ',' in maago tag, want an option name
+    fix: write options as key or key=value
+N `maago:"max=1,"`
+  blog/models.go:17:22: maago tag ends where an option name should be
+    fix: write options as key or key=value
+O `maago:"unique=(A,B"`
+  blog/models.go:18:23: group in maago tag has no closing )
+    fix: close the group with )
+P `maago:"unique=(A,,B)"`
+  blog/models.go:19:26: unexpected ',' in maago tag, want a value
+    fix: write a value, or 'text' for text with spaces or commas
+Q `maago:"max="`
+  blog/models.go:20:20: maago tag ends where a value should be
+    fix: write a value, or 'text' for text with spaces or commas
+R `maago:"Max=1"`
+  blog/models.go:21:16: option name "Max" is not lowercase letters
+    fix: write the option name in lowercase letters, like max
+S `maago:"max=1, unique"`
+  blog/models.go:22:22: space in maago tag
+    fix: remove the space
+T `maago:"label=\\n"`
+  blog/models.go:23:22: backslash in maago tag
+    fix: remove it; write text as 'text', which cannot hold a double quote
+U `maago:"label='say "hi"'"`
+  blog/models.go:24:27: double quote in maago tag
+    fix: remove it; maago tag values cannot hold a double quote
+V "maago:\"max=1\""
+  blog/models.go:25:8: struct tag is not a raw string
+    fix: write the struct tag with backquotes
+W `maago:"max=1"
+        json:"w"`
+  blog/models.go:26:8: struct tag spans several lines
+    fix: write the struct tag on one line
+X `maago:"max=1" maago:"unique"`
+  blog/models.go:28:23: struct tag has two maago keys
+    fix: merge them into one maago:"…"
+Y `maago:max=1`
+  blog/models.go:29:14: struct tag is not in the form key:"value"
+    fix: write each part as key:"value", separated by spaces
+Z `maago:""`
+  blog/models.go:30:16: maago tag ends where an option name should be
+    fix: write options as key or key=value
+AB `maago:"maxLen=1"`
+  blog/models.go:31:17: option name "maxLen" is not lowercase letters
+    fix: write the option name in lowercase letters, like max
+AC `maago:"max1=1"`
+  blog/models.go:32:17: option name "max1" is not lowercase letters
+    fix: write the option name in lowercase letters, like max
+AD `maago:"default=a=b"`
+  blog/models.go:33:26: unexpected '=' in maago tag, want a comma
+    fix: write a value holding = or ' as 'text'
+AE `maago:"label=a'b'"`
+  blog/models.go:34:24: unexpected '\'' in maago tag, want a comma
+    fix: write a value holding = or ' as 'text'
+AF `maago:"max=1`
+  blog/models.go:35:16: struct tag value has no closing "
+    fix: close the value with "
+AG `maago:"max=1"foo`
+  blog/models.go:36:23: struct tag is not in the form key:"value"
+    fix: write each part as key:"value", separated by spaces
+AA `maago:"max=,,"`
+  blog/models.go:37:21: unexpected ',' in maago tag, want a value
+    fix: write a value, or 'text' for text with spaces or commas
