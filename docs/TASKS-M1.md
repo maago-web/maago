@@ -17,7 +17,7 @@
 ## 결정 (2026-09-24)
 
 PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 snake_case(D-76), v0 필드 타입(D-77, 아래 표),
-`fk=`는 같은 앱만(D-78), M1의 `models_gen.go`는 D-18 주석만(D-79).
+`fk=`는 같은 앱만(D-78), M1의 `models_gen.go`는 D-18 주석만(D-79). 태그 안의 필드 이름은 Go 필드 이름(D-80).
 
 필드 타입 (v0, D-77)
 
@@ -42,13 +42,23 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 - 루트 패키지에 첫 공개 타입: 임베드용 빈 struct `maago.Model`. 메서드 없음
 - 생성기는 이 타입을 import 경로와 이름으로 알아본다(`go/ast`, 타입 검사 없음, ARCHITECTURE A-3)
 
-→ 확인: 예제 모델이 `maago.Model`을 임베드해 빌드된다. 루트 모듈에 `require`가 없다
+→ 확인: `go vet ./... && go test ./...`가 통과한다(테스트 파일의 예제 모델이 `maago.Model`을 태그와 함께 임베드한다). 루트 `go.mod`에 `require`가 없다
+
+**계획**
+- 새 파일: 루트 `model.go`(`type Model struct{}`와 문서 주석), `model_test.go`(package `maago_test`, `ExampleModel`)
+- 문서 주석에 쓰임새 예: 임베드한 `maago.Model`의 태그가 모델 옵션(D-13), PK는 `ID int64`(D-74), 포인터는 NULL(D-75)
+- `ExampleModel`은 출력 없는 예제라 실행되지 않고 컴파일만 된다. 외부 패키지(`maago_test`)에서 임베드가 되는지가 이 작업의 확인이다
+- 첫 필드여야 하는지, 포인터 임베드(`*maago.Model`)를 받을지, import 별칭(`m "…/maago"`, `.`)을 어디까지 알아볼지는 두지 않는다. 생성기가 알아보는 일이라 4번이 정한다
+- 구현 리뷰: codex(문서 주석 예제에 import가 없음 → 받지 않음: Go 문서 주석의 조각 예제 관례), fable(D-10 인용이 맞지 않음 → 번호를 뺌). 둘 다 그 밖의 문제 없음
+- 리뷰: codex(예제에 태그 있는 임베드, 포인터·별칭은 4번으로) 반영. "D-10의 근거가 틀렸다"는 받지 않음: D-10은 키 없는 태그(`"max=200"`)를 말하고, 그것은 `go vet`의 structtag가 실제로 경고한다. fable(확인 명령을 `go vet`·`go test`로 명시) 반영
+- 하지 않는 것: 메서드, 필드, `doc.go`의 문구 변경
 
 ## 2. 프로젝트 읽기 (`internal/project`)
 
 - 작업 디렉터리에서 위로 `go.mod`를 찾아 루트와 모듈 경로를 안다
 - `./...` 훑기(8번의 `Owned`와 같은 규칙)를 여기로 옮기고 `pipeline`이 이것을 쓴다
 - 앱 = `maago.Model`을 임베드한 struct가 있는 패키지(ARCHITECTURE §5). M1은 모델만 본다
+- `pipeline`이 `project`를 import하므로 `project`는 `pipeline`의 타입(`Step`, `Run`)을 쓸 수 없다. 단계 조립은 둘을 모두 import하는 곳(9번)에서
 
 → 확인: `go.mod`가 없으면 위치와 고치는 법이 있는 진단. 하위 모듈·`testdata`·`vendor` 안의 모델은 앱이 아니다. `pipeline`의 8번 테스트가 그대로 통과한다
 
@@ -56,6 +66,7 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 
 - `maago:"…"` 값 → 키·값 목록. `,` 구분, `'…'` 문자열(`''`는 `'`), `(a,b)` 묶음, `a/b/c` 선택지, 같은 키 반복(D-13, 기호 표)
 - 문법 오류의 위치는 태그 안의 칸까지(`파일:줄:칸`)
+- `reflect.StructTag`는 쓸 수 없다(생성기도 reflect 게이트 대상, ARCHITECTURE §7). 바깥 `key:"value"`도 직접 해석한다. 칸이 정확한 것은 백쿼트 태그뿐이므로, 큰따옴표 태그를 어떻게 다룰지 계획에서 정한다
 
 → 확인: 기호 표의 모든 형태와 잘못된 형태(닫히지 않은 `'`, 빈 키, 짝 없는 괄호)가 골든 파일과 같다
 
@@ -65,6 +76,8 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 - 모르는 키는 가장 가까운 키로 "did you mean"과 허용 목록(편집 거리)
 - 모델 태그 `table`·`ordering`·`unique=(a,b)`·`index=(a,b)`, 필드 태그 `max`·`unique`·`index`·`default`·`choices`·`label`·`help`·`fk`(D-12~D-14)
 - 값 검사: `max`는 양의 정수이고 `string`에만, `choices`의 기본값은 선택지 안에, `fk` 대상 모델이 같은 앱에 있다(D-78), 묶음의 필드가 있다, PK 규칙(D-74)
+- `default` 값이 필드 타입(D-77)으로 해석되는지도 검사한다(M2까지 미루지 않는다)
+- `maago.Model` 알아보기: import 경로가 정확히 맞아야 하고, 별칭·기본 이름·`.` import·포인터 임베드를 어떻게 다룰지 계획에서 정한다
 - 한 단계 안의 독립 오류는 모두 모은다(D-61)
 
 → 확인: `maxlen=200`이 `models.go:줄:칸`과 `did you mean "max"`로 실패(M1 완료 조건 1). 오류 여러 개가 한 번에 나온다(골든)
@@ -74,11 +87,11 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 - 모델 → 방언 중립 표현: 테이블, 컬럼(타입, NULL, 기본값, CHECK), PK, unique, index, FK
 - 지원하지 않는 필드는 이유와 함께 따로 모은다(D-18, D-77)
 
-→ 확인: 예제 모델 셋의 스키마 표현을 사람이 읽을 수 있게 출력한 것이 골든과 같다
+→ 확인: 예제 모델 셋의 스키마 표현이 기대한 값과 같다(구조체 비교. DDL 골든은 6·7번이 맡으므로 스키마 골든은 두지 않는다)
 
 ## 6. SQLite DDL (`internal/dialect/sqlite`)
 
-→ 확인: 예제 모델 셋의 DDL이 골든과 같고, 실제 SQLite(메모리)에 적용된다. 드라이버는 `cmd/maago` 모듈에만(D-03, D-09) — 적용 확인 테스트를 어느 모듈에 둘지 계획에서 정한다
+→ 확인: 예제 모델 셋의 DDL이 골든과 같다. 실제 적용은 드라이버가 필요하므로(`cmd/maago` 모듈에만, D-03·D-09) M2의 연습용 DB와 함께 한다(PG와 같다). TUTORIAL-FUTURE §4의 DDL을 D-77에 맞게 고친다
 
 ## 7. PostgreSQL DDL (`internal/dialect/postgres`)
 
@@ -88,11 +101,11 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 
 - D-79대로. 첫 줄 `pipeline.Marker`, `go/format`으로 정리, 앱마다 하나
 
-→ 확인: 지원하지 않는 필드가 이유와 함께 주석으로 남는다(골든). 생성 결과가 `go build`된다
+→ 확인: 지원하지 않는 필드가 이유와 함께 주석으로 남는다(골든, `go/format`이 통과). 지원하지 않는 필드가 없는 앱에는 `models_gen.go`를 만들지 않고, 있던 것은 `gen`이 지운다(D-60)
 
 ## 9. `gen`·`check` 연결
 
-- 단계 조립: 읽기(2) → 해석·검사(3·4) → 생성(5·8). 조립 위치와 `Run`의 필드는 이 작업의 계획에서 정한다
+- 단계 조립: 읽기(2) → 해석(`go/parser`와 태그 문법, 3) → 검사(4) → 생성(5·8). 해석이 실패한 파일을 검사하면 연쇄 오류가 나므로 해석은 따로 단계다(ARCHITECTURE §3, D-61). 조립은 `pipeline`과 `project`·`model`을 모두 import하는 곳에서 하고, 그 위치와 `Run`의 필드는 이 작업의 계획에서 정한다
 - CLI의 stub을 걷어내고 `pipeline.Gen`·`Check`를 부른다. `gen`은 지운 파일을 출력한다
 
 → 확인: 예제 프로젝트에서 `maago gen` → `maago check` 통과. `maxlen` 예제에서 `maago gen`이 1로 끝나고 아무것도 쓰지 않는다. 생성물을 손으로 고치면 `maago check`가 1
