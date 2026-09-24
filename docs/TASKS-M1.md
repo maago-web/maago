@@ -131,6 +131,36 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 
 → 확인: `maxlen=200`이 `models.go:줄:칸`과 `did you mean "max"`로 실패(M1 완료 조건 1). 오류 여러 개가 한 번에 나온다(골든)
 
+**계획** (사람의 결정 2026-09-25: 비공개 필드는 컬럼이 아니고 D-18 주석으로 남긴다 → D-82)
+- 새 파일: `internal/model/read.go`(해석 단계), `check.go`(검사 단계), `snake.go`, 테스트와 `testdata/`. 두 함수는 9번에서 서로 다른 단계가 된다
+- **해석 `Read(fset, root, files) ([]*Package, []diag)`**: `project.GoFiles`의 목록에서 `_test.go`를 빼고 디렉터리(= 패키지)별로 `parser.ParseFile(…, parser.AllErrors|parser.SkipObjectResolution)`. 구문 오류는 `scanner.ErrorList`의 모든 항목을 그 위치로 진단한다. **파일 하나라도 구문 오류가 있는 패키지는 결과에서 뺀다**(부분 AST로 검사하면 연쇄 오류). 한 디렉터리에 테스트가 아닌 패키지 이름이 둘이면 진단
+  - 모델 = 최상위 `type X struct{…}` 중 `maago.Model`을 임베드한 것. 결과는 문법만 확인된 `Package{Dir, Name, Models []*RawModel}`, `RawModel{Name, Pos, Options, Fields []*RawField}`, `RawField{Name, Pos, Type ast.Expr, Imports(파일의 import 이름표), Options}`
+  - `maago.Model` 알아보기는 **파일마다**: 그 파일이 `github.com/maago-web/maago`를 import한 이름(기본 `maago`, 별칭 `m`)의 `Model`. `_` import는 이름이 없으니 해당 없음. 포인터 임베드 → 진단(fix: `maago.Model`로), `.` import로 쓴 `Model` → 진단(fix: 이름 있는 import로), 두 번 임베드 → 진단, 제네릭 모델(타입 매개변수) → 모델 이름에 진단
+  - 태그는 3번의 `ParseTag`로 읽는다
+- **검사 `Check(pkgs) ([]*App, []diag)`**: 옵션의 뜻을 보고 타입 있는 모델로 바꾼다. 모든 독립 오류를 모은다(D-61)
+  - 닫힌 목록(D-17). 모델: `table`(1회, bare 하나, `[a-z_][a-z0-9_]*`), `ordering`(1회, bare 하나 또는 묶음, 항목은 `[-]필드`), `unique`·`index`(반복 가능, 묶음). 필드: `max`, `unique`, `index`, `default`, `choices`, `label`, `help`, `fk`, 각 1회
+  - 모르는 키의 메시지는 문서(ARCHITECTURE §4, TUTORIAL)와 같은 `unknown tag key "maxlen" in Post.Title`. 제안: 허용 키 가운데 입력의 접두어이거나 입력이 접두어인 것을 먼저(`maxlen` → `max`), 없으면 룬 단위 편집 거리가 `max(2, len/3)` 이하인 가장 가까운 것, 같으면 허용 목록 순서의 앞. 제안이 없어도 허용 목록은 늘 보인다. 모르는 필드·모델 이름도 같은 방식
+  - 값의 모양: `label`·`help`는 문자열(D-14), `max`는 양의 정수이고 `string`·`*string`에만, `unique`·`index`는 값 없음, `choices`는 bare(1개 이상, 겹침 없음)이고 `string`·`*string`에만, `fk`는 같은 앱의 모델 이름(D-78)이고 필드 타입이 `int64`·`*int64`
+  - `default`: `int64`·`int32`는 `strconv.ParseInt(값, 10, 비트)`, `float64`는 `ParseFloat`에서 무한·NaN 거부, `bool`은 `true`/`false`, 문자열 타입은 `'text'`만(따옴표 없는 값은 진단). 포인터는 가리키는 타입의 규칙. `time.Time`·`[]byte`의 기본값은 v0에서 진단. `choices`가 있으면 기본값이 그 안에(문자열 그대로 비교)
+  - `ordering`·`unique`·`index`의 항목은 컬럼이 되는 필드여야 하고, 한 묶음 안에서 겹치지 않는다
+  - PK(D-74): `ID int64`가 없으면 모델 위치에 진단(fix: `ID int64` 추가), `ID`의 타입이 다르면 진단. `ID`에는 `label`·`help`만
+  - 필드 타입(D-77)은 AST로 판정: `int64`·`int32`·`bool`·`float64`·`string`, 그 파일이 `"time"`을 import한 이름의 `.Time`(별칭 포함), `[]byte`, 그 포인터, 괄호는 벗긴다. 그 밖(`int`, `uint*`, `float32`, `type Status string` 같은 사용자 타입, 다른 패키지의 타입)은 지원하지 않는 필드로 이유와 함께 모은다(D-18). **지원하지 않는 필드에 maago 옵션이 있으면 진단**(옵션이 조용히 사라지지 않게, PHILOSOPHY 7)
+  - 비공개 필드(D-82): 컬럼이 아니고 지원하지 않는 필드와 같이 이유("unexported")와 함께 모은다. maago 옵션이 있으면 진단. `maago.Model` 말고 임베드한 필드도 같다
+  - 테이블 이름: 명시한 `table`, 없으면 `패키지이름_모델`의 snake_case(D-76, 앱 이름은 package 절의 이름). 모든 앱을 통틀어 겹치면, 경로 순으로 뒤의 모델 위치에 앞의 모델을 적어 진단
+  - snake_case(`snake.go`): 소문자·숫자 뒤의 대문자 앞, 그리고 대문자 연속이 끝나고 소문자가 올 때 그 마지막 대문자 앞에 `_`. 숫자 앞에는 넣지 않는다. 기존 `_`는 그대로. `AuthorID`→`author_id`, `HTTPStatus`→`http_status`, `ID`→`id`, `Field2`→`field2`, `OAuth2Token`→`o_auth2_token`. 표 테스트로 고정한다
+- 결과 타입(검사 뒤, 이름을 해석 결과와 달리 한다): `App{Dir, Name, Models []*Model}`, `Model{Name, Pos, Table string, Ordering []Order, Uniques, Indexes [][]string, Fields []*Field, Unsupported []Unsupported}`, `Field{Name, Pos, Type Type, Pointer bool, Max int, Unique, Index bool, Default *string, Choices []string, Label, Help, FK string}`. `Type`은 D-77의 일곱 가지. 5번(스키마)이 이것만 보고 만들 수 있게 한다
+- 완료 때 DECISIONS에(D-83): `ordering`은 bare 하나 또는 `(a,b)`, 문자열 기본값은 `'text'`, `choices`는 문자열 필드에만, `ID`에는 `label`·`help`만, `table`은 `[a-z_][a-z0-9_]*`, `fk` 필드는 `int64`·`*int64`
+- 하지 않는 것: 다른 앱의 `fk`(D-78), 타입 검사(`go/types`, A-3), 컬럼 이름 충돌(5번)
+- 리뷰: codex(`ErrorList` 전부·`AllErrors`, import는 파일마다·`_` 무시, 타입 판정 규칙, `default` 해석 규칙, 편집 거리 단위·동률, snake_case 규칙, 앱 사이 테이블 충돌) 반영. fable(`maxlen`→`max`는 편집 거리 3이라 계획대로면 제안이 안 나옴 → 접두어 먼저, 비공개 필드는 사람에게 물음, 지원하지 않는 필드의 옵션을 진단, 구문 오류 패키지를 결과에서 뺌, 묶음 항목은 컬럼이고 겹치지 않음, 앱 이름은 package 절, 메시지 문구를 문서와 맞춤, 해석·검사 결과의 타입 이름을 나눔) 모두 반영
+
+→ 확인 (`go test -count=1 ./internal/model`)
+1. M1 완료 조건 1: `maxlen=200`이 `blog/models.go:줄:칸: unknown tag key "maxlen" in Post.Title`과 `did you mean "max"?`로 실패
+2. 오류가 여러 모델·필드에 흩어진 예제의 진단 전체가 골든과 같다(모르는 키·필드·모델, 값 모양, `default` 타입, PK 없음, 테이블 충돌, 포인터 임베드, 지원하지 않는 필드의 옵션, 비공개 필드의 옵션 …). 한 번에 모두 나온다
+3. 파일 하나에 구문 오류가 있으면 `Read`가 그 패키지를 결과에서 빼고 구문 진단만 낸다(그 패키지의 다른 파일에 태그 오류가 있어도 나오지 않는다). 다른 패키지는 그대로 읽힌다
+4. 올바른 예제 모델 셋(FK, 복합 unique, NULL, 지원하지 않는 필드, 비공개 필드, 별칭 `time`)의 검사 결과가 기대한 구조와 같다
+5. 별칭 import(`m.Model`)는 알아보고, `_test.go`와 다른 패키지의 `other.Model`은 모델이 아니다
+6. snake_case 표
+
 ## 5. 스키마 (`internal/schema`)
 
 - 모델 → 방언 중립 표현: 테이블, 컬럼(타입, NULL, 기본값, CHECK), PK, unique, index, FK
