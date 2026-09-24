@@ -17,12 +17,12 @@ type Kind int
 const (
 	NoValue Kind = iota // key
 	Bare                // key=a, or key=a/b/c: one or more items split by "/"
-	String              // key='text'
+	Text                // key='text'
 	Group               // key=(a,b)
 )
 
 // Option is one key[=value] of a maago tag. Values and ValuePos are
-// parallel. A String has one value, each doubled quote in it already
+// parallel. A Text has one value, each doubled quote in it already
 // turned into one, and its position is that of the opening quote.
 type Option struct {
 	Key      string
@@ -186,7 +186,7 @@ func (p *tagParser) option() (Option, *parseError) {
 	p.i++
 	switch {
 	case p.i < len(p.s) && p.s[p.i] == '\'':
-		opt.Kind = String
+		opt.Kind = Text
 		return opt, p.str(&opt)
 	case p.i < len(p.s) && p.s[p.i] == '(':
 		opt.Kind = Group

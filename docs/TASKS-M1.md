@@ -139,7 +139,7 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
   - 태그는 3번의 `ParseTag`로 읽는다
 - **검사 `Check(pkgs) ([]*App, []diag)`**: 옵션의 뜻을 보고 타입 있는 모델로 바꾼다. 모든 독립 오류를 모은다(D-61)
   - 닫힌 목록(D-17). 모델: `table`(1회, bare 하나, `[a-z_][a-z0-9_]*`), `ordering`(1회, bare 하나 또는 묶음, 항목은 `[-]필드`), `unique`·`index`(반복 가능, 묶음). 필드: `max`, `unique`, `index`, `default`, `choices`, `label`, `help`, `fk`, 각 1회
-  - 모르는 키의 메시지는 문서(ARCHITECTURE §4, TUTORIAL)와 같은 `unknown tag key "maxlen" in Post.Title`. 제안: 허용 키 가운데 입력의 접두어이거나 입력이 접두어인 것을 먼저(`maxlen` → `max`), 없으면 룬 단위 편집 거리가 `max(2, len/3)` 이하인 가장 가까운 것, 같으면 허용 목록 순서의 앞. 제안이 없어도 허용 목록은 늘 보인다. 모르는 필드·모델 이름도 같은 방식
+  - 모르는 키의 메시지는 문서(ARCHITECTURE §4, TUTORIAL)와 같은 `unknown tag key "maxlen" in Post.Title`. 제안: 허용 키 가운데 입력의 접두어이거나 입력이 접두어인 것을 먼저(`maxlen` → `max`), 없으면 룬 단위 편집 거리가 입력 길이의 1/3(올림) 이하인 가장 가까운 것(`tabel`→`table`, `Foo`→제안 없음), 같으면 허용 목록 순서의 앞. 제안이 없어도 허용 목록은 늘 보인다. 모르는 필드·모델 이름도 같은 방식
   - 값의 모양: `label`·`help`는 문자열(D-14), `max`는 양의 정수이고 `string`·`*string`에만, `unique`·`index`는 값 없음, `choices`는 bare(1개 이상, 겹침 없음)이고 `string`·`*string`에만, `fk`는 같은 앱의 모델 이름(D-78)이고 필드 타입이 `int64`·`*int64`
   - `default`: `int64`·`int32`는 `strconv.ParseInt(값, 10, 비트)`, `float64`는 `ParseFloat`에서 무한·NaN 거부, `bool`은 `true`/`false`, 문자열 타입은 `'text'`만(따옴표 없는 값은 진단). 포인터는 가리키는 타입의 규칙. `time.Time`·`[]byte`의 기본값은 v0에서 진단. `choices`가 있으면 기본값이 그 안에(문자열 그대로 비교)
   - `ordering`·`unique`·`index`의 항목은 컬럼이 되는 필드여야 하고, 한 묶음 안에서 겹치지 않는다
@@ -151,7 +151,7 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 - 결과 타입(검사 뒤, 이름을 해석 결과와 달리 한다): `App{Dir, Name, Models []*Model}`, `Model{Name, Pos, Table string, Ordering []Order, Uniques, Indexes [][]string, Fields []*Field, Unsupported []Unsupported}`, `Field{Name, Pos, Type Type, Pointer bool, Max int, Unique, Index bool, Default *string, Choices []string, Label, Help, FK string}`. `Type`은 D-77의 일곱 가지. 5번(스키마)이 이것만 보고 만들 수 있게 한다
 - 완료 때 DECISIONS에(D-83): `ordering`은 bare 하나 또는 `(a,b)`, 문자열 기본값은 `'text'`, `choices`는 문자열 필드에만, `ID`에는 `label`·`help`만, `table`은 `[a-z_][a-z0-9_]*`, `fk` 필드는 `int64`·`*int64`
 - 하지 않는 것: 다른 앱의 `fk`(D-78), 타입 검사(`go/types`, A-3), 컬럼 이름 충돌(5번)
-- 리뷰: codex(`ErrorList` 전부·`AllErrors`, import는 파일마다·`_` 무시, 타입 판정 규칙, `default` 해석 규칙, 편집 거리 단위·동률, snake_case 규칙, 앱 사이 테이블 충돌) 반영. fable(`maxlen`→`max`는 편집 거리 3이라 계획대로면 제안이 안 나옴 → 접두어 먼저, 비공개 필드는 사람에게 물음, 지원하지 않는 필드의 옵션을 진단, 구문 오류 패키지를 결과에서 뺌, 묶음 항목은 컬럼이고 겹치지 않음, 앱 이름은 package 절, 메시지 문구를 문서와 맞춤, 해석·검사 결과의 타입 이름을 나눔) 모두 반영
+- 리뷰: codex(`ErrorList` 전부·`AllErrors`, import는 파일마다·`_` 무시, 타입 판정 규칙, `default` 해석 규칙, 편집 거리 단위·동률, snake_case 규칙, 앱 사이 테이블 충돌) 반영. fable(`maxlen`→`max`는 편집 거리 3이라 계획대로면 제안이 안 나옴 → 접두어 먼저, 비공개 필드는 사람에게 물음, 지원하지 않는 필드의 옵션을 진단, 구문 오류 패키지를 결과에서 뺌, 묶음 항목은 컬럼이고 겹치지 않음, 앱 이름은 package 절, 메시지 문구를 문서와 맞춤, 해석·검사 결과의 타입 이름을 나눔) 모두 반영. 구현 중: `URLs`→`ur_ls` → 복수형 약어 규칙(D-76에 적음), maago를 두 이름으로 import한 파일을 놓침 → 이름을 모두 모음, 오류 테스트가 해석 단계에서 멈춰 검사 오류를 시험하지 못함 → 포인터 임베드 등은 해석 테스트로. 구현 리뷰: codex(`ID` 타입이 틀려도 그 옵션을 검사) 반영, `ID`가 깨진 모델을 가리키는 `fk`(연쇄), 테이블 충돌 순서(`Read`가 정렬해 넘김), 다시 선언한 `byte`(드묾)는 받지 않음. fable(지원 타입 목록을 fix에, 복수형 규칙을 D-76에, `Field.Column`, 문구 둘, 살아남은 돌연변이 → 3번 확인을 태그 구문 오류로, 기본값이 선택지 밖, 임베드 필드, 묶음의 모르는 항목 둘, `ID *int64`, `[4]byte`) 반영. 제안 문턱을 길이의 1/3(올림)으로 좁힘(`Foo`→`On` 같은 엉뚱한 제안). D-83 기록
 
 → 확인 (`go test -count=1 ./internal/model`)
 1. M1 완료 조건 1: `maxlen=200`이 `blog/models.go:줄:칸: unknown tag key "maxlen" in Post.Title`과 `did you mean "max"?`로 실패

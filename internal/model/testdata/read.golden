@@ -1,0 +1,26 @@
+blog/a.go:3:8: expected '(', found 'EOF'
+  fix: fix the Go syntax error
+blog/a.go:3:8: expected ')', found 'EOF'
+  fix: fix the Go syntax error
+blog/a.go:3:8: expected ';', found 'EOF'
+  fix: fix the Go syntax error
+blog/a.go:3:8: expected 'IDENT', found 'EOF'
+  fix: fix the Go syntax error
+broken/x.go:4:8: raw string literal not terminated
+  fix: fix the Go syntax error
+broken/x.go:5:3: expected ';', found 'EOF'
+  fix: fix the Go syntax error
+broken/x.go:5:3: expected '}', found 'EOF'
+  fix: fix the Go syntax error
+dot/d.go:6:2: model D embeds Model from a dot import
+  fix: import maago by name and embed maago.Model
+generic/g.go:5:6: model G has type parameters
+  fix: models cannot be generic; remove the type parameters
+mixed/b.go:1:9: directory has two packages, a and b
+  fix: keep one package per directory
+ptr/p.go:6:2: model P embeds a pointer to maago.Model
+  fix: embed maago.Model, not *maago.Model
+shop/c.go:8:26: unexpected ',' in maago tag, want a value
+  fix: write a value, or 'text' for text with spaces or commas
+twice/t.go:10:2: model T embeds maago.Model twice
+  fix: remove one of them

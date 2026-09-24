@@ -1,0 +1,66 @@
+blog/models.go:9:22: unknown tag key "tabel" in Post
+  fix: did you mean "table"? allowed: table, ordering, unique, index
+blog/models.go:9:43: unknown column field "Titel" in Post
+  fix: did you mean "Title"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID
+blog/models.go:9:64: field Title appears twice in unique of Post
+  fix: remove the repeated field
+blog/models.go:9:71: index in Post is not written as expected
+  fix: list fields in parentheses, like index=(AuthorID,Title)
+blog/models.go:9:91: unknown column field "Foo" in Post
+  fix: allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID
+blog/models.go:9:95: unknown column field "Bar" in Post
+  fix: allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID
+blog/models.go:12:33: max in Post.Title is "0", not a positive whole number
+  fix: use a positive whole number, like max=200
+blog/models.go:12:35: unknown tag key "uniqe" in Post.Title
+  fix: did you mean "unique"? allowed: max, unique, index, default, choices, label, help, fk
+blog/models.go:12:41: label in Post.Title is not written as expected
+  fix: write text in quotes, like label='Title'
+blog/models.go:13:41: choice "a" appears twice in Post.Status
+  fix: remove the repeated choice
+blog/models.go:13:43: default of Post.Status must be quoted text
+  fix: write text in quotes, like default='draft'
+blog/models.go:14:29: max applies to strings, but Post.Count is int64
+  fix: remove max, or make the field a string
+blog/models.go:14:36: default in Post.Count is not written as expected
+  fix: write the value without quotes, like default=0
+blog/models.go:14:48: choices apply to strings, but Post.Count is int64
+  fix: remove choices, or make the field a string
+blog/models.go:15:37: default "1e999" of Post.Rate is not a valid float64
+  fix: write a valid float64 value
+blog/models.go:16:37: default "3000000000" of Post.Small is not a valid int32
+  fix: write a valid int32 value
+blog/models.go:17:37: default "yes" of Post.On is not a valid bool
+  fix: write a valid bool value
+blog/models.go:18:29: Post.At is time.Time, which cannot have a default in v0
+  fix: remove the default
+blog/models.go:19:29: default of Post.Name must be quoted text
+  fix: write text in quotes, like default='draft'
+blog/models.go:19:51: tag key "label" given twice in Post.Name
+  fix: keep one of them
+blog/models.go:20:37: default "x" of Post.Mood is not one of its choices
+  fix: use one of: a, b
+blog/models.go:21:32: unknown model "Autor" in Post.AuthorID
+  fix: did you mean "Author"? allowed: Post, Author, Tag, Nullable
+blog/models.go:22:29: Post.OwnerID refers to Post by ID, so it must be int64, not string
+  fix: declare the field as int64, or *int64 to allow NULL
+blog/models.go:23:29: Post.Legacy is not a column (type int is not supported), so its maago options would be ignored
+  fix: remove the maago tag, or make the field a column: exported, of type int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one (D-77)
+blog/models.go:24:29: Post.secret is not a column (unexported field), so its maago options would be ignored
+  fix: remove the maago tag, or make the field a column: exported, of type int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one (D-77)
+blog/models.go:28:28: table name "Blog-Authors" of Author is not a plain SQL name
+  fix: use lowercase letters, digits and _, like table=blog_posts
+blog/models.go:30:2: Author.ID is the primary key and must be int64, not string
+  fix: declare it as ID int64 (D-74)
+blog/models.go:30:22: Author.ID is the primary key and cannot have "unique"
+  fix: remove it; ID may only have label and help
+blog/models.go:34:6: model Tag has no primary key
+  fix: add the field ID int64 (D-74)
+blog/models.go:34:6: table "blog_post" of blog: Tag is also the table of blog: Post
+  fix: give one of them another name with table=…
+blog/models.go:43:2: Nullable.ID is the primary key and must be int64, not *int64
+  fix: declare it as ID int64 (D-74)
+shop/models.go:5:6: table "blog_post" of shop: Post is also the table of blog: Post
+  fix: give one of them another name with table=…
+shop/models.go:8:19: Post.ID is the primary key and cannot have "unique"
+  fix: remove it; ID may only have label and help

@@ -1,0 +1,22 @@
+app blog (blog)
+  model Post @blog/models.go:10:6 table=blog_post ordering=[{PublishedAt true} {Title false}] uniques=[[AuthorID Slug]] indexes=[[Status]]
+    ID(id) int64 label="번호"
+    AuthorID(author_id) int64 fk=Author
+    Title(title) string max=200 label="제목" help="Shown in lists"
+    Slug(slug) string max=100 unique
+    Status(status) string index default="draft" choices=["draft" "published"]
+    Views(views) int32 default="0"
+    Likes(likes) int32 default="0"
+    Score(score) float64 null
+    Public(public) bool default="true"
+    Body(body) []byte
+    PublishedAt(published_at) time.Time null
+    (not a column) Kind: type Status is not supported
+    (not a column) Count: type int is not supported
+    (not a column) cache: unexported field
+    (not a column) Digest: type [4]byte is not supported
+    (not a column) Audit: embedded field
+  model Author @blog/models.go:34:6 table=people ordering=[] uniques=[] indexes=[]
+    ID(id) int64
+    Name(name) string
+    ParentID(parent_id) int64 null fk=Author
