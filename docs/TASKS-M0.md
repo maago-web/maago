@@ -260,6 +260,10 @@
 
 ## M0 끝
 
-- [ ] 1~9 완료
-- [ ] 위 M0 완료 조건 두 개를 실제로 돌려 확인
-- [ ] MILESTONES.md의 M0 체크박스 갱신
+- [x] 1~9 완료 (2026-09-24)
+- [x] 위 M0 완료 조건 두 개를 실제로 돌려 확인
+  - reflect: `testdata/x.go`에 `import _ "reflect"`를 넣은 임시 브랜치에서 GitHub Actions가 `D-66`과 경로를 내며 실패(4번)
+  - 가짜 오류 두 개: `internal/pipeline`의 `TestGenStopsAtFailingStage`. 두 오류가 한 번에 나오고 디렉터리가 그대로다. `maago gen` 바이너리로는 아직 보일 수 없다. 단계가 없는 `gen`이 통과로 보이지 않게 CLI 연결을 M1로 미뤘기 때문이다(5·7번)
+- [x] MILESTONES.md의 M0 체크박스 갱신
+
+M1으로 넘기는 것: `maago gen`·`check`를 `pipeline.Gen`·`Check`에 연결하고 지운 파일을 출력, 단계 목록을 어디서 조립할지와 `Run`에 무엇을 더할지 결정(7번), `Owned`의 `./...` 훑기를 `project`와 공유(8번)
