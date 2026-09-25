@@ -179,6 +179,27 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 
 → 확인: 예제 모델 셋의 DDL이 골든과 같다. 실제 적용은 드라이버가 필요하므로(`cmd/maago` 모듈에만, D-03·D-09) M2의 연습용 DB와 함께 한다(PG와 같다). TUTORIAL-FUTURE §4의 DDL을 D-77·D-84~D-86에 맞게 고친다
 
+**계획**
+- 새 파일: `internal/dialect/dialect.go`(두 방언 공통: 이름 D-86, 식별자 인용, 기본값 리터럴), `internal/dialect/sqlite/sqlite.go`, 테스트, 공용 예제 `internal/dialect/testdata/example/`(go.mod와 `blog/models.go`, 7번도 쓴다)
+- `sqlite.DDL(apps []*model.App) string`: 앱 경로 순, 모델 선언 순으로 테이블마다 `CREATE TABLE` 하나와 그 테이블의 `CREATE [UNIQUE] INDEX`들. 문장 사이는 빈 줄 하나
+  - 식별자는 모두 큰따옴표로 감싼다(`user` 같은 예약어도 안전)
+  - 컬럼: D-77의 표. `"id" INTEGER PRIMARY KEY`(rowid의 별칭, `AUTOINCREMENT` 없음). 포인터가 아니면 `NOT NULL`. `max`는 `CHECK (length("c") <= N)`, `choices`는 `CHECK ("c" IN ('a', 'b'))`, `bool`은 `CHECK ("c" IN (0, 1))`
+  - 기본값: 정수는 `strconv`로 다시 쓴 정규형(`007` → `7`), 실수는 `'g'` 형식, `bool`은 `1`/`0`, 문자열은 작은따옴표에 `'`를 두 번. 정규형은 공통 함수에 두어 7번과 M2의 비교가 같은 값을 본다
+  - FK: 테이블 제약 `CONSTRAINT "t_c_fkey" FOREIGN KEY ("c") REFERENCES "대상" ("id") ON DELETE NO ACTION`(D-84). SQLite는 앞선 참조를 허용하므로 테이블 순서를 바꾸지 않는다
+  - unique는 `CREATE UNIQUE INDEX "t_c_key"`로 쓴다. 테이블 제약 `UNIQUE`는 SQLite가 `sqlite_autoindex_…`라는 이름을 붙여 D-86의 이름이 남지 않는다. index는 `CREATE INDEX "t_c_idx"`
+- 공용 예제 모델 셋: `Author`, `Post`(FK, 복합 unique, choices+default, max, NULL 시간, bool 기본값, 자기 참조 없음), `Comment`(FK 둘, 하나는 NULL 허용 자기 참조), 예약어 컬럼(`Order`), 지원하지 않는 필드
+- SQLite의 FK 강제에는 연결마다 `PRAGMA foreign_keys = ON`이 필요하다. 런타임·연습용 DB의 일이므로 TODO(M2)
+- 하지 않는 것: 실제 적용 테스트(드라이버는 `cmd/maago`에, M2), 테이블 재생성(M2)
+
+→ 확인
+1. `go test -count=1 ./internal/dialect/...`: 예제 셋의 DDL이 골든과 같다(골든은 생성 뒤 손으로 확인)
+2. 골든을 `sqlite3 :memory:`에 넣어 오류 없이 적용되고, `PRAGMA foreign_keys=ON`에서 없는 작성자를 가리키는 `INSERT`가 실패하고, 선택지 밖 값·`max` 초과가 CHECK로 실패한다(수동 확인, 결과를 여기 적는다)
+3. 기본값 정규형과 인용의 표 테스트(`007`, `-0`, `1.50`, `'it''s'`, 예약어)
+
+계획 리뷰와 사람의 결정(2026-09-25): STRICT 테이블, `AUTOINCREMENT`, SQLite의 unique는 unique 인덱스(D-87). codex(`max`는 문자 수, `time`의 TEXT는 저장만, 식별자 안의 `"`, NULL과 CHECK, NULL `id` 자동 생성) 반영. fable(STRICT·`AUTOINCREMENT`는 사람에게, 수동 확인을 다시 돌릴 수 있는 스크립트로(`testdata/smoke.sh`, 실패해야 할 것이 실패하는지까지), `DDL`이 진단을 돌려줌(이름 충돌), bool 기본값은 방언마다, 예제 셋을 하나로(`internal/testdata/example`, 4번 테스트도 이것을 읽는다)) 반영
+
+확인 결과(2026-09-25): 1·3 통과. 2는 `sh internal/dialect/sqlite/testdata/smoke.sh`로 13개 모두 의도대로(적용, NULL id 생성, 기본값, FK·CHECK·STRICT·UNIQUE 위반과 참조된 행 삭제가 각각 그 제약으로 실패, 한글 200자는 통과, id 재사용 없음)
+
 ## 7. PostgreSQL DDL (`internal/dialect/postgres`)
 
 → 확인: 예제 모델 셋의 DDL이 골든과 같다(M1 완료 조건 2). 실제 PG 적용은 M2의 연습용 DB와 함께

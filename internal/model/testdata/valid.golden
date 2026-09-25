@@ -7,7 +7,7 @@ app blog (blog)
     Status(status) string default="draft" choices=["draft" "published"]
     Views(views) int32 default="0"
     Likes(likes) int32 default="0"
-    Score(score) float64 null
+    Score(score) float64 null default="1.50"
     Public(public) bool default="true"
     Body(body) []byte
     PublishedAt(published_at) time.Time null
@@ -23,3 +23,4 @@ app blog (blog)
     EditorID(editor_id) int64 fk=Author
     ReviewerID(reviewer_id) int64 null fk=Author
     Code(code) string
+    Order(order) int32 default="007"

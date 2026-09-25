@@ -1,7 +1,6 @@
 package model
 
 import (
-	"fmt"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -44,111 +43,6 @@ func load(t *testing.T, files map[string]string) ([]*App, string, *token.FileSet
 func text(ds []diag.Diagnostic) string {
 	var b strings.Builder
 	diag.Write(&b, ds)
-	return b.String()
-}
-
-const validModels = `package blog
-
-import (
-	m "github.com/maago-web/maago"
-	t "time"
-)
-
-type Status string
-
-type Post struct {
-	m.Model ` + "`" + `maago:"ordering=(-PublishedAt,Title),unique=(AuthorID,Slug),index=(Status)"` + "`" + `
-
-	ID          int64  ` + "`" + `maago:"label='번호'"` + "`" + `
-	AuthorID    int64  ` + "`" + `maago:"fk=Author"` + "`" + `
-	Title       string ` + "`" + `maago:"max=200,label='제목',help='Shown in lists'"` + "`" + `
-	Slug        string ` + "`" + `maago:"max=100,unique"` + "`" + `
-	Status      string ` + "`" + `maago:"choices=draft/published,default='draft'"` + "`" + `
-	Views, Likes int32 ` + "`" + `maago:"default=0"` + "`" + `
-	Score       *float64
-	Public      bool   ` + "`" + `maago:"default=true"` + "`" + `
-	Body        []byte
-	PublishedAt *t.Time
-	Kind        Status
-	Count       int
-	cache       string
-	Digest      [4]byte
-	Audit
-}
-
-type Audit struct {
-	CreatedBy string
-}
-
-type Author struct {
-	m.Model ` + "`" + `maago:"table=people"` + "`" + `
-
-	ID       int64
-	Name     string
-	ParentID *int64 ` + "`" + `maago:"fk=Author"` + "`" + `
-	// An FK with its own unique or index gets no second, automatic index.
-	EditorID   int64  ` + "`" + `maago:"fk=Author,unique"` + "`" + `
-	ReviewerID *int64 ` + "`" + `maago:"fk=Author,index"` + "`" + `
-	// The same columns may be both unique and indexed.
-	Code string ` + "`" + `maago:"unique,index"` + "`" + `
-}
-
-type NotAModel struct {
-	Name string
-}
-`
-
-func TestCheckValid(t *testing.T) {
-	apps, errs, fset := load(t, map[string]string{
-		"blog/models.go": validModels,
-		// Tests are not read, and other.Model is not maago.Model.
-		"blog/models_test.go": "package blog\n\nimport \"github.com/maago-web/maago\"\n\ntype Fake struct {\n\tmaago.Model\n}\n",
-		"other/other.go":      "package other\n\nimport other \"example.com/other\"\n\ntype X struct {\n\tother.Model\n\tID int64\n}\n",
-	})
-	if errs != "" {
-		t.Fatalf("unexpected errors:\n%s", errs)
-	}
-	golden.Check(t, "testdata/valid.golden", []byte(dump(fset, apps)))
-}
-
-// dump prints checked apps for the golden file.
-func dump(fset *token.FileSet, apps []*App) string {
-	var b strings.Builder
-	for _, app := range apps {
-		fmt.Fprintf(&b, "app %s (%s)\n", app.Name, app.Dir)
-		for _, m := range app.Models {
-			fmt.Fprintf(&b, "  model %s @%s table=%s ordering=%v uniques=%v indexes=%v\n",
-				m.Name, fset.Position(m.Pos), m.Table, m.Ordering, m.Uniques, m.Indexes)
-			for _, f := range m.Fields {
-				fmt.Fprintf(&b, "    %s(%s) %s", f.Name, f.Column, f.Type)
-				if f.Pointer {
-					b.WriteString(" null")
-				}
-				if f.Max > 0 {
-					fmt.Fprintf(&b, " max=%d", f.Max)
-				}
-				if f.Default != nil {
-					fmt.Fprintf(&b, " default=%q", *f.Default)
-				}
-				if f.Choices != nil {
-					fmt.Fprintf(&b, " choices=%q", f.Choices)
-				}
-				if f.Label != "" {
-					fmt.Fprintf(&b, " label=%q", f.Label)
-				}
-				if f.Help != "" {
-					fmt.Fprintf(&b, " help=%q", f.Help)
-				}
-				if f.FK != "" {
-					fmt.Fprintf(&b, " fk=%s", f.FK)
-				}
-				b.WriteString("\n")
-			}
-			for _, u := range m.Unsupported {
-				fmt.Fprintf(&b, "    (not a column) %s: %s\n", u.Name, u.Reason)
-			}
-		}
-	}
 	return b.String()
 }
 

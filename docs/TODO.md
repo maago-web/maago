@@ -5,6 +5,10 @@
 - [ ] `cmd/maago/go.mod`의 `replace`를 뺀다. `replace`가 있으면 `go install …/cmd/maago@버전`이 거부한다.
       루트 모듈을 먼저 태그하고 그 버전을 `require`한다.
 
+## M2
+
+- [ ] SQLite의 FK는 연결마다 `PRAGMA foreign_keys = ON`이 있어야 강제된다. 연습용 DB와 런타임 연결에서 켠다(M1 6번).
+
 ## 모델 태그
 
 - [ ] 태그 값 안에 `"`를 쓸 수 없다(백쿼트 태그 + 백슬래시 금지의 결과, M1 3번). label·help에 큰따옴표가 필요해지면 방법을 정한다.
