@@ -29,6 +29,7 @@ CREATE TABLE "people" (
     "reviewer_id" INTEGER,
     "code" TEXT NOT NULL,
     "order" INTEGER NOT NULL DEFAULT 7,
+    "admin" INTEGER NOT NULL DEFAULT 0 CHECK ("admin" IN (0, 1)),
     CONSTRAINT "people_parent_id_fkey" FOREIGN KEY ("parent_id") REFERENCES "people" ("id") ON DELETE NO ACTION,
     CONSTRAINT "people_editor_id_fkey" FOREIGN KEY ("editor_id") REFERENCES "people" ("id") ON DELETE NO ACTION,
     CONSTRAINT "people_reviewer_id_fkey" FOREIGN KEY ("reviewer_id") REFERENCES "people" ("id") ON DELETE NO ACTION

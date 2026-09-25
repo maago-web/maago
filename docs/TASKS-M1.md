@@ -199,6 +199,7 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 계획 리뷰와 사람의 결정(2026-09-25): STRICT 테이블, `AUTOINCREMENT`, SQLite의 unique는 unique 인덱스(D-87). codex(`max`는 문자 수, `time`의 TEXT는 저장만, 식별자 안의 `"`, NULL과 CHECK, NULL `id` 자동 생성) 반영. fable(STRICT·`AUTOINCREMENT`는 사람에게, 수동 확인을 다시 돌릴 수 있는 스크립트로(`testdata/smoke.sh`, 실패해야 할 것이 실패하는지까지), `DDL`이 진단을 돌려줌(이름 충돌), bool 기본값은 방언마다, 예제 셋을 하나로(`internal/testdata/example`, 4번 테스트도 이것을 읽는다)) 반영
 
 확인 결과(2026-09-25): 1·3 통과. 2는 `sh internal/dialect/sqlite/testdata/smoke.sh`로 13개 모두 의도대로(적용, NULL id 생성, 기본값, FK·CHECK·STRICT·UNIQUE 위반과 참조된 행 삭제가 각각 그 제약으로 실패, 한글 200자는 통과, id 재사용 없음)
+구현 리뷰: codex(`smoke.sh`가 저장소 루트에서 돌리면 스키마를 못 읽음 → 자기 디렉터리로 이동, 실패 이유를 문구로 확인) 반영, 이름 충돌 진단을 필드 위치로 옮기자는 것은 받지 않음(모은 제약에는 선언 위치가 없고, 메시지가 모델과 이름을 말한다). fable(`CheckNames` 테스트 없음 → 표 테스트, `bool` 기본값 `false`, NOT NULL 위반 경우, 쓰지 않는 `Constraint` 타입 삭제, TUTORIAL §4) 반영. PG 쪽 지적(앞선 참조 불가, 테이블·컬럼 이름의 63바이트)은 7번으로. 다시 돌린 결과: 스모크 14개 통과, 기대 문구를 틀리게 바꾸면 실패
 
 ## 7. PostgreSQL DDL (`internal/dialect/postgres`)
 

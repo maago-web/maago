@@ -120,15 +120,17 @@ created migrations/0001_initial.sql
 -- migrations/0001_initial.sql
 -- (auth 앱의 테이블은 생략)
 
-CREATE TABLE posts (
-    id           INTEGER PRIMARY KEY,
-    author_id    INTEGER NOT NULL REFERENCES auth_user (id),
-    title        VARCHAR(200) NOT NULL,
-    text         TEXT NOT NULL,
-    status       VARCHAR(20) NOT NULL DEFAULT 'draft'
-                 CHECK (status IN ('draft', 'published')),
-    published_at TIMESTAMP
-);
+CREATE TABLE "posts" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "text" TEXT NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'published')),
+    "published_at" TEXT,
+    CONSTRAINT "posts_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "auth_user" ("id") ON DELETE NO ACTION
+) STRICT;
+
+CREATE INDEX "posts_author_id_idx" ON "posts" ("author_id");
 ```
 
 이 파일은 **초안**입니다. 주인은 여러분이고, 손으로 고쳐도 됩니다. Maago는 이전 상태를 따로 기록하지
@@ -387,7 +389,7 @@ maago check
 | 3 | NULL 허용은 포인터 타입 | D-43 |
 | 3 | 모델 태그 `ordering=-PublishedAt`의 `-`가 내림차순 | D-13 |
 | 4 | auth 사용자 테이블 이름 `auth_user`, `fk=auth.User` 표기 | U-06 |
-| 4 | 마이그레이션 초안의 SQL 모양 | D-32 |
+| 4 | 마이그레이션 초안의 파일 모양(DDL 자체는 M1에서 정했다: D-77, D-84~D-87) | D-32 |
 | 5 | `maago.Handler()`로 전체 핸들러를 얻는다 | D-40, D-46 |
 | 5 | `maago createsuperuser` 명령 | D-50 |
 | 6 | 생성된 쿼리 함수의 시그니처, `maago.DB` 타입 | D-20 |

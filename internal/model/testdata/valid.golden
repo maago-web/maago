@@ -24,3 +24,4 @@ app blog (blog)
     ReviewerID(reviewer_id) int64 null fk=Author
     Code(code) string
     Order(order) int32 default="007"
+    Admin(admin) bool default="false"

@@ -44,6 +44,7 @@ type Author struct {
 	Code string `maago:"unique,index"`
 	// A reserved word as a column, and a default written unusually.
 	Order int32 `maago:"default=007"`
+	Admin bool  `maago:"default=false"`
 }
 
 type NotAModel struct {

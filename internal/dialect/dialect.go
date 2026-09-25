@@ -45,12 +45,6 @@ func Number(t model.Type, v string) string {
 	panic("dialect.Number: not a number type: " + t.String())
 }
 
-// Constraint is a unique, index or foreign key with its name (D-86).
-type Constraint struct {
-	Name    string
-	Columns []string
-}
-
 func UniqueName(table string, cols []string) string {
 	return table + "_" + strings.Join(cols, "_") + "_key"
 }
