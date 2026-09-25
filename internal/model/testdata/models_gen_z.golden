@@ -5,3 +5,4 @@ package z
 // Fields that are not columns (D-18):
 //
 //   - M.Count: type int is not supported
+//   - N.cache: unexported field

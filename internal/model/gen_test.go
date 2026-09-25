@@ -1,6 +1,7 @@
 package model_test
 
 import (
+	"bytes"
 	"go/format"
 	"maps"
 	"slices"
@@ -18,7 +19,10 @@ func TestFiles(t *testing.T) {
 	// directory, and an app with nothing to report.
 	apps = append(apps,
 		&model.App{Dir: ".", Name: "main", Models: []*model.Model{{Name: "M", Unsupported: []model.Unsupported{{Name: "n", Reason: "unexported field"}}}}},
-		&model.App{Dir: "x/y", Name: "z", Models: []*model.Model{{Name: "M", Unsupported: []model.Unsupported{{Name: "Count", Reason: "type int is not supported"}}}}},
+		&model.App{Dir: "x/y", Name: "z", Models: []*model.Model{
+			{Name: "M", Unsupported: []model.Unsupported{{Name: "Count", Reason: "type int is not supported"}}},
+			{Name: "N", Unsupported: []model.Unsupported{{Name: "cache", Reason: "unexported field"}}},
+		}},
 		&model.App{Dir: "clean", Name: "clean", Models: []*model.Model{{Name: "M"}}},
 	)
 	files := model.Files(apps)
@@ -31,9 +35,12 @@ func TestFiles(t *testing.T) {
 		if err != nil || string(formatted) != string(b) {
 			t.Errorf("%s is not gofmt-clean Go (%v):\n%s", p, err, b)
 		}
-		if !slices.Equal(b[:len(pipeline.Marker)], []byte(pipeline.Marker)) {
+		if !bytes.HasPrefix(b, []byte(pipeline.Marker)) {
 			t.Errorf("%s does not start with the marker", p)
 		}
+	}
+	if !bytes.Contains(files["models_gen.go"], []byte("\npackage main\n")) {
+		t.Errorf("root file is not package main:\n%s", files["models_gen.go"])
 	}
 	golden.Check(t, "testdata/models_gen.golden", files["blog/models_gen.go"])
 	golden.Check(t, "testdata/models_gen_z.golden", files["x/y/models_gen.go"])
