@@ -41,9 +41,9 @@ github.com/maago-web/maago
     ├── pipeline/        단계 실행, 오류 수집, 메모리 생성물, 쓰기·최신성 비교    M0
     ├── golden/          골든 파일 테스트 도구 (테스트 전용)                    M0
     ├── project/         사용자 프로젝트 찾기: go.mod 루트, `./...` 파일 목록       M1
-    ├── model/           태그 파서, 모델 → 스키마                            M1
-    ├── schema/          방언 중립 스키마 표현                                M1
-    ├── dialect/
+    ├── model/           태그 파서, 모델 읽기·검사, 제약 모으기                  M1
+    ├── schema/          DB에서 읽은 스키마와 모델의 비교 표현                    M2
+    ├── dialect/         방언 공통: 제약 이름(D-86)
     │   ├── sqlite/      DDL 쓰기, 스키마 읽기, 테이블 재생성                   M1·M2
     │   └── postgres/                                                      M1·M2
     ├── practicedb/      연습용 DB 열기·닫기 (SQLite 메모리, PG 임시 스키마)      M2

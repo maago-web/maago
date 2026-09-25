@@ -38,16 +38,16 @@ type App struct {
 	Models    []*Model
 }
 
-// Model is a checked model: everything the schema needs, and nothing left
-// to interpret.
+// Model is a checked model: everything the DDL needs, and nothing left to
+// interpret.
 type Model struct {
 	Name        string
 	Pos         token.Pos
 	Table       string
 	Ordering    []Order
-	Uniques     [][]string // field names
-	Indexes     [][]string
-	Fields      []*Field // columns, in declaration order; ID is one of them
+	Uniques     [][]string // column names; from unique on fields and models
+	Indexes     [][]string // column names; from index on fields and models, and FKs (D-85)
+	Fields      []*Field   // columns, in declaration order; ID is one of them
 	Unsupported []Unsupported
 }
 
@@ -58,17 +58,16 @@ type Order struct {
 
 // Field is a column.
 type Field struct {
-	Name          string
-	Column        string // snake_case of Name (D-76)
-	Pos           token.Pos
-	Type          Type
-	Pointer       bool // NULL allowed (D-75)
-	Max           int  // 0 if none
-	Unique, Index bool
-	Default       *string // as written, quotes removed
-	Choices       []string
-	Label, Help   string
-	FK            string // model name in the same app
+	Name        string
+	Column      string // snake_case of Name (D-76)
+	Pos         token.Pos
+	Type        Type
+	Pointer     bool    // NULL allowed (D-75)
+	Max         int     // 0 if none
+	Default     *string // as written, quotes removed
+	Choices     []string
+	Label, Help string
+	FK          string // model name in the same app
 }
 
 // Unsupported is a field that is not a column, and why (D-18, D-82).
@@ -105,8 +104,15 @@ func Check(fset *token.FileSet, pkgs []*Package) ([]*App, []diag.Diagnostic) {
 }
 
 type checker struct {
-	fset *token.FileSet
-	ds   []diag.Diagnostic
+	fset      *token.FileSet
+	ds        []diag.Diagnostic
+	uniq, idx []decl // of the model being checked
+}
+
+// decl is one unique or index as written, on a field or a model.
+type decl struct {
+	fields []string
+	pos    token.Pos
 }
 
 func (c *checker) errf(pos token.Pos, fix, format string, args ...any) {
@@ -115,6 +121,7 @@ func (c *checker) errf(pos token.Pos, fix, format string, args ...any) {
 
 func (c *checker) model(app string, rm *RawModel, models []string) *Model {
 	m := &Model{Name: rm.Name, Pos: rm.Pos, Table: snake(app) + "_" + snake(rm.Name)}
+	c.uniq, c.idx = nil, nil
 	hasID := false
 	for _, rf := range rm.Fields {
 		where := rm.Name + "." + rf.Name
@@ -145,7 +152,56 @@ func (c *checker) model(app string, rm *RawModel, models []string) *Model {
 		c.errf(rm.Pos, "add the field ID int64 (D-74)", "model %s has no primary key", rm.Name)
 	}
 	c.modelOptions(m, rm.Options)
+	c.constraints(m)
 	return m
+}
+
+// constraints turns the declared uniques and indexes into column lists,
+// adds an index for each FK (D-85), and reports what is declared twice and
+// fields that end up with the same column name.
+func (c *checker) constraints(m *Model) {
+	column := map[string]string{}
+	owner := map[string]string{}
+	for _, f := range m.Fields {
+		column[f.Name] = f.Column
+		if prev, ok := owner[f.Column]; ok {
+			c.errf(f.Pos, "rename one of them", "fields %s and %s of %s both become column %q", prev, f.Name, m.Name, f.Column)
+			continue
+		}
+		owner[f.Column] = f.Name
+	}
+	seen := map[string]bool{}
+	collect := func(decls []decl, what string) [][]string {
+		var out [][]string
+		for _, d := range decls {
+			var cols []string
+			for _, f := range d.fields {
+				cols = append(cols, column[f])
+			}
+			// A unique is a set of columns; an index is ordered, since the
+			// order changes what it speeds up.
+			keyCols := cols
+			if what == "unique" {
+				keyCols = slices.Sorted(slices.Values(cols))
+			}
+			key := what + ":" + strings.Join(keyCols, ",")
+			if seen[key] {
+				c.errf(d.pos, "remove one of them", "%s on %s is declared twice in %s", what, strings.Join(d.fields, ", "), m.Name)
+				continue
+			}
+			seen[key] = true
+			out = append(out, cols)
+		}
+		return out
+	}
+	m.Uniques = collect(c.uniq, "unique")
+	m.Indexes = collect(c.idx, "index")
+	for _, f := range m.Fields {
+		if f.FK != "" && !seen["unique:"+f.Column] && !seen["index:"+f.Column] {
+			m.Indexes = append(m.Indexes, []string{f.Column})
+			seen["index:"+f.Column] = true
+		}
+	}
 }
 
 // unsupported records a field that is not a column. Options on it would be
@@ -215,8 +271,12 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, models []s
 			}
 		case "unique", "index":
 			if c.shape(o, where, NoValue, 0, "write it alone, like "+o.Key) {
-				f.Unique = f.Unique || o.Key == "unique"
-				f.Index = f.Index || o.Key == "index"
+				d := decl{[]string{f.Name}, o.KeyPos}
+				if o.Key == "unique" {
+					c.uniq = append(c.uniq, d)
+				} else {
+					c.idx = append(c.idx, d)
+				}
 			}
 		case "label", "help":
 			if c.shape(o, where, Text, 1, fmt.Sprintf("write text in quotes, like %s='Title'", o.Key)) {
@@ -368,9 +428,9 @@ func (c *checker) modelOptions(m *Model, opts []Option) {
 				continue
 			}
 			if o.Key == "unique" {
-				m.Uniques = append(m.Uniques, o.Values)
+				c.uniq = append(c.uniq, decl{o.Values, o.KeyPos})
 			} else {
-				m.Indexes = append(m.Indexes, o.Values)
+				c.idx = append(c.idx, decl{o.Values, o.KeyPos})
 			}
 		}
 	}

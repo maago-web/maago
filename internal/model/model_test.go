@@ -63,7 +63,7 @@ type Post struct {
 	AuthorID    int64  ` + "`" + `maago:"fk=Author"` + "`" + `
 	Title       string ` + "`" + `maago:"max=200,label='제목',help='Shown in lists'"` + "`" + `
 	Slug        string ` + "`" + `maago:"max=100,unique"` + "`" + `
-	Status      string ` + "`" + `maago:"choices=draft/published,default='draft',index"` + "`" + `
+	Status      string ` + "`" + `maago:"choices=draft/published,default='draft'"` + "`" + `
 	Views, Likes int32 ` + "`" + `maago:"default=0"` + "`" + `
 	Score       *float64
 	Public      bool   ` + "`" + `maago:"default=true"` + "`" + `
@@ -86,6 +86,11 @@ type Author struct {
 	ID       int64
 	Name     string
 	ParentID *int64 ` + "`" + `maago:"fk=Author"` + "`" + `
+	// An FK with its own unique or index gets no second, automatic index.
+	EditorID   int64  ` + "`" + `maago:"fk=Author,unique"` + "`" + `
+	ReviewerID *int64 ` + "`" + `maago:"fk=Author,index"` + "`" + `
+	// The same columns may be both unique and indexed.
+	Code string ` + "`" + `maago:"unique,index"` + "`" + `
 }
 
 type NotAModel struct {
@@ -121,12 +126,6 @@ func dump(fset *token.FileSet, apps []*App) string {
 				}
 				if f.Max > 0 {
 					fmt.Fprintf(&b, " max=%d", f.Max)
-				}
-				if f.Unique {
-					b.WriteString(" unique")
-				}
-				if f.Index {
-					b.WriteString(" index")
 				}
 				if f.Default != nil {
 					fmt.Fprintf(&b, " default=%q", *f.Default)
@@ -212,6 +211,15 @@ type Tag struct {
 	maago.Model ` + q + `maago:"table=blog_post"` + q + `
 
 	Name string
+}
+
+type Dup struct {
+	maago.Model ` + q + `maago:"unique=(Slug),index=(Slug,ID),index=(Slug,ID),unique=(ID,Slug),unique=(Slug,ID),index=(ID,Slug)"` + q + `
+
+	ID       int64
+	Slug     string ` + q + `maago:"unique"` + q + `
+	AuthorID int64
+	AuthorId int64
 }
 
 type Nullable struct {

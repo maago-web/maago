@@ -41,7 +41,7 @@ blog/models.go:19:51: tag key "label" given twice in Post.Name
 blog/models.go:20:37: default "x" of Post.Mood is not one of its choices
   fix: use one of: a, b
 blog/models.go:21:32: unknown model "Autor" in Post.AuthorID
-  fix: did you mean "Author"? allowed: Post, Author, Tag, Nullable
+  fix: did you mean "Author"? allowed: Post, Author, Tag, Dup, Nullable
 blog/models.go:22:29: Post.OwnerID refers to Post by ID, so it must be int64, not string
   fix: declare the field as int64, or *int64 to allow NULL
 blog/models.go:23:29: Post.Legacy is not a column (type int is not supported), so its maago options would be ignored
@@ -58,7 +58,15 @@ blog/models.go:34:6: model Tag has no primary key
   fix: add the field ID int64 (D-74)
 blog/models.go:34:6: table "blog_post" of blog: Tag is also the table of blog: Post
   fix: give one of them another name with table=…
-blog/models.go:43:2: Nullable.ID is the primary key and must be int64, not *int64
+blog/models.go:41:22: unique on Slug is declared twice in Dup
+  fix: remove one of them
+blog/models.go:41:52: index on Slug, ID is declared twice in Dup
+  fix: remove one of them
+blog/models.go:41:85: unique on Slug, ID is declared twice in Dup
+  fix: remove one of them
+blog/models.go:46:2: fields AuthorID and AuthorId of Dup both become column "author_id"
+  fix: rename one of them
+blog/models.go:52:2: Nullable.ID is the primary key and must be int64, not *int64
   fix: declare it as ID int64 (D-74)
 shop/models.go:5:6: table "blog_post" of shop: Post is also the table of blog: Post
   fix: give one of them another name with table=…

@@ -148,7 +148,7 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
   - 비공개 필드(D-82): 컬럼이 아니고 지원하지 않는 필드와 같이 이유("unexported")와 함께 모은다. maago 옵션이 있으면 진단. `maago.Model` 말고 임베드한 필드도 같다
   - 테이블 이름: 명시한 `table`, 없으면 `패키지이름_모델`의 snake_case(D-76, 앱 이름은 package 절의 이름). 모든 앱을 통틀어 겹치면, 경로 순으로 뒤의 모델 위치에 앞의 모델을 적어 진단
   - snake_case(`snake.go`): 소문자·숫자 뒤의 대문자 앞, 그리고 대문자 연속이 끝나고 소문자가 올 때 그 마지막 대문자 앞에 `_`. 숫자 앞에는 넣지 않는다. 기존 `_`는 그대로. `AuthorID`→`author_id`, `HTTPStatus`→`http_status`, `ID`→`id`, `Field2`→`field2`, `OAuth2Token`→`o_auth2_token`. 표 테스트로 고정한다
-- 결과 타입(검사 뒤, 이름을 해석 결과와 달리 한다): `App{Dir, Name, Models []*Model}`, `Model{Name, Pos, Table string, Ordering []Order, Uniques, Indexes [][]string, Fields []*Field, Unsupported []Unsupported}`, `Field{Name, Pos, Type Type, Pointer bool, Max int, Unique, Index bool, Default *string, Choices []string, Label, Help, FK string}`. `Type`은 D-77의 일곱 가지. 5번(스키마)이 이것만 보고 만들 수 있게 한다
+- 결과 타입(검사 뒤, 이름을 해석 결과와 달리 한다): `App{Dir, Name, Models []*Model}`, `Model{Name, Pos, Table string, Ordering []Order, Uniques, Indexes [][]string, Fields []*Field, Unsupported []Unsupported}`, `Field{Name, Column, Pos, Type Type, Pointer bool, Max int, Default *string, Choices []string, Label, Help, FK string}`. `Type`은 D-77의 일곱 가지. unique·index는 5번이 `Model.Uniques`·`Indexes`에 모은다. 6·7번(DDL)이 이것만 보고 만들 수 있게 한다
 - 완료 때 DECISIONS에(D-83): `ordering`은 bare 하나 또는 `(a,b)`, 문자열 기본값은 `'text'`, `choices`는 문자열 필드에만, `ID`에는 `label`·`help`만, `table`은 `[a-z_][a-z0-9_]*`, `fk` 필드는 `int64`·`*int64`
 - 하지 않는 것: 다른 앱의 `fk`(D-78), 타입 검사(`go/types`, A-3), 컬럼 이름 충돌(5번)
 - 리뷰: codex(`ErrorList` 전부·`AllErrors`, import는 파일마다·`_` 무시, 타입 판정 규칙, `default` 해석 규칙, 편집 거리 단위·동률, snake_case 규칙, 앱 사이 테이블 충돌) 반영. fable(`maxlen`→`max`는 편집 거리 3이라 계획대로면 제안이 안 나옴 → 접두어 먼저, 비공개 필드는 사람에게 물음, 지원하지 않는 필드의 옵션을 진단, 구문 오류 패키지를 결과에서 뺌, 묶음 항목은 컬럼이고 겹치지 않음, 앱 이름은 package 절, 메시지 문구를 문서와 맞춤, 해석·검사 결과의 타입 이름을 나눔) 모두 반영. 구현 중: `URLs`→`ur_ls` → 복수형 약어 규칙(D-76에 적음), maago를 두 이름으로 import한 파일을 놓침 → 이름을 모두 모음, 오류 테스트가 해석 단계에서 멈춰 검사 오류를 시험하지 못함 → 포인터 임베드 등은 해석 테스트로. 구현 리뷰: codex(`ID` 타입이 틀려도 그 옵션을 검사) 반영, `ID`가 깨진 모델을 가리키는 `fk`(연쇄), 테이블 충돌 순서(`Read`가 정렬해 넘김), 다시 선언한 `byte`(드묾)는 받지 않음. fable(지원 타입 목록을 fix에, 복수형 규칙을 D-76에, `Field.Column`, 문구 둘, 살아남은 돌연변이 → 3번 확인을 태그 구문 오류로, 기본값이 선택지 밖, 임베드 필드, 묶음의 모르는 항목 둘, `ID *int64`, `[4]byte`) 반영. 제안 문턱을 길이의 1/3(올림)으로 좁힘(`Foo`→`On` 같은 엉뚱한 제안). D-83 기록
@@ -161,16 +161,23 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 5. 별칭 import(`m.Model`)는 알아보고, `_test.go`와 다른 패키지의 `other.Model`은 모델이 아니다
 6. snake_case 표
 
-## 5. 스키마 (`internal/schema`)
+## 5. 제약 모으기 (`internal/model`)
 
-- 모델 → 방언 중립 표현: 테이블, 컬럼(타입, NULL, 기본값, CHECK), PK, unique, index, FK
-- 지원하지 않는 필드는 이유와 함께 따로 모은다(D-18, D-77)
+사람의 결정(2026-09-25): 방언 중립 스키마 계층은 M2로 미룬다. M2에서 DB를 다시 읽어 비교할 때, 읽어 오는 쪽에 맞춰 만든다. 6·7번은 검사된 `model.App`을 바로 읽는다. FK는 `ON DELETE NO ACTION`(D-84), FK 컬럼에는 인덱스를 자동으로 만든다(D-85), 제약 이름은 PG 방식을 DDL에 명시한다(D-86).
 
-→ 확인: 예제 모델 셋의 스키마 표현이 기대한 값과 같다(구조체 비교. DDL 골든은 6·7번이 맡으므로 스키마 골든은 두지 않는다)
+- 필드의 `unique`와 모델의 `unique=(a,b)`를 한 목록(`Model.Uniques`)으로, 필드의 `index`와 `index=(a,b)`와 FK 자동 인덱스를 한 목록(`Model.Indexes`)으로 모은다. 항목은 컬럼 이름
+- 같은 컬럼 집합의 unique가 두 번(필드 `unique`와 `unique=(Field)`) 또는 index가 두 번 선언되면 진단. FK 자동 인덱스는 같은 컬럼의 unique나 index가 이미 있으면 만들지 않는다(사람이 쓴 것과 겹치는 것은 오류가 아니다)
+- 두 필드가 같은 컬럼 이름이 되면(`AuthorID`와 `AuthorId` → `author_id`) 뒤 필드 위치에 진단
+- 제약 이름은 방언이 붙인다(`internal/dialect`의 공통 함수: `테이블_컬럼들_key`·`_idx`·`_fkey`). PG의 63바이트 한도는 PG 방언의 검사다(D-31: SQLite 프로젝트에 PG 오류를 내지 않는다)
+
+- unique는 컬럼 집합으로 겹침을 본다(`(a,b)`와 `(b,a)`는 같다). index는 순서가 뜻을 가지므로 다르다
+- 리뷰: codex(unique는 집합으로 비교, 이름 충돌 때 FK 자동 인덱스가 둘 생김) 반영. fable(D-85의 "이미 있으면 만들지 않음"을 시험하는 예제가 없음 → FK에 unique·index를 단 필드 추가, unique와 index를 함께 단 컬럼, 남아 있던 스키마 계층 문구) 반영
+
+→ 확인 (`go test -count=1 ./internal/model`): 4번의 예제 모델 셋에서 `Uniques`·`Indexes`가 기대한 컬럼 목록이다(FK 자동 인덱스 포함, 겹치는 것은 빠짐). 중복 선언과 컬럼 이름 충돌이 위치와 함께 진단된다
 
 ## 6. SQLite DDL (`internal/dialect/sqlite`)
 
-→ 확인: 예제 모델 셋의 DDL이 골든과 같다. 실제 적용은 드라이버가 필요하므로(`cmd/maago` 모듈에만, D-03·D-09) M2의 연습용 DB와 함께 한다(PG와 같다). TUTORIAL-FUTURE §4의 DDL을 D-77에 맞게 고친다
+→ 확인: 예제 모델 셋의 DDL이 골든과 같다. 실제 적용은 드라이버가 필요하므로(`cmd/maago` 모듈에만, D-03·D-09) M2의 연습용 DB와 함께 한다(PG와 같다). TUTORIAL-FUTURE §4의 DDL을 D-77·D-84~D-86에 맞게 고친다
 
 ## 7. PostgreSQL DDL (`internal/dialect/postgres`)
 
@@ -184,7 +191,7 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 
 ## 9. `gen`·`check` 연결
 
-- 단계 조립: 읽기(2) → 해석(`go/parser`와 태그 문법, 3) → 검사(4) → 생성(5·8). 해석이 실패한 파일을 검사하면 연쇄 오류가 나므로 해석은 따로 단계다(ARCHITECTURE §3, D-61). 조립은 `pipeline`과 `project`·`model`을 모두 import하는 곳에서 하고, 그 위치와 `Run`의 필드는 이 작업의 계획에서 정한다
+- 단계 조립: 읽기(2) → 해석(`go/parser`와 태그 문법, 3) → 검사(4·5) → 생성(8). 해석이 실패한 파일을 검사하면 연쇄 오류가 나므로 해석은 따로 단계다(ARCHITECTURE §3, D-61). 조립은 `pipeline`과 `project`·`model`을 모두 import하는 곳에서 하고, 그 위치와 `Run`의 필드는 이 작업의 계획에서 정한다
 - CLI의 stub을 걷어내고 `pipeline.Gen`·`Check`를 부른다. `gen`은 지운 파일을 출력한다
 
 → 확인: 예제 프로젝트에서 `maago gen` → `maago check` 통과. `maxlen` 예제에서 `maago gen`이 1로 끝나고 아무것도 쓰지 않는다. 생성물을 손으로 고치면 `maago check`가 1
