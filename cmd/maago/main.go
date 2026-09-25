@@ -77,12 +77,12 @@ func usage(w io.Writer) {
 
 func gen(stdout, stderr io.Writer) int {
 	removed, ds := build.Gen(".")
+	for _, p := range removed { // even if a later removal failed
+		fmt.Fprintf(stdout, "removed %s\n", p)
+	}
 	if len(ds) > 0 {
 		diag.Write(stderr, ds)
 		return 1
-	}
-	for _, p := range removed {
-		fmt.Fprintf(stdout, "removed %s\n", p)
 	}
 	return 0
 }

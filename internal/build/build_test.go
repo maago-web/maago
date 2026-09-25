@@ -1,6 +1,7 @@
 package build
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -110,7 +111,7 @@ func TestMaxlen(t *testing.T) {
 	if !strings.Contains(out, `blog/models.go:15:32: unknown tag key "maxlen" in Post.Title`) || !strings.Contains(out, `did you mean "max"?`) || len(ds) != 1 {
 		t.Errorf("got:\n%s", out)
 	}
-	if after := snapshot(t, root); len(after) != len(before) {
+	if after := snapshot(t, root); !maps.Equal(before, after) {
 		t.Errorf("gen wrote files despite an error")
 	}
 }
@@ -146,8 +147,29 @@ func TestRunsAreIndependent(t *testing.T) {
 	}
 }
 
+// Outside a module neither command may pass: there is nothing it checked.
 func TestNoModule(t *testing.T) {
 	if _, ds := Gen(t.TempDir()); !strings.Contains(text(ds), "go mod init") {
-		t.Errorf("got:\n%s", text(ds))
+		t.Errorf("gen: got:\n%s", text(ds))
+	}
+	if ds := Check(t.TempDir()); !strings.Contains(text(ds), "go mod init") {
+		t.Errorf("check: got:\n%s", text(ds))
+	}
+}
+
+// Constraint names that clash are caught before anything is written, even
+// though no dialect is chosen yet.
+func TestNameClash(t *testing.T) {
+	root := example(t)
+	write(t, filepath.Join(root, "shop", "models.go"), "package shop\n\nimport \"github.com/maago-web/maago\"\n\n"+
+		"type A struct {\n\tmaago.Model `maago:\"table=a,unique=(B,C)\"`\n\tID int64\n\tB  string\n\tC  string\n}\n\n"+
+		"type AB struct {\n\tmaago.Model `maago:\"table=a_b\"`\n\tID int64\n\tC  string `maago:\"unique\"`\n}\n")
+	before := snapshot(t, root)
+	_, ds := Gen(root)
+	if out := text(ds); !strings.Contains(out, `constraint name "a_b_c_key" of AB is also used by A`) {
+		t.Errorf("got:\n%s", out)
+	}
+	if after := snapshot(t, root); !maps.Equal(before, after) {
+		t.Errorf("gen wrote files despite an error")
 	}
 }

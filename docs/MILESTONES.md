@@ -33,8 +33,9 @@ v0의 DB는 SQLite와 PostgreSQL이다 (D-30).
 - 모델 → 목표 스키마(방언별 DDL)
 
 완료 조건
-- [ ] `maxlen=200`은 `file:line:col`과 `did you mean "max"`로 실패한다
-- [ ] 예제 모델 셋(FK, 복합 unique 포함)의 DDL이 SQLite와 PG 골든 파일과 같다 (D-67)
+- [x] `maxlen=200`은 `file:line:col`과 `did you mean "max"`로 실패한다
+- [x] 예제 모델 셋(FK, 복합 unique 포함)의 DDL이 SQLite와 PG 골든 파일과 같다 (D-67)
+      ([TASKS-M1.md](TASKS-M1.md) 끝)
 
 ### M2. 연습용 DB와 마이그레이션
 

@@ -283,10 +283,20 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 
 확인 결과(2026-09-25): 1~4 통과. 빌드한 바이너리로 예제 복사본에서 `gen` 0 → `check` 0, `blog/`에서 `maxlen`으로 바꾼 뒤 `gen`이 `blog/models.go:15:32: unknown tag key "maxlen" in Post.Title`과 `did you mean "max"?`로 1
 
+구현 리뷰: codex(지우기가 일부 실패하면 이미 지운 파일을 출력하지 않음 → 진단보다 먼저 출력) 반영. fable(모듈 밖의 `Check`를 시험하지 않아 오류 처리를 지워도 통과 → 시험 추가, 이름 충돌 단계를 지워도 통과 → 종단 이름 충돌 시험, `maxlen` 시험은 내용까지 비교, CI에 `cmd/maago`의 `go mod tidy -diff`) 반영. 두 돌연변이가 이제 잡힌다. 태그 오류와 이름 충돌이 한 번에 나오지 않는 것은 단계를 나눈 결과로, 이름 충돌은 검사를 통과한 모델에서만 뜻이 있다
+
 ---
 
 ## M1 끝
 
-- [ ] 1~9 완료
-- [ ] 위 M1 완료 조건 두 개를 실제로 돌려 확인
-- [ ] MILESTONES.md의 M1 체크박스 갱신
+- [x] 1~9 완료 (2026-09-25)
+- [x] 위 M1 완료 조건 두 개를 실제로 돌려 확인
+  - `maxlen=200`: `maago gen`(빌드한 바이너리, `blog/`에서)이 `blog/models.go:15:32: unknown tag key "maxlen" in Post.Title`과 `did you mean "max"?`로 1. `internal/build`·`cmd/maago`·`internal/model`의 테스트가 같은 것을 확인한다
+  - DDL: 공용 예제 셋(`internal/testdata/example`, FK·자기 참조 FK·복합 unique·NULL·기본값·선택지·예약어 컬럼)의 SQLite·PG DDL이 골든과 같다(`internal/dialect/{sqlite,postgres}`). 두 골든 모두 실제 DB에 적용해 제약이 의도대로 걸리는 것을 스모크로 확인했다(SQLite 15, PG 16)
+- [x] MILESTONES.md의 M1 체크박스 갱신
+
+M2로 넘기는 것
+- `.env`의 `MAAGO_DATABASE_URL`(D-08)을 읽어 방언을 정하고, DDL 단계를 파이프라인에 넣는다. PG의 63바이트 검사(`postgres.DDL`)는 그때 `gen`에 들어간다
+- 스키마 비교 표현(`internal/schema`)은 DB에서 읽어 오는 쪽에 맞춰 만든다. 제약은 이름이 아니라 컬럼 집합으로 맞춘다(D-87)
+- SQLite 연결마다 `PRAGMA foreign_keys = ON`(TODO)
+- 스모크 스크립트는 연습용 DB가 생기면 Go 테스트로 옮길지 정한다
