@@ -262,6 +262,27 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 
 → 확인: 예제 프로젝트에서 `maago gen` → `maago check` 통과. `maxlen` 예제에서 `maago gen`이 1로 끝나고 아무것도 쓰지 않는다. 생성물을 손으로 고치면 `maago check`가 1
 
+**계획**
+- 새 패키지 `internal/build`: 단계 조립. `model`→`pipeline`→`project`의 import 방향 때문에 조립은 이들을 모두 import하는 곳이어야 하고, ARCHITECTURE §2와 D-68은 `cmd/maago`를 디스패치만 하는 곳으로 둔다. 루트 모듈의 `go test ./...`가 이 패키지를 시험한다. §2의 트리에 한 줄
+  - `Gen(dir string) (removed []string, ds []diag.Diagnostic)`, `Check(dir string) []diag.Diagnostic`. 둘 다 `project.Root(dir)`로 루트를 찾고, 같은 단계 목록을 부를 때마다 새로 만든다
+  - 단계: 해석(`project.GoFiles` → `model.Read`) → 검사(`model.Check`, 그리고 `dialect.CheckNames(…, 0)`: 이름 충돌은 두 방언 모두의 오류라 방언을 모르는 M1에서도 잡는다. PG의 63바이트는 방언을 알게 되는 M2에서) → 생성(`model.Files`를 `Run.Files`에 넣음)
+  - 단계 사이의 데이터(`fset`, 파일 목록, 패키지, 앱)는 단계 목록을 만드는 함수 안의 변수로 닫아 넘긴다. `pipeline.Run`에 필드를 더하지 않는다(M0 7번에서 미룬 결정의 답)
+  - `Gen`은 `pipeline.Gen`, `Check`는 `pipeline.Generate` 후 오류가 없으면 `pipeline.Check(root, files)`
+- CLI: stub을 걷어내고 `build.Gen(".")`·`build.Check(".")`. 진단은 `diag.Write`로 stderr, 있으면 1. `gen`은 지운 파일마다 `removed 경로`를 stdout에. 루트 패키지 blank import를 지운다(`build`가 루트 모듈을 쓰므로 `require`가 남는다)
+- 진단의 경로는 프로젝트 루트 기준이다(하위 디렉터리에서 돌려도 `blog/models.go:…`). ARCHITECTURE §4에 적는다
+- `cmd/maago/main_test.go`의 "not implemented" 경우들을 실제 동작으로 바꾼다
+- 하지 않는 것: `.env`와 DDL 파일 쓰기(M2), 진행 출력
+
+→ 확인
+1. `go test -count=1 ./internal/build`(예제 셋을 `t.TempDir()`에 복사해서): `Gen` → `blog/models_gen.go`가 8번 골든과 같고 → `Check` 통과. 생성물을 손으로 고치면 `Check`가 그 파일 이름과 함께 실패. `models_gen.go`를 지우면 실패. 컬럼이 아닌 필드를 모두 없애고 `Gen`하면 `models_gen.go`가 지워지고 `removed`에 있다
+2. `maxlen` 예제에서 `Gen`이 진단(M1 완료 조건 1)을 내고 디렉터리가 그대로. 구문 오류와 태그 오류가 한 번에 섞인 경우 해석 단계에서 멈춘다
+3. `cmd/maago`: 임시 디렉터리에서 바이너리가 아닌 `run`으로 `gen` 0 → `check` 0, 고친 뒤 `check` 1(stderr에 파일 이름), `maxlen`에서 `gen` 1. 하위 디렉터리(`blog/`)에서 돌려도 같은 결과
+4. 두 모듈 모두 `go vet`·`go test` 통과, `cmd/maago`의 `go mod tidy -diff` 통과
+
+계획 리뷰와 사람의 결정(2026-09-25): 진단 경로는 프로젝트 루트 기준(D-88). 모델이 없는 프로젝트의 `gen`은 조용히 성공한다(검사는 모두 돌았으므로 M0이 막은 "검사가 빠진 통과"가 아니다. D-63이 경고를 막으므로 알림도 두지 않는다). codex(CLI 테스트는 임시 프로젝트에서 `t.Chdir`로, 병렬 금지. 부를 때마다 새 단계를 두 프로젝트로 시험. 파일 목록 오류에서 멈춤) 반영. fable(`CheckNames`는 검사를 통과한 모델에서만 → 따로 단계, 읽기도 따로 단계(ARCHITECTURE §3), 2번 확인은 구문 오류와 태그 오류를 다른 패키지에, `maxlen` 예제는 공용 예제를 복사해 바꿔서) 반영. 단계는 읽기 → 해석 → 검사 → 이름 → 생성의 다섯
+
+확인 결과(2026-09-25): 1~4 통과. 빌드한 바이너리로 예제 복사본에서 `gen` 0 → `check` 0, `blog/`에서 `maxlen`으로 바꾼 뒤 `gen`이 `blog/models.go:15:32: unknown tag key "maxlen" in Post.Title`과 `did you mean "max"?`로 1
+
 ---
 
 ## M1 끝

@@ -10,7 +10,8 @@ import (
 	"io"
 	"os"
 
-	_ "github.com/maago-web/maago" // temporary: keeps the require until the CLI uses the runtime
+	"github.com/maago-web/maago/internal/build"
+	"github.com/maago-web/maago/internal/diag"
 )
 
 type command struct {
@@ -19,8 +20,8 @@ type command struct {
 }
 
 var commands = []command{
-	{"gen", "check the project, then write generated code", notImplemented("gen", 7)},
-	{"check", "check the project and that generated code is up to date", notImplemented("check", 8)},
+	{"gen", "check the project, then write generated code", gen},
+	{"check", "check the project and that generated code is up to date", check},
 }
 
 func main() {
@@ -71,9 +72,25 @@ func usage(w io.Writer) {
 	}
 }
 
-func notImplemented(name string, task int) func(stdout, stderr io.Writer) int {
-	return func(_, stderr io.Writer) int {
-		fmt.Fprintf(stderr, "maago %s: not implemented yet (M0 task %d)\n", name, task)
+// gen and check work on the project holding the current directory.
+// Diagnostic paths are relative to the project root (D-88).
+
+func gen(stdout, stderr io.Writer) int {
+	removed, ds := build.Gen(".")
+	if len(ds) > 0 {
+		diag.Write(stderr, ds)
 		return 1
 	}
+	for _, p := range removed {
+		fmt.Fprintf(stdout, "removed %s\n", p)
+	}
+	return 0
+}
+
+func check(_, stderr io.Writer) int {
+	if ds := build.Check("."); len(ds) > 0 {
+		diag.Write(stderr, ds)
+		return 1
+	}
+	return 0
 }

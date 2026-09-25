@@ -49,6 +49,7 @@ go-django) 분석에서 얻은 교훈은 `교훈 N`으로 표시한다. 두 원�
 | D-85 | FK 컬럼에는 인덱스를 자동으로 만든다. 같은 컬럼의 unique나 index가 있으면 만들지 않는다 | v0 | Django와 같다. 마이그레이션 초안에 보이므로 숨은 것이 아니다. 2026-09-25 |
 | D-86 | 제약·인덱스 이름은 DDL에 명시한다: `테이블_컬럼들_key`(unique), `_idx`(index), `_fkey`(FK). PostgreSQL이 스스로 붙이는 이름과 같다 | v0 | 두 방언이 같은 이름을 쓰고, DB 오류 메시지에서 낯설지 않다. 2026-09-25 |
 | D-87 | SQLite 테이블은 `STRICT`, `id`는 `INTEGER PRIMARY KEY AUTOINCREMENT`(지운 id를 다시 쓰지 않는다). SQLite의 unique는 이름이 남도록 `CREATE UNIQUE INDEX`로 쓰고, M2는 제약을 이름이 아니라 컬럼 집합으로 맞춘다 | v0 | 타입이 맞지 않는 값을 조용히 저장하지 않고(PHILOSOPHY 7) PG와 같게 동작한다. SQLite 3.37 이상. 2026-09-25 |
+| D-88 | 진단의 파일 경로는 프로젝트 루트(`go.mod`가 있는 곳) 기준이다. 하위 디렉터리에서 돌려도 같다 | v0 | 같은 오류는 언제나 같은 문구다. 2026-09-25 |
 
 ### 태그와 SQL의 기호
 
