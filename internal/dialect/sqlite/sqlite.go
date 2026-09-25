@@ -26,10 +26,7 @@ func DDL(fset *token.FileSet, apps []*model.App) (string, []diag.Diagnostic) {
 	}
 	var stmts []string
 	for _, app := range apps {
-		tables := map[string]string{}
-		for _, m := range app.Models {
-			tables[m.Name] = m.Table
-		}
+		tables := dialect.Tables(app)
 		for _, m := range app.Models {
 			stmts = append(stmts, table(m, tables))
 			for _, cols := range m.Uniques {

@@ -40,9 +40,21 @@ func Number(t model.Type, v string) string {
 		return strconv.FormatInt(n, 10)
 	case model.Float64:
 		f, _ := strconv.ParseFloat(v, 64)
+		if f == 0 {
+			f = 0 // -0 would lose its sign in PostgreSQL anyway
+		}
 		return strconv.FormatFloat(f, 'g', -1, 64)
 	}
 	panic("dialect.Number: not a number type: " + t.String())
+}
+
+// Tables maps each model of app to its table, for foreign keys.
+func Tables(app *model.App) map[string]string {
+	t := map[string]string{}
+	for _, m := range app.Models {
+		t[m.Name] = m.Table
+	}
+	return t
 }
 
 func UniqueName(table string, cols []string) string {

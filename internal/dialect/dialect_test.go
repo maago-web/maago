@@ -13,7 +13,7 @@ func TestLiterals(t *testing.T) {
 		{Number(model.Int32, "-2147483648"), "-2147483648"},
 		{Number(model.Float64, "1.50"), "1.5"},
 		{Number(model.Float64, "1e3"), "1000"},
-		{Number(model.Float64, "-0.0"), "-0"},
+		{Number(model.Float64, "-0.0"), "0"},
 		{String("it's"), "'it''s'"},
 		{String(""), "''"},
 		{Quote("order"), `"order"`},
