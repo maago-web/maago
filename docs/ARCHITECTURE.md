@@ -148,6 +148,7 @@ myapp/
   "적용 결과가 모델과 같은가"로 한다 (D-32, D-34).
 
 생성기는 Go 코드를 `text/template`(`embed.FS`에 내장)로 쓰고 `go/format`으로 정리한다.
+M1의 `models_gen.go`처럼 주석 몇 줄인 파일은 `fmt`로 쓴다. 템플릿은 코드를 만드는 생성기(M3~)부터.
 생성기 안에서 stdlib가 reflect를 쓰는 것은 괜찮다. 생성 시점이기 때문이다.
 
 ---
