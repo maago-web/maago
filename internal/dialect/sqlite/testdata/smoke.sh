@@ -35,5 +35,6 @@ run ok    "NULL passes CHECK"              "$author INSERT INTO blog_post (autho
 run "UNIQUE constraint failed" "duplicate slug"                 "$author $post INSERT INTO blog_post (author_id, title, slug, body) VALUES (1, 't2', 's', x'00');"
 run "FOREIGN KEY constraint failed" "delete a referenced author"     "$author $post DELETE FROM people;"
 run "NOT NULL constraint failed: blog_post.title" "NULL into a NOT NULL column" "$author INSERT INTO blog_post (author_id, title, slug, body) VALUES (1, NULL, 's', x'00');"
+run ok    "composite unique and indexes exist" "SELECT CASE WHEN (SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name IN ('blog_post_author_id_slug_key', 'blog_post_slug_key', 'blog_post_status_idx', 'blog_post_author_id_idx', 'people_editor_id_key', 'people_code_key', 'people_reviewer_id_idx', 'people_code_idx', 'people_parent_id_idx')) = 9 THEN 1 ELSE abs(-9223372036854775808) END;"
 run ok    "ids are not reused"             "$author INSERT INTO people (name, editor_id, code) VALUES ('b', 2, 'c2'); DELETE FROM people WHERE id = 2; INSERT INTO people (name, editor_id, code) VALUES ('c', 3, 'c3'); SELECT CASE WHEN max(id) = 3 THEN 1 ELSE abs(-9223372036854775808) END FROM people;"
 exit $fail

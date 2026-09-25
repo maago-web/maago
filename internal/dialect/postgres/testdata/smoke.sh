@@ -10,6 +10,7 @@ cd "$(dirname "$0")" || exit 1
 
 pgctl=$(command -v pg_ctl) || { echo "pg_ctl not found on PATH"; exit 1; }
 target=$(readlink "$pgctl") || target=$pgctl
+case "$target" in /*) ;; *) target=$(dirname "$pgctl")/$target ;; esac # a relative link is relative to its own directory
 bindir=$(dirname "$target")
 for b in initdb pg_ctl postgres psql; do
 	[ -x "$bindir/$b" ] || { echo "$bindir/$b not found"; exit 1; }
@@ -24,7 +25,7 @@ trap cleanup EXIT
 trap 'exit 1' INT TERM
 
 "$bindir/initdb" -D "$tmp/data" -U maago --auth=trust >"$tmp/initdb.log" 2>&1 || { cat "$tmp/initdb.log"; exit 1; }
-"$bindir/pg_ctl" -D "$tmp/data" -w -l "$tmp/server.log" -o "-c listen_addresses='' -k $tmp" start >/dev/null 2>&1 || { cat "$tmp/server.log"; exit 1; }
+"$bindir/pg_ctl" -D "$tmp/data" -w -l "$tmp/server.log" -o "-c listen_addresses='' -k '$tmp'" start >/dev/null 2>&1 || { cat "$tmp/server.log"; exit 1; }
 
 fail=0
 run() { # run <want: ok, or the expected error text> <description> <sql>
@@ -60,5 +61,7 @@ run ok                                                             "NULL where a
 run 'null value in column "title"'                                "NULL into a NOT NULL column" "$author INSERT INTO blog_post (author_id, title, slug, body) VALUES (1, NULL, 's', '\\x00');"
 run 'violates unique constraint "blog_post_slug_key"'             "duplicate slug" "$author $post INSERT INTO blog_post (author_id, title, slug, body) VALUES (1, 't2', 's', '\\x00');"
 run 'violates foreign key constraint "blog_post_author_id_fkey"' "delete a referenced author" "$author $post DELETE FROM people;"
+run ok "composite unique and indexes exist" "$(assert "(SELECT count(*) FROM pg_constraint WHERE conname = 'blog_post_author_id_slug_key') = 1 AND (SELECT count(*) FROM pg_indexes WHERE indexname IN ('blog_post_status_idx', 'blog_post_author_id_idx', 'people_parent_id_idx', 'people_reviewer_id_idx', 'people_code_idx')) = 5")"
+run ok "an explicit id is accepted (BY DEFAULT)" "INSERT INTO people (id, name, editor_id, code) VALUES (10, 'a', 10, 'c1');"
 run ok "ids are not reused" "$author INSERT INTO people (name, editor_id, code) VALUES ('b', 2, 'c2'); DELETE FROM people WHERE id = 2; INSERT INTO people (name, editor_id, code) VALUES ('c', 3, 'c3'); $(assert "(SELECT max(id) FROM people) = 3")"
 exit $fail
