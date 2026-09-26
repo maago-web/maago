@@ -128,6 +128,7 @@ LIMIT :limit
 | D-95 | `migrate`는 적용한 파일의 내용 해시를 `maago_migrations`에 기록하고, 적용 뒤 바뀐 파일은 `migrate`·`showmigrations`의 오류다 | v0 | 연습용 DB와 실제 DB가 조용히 달라지지 않는다(PHILOSOPHY 7). 2026-09-26 |
 | D-96 | PG 연습용 스키마(`maago_practice_<무작위>`)는 트랜잭션 안에서 만들고 끝에 롤백한다. 커밋되지 않으므로 다른 세션에 보이지 않고, 비정상 종료에도 남지 않는다. 그래서 마이그레이션 파일에 트랜잭션 제어문과 `CREATE INDEX CONCURRENTLY`를 쓰지 않는다 | v0 | 개발 DB에 아무것도 남기지 않는다. 남은 것을 찾아 알리던 처음 결정(2026-09-26)을 고쳤다: 동시 실행과 남은 것을 가를 장치(advisory lock)가 통째로 필요 없다. 2026-09-27 |
 | D-97 | `.env`는 D-08의 최소 형식만 받고 나머지는 `.env:줄` 오류: 같은 키 두 번, `export`, 줄 뒤 주석(따옴표 없는 값의 공백, 닫는 따옴표 뒤 글자). 주소는 `sqlite:FILE`·`postgres://`·`postgresql://`, 스킴은 소문자. 환경 변수는 빈 값이어도 이긴다. 진단에 주소와 잘못된 줄 내용을 싣지 않는다. 방언 이름(`project.Dialect`)은 `project`에 | v0 | 어느 값이 이기는지 추측하지 않는다(PHILOSOPHY 6). PG 주소에 비밀번호가 있다. `dialect`에 두면 테스트 빌드가 순환한다. M2 1번, 2026-09-27 |
+| D-98 | PostgreSQL은 15 이상. 연습용 DB를 열 때 서버 버전을 보고, 낮으면 그 버전과 함께 오류 | v0 | 스키마 읽기가 PG 15의 카탈로그(`indnullsnotdistinct`, `confdelsetcols`)를 쓴다. 낮은 버전에서 "maago 버그"로 보이지 않게. SQLite 3.37(D-87)과 같은 자리. M2 5번, 2026-09-27 |
 
 ## E. HTTP 계층
 

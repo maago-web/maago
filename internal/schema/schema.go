@@ -7,6 +7,11 @@
 // but never used to match one with another: those match by columns (D-87).
 package schema
 
+import (
+	"cmp"
+	"slices"
+)
+
 // Schema is the tables of one database, sorted by name.
 type Schema struct {
 	Tables []*Table
@@ -50,4 +55,31 @@ type Check struct {
 	Name   string // "" if unnamed
 	Column string // "" for a table constraint; PostgreSQL cannot tell them apart
 	Expr   string // inside the parentheses, dialect.Normalize'd
+}
+
+// Sort puts tables in name order and what each holds in an order by what
+// it covers, the same for every dialect.
+func (s *Schema) Sort() {
+	slices.SortFunc(s.Tables, func(a, b *Table) int { return cmp.Compare(a.Name, b.Name) })
+	for _, t := range s.Tables {
+		slices.SortFunc(t.FKs, func(a, b FK) int {
+			return cmp.Or(slices.Compare(a.Columns, b.Columns), cmp.Compare(a.RefTable, b.RefTable))
+		})
+		slices.SortFunc(t.Indexes, func(a, b Index) int {
+			return cmp.Or(compareBool(a.Unique, b.Unique), slices.Compare(a.Columns, b.Columns), cmp.Compare(a.Name, b.Name))
+		})
+		slices.SortFunc(t.Checks, func(a, b Check) int {
+			return cmp.Or(cmp.Compare(a.Expr, b.Expr), cmp.Compare(a.Column, b.Column))
+		})
+	}
+}
+
+func compareBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	}
+	return -1
 }

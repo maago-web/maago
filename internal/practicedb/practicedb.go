@@ -64,8 +64,24 @@ func Open(ctx context.Context, d project.Dialect, url string) (*DB, []diag.Diagn
 		p.Close()
 		return nil, cannotOpen(err)
 	}
+	if d == project.Postgres {
+		var version int
+		if err := p.conn.QueryRowContext(ctx, "SELECT current_setting('server_version_num')::int").Scan(&version); err != nil {
+			p.Close()
+			return nil, cannotOpen(err)
+		}
+		if version < minPostgres {
+			p.Close()
+			return nil, fail(fmt.Sprintf("PostgreSQL %d.%d is older than %d, which maago needs", version/10000, version%10000, minPostgres/10000),
+				fmt.Sprintf("use PostgreSQL %d or later (D-98)", minPostgres/10000))
+		}
+	}
 	return p, nil
 }
+
+// minPostgres is the oldest PostgreSQL whose catalog the schema reader
+// knows (server_version_num), D-98.
+const minPostgres = 150000
 
 // hidePassword removes the password of addr from msg. pgx already leaves
 // it out of its errors; this does not rely on that.

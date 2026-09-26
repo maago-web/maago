@@ -1,0 +1,35 @@
+table "blog_post" strict=false pk=["id"] auto="BY DEFAULT"
+  column "id" BIGINT notnull=true default=""
+  column "author_id" BIGINT notnull=true default=""
+  column "title" CHARACTER VARYING(200) notnull=true default=""
+  column "slug" CHARACTER VARYING(100) notnull=true default=""
+  column "status" TEXT notnull=true default="'draft' : : TEXT"
+  column "views" INTEGER notnull=true default="0"
+  column "likes" INTEGER notnull=true default="0"
+  column "score" DOUBLE PRECISION notnull=false default="1 . 5"
+  column "public" BOOLEAN notnull=true default="TRUE"
+  column "body" BYTEA notnull=true default=""
+  column "published_at" TIMESTAMP WITH TIME ZONE notnull=false default=""
+  index "blog_post_author_id_idx" ["author_id"]
+  index "blog_post_status_idx" ["status"]
+  unique constraint "blog_post_author_id_slug_key" ["author_id" "slug"]
+  unique constraint "blog_post_slug_key" ["slug"]
+  fk "blog_post_author_id_fkey" ["author_id"] -> "people" ["id"] delete=NO ACTION update=NO ACTION
+  check "blog_post_status_check" column="status" ( STATUS = ANY ( ARRAY [ 'draft' : : TEXT , 'published' : : TEXT ] ) )
+table "people" strict=false pk=["id"] auto="BY DEFAULT"
+  column "id" BIGINT notnull=true default=""
+  column "name" TEXT notnull=true default=""
+  column "parent_id" BIGINT notnull=false default=""
+  column "editor_id" BIGINT notnull=true default=""
+  column "reviewer_id" BIGINT notnull=false default=""
+  column "code" TEXT notnull=true default=""
+  column "order" INTEGER notnull=true default="7"
+  column "admin" BOOLEAN notnull=true default="FALSE"
+  index "people_code_idx" ["code"]
+  index "people_parent_id_idx" ["parent_id"]
+  index "people_reviewer_id_idx" ["reviewer_id"]
+  unique constraint "people_code_key" ["code"]
+  unique constraint "people_editor_id_key" ["editor_id"]
+  fk "people_editor_id_fkey" ["editor_id"] -> "people" ["id"] delete=NO ACTION update=NO ACTION
+  fk "people_parent_id_fkey" ["parent_id"] -> "people" ["id"] delete=NO ACTION update=NO ACTION
+  fk "people_reviewer_id_fkey" ["reviewer_id"] -> "people" ["id"] delete=NO ACTION update=NO ACTION

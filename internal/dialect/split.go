@@ -252,6 +252,23 @@ func (s *splitter) notBefore(p token.Position) {
 	s.fail(p.Offset, marker+" is not on the line right before a statement", "put it on the line right before the DROP statement")
 }
 
+// Closing returns the index of the parenthesis closing toks[open], or the
+// last index if it is not closed.
+func Closing(toks []Token, open int) int {
+	depth := 0
+	for i := open; i < len(toks); i++ {
+		switch toks[i].Text {
+		case "(":
+			depth++
+		case ")":
+			if depth--; depth == 0 {
+				return i
+			}
+		}
+	}
+	return len(toks) - 1
+}
+
 // Normalize joins toks with single spaces, upper-casing words, for
 // comparing SQL written differently: a(b) and A ( b ) are the same.
 // Strings and quoted names are kept as written.

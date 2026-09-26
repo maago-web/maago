@@ -206,10 +206,32 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 ## 5. PG 읽기 (`internal/dialect/postgres`)
 
-- `pg_catalog`에서, 모든 조회에 연습용 스키마의 `nspname` 조건. 타입은 `format_type`, 기본값은 `pg_get_expr`, CHECK 식은 `pg_get_constraintdef`에서 식만. FK는 문자열이 아니라 `pg_constraint`의 `conkey`·`confrelid`·`confkey`·`confdeltype`으로, 제약 이름은 버린다. IDENTITY는 `attidentity`
+- `pg_catalog`에서, 모든 조회에 연습용 스키마의 `nspname` 조건. 타입은 `format_type`, 기본값은 `pg_get_expr`, CHECK 식은 `pg_get_constraintdef`에서 식만. FK는 문자열이 아니라 `pg_constraint`의 `conkey`·`confrelid`·`confkey`·`confdeltype`으로. 제약 이름은 담되 맞추지 않는다(4번 계획). IDENTITY는 `attidentity`
 - 4번과 같은 표현, 같은 "표현에 없는 것은 진단" 규칙
 
 → 확인 (`cmd/maago` 모듈, D-91): 4번과 같은 경우들을 PG로. `public`에 같은 이름의 테이블을 만들어 두어도 읽히지 않는다
+
+**계획**
+- 새 파일: `internal/dialect/postgres/read.go`, `cmd/maago/pgread_test.go`, `cmd/maago/testdata/pg_*.golden`. 바꿀 파일: 두 방언이 같이 쓰는 것을 `internal/dialect`로 옮긴다: `Querier`, 행 읽기(`Rows`), 진단 문구(`Unsupported`, `Bug`)와 `schema.Sort`(4번 코드에서 옮김). 진단 문구는 두 방언이 글자까지 같다(`table "t" has …, which maago does not support` / `remove it from the migrations`)
+- 작업 본문의 "제약 이름은 버린다"는 4번 계획(이름은 담되 맞추지 않는다, 7번의 `DROP CONSTRAINT "…"`)에 맞춰 고친다: `Name = conname`
+- `postgres.Read(ctx, q dialect.Querier) (*schema.Schema, []diag.Diagnostic)`. 4번과 같은 계약: 진단이 있어도 끝까지 읽고, 진단이 있으면 8번은 비교하지 않는다. 조회 오류는 `report this as a maago bug`
+- 모든 조회의 **읽는 쪽**은 `n.nspname = current_schema()`(연습용 DB의 `SET LOCAL search_path`, 2번). FK의 대상(`confrelid`)은 스키마 조건 없이 조인해 다른 스키마면 진단(codex)
+- 번호 배열(`conkey`, `confkey`, `indkey`)은 `array_to_string(…, ',')`로 받아 2의 `attnum → 이름` 표로 바꾼다(fable: 숫자에는 쉼표가 없고, `indkey`의 0(식)도 자연히 걸린다). 인덱스의 키별 옵션은 `generate_subscripts(indkey, 1)` 한 번으로 돌며 `indnkeyatts`까지만 `indoption`·`indcollation`을 본다(codex: 따로 `unnest`하면 `INCLUDE`에서 어긋난다)
+- 확장이 만든 객체(`pg_depend`의 `deptype = 'e'`)는 1의 진단에서 뺀다. 대신 연습용 스키마의 확장(`pg_extension`) 하나마다 진단 하나(원인 하나에 진단 하나, D-61). 8번이 `CREATE EXTENSION`을 적용 전에 진단한다(8번 본문에 더함)
+  1. 관계(`pg_class`): `relkind` `r` 중 `maago_migrations`는 뺀다(4번과 같이, 12번이 실제 DB를 읽는다). `relispartition`인 자식은 뺀다(부모의 `p` 진단 하나로). `v`·`m`(뷰), `p`(파티션), `f`(외부 테이블)는 진단. 테이블의 `relpersistence = 'u'`, `pg_inherits`의 상속(파티션이 아닌 것), `relrowsecurity`, 규칙(`pg_rewrite`의 `_RETURN`이 아닌 것)도 진단. 시퀀스(`S`)는 이 스키마의 테이블 컬럼이 가진 것(`pg_depend` `deptype` `i`·`a`, `refobjid`가 그 테이블)만 넘기고 나머지는 진단. 함수(`pg_proc`), 타입(`pg_type`의 `e`·`d`·`r`, 복합 타입은 `typrelid`의 `relkind = 'c'`만. 배열 타입(`typelem`이 있는 것)과 multirange(`m`)는 뺀다: 각각 따라 생기는 것이라 원인 하나에 진단 둘)도 진단
+  2. 컬럼(`pg_attribute`, `attnum > 0`, 지워진 것 제외): 타입 `upper(format_type(…))`, `attnotnull`, 기본값 `pg_get_expr`을 `Normalize`, `attidentity` `d`·`a` → PK 컬럼이면 `PKAuto` `BY DEFAULT`·`ALWAYS`, PK가 아닌 컬럼의 IDENTITY는 진단. `attgenerated`는 진단. `attcollation`이 타입의 기본과 다르면 COLLATE 진단
+  3. 제약(`pg_constraint`): `p` → `PK`. `u` → `Index{Name, Unique, Constraint: true}`. `f` → FK(이름, 컬럼, 대상 테이블·컬럼, `confdeltype`·`confupdtype`을 글로: `a` NO ACTION, `r` RESTRICT, `c` CASCADE, `n` SET NULL, `d` SET DEFAULT), `confmatchtype`이 `s`가 아니면 진단, `confdelsetcols`(PG 15의 `SET NULL (cols)`)가 있으면 진단. `c` → CHECK: 정의의 토큰에서 `CHECK` 뒤 짝 괄호 안만 `Normalize`(뒤의 `NO INHERIT` 때문에 글자로 자르지 않는다), `connoinherit`면 진단, 컬럼이 하나면 그 컬럼(PG는 컬럼 CHECK와 테이블 CHECK를 가르지 않는다: 테이블 CHECK `(c > 0)`의 `Column`이 SQLite는 `""`, PG는 `c`. 같은 방언끼리만 비교하니 무해하고, 6번 진단 문구가 방언마다 조금 다를 수 있다). `x`는 진단. `n`(PG 18의 NOT NULL 제약)은 넘긴다. 모든 제약의 `condeferrable`, `convalidated = false`(NOT VALID)는 종류와 상관없이 진단
+  4. 인덱스(`pg_index`): **모두 검사**하고, 같은 테이블의 `p`·`u`·`x` 제약이 쓰는 것(`conindid`, `conrelid`가 그 테이블)만 `Indexes`에 넣지 않는다(4번에서 PK 인덱스도 검사한 것과 같다: `UNIQUE NULLS NOT DISTINCT`, `PRIMARY KEY … INCLUDE`가 조용히 통과하지 않게). 진단: `indpred`(부분), `indexprs`(식), `btree`가 아닌 접근 방법, `INCLUDE`(`indnatts > indnkeyatts`), `indnullsnotdistinct`, 키마다 `indoption`의 DESC(1)·NULLS FIRST(2) 비트, 기본이 아닌 opclass(`pg_opclass.opcdefault = false`), `indcollation`이 그 컬럼의 `attcollation`과 다름(컬럼 COLLATE가 이미 진단됐으면 인덱스 쪽은 내지 않는다)
+  5. 트리거(`pg_trigger`, `NOT tgisinternal`, 제약 트리거 포함)는 진단
+- 하지 않는 것: 권한·소유자·코멘트·통계·테이블 공간, 파티션 읽기, 복합 PK의 한 컬럼만 IDENTITY인 경우(`PKAuto`가 어느 컬럼인지 잃지만 모델이 만들 수 없고 양쪽이 같게 읽힌다)
+- 리뷰: codex(`conindid` 문구는 이미 같은 테이블의 `p`·`u`·`x`로 좁혀 두었다: 받지 않음, 키별 옵션을 `generate_subscripts`로, FK 대상의 스키마 조건, NULLS FIRST, NOT VALID는 종류와 상관없이, 시퀀스의 의존 대상, `Check.Column`의 뜻) 반영. fable(제약 인덱스도 검사, `maago_migrations`, 이름을 담기, `NO INHERIT`, 확장, 확인에 빠진 분기, 파티션 자식·multirange·배열·행 타입의 중복 진단, opclass, 공용 진단 함수, 번호 배열은 글로, `confdelsetcols`·규칙, 복합 PK의 IDENTITY) 모두 반영. 구현 리뷰: ponytail(괄호 짝 찾기를 `dialect.Closing`으로 두 방언이 같이), codex(인덱스 하나에 진단 여럿 → 하나, 확장이 만든 규칙·트리거도 빼기. 테스트는 돌리지 않음), fable(테스트가 개발 DB의 `public.people`을 지우는 `DROP`을 커밋함 → 연습용 트랜잭션 안에서 만들어 함께 롤백, `EXCLUDE USING gist`·DEFERRABLE 제약 트리거의 진단 둘 → 하나, 최소 PG 버전 → 15(D-98)와 연습용 DB를 열 때 확인, PG 18의 `NOT NULL … NO INHERIT`, CHECK 식의 바깥 괄호·문구의 방언 차이는 6번의 일) 반영. 돌연변이: 살아남은 둘(`typcategory`, 컬럼 COLLATE의 인덱스 억제)은 쓸데없는 조건이라 지웠고, `s < indnkeyatts`는 카탈로그의 바른 경계라 주석과 함께 둔다
+
+→ 확인 (`cmd/maago`에서 `MAAGO_TEST_PG_URL`을 주고 `go test -count=1 -run PGRead ./...`)
+1. `internal/dialect/postgres/testdata/example.sql`(M1 골든)을 읽은 것이 `testdata/pg_example.golden`과 같다. 손으로 한 줄씩 대조
+2. 같은 스키마를 손으로 다르게 쓴 것(공백·대소문자·이름의 따옴표·인라인 `REFERENCES`·`UNIQUE` 컬럼 제약·`CHECK`를 컬럼 대신 테이블 제약으로·인덱스 이름)이 1과 이름 없이 같은 글
+3. `testdata/pg_cases.golden`: 4번의 경우들(CHECK 여럿·문자열 안의 괄호와 쉼표·이름 붙은 CHECK, 여러 컬럼 FK·복합 PK·`ON UPDATE CASCADE`·`ON DELETE SET NULL`·`SET DEFAULT`·`RESTRICT`, `ADD`·`RENAME`·`DROP COLUMN` 뒤, 같은 컬럼의 FK 둘, 키워드 이름), `maago_migrations`는 읽히지 않음
+4. 막는 것 각각 진단 하나(골든): 부분·식·DESC·NULLS FIRST·COLLATE·GIN·INCLUDE·NULLS NOT DISTINCT·opclass 인덱스, `UNIQUE NULLS NOT DISTINCT` 제약, `PRIMARY KEY … INCLUDE`, COLLATE 컬럼(+그 인덱스: 하나), generated 컬럼, PK가 아닌 IDENTITY, 뷰, 머티리얼라이즈드 뷰, 파티션 테이블(자식 둘: 진단 하나), 외부 테이블은 서버가 필요하므로 빼고, 트리거, 제약 트리거, 규칙, 함수, enum·도메인·범위·복합 타입(각각 하나), 떨어진 시퀀스, UNLOGGED, 상속, RLS, EXCLUDE, DEFERRABLE, `MATCH FULL`, `NOT VALID`(CHECK와 FK), `NO INHERIT`, `SET NULL (cols)`, 다른 스키마를 가리키는 FK, 확장(`CREATE EXTENSION citext`: 진단 하나). 진단이 있어도 나머지 테이블은 읽는다
+5. `public`에 같은 이름의 테이블(다른 컬럼)을 만들어 두어도 읽은 결과가 같다
 
 ## 6. 비교 (`internal/migrate`)
 
@@ -245,6 +267,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
   - 트랜잭션 제어문 목록에 `PREPARE TRANSACTION`·`COMMIT PREPARED`·`ROLLBACK PREPARED`도: 연습용 트랜잭션을 연결이 끊겨도 남는 객체로 바꾼다(D-96)
   - SQLite `CREATE TRIGGER … BEGIN …; END;`는 3번이 본문의 `;`에서 나누므로 DB 문법 오류가 먼저 난다. 첫 두 `Word`가 `CREATE TRIGGER`면 적용 전에 `triggers are not supported`로 진단(4번이 막는 것과 같은 이유)
   - PG 오류의 `Position`은 문장 안의 1부터 세는 **글자** 번호다. `Stmt.Pos.Offset`(바이트)에 더하기 전에 글자를 바이트로 바꾼다
+  - `CREATE EXTENSION`은 진단(PG 연습용 스키마에 확장의 객체가 깔린다, 5번 계획)
   - `ATTACH`, `CREATE TEMP`(`TEMPORARY`) 문장은 진단: 읽기(4·5번)는 연습용 스키마만 보므로 그 밖의 객체는 비교에서 빠진다
   - 적용은 두 방언 모두 첫 실패에서 멈춘다(PG는 실패 뒤 트랜잭션이 aborted라 더 갈 수 없다. 방언마다 오류 개수가 달라지지 않게, D-61)
 - `makemigrations`(9번)는 같은 단계를 비교의 차이를 진단으로 바꾸지 않는 모드로 쓴다(모양 절). 단계 목록을 두 벌 만들지, 비교 단계만 바꿀지는 계획에서

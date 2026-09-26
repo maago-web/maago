@@ -1,0 +1,268 @@
+== checks
+table "t" strict=false pk=[] auto=""
+  column "a" TEXT notnull=false default=""
+  column "b" TEXT notnull=false default=""
+  column "c" INTEGER notnull=false default=""
+  check "t_a_check" column="a" ( A < > '' : : TEXT )
+  check "t_ab" column="" ( A < > B )
+  check "b_choice" column="b" ( B = ANY ( ARRAY [ 'x,(' : : TEXT , 'y' : : TEXT ] ) )
+  check "t_c_check" column="c" ( C > 0 )
+  check "t_a_check1" column="a" ( LENGTH ( A ) < 10 )
+== keys
+table "c" strict=false pk=["id"] auto="ALWAYS"
+  column "id" BIGINT notnull=true default=""
+  column "x" INTEGER notnull=false default=""
+  column "y" INTEGER notnull=false default=""
+  column "n" INTEGER notnull=false default=""
+  column "d" INTEGER notnull=false default="1"
+  column "r" INTEGER notnull=false default=""
+  fk "c_d_fkey" ["d"] -> "c" ["id"] delete=SET DEFAULT update=NO ACTION
+  fk "c_n_fkey" ["n"] -> "c" ["id"] delete=SET NULL update=NO ACTION
+  fk "c_r_fkey" ["r"] -> "c" ["id"] delete=RESTRICT update=NO ACTION
+  fk "c_xy_fkey" ["x" "y"] -> "p" ["y" "x"] delete=NO ACTION update=CASCADE
+table "p" strict=false pk=["y" "x"] auto=""
+  column "x" INTEGER notnull=true default=""
+  column "y" INTEGER notnull=true default=""
+== foreign keys on the same column
+table "a" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=true default=""
+table "b" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=true default=""
+table "c" strict=false pk=[] auto=""
+  column "x" INTEGER notnull=false default=""
+  fk "c_x_a" ["x"] -> "a" ["id"] delete=NO ACTION update=NO ACTION
+  fk "c_x_b" ["x"] -> "b" ["id"] delete=NO ACTION update=NO ACTION
+== names that are keywords
+table "t" strict=false pk=[] auto=""
+  column "match" INTEGER notnull=false default=""
+  column "order" INTEGER notnull=false default=""
+  unique constraint "t_match_order_key" ["match" "order"]
+== added column
+table "t" strict=false pk=[] auto=""
+  column "a" TEXT notnull=false default=""
+  column "c" TEXT notnull=false default=""
+  check "t_c_check" column="c" ( C < > '' : : TEXT )
+== renamed column
+table "t" strict=false pk=[] auto=""
+  column "b" TEXT notnull=false default=""
+  check "t_a_check" column="b" ( LENGTH ( B ) < 10 )
+== dropped column
+table "t" strict=false pk=[] auto=""
+  column "b" TEXT notnull=false default=""
+  check "t_b_check" column="b" ( B < > '' : : TEXT )
+== maago_migrations
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+== partial index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "u" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has partial index "t_a", which maago does not support
+  fix: remove it from the migrations
+== partial index with INCLUDE
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  column "b" INTEGER notnull=false default=""
+table "t" has partial index "t_a", which maago does not support
+  fix: remove it from the migrations
+== expression index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has index "t_a" on an expression, which maago does not support
+  fix: remove it from the migrations
+== descending index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has descending index "t_a", which maago does not support
+  fix: remove it from the migrations
+== NULLS FIRST index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has index "t_a" with NULLS FIRST, which maago does not support
+  fix: remove it from the migrations
+== index with COLLATE
+table "t" strict=false pk=[] auto=""
+  column "a" TEXT notnull=false default=""
+table "t" has index "t_a" with COLLATE, which maago does not support
+  fix: remove it from the migrations
+== GIN index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER[] notnull=false default=""
+table "t" has index "t_a" using gin, which maago does not support
+  fix: remove it from the migrations
+== INCLUDE index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  column "b" INTEGER notnull=false default=""
+table "t" has index "t_a" with INCLUDE, which maago does not support
+  fix: remove it from the migrations
+== NULLS NOT DISTINCT index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has index "t_a" with NULLS NOT DISTINCT, which maago does not support
+  fix: remove it from the migrations
+== operator class
+table "t" strict=false pk=[] auto=""
+  column "a" TEXT notnull=false default=""
+table "t" has index "t_a" with an operator class that is not the default, which maago does not support
+  fix: remove it from the migrations
+== NULLS NOT DISTINCT constraint
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  unique constraint "t_a_key" ["a"]
+table "t" has unique constraint "t_a_key" with NULLS NOT DISTINCT, which maago does not support
+  fix: remove it from the migrations
+== primary key with INCLUDE
+table "t" strict=false pk=["a"] auto=""
+  column "a" INTEGER notnull=true default=""
+  column "b" INTEGER notnull=false default=""
+table "t" has primary key with INCLUDE, which maago does not support
+  fix: remove it from the migrations
+== column with COLLATE
+table "t" strict=false pk=[] auto=""
+  column "a" TEXT notnull=false default=""
+  index "t_a" ["a"]
+table "t" has COLLATE on column "a", which maago does not support
+  fix: remove it from the migrations
+== generated column
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  column "b" INTEGER notnull=false default=""
+table "t" has generated column "b", which maago does not support
+  fix: remove it from the migrations
+== IDENTITY not on the key
+table "t" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=true default=""
+  column "n" INTEGER notnull=true default=""
+table "t" has IDENTITY on column "n" outside the primary key, which maago does not support
+  fix: remove it from the migrations
+== view
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+view "v" is not supported
+  fix: remove it from the migrations
+== materialized view
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+materialized view "v" is not supported
+  fix: remove it from the migrations
+== partitioned table
+partitioned table "t" is not supported
+  fix: remove it from the migrations
+== trigger
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+function "f" is not supported
+  fix: remove it from the migrations
+trigger "t_tr" is not supported
+  fix: remove it from the migrations
+== constraint trigger
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+function "f" is not supported
+  fix: remove it from the migrations
+trigger "t_ct" is not supported
+  fix: remove it from the migrations
+== rule
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+rule "t_r" is not supported
+  fix: remove it from the migrations
+== function
+function "f" is not supported
+  fix: remove it from the migrations
+== enum type
+type "mood" is not supported
+  fix: remove it from the migrations
+== domain type
+type "pos" is not supported
+  fix: remove it from the migrations
+== range type
+type "r" is not supported
+  fix: remove it from the migrations
+== composite type
+type "pair" is not supported
+  fix: remove it from the migrations
+== sequence
+sequence "s" is not supported
+  fix: remove it from the migrations
+== UNLOGGED
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has UNLOGGED storage, which maago does not support
+  fix: remove it from the migrations
+== inheritance
+table "c" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  column "b" INTEGER notnull=false default=""
+table "p" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "c" has inheritance, which maago does not support
+  fix: remove it from the migrations
+== row level security
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has row level security, which maago does not support
+  fix: remove it from the migrations
+== EXCLUDE
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has exclusion constraint "t_a_excl", which maago does not support
+  fix: remove it from the migrations
+== EXCLUDE using gist
+table "t" strict=false pk=[] auto=""
+  column "r" INT4RANGE notnull=false default=""
+table "t" has exclusion constraint "t_r_excl", which maago does not support
+  fix: remove it from the migrations
+== DEFERRABLE
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  unique constraint "t_a_key" ["a"]
+table "t" has DEFERRABLE constraint "t_a_key", which maago does not support
+  fix: remove it from the migrations
+== MATCH FULL
+table "p" strict=false pk=["a" "b"] auto=""
+  column "a" INTEGER notnull=true default=""
+  column "b" INTEGER notnull=true default=""
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  column "b" INTEGER notnull=false default=""
+table "t" has MATCH FULL on foreign key "t_a_b_fkey", which maago does not support
+  fix: remove it from the migrations
+== NOT VALID
+table "p" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=true default=""
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  column "p_id" INTEGER notnull=false default=""
+  fk "t_p_fkey" ["p_id"] -> "p" ["id"] delete=NO ACTION update=NO ACTION
+  check "t_a_check" column="a" ( A > 0 )
+table "t" has NOT VALID constraint "t_a_check", which maago does not support
+  fix: remove it from the migrations
+table "t" has NOT VALID constraint "t_p_fkey", which maago does not support
+  fix: remove it from the migrations
+== NO INHERIT
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  check "t_a_check" column="a" ( A > 0 )
+table "t" has NO INHERIT on constraint "t_a_check", which maago does not support
+  fix: remove it from the migrations
+== NOT NULL NO INHERIT
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=true default=""
+table "t" has NO INHERIT on constraint "t_a_nn", which maago does not support
+  fix: remove it from the migrations
+== SET NULL with columns
+table "p" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=true default=""
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  column "b" INTEGER notnull=false default=""
+table "t" has SET NULL or SET DEFAULT with columns on foreign key "t_a_fkey", which maago does not support
+  fix: remove it from the migrations
+== extension
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+extension "citext" is not supported
+  fix: remove it from the migrations
