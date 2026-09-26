@@ -39,7 +39,7 @@ func Database(root string, lookupEnv func(string) (string, bool)) (Dialect, stri
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", "", []diag.Diagnostic{diag.New(token.Position{}, "cannot read .env: "+diag.OneLine(err.Error()), "make sure .env can be read")}
 	}
-	vars, ds := parseEnv(strings.TrimPrefix(string(src), "\uFEFF")) // editors on Windows may add a BOM
+	vars, maybeURL, ds := parseEnv(strings.TrimPrefix(string(src), "\uFEFF")) // editors on Windows may add a BOM
 
 	url, pos, from := "", token.Position{}, "environment variable "+urlKey
 	if v, ok := lookupEnv(urlKey); ok {
@@ -47,7 +47,7 @@ func Database(root string, lookupEnv func(string) (string, bool)) (Dialect, stri
 	} else if v, ok := vars[urlKey]; ok {
 		url, pos, from = v.value, token.Position{Filename: ".env", Line: v.line}, urlKey
 	} else {
-		if len(ds) == 0 { // a broken line may have been the URL
+		if !maybeURL {
 			ds = append(ds, diag.New(token.Position{}, urlKey+" is not set", "add "+example+" to .env"))
 		}
 		return "", "", ds
@@ -91,12 +91,17 @@ type envVar struct {
 
 // parseEnv reads KEY=VALUE lines, # comment lines and blank lines. A value
 // may be wrapped in one pair of matching quotes; nothing is escaped.
-func parseEnv(src string) (map[string]envVar, []diag.Diagnostic) {
-	vars := map[string]envVar{}
-	var ds []diag.Diagnostic
+// maybeURL reports a broken line that may have been MAAGO_DATABASE_URL,
+// so that "not set" is not reported on top of it (D-61).
+func parseEnv(src string) (vars map[string]envVar, maybeURL bool, ds []diag.Diagnostic) {
+	vars = map[string]envVar{}
 	for i, line := range strings.Split(src, "\n") {
 		pos := token.Position{Filename: ".env", Line: i + 1}
-		fail := func(msg, fix string) { ds = append(ds, diag.New(pos, msg, fix)) }
+		key := "" // unknown until the line is split
+		fail := func(msg, fix string) {
+			ds = append(ds, diag.New(pos, msg, fix))
+			maybeURL = maybeURL || key == "" || key == urlKey
+		}
 		line = strings.TrimSpace(line) // also drops the \r of CRLF
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -105,16 +110,16 @@ func parseEnv(src string) (map[string]envVar, []diag.Diagnostic) {
 			fail(".env lines cannot start with export", `remove "export"`)
 			continue
 		}
-		key, value, ok := strings.Cut(line, "=")
+		k, value, ok := strings.Cut(line, "=")
 		if !ok {
 			fail("line without =", "write KEY=VALUE")
 			continue
 		}
-		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
-		if !keyPattern.MatchString(key) {
+		if k = strings.TrimSpace(k); !keyPattern.MatchString(k) {
 			fail("invalid key", "use letters, digits and _ in keys, not starting with a digit")
 			continue
 		}
+		key, value = k, strings.TrimSpace(value)
 		if q := value[:min(1, len(value))]; q == `"` || q == "'" {
 			end := strings.Index(value[1:], q) + 1
 			if end == 0 {
@@ -136,5 +141,5 @@ func parseEnv(src string) (map[string]envVar, []diag.Diagnostic) {
 		}
 		vars[key] = envVar{value, i + 1}
 	}
-	return vars, ds
+	return vars, maybeURL, ds
 }

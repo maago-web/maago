@@ -29,7 +29,8 @@ func TestDatabase(t *testing.T) {
 		{name: "unclosed quote", env: unset, dotenv: "A=1\nMAAGO_DATABASE_URL=\"" + pg,
 			want: ".env:2: unclosed quote in the value of MAAGO_DATABASE_URL\n  fix: close the quote\n"},
 		{name: "lone quote", env: unset, dotenv: `A="`,
-			want: ".env:1: unclosed quote in the value of A\n  fix: close the quote\n"},
+			want: "MAAGO_DATABASE_URL is not set\n  fix: add " + example + " to .env\n" +
+				".env:1: unclosed quote in the value of A\n  fix: close the quote\n"},
 		{name: "comment after quotes", env: unset, dotenv: `MAAGO_DATABASE_URL="sqlite:app.db" # dev`,
 			want: ".env:1: text after the closing quote in the value of MAAGO_DATABASE_URL\n  fix: remove the trailing comment\n"},
 		{name: "trailing comment", env: unset, dotenv: "MAAGO_DATABASE_URL=sqlite:app.db # dev",
@@ -74,6 +75,11 @@ func TestDatabase(t *testing.T) {
 			want: "environment variable MAAGO_DATABASE_URL is empty\n  fix: set it to sqlite:FILE or postgres://HOST:PORT/DB, or unset it to use .env\n"},
 		{name: "not set", env: unset, dotenv: "A=1",
 			want: "MAAGO_DATABASE_URL is not set\n  fix: add MAAGO_DATABASE_URL=sqlite:app.db or MAAGO_DATABASE_URL=postgres://localhost:5432/myapp to .env\n"},
+		{name: "not set, other line broken", env: unset, dotenv: "DEBUG=true # dev",
+			want: "MAAGO_DATABASE_URL is not set\n  fix: add MAAGO_DATABASE_URL=sqlite:app.db or MAAGO_DATABASE_URL=postgres://localhost:5432/myapp to .env\n" +
+				".env:1: space in the unquoted value of DEBUG\n  fix: quote the value or remove the trailing comment\n"},
+		{name: "not set, URL line broken", env: unset, dotenv: "MAAGO_DATABASE_URL='sqlite:app.db",
+			want: ".env:1: unclosed quote in the value of MAAGO_DATABASE_URL\n  fix: close the quote\n"},
 		{name: "not set, no .env", env: unset, dotenv: unset,
 			want: "MAAGO_DATABASE_URL is not set\n  fix: add " + example + " to .env\n"},
 	} {
