@@ -27,7 +27,7 @@
 - SQLite 재생성의 `DROP TABLE`은 파일 모양으로 알아본다. 재생성으로 사라지는 컬럼이 있으면 표시가 필요하다(D-93)
 - 파일 이름은 변경에서 짓고 `--name`으로 덮는다. 파일 머리는 없다(D-94)
 - 적용한 파일의 내용 해시를 기록하고, 바뀌면 오류(D-95)
-- 남은 PG 연습용 스키마는 오류로 알리고 지우는 SQL을 fix에(D-96)
+- PG 연습용 스키마는 트랜잭션 안에서 만들고 롤백해 남지 않게 한다(D-96, 2026-09-27 고침)
 
 ---
 
@@ -80,18 +80,38 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 ## 2. 연습용 DB (`internal/practicedb`)
 
-- `Open(ctx, dialect, url) (*DB, []diag)`와 `Close`. 드라이버 이름(`sqlite`, `pgx`)으로 `sql.Open`하고, 드라이버는 `cmd/maago`가 등록한다(D-90). `DB`는 `*sql.Conn` 하나를 쥐고, 모든 일(PRAGMA, 스키마 생성, 적용, 읽기, 삭제)이 그 연결에서 일어난다
-- `Exec(stmts)`: 3번이 나눈 문장을 차례로 실행하고, 실패하면 그 문장의 위치로 진단. 7·8·9번이 모두 이것으로 적용한다
+- `Open(ctx, dialect, url) (*DB, []diag)`와 `Close`. 드라이버 이름(`sqlite`, `pgx`)으로 `sql.Open`하고, 드라이버는 `cmd/maago`가 등록한다(D-90). `DB`는 `*sql.Conn` 하나를 쥐고, 모든 일(PRAGMA, 스키마 생성, 적용, 읽기)이 그 연결에서 일어난다
+- `Exec(ctx, pos, sql)`: 문장 하나를 실행하고, 실패하면 그 문장의 위치로 진단. 7·8·9번이 3번이 나눈 문장마다 이것으로 적용한다
 - SQLite: `:memory:`. 연결을 쥔 직후 `PRAGMA foreign_keys = ON`을 켜고 다시 읽어 켜졌는지 확인한다(TODO에서 넘어옴). `.env`의 파일 이름은 쓰지 않는다(ARCHITECTURE §6)
-- PG: 개발 DB에 `maago_practice_<무작위>` 스키마를 만들고, 같은 연결에서 `search_path`를 그 스키마로. `Close`도 같은 연결에서 `DROP SCHEMA … CASCADE`. 마이그레이션과 DDL은 스키마 이름 없이 쓰이므로 그대로 적용된다(D-35)
-- 한 번의 실행에 둘(A와 B)을 연다. 여는 김에 `maago_practice_`로 시작하는 스키마가 이미 있으면(비정상 종료로 남은 것) 위치 없는 진단, fix에 `DROP SCHEMA "…" CASCADE;` 문장. 지우지 않는다(D-96). 동시에 도는 다른 실행의 스키마와 구분하는 법은 계획에서
+- PG: 같은 연결에서 `BEGIN` → `CREATE SCHEMA maago_practice_<무작위>` → `SET LOCAL search_path`를 그 스키마로. `Close`는 `ROLLBACK`. 스키마는 커밋되지 않으므로 다른 세션에 보이지 않고, 비정상 종료·연결 끊김도 롤백이라 남는 것이 없다(D-96). 마이그레이션과 DDL은 스키마 이름 없이 쓰이므로 그대로 적용된다(D-35). 이름이 무작위인 것은 같은 이름의 `CREATE SCHEMA`가 다른 트랜잭션의 커밋을 기다리며 막히기 때문(한 실행이 A와 B를 함께 연다)
 - 연결·스키마 생성 실패는 위치 없는 진단, fix에 켜는 법(D-64): PG 서버를 켜라, 주소를 확인하라, 권한(`CREATE` on database)
-- 드라이버가 등록되지 않은 경우(루트 모듈 테스트)도 같은 진단 경로로 실패한다. 조용히 건너뛰지 않는다
+- 드라이버가 등록되지 않은 경우(루트 모듈 테스트)도 위치 없는 진단으로 실패한다. 조용히 건너뛰지 않는다
 
 → 확인
-1. 루트 모듈: 드라이버 없이 `Open`이 D-64 진단으로 실패한다
-2. `cmd/maago` 모듈(D-90): SQLite 연습용 DB에서 두 번 연 것이 서로 보이지 않고, FK가 강제된다. PG에서 스키마가 생기고 `Close` 뒤 사라지며, 사용자 스키마(`public`)의 테이블은 보이지도 바뀌지도 않는다. 닫힌 포트의 주소는 D-64 진단
-3. PG에 `maago_practice_` 스키마를 미리 만들어 두면 진단이 나오고, 그 fix의 SQL을 돌리면 다음 실행이 통과한다. 미리 만든 스키마는 지워지지 않는다
+1. 루트 모듈: 드라이버 없이 `Open`이 진단으로 실패한다
+2. `cmd/maago` 모듈(D-90): SQLite 연습용 DB에서 두 번 연 것이 서로 보이지 않고, FK가 강제된다. PG에서 연습용 스키마가 다른 세션에 보이지 않고 `Close` 뒤에도 남지 않으며, 사용자 스키마(`public`)의 테이블은 보이지도 바뀌지도 않는다. 닫힌 포트의 주소는 D-64 진단
+
+**계획**
+- 새 파일: `internal/practicedb/practicedb.go`, `practicedb_test.go`(루트, 드라이버 없음), `cmd/maago/practicedb_test.go`(실제 DB). 바꿀 파일: `cmd/maago/main.go`(드라이버 blank import, 11번에서 당김: `cmd/maago`의 테스트가 드라이버를 필요로 한다), `cmd/maago/go.mod`·`go.sum`(D-89의 두 드라이버, 최신 `modernc.org/sqlite` v1.59.0·`pgx/v5` v5.11.0), `.github/workflows/ci.yml`(PostgreSQL 18 서비스, health check, `MAAGO_TEST_PG_URL=postgres://postgres:postgres@localhost:5432/postgres`. 11번에서 당김: 아래 테스트가 CI에서 변수가 없으면 실패하므로). 새 외부 의존은 D-89(사람의 결정, 2026-09-26)가 정한 둘뿐. 작업 본문(2번 `Exec`, 11번)도 이에 맞춰 고쳤다
+- `Open(ctx, d project.Dialect, url string) (*DB, []diag.Diagnostic)`: 드라이버가 `sql.Drivers()`에 없으면 먼저 진단(아래). `sql.Open` → `db.Conn(ctx)`로 연결 하나를 쥔다. `DB`는 `*sql.DB`와 `*sql.Conn`. 실패하면 연 것을 모두 닫고 `nil`
+  - SQLite: `sql.Open("sqlite", ":memory:")`, url은 쓰지 않는다. `PRAGMA foreign_keys = ON` 뒤 `PRAGMA foreign_keys`를 읽어 1이 아니면 진단
+  - PG: `sql.Open("pgx", url)`. 같은 연결에서 `BEGIN`, `CREATE SCHEMA "maago_practice_" + 소문자 rand.Text()`(base32 26자), `SET LOCAL search_path TO "이름"`(`public`을 넣지 않는다: 넣으면 마이그레이션이 만들지 않은 사용자 테이블이 보여 틀린 마이그레이션이 통과한다. 대가: `public`에 설치된 확장의 타입·함수(`citext`, `uuid_generate_v4()`)를 이름만으로 쓰는 마이그레이션은 연습용 DB에서 실패한다 → TODO), `SELECT current_schema()`가 그 이름인지 다시 읽어 확인(SQLite의 PRAGMA 다시 읽기와 같은 이유). `BEGIN`은 `database/sql`의 `Tx`가 아니라 문장으로: `Exec`·`Close`가 방언과 상관없이 `*sql.Conn` 하나만 쓴다
+  - 알 수 없는 방언은 호출자의 버그이므로 panic(`diag.New`와 같은 관례. 결정에 없는 선택)
+- `Exec(ctx, pos token.Position, sql string) []diag.Diagnostic`: 문장 **하나**를 쥔 연결에서 실행, 실패하면 `pos`에 DB 메시지(`diag.OneLine`), fix `fix the SQL statement`. 작업 본문의 처음 모양 `Exec(stmts)`와 다른 선택: 3번의 문장 타입을 기다리지 않고, 문장을 나누는 일과 실행을 섞지 않는다. 차례로 돌며 첫 실패에서 멈추는 것은 부르는 쪽의 반복문. PG에서는 실패한 문장 뒤 트랜잭션이 aborted가 되어 다음 문장도 실패하므로 첫 실패에서 멈추는 것이 맞다. PG가 주는 칸 위치는 8번
+- `Close()`: 연결과 `*sql.DB`를 닫는다. PG의 커밋되지 않은 트랜잭션은 연결과 함께 롤백되므로 `ROLLBACK`을 따로 보내지 않는다(멈춘 서버에 막히지 않게, fable). 돌려주는 것이 없다
+- 진단(모두 위치 없음)
+  - 드라이버 없음(두 방언 공통): `no "pgx" database driver in this maago build`, fix `build maago from its cmd/maago module, which registers the drivers`. `sql.Open` 전에 가른다(서버 fix가 붙지 않게, fable)
+  - PG 연결·`BEGIN`·스키마 만들기·`search_path` 실패(D-64): `cannot open the practice database: <오류>`, fix `start the PostgreSQL server, check MAAGO_DATABASE_URL, and make sure its user may create schemas (GRANT CREATE ON DATABASE)`. pgx의 연결 오류는 host·user·database만 싣고 비밀번호는 싣지 않는다(테스트가 확인)
+  - SQLite 연결 실패, `foreign_keys`가 켜지지 않음: 드라이버의 문제이므로 `…`, fix `report this as a maago bug`
+- **D-96 고침**(사람의 결정, 2026-09-27, fable 제안): 남은 스키마를 찾아 알리던 것을, 트랜잭션으로 남지 않게 한다. advisory lock·남은 스키마 찾기·그 진단이 필요 없다. 대가: 마이그레이션 파일 안의 트랜잭션 제어문(`BEGIN`·`COMMIT`·`ROLLBACK`)과 `CREATE INDEX CONCURRENTLY`는 연습용 DB에서 쓸 수 없다. 10번의 "파일마다 트랜잭션 하나"와도 어차피 맞지 않으므로 8번이 진단한다(8번 본문에 더함). `COMMIT`이 새면 연습용 스키마가 커밋되어 남는다. M3에서 쿼리 여럿을 prepare하며 실패를 모두 모으려면 쿼리마다 `SAVEPOINT`가 필요하다(M3 계획에서)
+- `cmd/maago` 테스트의 PG 쪽: `MAAGO_TEST_PG_URL`이 없으면 `CI`가 있을 때 `t.Fatal`, 아니면 이유를 찍고 `t.Skip`(D-91). 로컬 확인은 임시 클러스터(`127.0.0.1`의 빈 포트)를 띄워 변수를 주고 돌리고, 한 번은 `CI=1`에 변수 없이 돌려 실패하는 것까지 본다
+- 하지 않는 것: 문장 나누기(3번), 스키마 읽기(4·5번), 읽기용 조회 API(4번에서 필요한 모양으로), `foreign_keys` OFF/ON 순서(10번), PG 오류의 칸 위치(8번), 연결 시간 제한(ctx로 부르는 쪽이), SQLSTATE별 fix(메시지에 DB 오류를 그대로 실으므로 v0은 fix 하나)
+- 리뷰: codex(`hashtext` 충돌, `Close` 뒤 잠금 해제 확인, `Open` 중간 실패의 스키마, `Close`와 열린 트랜잭션, `LIKE`의 `_`, 찾기→잠그기의 원자성, 사용자 SQL의 `search_path`, fix 속 이름 인용, CI 서비스 모양, 연결 하나 계약) — 대부분은 트랜잭션 방식으로 문제 자체가 사라졌다. 남는 것: 사용자 SQL의 `SET search_path`·트랜잭션 제어문은 8번으로, CI 모양은 위에 적음. fable(트랜잭션으로 감싸기 → 사람에게 물어 채택, 드라이버 없음에 서버 fix → `sql.Drivers()`로 먼저 가름, "fix 있음"은 늘 참 → fix 전문 단언, PRAGMA 실패의 fix, 한 프로세스에서 A·B 동시 열기, 스키마 이름이 붙은 문장이 개발 DB를 바꿈 → 롤백으로 무해, 확인에 넣음, `hashtext` 비공개 함수 → 없어짐, §2 문장은 12번) 모두 반영. 구현 리뷰: ponytail(지울 것 없음), codex(비밀번호 숨김이 pgx에만 기댐 → 잘못된 주소 6가지로 pgx가 가리는 것을 확인하고, 주소의 비밀번호를 메시지에서 한 번 더 지움, 잘못된 주소 행 추가. 샌드박스로 테스트는 못 돌림), fable(테스트가 개발 DB에 `public` 테이블을 남김 → Cleanup 순서, `public` 없는 `search_path`의 대가 → 계획·TODO, 파일 이름 단언 → 빈 디렉터리, `ROLLBACK`은 가르지 못하고 멈출 수 있음 → 빼고 연결 종료에 맡김, 스키마 붙은 이름의 잠금·첫 실패에서 멈춤 → 8번, 문서 잔재) 모두 반영. 돌연변이 8개 중 다시 읽기 검사만 살아남는다(정상 드라이버로는 재현 불가, 무시된 설정을 잡는 방어)
+
+→ 확인
+1. 루트 `go test ./internal/practicedb`: 두 방언 모두 드라이버 없이 `Open`이 위치 없는 진단 하나(메시지·fix 전문 단언)와 `nil`. 비밀번호가 든 주소를 줘도 출력에 없다
+2. `cmd/maago` SQLite: 둘을 열어 한쪽에 만든 테이블이 다른 쪽의 `Exec`에서 없다고 실패한다. FK를 어기는 `INSERT`가 `Exec`의 진단이고 위치가 준 `pos` 그대로
+3. `cmd/maago` PG("`Close` 뒤 스키마 없음"은 트랜잭션 방식에서 늘 참인 문서 성격의 단언이고, 실제로 잡는 것은 "다른 연결에 안 보임"과 `public`의 흔적): A와 B를 함께 열어 둘 다 `t`를 만들 수 있다(서로 따로, 막히지 않는다). 열려 있는 동안 다른 연결의 `pg_namespace`에 `maago_practice_`가 없다. 미리 만든 `public.t`(행 하나)는 연습용 DB에서 `SELECT * FROM t`로 보이지 않고, 연습용 DB에서 `CREATE TABLE public.t2`·`DELETE FROM public.t`를 해도 `Close` 뒤 `public.t2`는 없고 `public.t`의 행은 그대로. `Close` 뒤 `maago_practice_` 스키마가 없다. 닫힌 포트(`net.Listen("tcp", "127.0.0.1:0")`으로 번호를 얻고 닫는다)의 주소는 D-64 진단(메시지 앞부분·fix 전문)이고 비밀번호가 없다
 
 ## 3. SQL 토큰화와 문장 나누기 (`internal/dialect`)
 
@@ -150,6 +170,9 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
   - 적용 오류는 그 문장의 `파일:줄`(PG가 주는 위치가 있으면 칸까지)과 DB의 메시지
   - 바로 앞에 `-- maago: allow-drop`이 없는 `DROP`(테이블·컬럼) 문장은 그 위치의 진단(D-37, 3번). SQLite 재생성은 7번의 규칙대로
   - 모든 파일에 요구한다. `check`는 실제 DB를 보지 않으므로 적용 여부를 모르고, 표시는 파일에 남는 기록이다(D-37)
+  - 트랜잭션 제어문(`BEGIN`·`COMMIT`·`ROLLBACK`·`SAVEPOINT`), `CREATE INDEX CONCURRENTLY`, `search_path`를 바꾸는 `SET`은 그 위치의 진단. 파일은 `migrate`가 트랜잭션 하나로 감싸고(10번), PG 연습용 DB는 트랜잭션 안에서 돈다(D-96)
+  - 스키마 이름이 붙은 이름(`public.x`)은 롤백되어 남지 않지만, 연습용 DB가 닫힐 때까지 그 실제 테이블의 잠금을 쥐어 다른 세션을 막을 수 있다. 진단할지 계획에서(2번 구현 리뷰, fable)
+  - 적용은 두 방언 모두 첫 실패에서 멈춘다(PG는 실패 뒤 트랜잭션이 aborted라 더 갈 수 없다. 방언마다 오류 개수가 달라지지 않게, D-61)
 - `makemigrations`(9번)는 같은 단계를 비교의 차이를 진단으로 바꾸지 않는 모드로 쓴다(모양 절). 단계 목록을 두 벌 만들지, 비교 단계만 바꿀지는 계획에서
 - 방언을 알게 되었으므로 PG 프로젝트는 `postgres.DDL`의 63바이트 검사가 이 단계 전에 돈다(M1에서 넘어옴)
 - `gen`·`check`는 같은 단계를 돈다. 모델을 바꾸고 `makemigrations`를 잊으면 `gen`도 실패하고 fix가 `maago makemigrations`를 말한다
@@ -188,8 +211,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 ## 11. CLI와 CI
 
 - `makemigrations`(`--name`, `--rename` 반복 가능), `showmigrations`, `migrate`를 명령 표에 더한다. `flag` 디스패치, 종료 코드 D-68
-- `cmd/maago`에 드라이버 blank import(D-89), `go mod tidy`
-- CI: PostgreSQL 서비스와 `MAAGO_TEST_PG_URL`(D-91). 로컬에서 건너뛴 PG 테스트는 `-v`에 이유가 보인다
+- 드라이버 blank import(D-89)와 CI의 PostgreSQL 서비스·`MAAGO_TEST_PG_URL`(D-91)은 2번이 이미 했다. 로컬에서 건너뛴 PG 테스트는 `-v`에 이유가 보인다
 - M1의 스모크 스크립트(`internal/dialect/*/testdata/smoke.sh`)의 경우들을 `cmd/maago`의 Go 테스트로 옮기고 스크립트를 지울지 계획에서 정한다(M1에서 넘어옴)
 
 → 확인: `cmd/maago`의 `go mod tidy -diff`, 두 모듈 `go vet`·`go test`, CI에서 PG 테스트가 실제로 돈다(건너뜀 0, CI에서 변수를 빼면 실패). M2의 완료 확인은 PG를 건너뛴 로컬 결과로 대신하지 않는다
@@ -211,7 +233,6 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 ## 열린 질문 (계획 단계에서 정하거나 사람에게 묻는다)
 
-- 동시에 도는 두 실행의 연습용 스키마를 D-96의 "남은 것"과 구분하는 법(2번)
 - 재생성으로 사라지는 컬럼을 알아내는 구체적인 방법(7·8번, D-93)
 - 속도(D-65): 매번 연습용 DB 둘에 전체 마이그레이션을 적용한다. 보통 규모에서 PG 3초를 넘기는지 M2 끝에 한 번 잰다
 
@@ -219,5 +240,5 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 codex: 16건 모두 반영. 연결 하나(`*sql.Conn`)에 고정, `PRAGMA foreign_keys`의 트랜잭션 경계, 재생성 `DROP`의 판정 규칙 제안(7번), PK의 자동 생성 방식을 표현에, SQLite 카탈로그의 `origin`·`hidden`·식 인덱스·여러 컬럼 FK, `CREATE TABLE`을 최상위 쉼표로 나눠 CHECK를 제자리에, 달러 인용 태그, PG 조회의 스키마 조건과 FK를 카탈로그 열로, `makemigrations`는 차이를 허용하는 모드, 적용 함수를 2번으로 당겨 7번이 8번을 기다리지 않게, 표시는 다음 문장 하나, 기록 삽입도 같은 트랜잭션, 읽기 자체 테스트, 남은 PG 스키마(열린 질문), 로컬 skip을 완료 증거로 쓰지 않음, 손으로 바꾼 초안의 돌연변이 표(8번)
 
-사람의 결정(2026-09-26, 초안 리뷰 뒤): allow-drop은 다음 문장 하나·모든 파일(D-37 고침), 재생성 `DROP`은 파일 모양으로(D-93), 이름은 변경에서 자동·`--name`(D-94), 내용 해시(D-95), 남은 PG 스키마는 오류로 알림(D-96)
+사람의 결정(2026-09-26, 초안 리뷰 뒤): allow-drop은 다음 문장 하나·모든 파일(D-37 고침), 재생성 `DROP`은 파일 모양으로(D-93), 이름은 변경에서 자동·`--name`(D-94), 내용 해시(D-95), 남은 PG 스키마는 오류로 알림(D-96, 2026-09-27 트랜잭션 안에서 롤백으로 고침)
 Alembic의 head·base(2026-09-27): 번호가 한 줄로 이어져 head는 마지막 파일, base는 빈 DB라 따로 두지 않는다. head가 둘인 경우(브랜치마다 만든 같은 번호)는 8번의 번호 겹침 진단과 10번의 번호 바뀜 fix로, 마지막 번호는 `showmigrations`로 본다

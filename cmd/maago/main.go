@@ -12,6 +12,10 @@ import (
 
 	"github.com/maago-web/maago/internal/build"
 	"github.com/maago-web/maago/internal/diag"
+
+	// The practice database opens drivers by name (D-89, D-90).
+	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "modernc.org/sqlite"
 )
 
 type command struct {
