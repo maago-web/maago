@@ -127,6 +127,11 @@ func (p *DB) Exec(ctx context.Context, pos token.Position, stmt string) []diag.D
 	return nil
 }
 
+// QueryContext runs a query on the connection, for reading the schema.
+func (p *DB) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return p.conn.QueryContext(ctx, query, args...)
+}
+
 // Close closes the connection. For PostgreSQL that rolls back the
 // transaction and with it the practice schema (D-96): an uncommitted
 // transaction dies with its connection, so no ROLLBACK is sent that could

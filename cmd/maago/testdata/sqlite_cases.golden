@@ -1,0 +1,155 @@
+== checks
+table "t" strict=true pk=[] auto=""
+  column "a" TEXT notnull=false default=""
+  column "b" TEXT notnull=false default=""
+  column "c" INTEGER notnull=false default=""
+  unique constraint "sqlite_autoindex_t_1" ["b"]
+  check column="a" A < > ''
+  check "t_ab" column="" A < > B
+  check column="b" B < > 'z'
+  check "b_choice" column="b" B IN ( 'x,(' , 'y' )
+  check column="" C > 0
+  check column="a" LENGTH ( A ) < 10
+== keys
+table "c" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=false default=""
+  column "x" INTEGER notnull=false default=""
+  column "y" INTEGER notnull=false default=""
+  fk "c_xy_fkey" ["x" "y"] -> "p" ["x" "y"] delete=NO ACTION update=CASCADE
+table "p" strict=true pk=["y" "x"] auto=""
+  column "x" INTEGER notnull=true default=""
+  column "y" INTEGER notnull=true default=""
+== foreign keys on the same column
+table "a" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=false default=""
+table "b" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=false default=""
+table "c" strict=false pk=[] auto=""
+  column "x" INTEGER notnull=false default=""
+  fk "c_x_a" ["x"] -> "a" ["id"] delete=NO ACTION update=NO ACTION
+  fk "c_x_b" ["x"] -> "b" ["id"] delete=NO ACTION update=NO ACTION
+== names that are keywords
+table "t" strict=true pk=[] auto=""
+  column "conflict" INTEGER notnull=false default=""
+  column "match" INTEGER notnull=false default=""
+  unique constraint "sqlite_autoindex_t_1" ["conflict" "match"]
+== added column
+table "t" strict=true pk=[] auto=""
+  column "a" TEXT notnull=false default=""
+  column "c" TEXT notnull=false default=""
+  check column="c" C < > ''
+== renamed column
+table "t" strict=true pk=[] auto=""
+  column "b" TEXT notnull=false default=""
+  check column="b" LENGTH ( B ) < 10
+== dropped column
+table "t" strict=true pk=[] auto=""
+  column "b" TEXT notnull=false default=""
+  check column="b" B < > ''
+== partial index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "u" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has partial index "t_a", which maago does not support
+  fix: remove it from the migrations
+== AUTOINCREMENT in a table constraint
+table "t" strict=false pk=["id"] auto="AUTOINCREMENT"
+  column "id" INTEGER notnull=false default=""
+== descending primary key
+table "t" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=false default=""
+table "t" has descending primary key, which maago does not support
+  fix: remove it from the migrations
+== primary key with COLLATE
+table "t" strict=false pk=["a"] auto=""
+  column "a" TEXT notnull=false default=""
+table "t" has primary key with COLLATE, which maago does not support
+  fix: remove it from the migrations
+== name in single quotes
+table "t" strict=false pk=[] auto=""
+  column "order" INTEGER notnull=false default=""
+table "t" has a column name quoted with 'order', which maago does not support
+  fix: quote the name with "…" instead
+== expression index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has index "t_a" on an expression, which maago does not support
+  fix: remove it from the migrations
+== descending index
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+table "t" has descending index "t_a", which maago does not support
+  fix: remove it from the migrations
+== index with COLLATE
+table "t" strict=false pk=[] auto=""
+  column "a" TEXT notnull=false default=""
+table "t" has index "t_a" with COLLATE, which maago does not support
+  fix: remove it from the migrations
+== column with COLLATE
+table "t" strict=false pk=[] auto=""
+  column "a" TEXT notnull=false default=""
+  column "b" TEXT notnull=false default=""
+  index "t_a" ["a"]
+  check column="b" B = 'x' COLLATE NOCASE
+table "t" has COLLATE on column "a", which maago does not support
+  fix: remove it from the migrations
+== generated column
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  column "b" INTEGER notnull=false default=""
+table "t" has generated column "b", which maago does not support
+  fix: remove it from the migrations
+== WITHOUT ROWID
+table "t" strict=false pk=["a"] auto=""
+  column "a" INTEGER notnull=true default=""
+table "t" has WITHOUT ROWID, which maago does not support
+  fix: remove it from the migrations
+== trigger
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+trigger "t_tr" is not supported
+  fix: remove it from the migrations
+== view
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+view "v" is not supported
+  fix: remove it from the migrations
+== virtual table
+virtual table "v" is not supported
+  fix: remove it from the migrations
+== bracket name
+table "t" strict=false pk=[] auto=""
+  column "order" INTEGER notnull=false default=""
+  column "b" INTEGER notnull=false default=""
+table "t" has a column name quoted with [, which maago does not support
+  fix: quote the name with "…" instead
+== ON CONFLICT
+table "t" strict=false pk=[] auto=""
+  column "a" INTEGER notnull=false default=""
+  unique constraint "sqlite_autoindex_t_1" ["a"]
+table "t" has ON CONFLICT on column "a", which maago does not support
+  fix: remove it from the migrations
+== DEFERRABLE
+table "p" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=false default=""
+table "t" strict=false pk=[] auto=""
+  column "p_id" INTEGER notnull=false default=""
+  fk ["p_id"] -> "p" ["id"] delete=NO ACTION update=NO ACTION
+table "t" has DEFERRABLE on column "p_id", which maago does not support
+  fix: remove it from the migrations
+== MATCH
+table "p" strict=false pk=["id"] auto=""
+  column "id" INTEGER notnull=false default=""
+table "t" strict=false pk=[] auto=""
+  column "p_id" INTEGER notnull=false default=""
+  fk ["p_id"] -> "p" ["id"] delete=NO ACTION update=NO ACTION
+table "t" has MATCH on column "p_id", which maago does not support
+  fix: remove it from the migrations
+== unknown table
+table "t" strict=false pk=[] auto=""
+  column "p_id" INTEGER notnull=false default=""
+  column "b" INTEGER notnull=false default=""
+  fk ["p_id"] -> "nosuch" ["id"] delete=NO ACTION update=NO ACTION
+foreign key of "t" references unknown table "nosuch"
+  fix: create that table in the migrations, or fix the name after REFERENCES

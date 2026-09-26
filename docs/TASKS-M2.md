@@ -158,6 +158,52 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 3. 컬럼 CHECK와 테이블 CHECK, 한 컬럼의 CHECK 둘, 문자열 안의 괄호·쉼표, 여러 컬럼 FK, 복합 PK가 제자리에 읽힌다
 4. 위의 막는 것들이 각각 진단
 
+**계획**
+- 새 파일: `internal/schema/schema.go`(타입만, 테스트 없음), `internal/dialect/sqlite/read.go`, `cmd/maago/sqliteread_test.go`, `cmd/maago/testdata/sqlite_*.golden`. 바꿀 파일: `internal/practicedb/practicedb.go`(`QueryContext` 하나)
+- `schema` 표현(5번 PG와 같이 쓴다. 비교는 같은 방언끼리만 하므로 방언의 글을 그대로 둔다)
+  ```go
+  type Schema struct{ Tables []*Table }  // 이름 순
+  type Table struct {
+      Name    string
+      Strict  bool       // SQLite
+      Columns []Column   // 정의 순(7번의 재생성이 쓴다). 6번은 순서를 비교하지 않는다
+      PK      []string   // PK 순서
+      PKAuto  string     // "AUTOINCREMENT", PG "BY DEFAULT"/"ALWAYS", 없으면 ""
+      FKs     []FK       // (컬럼, 대상) 순
+      Indexes []Index    // unique와 보통 인덱스 모두, (Unique, 컬럼) 순
+      Checks  []Check    // (식, 컬럼) 순
+  }
+  type Column struct{ Name, Type string; NotNull bool; Default string } // Type 대문자, Default는 Normalize, 없으면 ""
+  type Index struct{ Name string; Columns []string; Unique, Constraint bool } // Constraint: SQLite origin "u", PG 제약
+  type FK struct{ Name string; Columns []string; RefTable string; RefColumns []string; OnDelete, OnUpdate string }
+  type Check struct{ Name, Column, Expr string } // Column ""은 테이블 CHECK, Expr는 Normalize한 괄호 안
+  ```
+  - **이름은 담되 맞추는 데 쓰지 않는다**(D-87은 이름으로 맞추지 않는 것이지 버리는 것이 아니다). 7번의 `DROP INDEX "…"`·`DROP CONSTRAINT "…"`가 실제 이름을 쓴다. `Constraint`는 7번이 제약을 지우는 법(SQLite `u`는 재생성, PG는 `DROP CONSTRAINT`)을 고르는 데. 6번이 맞추는 기준: unique는 정렬한 컬럼 집합, 보통 인덱스는 컬럼 순서, FK는 컬럼·대상·동작, CHECK는 `Expr`(`Column`은 진단 문구용: PG 카탈로그는 컬럼 CHECK와 테이블 CHECK를 가르지 않는다). 6번 본문에 이것과 `Strict`·`PKAuto` 변경을 더한다
+  - 컬럼 순서를 비교하지 않는 이유: `ADD COLUMN`은 두 방언 모두 끝에 붙고 모델 DDL은 필드 자리에 둔다. 비교하면 모델 중간에 필드를 넣을 때 재생성 말고는 못 고치는 차이가 영구히 남는다
+  - `OnUpdate`는 작업 본문에 없다: 손으로 쓴 `ON UPDATE CASCADE`가 모델의 FK와 같게 읽히면 조용히 통과한다(PHILOSOPHY 7). 결정에 없는 선택
+- `sqlite.Read(ctx, q Querier) (*schema.Schema, []diag.Diagnostic)`, `Querier`는 `QueryContext`만 가진 인터페이스. `practicedb.DB`가 쥔 연결로 `QueryContext`를 넘기는 메서드를 더해 이것을 만족한다(연결 하나 원칙 그대로). **진단이 있으면 8번은 비교하지 않는다**(부분 스키마의 빠진 것이 차이로 또 나오는 연쇄, D-61). 그래도 `Read`는 모든 테이블을 읽어 진단을 한 번에 낸다
+  1. `sqlite_schema`: `type`이 `view`·`trigger`면 진단. 가상 테이블의 shadow 테이블(`pragma_table_list`의 `type = 'shadow'`)은 뺀다(원인 하나에 진단 하나). `table` 중 `sqlite_`로 시작하는 것(`sqlite_sequence` 포함)과 `maago_migrations`는 뺀다. `CREATE VIRTUAL TABLE`은 진단
+  2. 테이블마다 `CREATE TABLE` 원문(SQLite가 `ALTER` 뒤 고쳐 쓴 것일 수 있다)을 `dialect.Split("", sql)`해 한 문장의 토큰으로. `Split`의 진단은 버린다(저장된 문장은 닫혀 있고, 원문에 남은 `-- maago:` 주석의 진단은 파일 단계에서 이미 났다). (`CREATE TABLE … AS SELECT`도 SQLite가 컬럼 목록으로 고쳐 저장하므로 진단할 것이 없다. 확인함) 첫 `(`와 짝 `)` 사이를 최상위 쉼표로 정의들로 나눈다. `)` 뒤 테이블 옵션의 `Word`: `STRICT` → `Strict`, `WITHOUT`(ROWID) → 진단
+     - 정의의 첫 토큰이 `CONSTRAINT`·`PRIMARY`·`UNIQUE`·`CHECK`·`FOREIGN`(대소문자 무시)이면 테이블 제약, 아니면 컬럼 정의이고 첫 토큰이 컬럼 이름(`Word` 그대로, `Quoted`는 따옴표 벗김, `[`는 진단: fix `quote the name with "…"`)
+     - 정의 안 **깊이 0**의 `CHECK` 뒤 `( … )`의 안쪽 토큰 → `Normalize` → `Check`. 바로 앞이 `CONSTRAINT 이름`이면 `Name`. 한 컬럼의 CHECK 둘은 둘
+     - 컬럼 정의의 깊이 0 `AUTOINCREMENT` → `PKAuto`
+     - 정의 안 깊이 0의 `COLLATE`·`CONFLICT`(`ON CONFLICT`)·`DEFERRABLE`·`MATCH`는 진단: 카탈로그에 없거나(`pragma_foreign_key_list.match`는 늘 `NONE`) 비교에서 빠져 조용히 같아진다(PHILOSOPHY 7). 깊이 0만: CHECK 식 안의 `COLLATE`는 비교되는 `Expr`의 일부. 작업 본문의 목록에 더한 것, 결정에 없는 선택
+  3. `pragma_table_xinfo`: 이름·타입(대문자)·`notnull`·`dflt_value`(있으면 `Split`+`Normalize`, DB가 `DEFAULT (0)`의 괄호를 벗겨 준다)·`pk`(0보다 크면 그 순서로 `PK`). `hidden`이 0이 아니면 진단(generated 컬럼)
+  4. `pragma_index_list`: `origin`이 `pk`면 건너뜀(PK가 이미 나타낸다). `partial`이면 진단. `pragma_index_xinfo`의 `key = 1` 행만(0은 rowid): `cid = -2`(식)면 진단, `desc = 1`이면 진단, `coll`이 `BINARY`가 아니면 진단. 단 그 컬럼이 2에서 `COLLATE`로 이미 진단됐으면 인덱스 쪽은 내지 않는다(원인 하나에 진단 하나, D-61). `Index{이름, 컬럼, unique, origin == "u"}`
+  5. `pragma_foreign_key_list`: `id`로 묶고 `seq` 순으로 컬럼. 이름은 원문의 `CONSTRAINT 이름 … REFERENCES 대상`에서(없으면 ""), (컬럼, 대상 테이블)로 맞춘다(`pragma_foreign_key_list`의 `id`는 선언의 역순이라 순서로는 맞출 수 없다). `to`가 NULL(`REFERENCES people`)이면 대상 테이블의 `PK`로 채운다. 대상 테이블이 읽은 테이블에 없으면 진단 `foreign key of "t" references unknown table "x"`(SQLite는 없는 테이블을 참조하는 `CREATE TABLE`을 받는다. 대소문자가 다른 이름도 여기로)
+  - 진단은 모두 위치 없음(DB에서 읽은 것), 메시지에 테이블(과 인덱스·컬럼) 이름과 무엇이 표현에 없는지, fix `maago does not support …; remove it from the migrations`. 8번이 마이그레이션 파일의 자리로 옮길지는 8번 계획에서
+  - 조회 오류(연결이 끊김 등)는 위치 없는 진단, fix `report this as a maago bug`
+- 하지 않는 것: 테이블 이름의 대소문자 무시 비교, `DEFAULT` 식의 의미 비교(`0`과 `0.0`), SQLite 3.37보다 낮은 버전(D-87의 STRICT가 이미 요구), `sqlite_schema`의 `sql`이 NULL인 테이블(내부 테이블뿐, 1에서 빠짐). `Normalize`가 `1.5`를 `1 . 5`로 만드는 것은 6번 진단 문구의 일(6번 계획에서). 타입의 affinity 비교(`INT`와 `INTEGER`는 다르게 읽힌다. 조용히 통과하지 않고 차이로 나온다)
+- 확인 테스트는 `cmd/maago`(드라이버가 거기). 스키마를 사람이 읽는 글로 늘어놓는 함수는 테스트 파일에 두고 5번 PG 테스트도 같은 것을 쓴다
+- 리뷰: fable(컬럼 순서 비교 → 하지 않음, 이름을 버림 → 담되 맞추지 않음, `Check.Column`의 뜻, `MATCH`는 늘 `NONE` → 원문에서, 따옴표 유무와 `Normalize`, `ALTER` 뒤 고쳐 쓴 원문, 없는 대상 테이블, 진단 뒤 비교 연쇄, 깊이 0, `Split` 진단 반복) 모두 반영. codex(첫 시도는 멈춰 취소, 다시: `ATTACH`·`TEMP` → 8번, `AS SELECT` → SQLite가 컬럼 목록으로 고쳐 저장함을 확인, 할 일 없음, affinity → 하지 않는 것에) 반영, `word$tag$`는 받지 않음(낱말 안의 `$`는 낱말로 읽힌다, 3번 골든의 `a$b`). 구현 리뷰: ponytail(`rows`의 인자, 테스트의 `extra` 줄임), codex(같은 컬럼에서 다른 테이블을 가리키는 FK 둘의 이름 → (컬럼, 대상)으로 맞춤. "CONSTRAINT 이름이 지워진다"는 받지 않음: 골든에 이름이 남는다. 샌드박스로 테스트는 못 돌림), fable(PK 인덱스의 `DESC`·`COLLATE`가 조용히 통과 → PK도 검사, `PRIMARY KEY (id AUTOINCREMENT)` → 읽음, FK 이름을 맞추는 법의 문구, `maago_migrations` 제외와 진단 뒤에도 읽는 것을 테스트로, `'이름'` 컬럼, fix 문구, 빈 `(`의 panic 경로) 반영. `Column.Type`의 대문자는 5번이 PG `format_type`을 대문자로 올린다. 분기마다 돌연변이를 넣어 모두 잡는 것을 확인
+- 12번에 적을 것: 완료 조건 테스트가 필드를 끝에만 붙이면 컬럼 순서 문제가 숨으므로 중간에 넣는 필드를 하나 둔다
+
+→ 확인 (`cmd/maago`에서 `go test -count=1 -run SQLiteRead ./...`)
+1. `internal/dialect/sqlite/testdata/example.sql`(M1 골든)을 연습용 DB에 적용해 읽은 것이 `testdata/sqlite_example.golden`과 같다. 골든은 손으로 한 줄씩 대조한다
+2. 같은 스키마를 공백·줄바꿈·대소문자·**정의의 이름**의 따옴표 유무(CHECK 식 안은 그대로: `Normalize`가 `"title"`과 `title`을 가른다, TODO)·`DEFAULT (0)`·`REFERENCES people`(컬럼 생략)·주석·인덱스 이름만 다르게 손으로 쓴 것이 1과 같은 글로 읽힌다(이름은 골든에서 뺀 글로 비교). `UNIQUE` 제약(인덱스 대신)은 `Constraint`만 다르다
+3. `testdata/sqlite_cases.golden`: 컬럼 CHECK와 테이블 CHECK, 한 컬럼의 CHECK 둘, 문자열 안의 괄호·쉼표(`CHECK (a IN ('x,(', 'y'))`), `CONSTRAINT 이름 CHECK`, 여러 컬럼 FK, 복합 PK, `ON UPDATE CASCADE`, 비-STRICT. SQLite가 고쳐 쓴 원문: `ALTER TABLE … ADD COLUMN c TEXT CHECK (…)`, `RENAME COLUMN`(CHECK 식 안의 이름도 바뀐다), `DROP COLUMN` 뒤 각각
+4. 막는 것 각각 진단 하나(골든): 부분 인덱스, 식 인덱스, `DESC` 인덱스, `COLLATE` 인덱스, `COLLATE` 컬럼(+ 그 컬럼의 인덱스: 진단 하나), generated 컬럼, `WITHOUT ROWID`, 트리거, 뷰, 가상 테이블, `[이름]`, `ON CONFLICT`, `DEFERRABLE`, `MATCH FULL`, 없는 대상 테이블. 진단이 있어도 나머지 테이블은 읽는다(D-61)
+
 ## 5. PG 읽기 (`internal/dialect/postgres`)
 
 - `pg_catalog`에서, 모든 조회에 연습용 스키마의 `nspname` 조건. 타입은 `format_type`, 기본값은 `pg_get_expr`, CHECK 식은 `pg_get_constraintdef`에서 식만. FK는 문자열이 아니라 `pg_constraint`의 `conkey`·`confrelid`·`confkey`·`confdeltype`으로, 제약 이름은 버린다. IDENTITY는 `attidentity`
@@ -167,7 +213,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 ## 6. 비교 (`internal/migrate`)
 
-- `Diff(from, to schema.Schema) []Change`. 테이블·컬럼 추가·삭제, 컬럼 타입·NULL·기본값·CHECK 변경, PK·FK·unique·index 추가·삭제
+- `Diff(from, to schema.Schema) []Change`. 테이블·컬럼 추가·삭제, 컬럼 타입·NULL·기본값·CHECK 변경, PK·FK·unique·index 추가·삭제, `Strict`·`PKAuto` 변경. 맞추는 기준과 컬럼 순서를 비교하지 않는 것은 4번 계획
 - 변경은 결정적인 순서로(테이블은 모델 순, 삭제는 의존의 역순). 초안과 진단이 같은 순서를 쓴다
 - 진단 문구: `migrations do not match models: column "body" of "blog_post" is missing`처럼 테이블·컬럼을 DB 이름으로. 위치는 모델 필드(모델에서 온 쪽이면) 또는 없음. fix는 `run maago makemigrations`
 - 이름 변경은 여기서 판정하지 않는다. 비교는 삭제+추가를 낸다(D-37: 결과 스키마만으로는 구분되지 않는다)
@@ -199,6 +245,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
   - 트랜잭션 제어문 목록에 `PREPARE TRANSACTION`·`COMMIT PREPARED`·`ROLLBACK PREPARED`도: 연습용 트랜잭션을 연결이 끊겨도 남는 객체로 바꾼다(D-96)
   - SQLite `CREATE TRIGGER … BEGIN …; END;`는 3번이 본문의 `;`에서 나누므로 DB 문법 오류가 먼저 난다. 첫 두 `Word`가 `CREATE TRIGGER`면 적용 전에 `triggers are not supported`로 진단(4번이 막는 것과 같은 이유)
   - PG 오류의 `Position`은 문장 안의 1부터 세는 **글자** 번호다. `Stmt.Pos.Offset`(바이트)에 더하기 전에 글자를 바이트로 바꾼다
+  - `ATTACH`, `CREATE TEMP`(`TEMPORARY`) 문장은 진단: 읽기(4·5번)는 연습용 스키마만 보므로 그 밖의 객체는 비교에서 빠진다
   - 적용은 두 방언 모두 첫 실패에서 멈춘다(PG는 실패 뒤 트랜잭션이 aborted라 더 갈 수 없다. 방언마다 오류 개수가 달라지지 않게, D-61)
 - `makemigrations`(9번)는 같은 단계를 비교의 차이를 진단으로 바꾸지 않는 모드로 쓴다(모양 절). 단계 목록을 두 벌 만들지, 비교 단계만 바꿀지는 계획에서
 - 방언을 알게 되었으므로 PG 프로젝트는 `postgres.DDL`의 63바이트 검사가 이 단계 전에 돈다(M1에서 넘어옴)

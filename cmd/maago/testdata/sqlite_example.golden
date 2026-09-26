@@ -1,0 +1,39 @@
+table "blog_post" strict=true pk=["id"] auto="AUTOINCREMENT"
+  column "id" INTEGER notnull=false default=""
+  column "author_id" INTEGER notnull=true default=""
+  column "title" TEXT notnull=true default=""
+  column "slug" TEXT notnull=true default=""
+  column "status" TEXT notnull=true default="'draft'"
+  column "views" INTEGER notnull=true default="0"
+  column "likes" INTEGER notnull=true default="0"
+  column "score" REAL notnull=false default="1 . 5"
+  column "public" INTEGER notnull=true default="1"
+  column "body" BLOB notnull=true default=""
+  column "published_at" TEXT notnull=false default=""
+  index "blog_post_author_id_idx" ["author_id"]
+  index "blog_post_status_idx" ["status"]
+  unique "blog_post_author_id_slug_key" ["author_id" "slug"]
+  unique "blog_post_slug_key" ["slug"]
+  fk "blog_post_author_id_fkey" ["author_id"] -> "people" ["id"] delete=NO ACTION update=NO ACTION
+  check column="public" "public" IN ( 0 , 1 )
+  check column="status" "status" IN ( 'draft' , 'published' )
+  check column="slug" LENGTH ( "slug" ) < = 100
+  check column="title" LENGTH ( "title" ) < = 200
+table "people" strict=true pk=["id"] auto="AUTOINCREMENT"
+  column "id" INTEGER notnull=false default=""
+  column "name" TEXT notnull=true default=""
+  column "parent_id" INTEGER notnull=false default=""
+  column "editor_id" INTEGER notnull=true default=""
+  column "reviewer_id" INTEGER notnull=false default=""
+  column "code" TEXT notnull=true default=""
+  column "order" INTEGER notnull=true default="7"
+  column "admin" INTEGER notnull=true default="0"
+  index "people_code_idx" ["code"]
+  index "people_parent_id_idx" ["parent_id"]
+  index "people_reviewer_id_idx" ["reviewer_id"]
+  unique "people_code_key" ["code"]
+  unique "people_editor_id_key" ["editor_id"]
+  fk "people_editor_id_fkey" ["editor_id"] -> "people" ["id"] delete=NO ACTION update=NO ACTION
+  fk "people_parent_id_fkey" ["parent_id"] -> "people" ["id"] delete=NO ACTION update=NO ACTION
+  fk "people_reviewer_id_fkey" ["reviewer_id"] -> "people" ["id"] delete=NO ACTION update=NO ACTION
+  check column="admin" "admin" IN ( 0 , 1 )
