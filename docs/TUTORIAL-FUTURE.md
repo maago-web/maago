@@ -154,8 +154,8 @@ maago migrate
 maago makemigrations --rename posts.text:body
 ```
 
-컬럼을 지우는 `DROP`이 들어간 마이그레이션은, 파일 안에 `-- maago: allow-drop`을 적어야
-`check`를 통과합니다. 실수로 데이터를 지우지 않게 하려는 장치입니다.
+컬럼이나 테이블을 지우는 `DROP` 문장은, 바로 앞 줄에 `-- maago: allow-drop`을 적어야
+`check`를 통과합니다. 실수로 데이터를 지우지 않게 하려는 장치입니다. 표시는 바로 다음 문장 하나에만 붙습니다.
 
 ## 5. 관리자 화면과 로그인
 

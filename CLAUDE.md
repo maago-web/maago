@@ -1,0 +1,11 @@
+# Maago에서 일하기
+
+- 먼저 [README.md](README.md)의 문서 목록을 읽는다. 일하는 방법은 [docs/WORKFLOW.md](docs/WORKFLOW.md)의 루프를 따른다.
+- **다음 작업**: [docs/MILESTONES.md](docs/MILESTONES.md)에서 진행 중인 마일스톤의 `TASKS-Mn.md`를 연다. 끝난 작업은 `git log`에 `(Mn N번)`으로 커밋되어 있다. 그다음 번호가 다음 작업이다.
+- 리뷰어 부르는 법
+  - codex: `codex:codex-rescue` 서브에이전트. "읽기 전용 리뷰, 파일을 고치지 말 것"이라고 명시한다.
+  - fable: `general-purpose` 서브에이전트에 `model: fable`.
+  - 두 리뷰어는 한 메시지에서 병렬로 띄운다.
+- 확인 명령: 루트와 `cmd/maago`에서 각각 `go vet ./... && go test ./...`, `cmd/maago`는 `go mod tidy -diff`도. `gofmt -l .`은 비어야 한다.
+- PG 테스트(M2~): `MAAGO_TEST_PG_URL`이 있어야 돈다(D-91). M1의 PG 스모크는 `sh internal/dialect/postgres/testdata/smoke.sh`(임시 클러스터).
+- 커밋 메시지는 한국어, `종류(범위): 내용 (Mn N번, D-xx)`. 공동 작성자 표시는 붙이지 않는다. push는 묻고 한다.
