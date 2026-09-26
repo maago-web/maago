@@ -127,6 +127,7 @@ LIMIT :limit
 | D-94 | 마이그레이션 파일 이름은 `NNNN_이름.sql`. 첫 파일은 `0001_initial`, 그 뒤는 변경에서 짓고(`0002_add_blog_post_body`, 여럿이면 테이블 이름) `--name`으로 덮는다. 파일 머리는 두지 않는다 | v0 | 목록만 보고 무슨 변경인지 안다. 2026-09-26 |
 | D-95 | `migrate`는 적용한 파일의 내용 해시를 `maago_migrations`에 기록하고, 적용 뒤 바뀐 파일은 `migrate`·`showmigrations`의 오류다 | v0 | 연습용 DB와 실제 DB가 조용히 달라지지 않는다(PHILOSOPHY 7). 2026-09-26 |
 | D-96 | 남은 PG 연습용 스키마(`maago_practice_…`)는 지우지 않고 오류로 알린다. fix에 지우는 SQL을 적는다 | v0 | 개발 DB의 것을 조용히 지우지 않는다. 2026-09-26 |
+| D-97 | `.env`는 D-08의 최소 형식만 받고 나머지는 `.env:줄` 오류: 같은 키 두 번, `export`, 줄 뒤 주석(따옴표 없는 값의 공백, 닫는 따옴표 뒤 글자). 주소는 `sqlite:FILE`·`postgres://`·`postgresql://`, 스킴은 소문자. 환경 변수는 빈 값이어도 이긴다. 진단에 주소와 잘못된 줄 내용을 싣지 않는다. 방언 이름(`project.Dialect`)은 `project`에 | v0 | 어느 값이 이기는지 추측하지 않는다(PHILOSOPHY 6). PG 주소에 비밀번호가 있다. `dialect`에 두면 테스트 빌드가 순환한다. M2 1번, 2026-09-27 |
 
 ## E. HTTP 계층
 

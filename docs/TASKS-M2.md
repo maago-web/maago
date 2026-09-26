@@ -59,6 +59,25 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 → 확인: 표 테스트(주석·빈 줄·따옴표·`export` 없음·`=` 없는 줄·같은 키 두 번·모르는 스킴·환경 변수 우선·`.env` 없음). 오류 위치가 `.env:줄`
 
+**계획**
+- 새 파일: `internal/project/database.go`, `database_test.go`. 다른 패키지는 건드리지 않는다. 결정에 없는 선택은 완료 때 D-97로
+- `type Dialect string`, 상수 `SQLite = "sqlite"`, `Postgres = "postgres"`. `project`에 둔다: `dialect`는 `model`을 import하고 `model`의 테스트(`package model`)가 `project`를 import하므로 `project → dialect`는 테스트 빌드에서 순환이다. ARCHITECTURE §2의 "다른 패키지는 방언을 모른다"는 SQL의 차이를 말한다. `project`는 스킴으로 방언의 **이름**만 알고 차이는 모른다(12번 ARCHITECTURE 갱신에 `project/` 줄을 더한다). 결정에 없는 선택
+- `Database(root string, lookupEnv func(string) (string, bool)) (Dialect, string, []diag.Diagnostic)`. 진단이 하나라도 있으면 `"", ""`를 돌려준다(반쪽 값을 쓰지 않게, 10번은 파이프라인 밖에서도 부른다). `lookupEnv`는 `os.LookupEnv` 모양: 빈 환경 변수와 없는 것을 가른다
+  1. `root/.env`를 읽는다. 없으면 빈 파일과 같다. 그 밖의 읽기 오류는 위치 없는 진단(`Root`와 같은 모양)
+  2. 줄마다(`\r`은 벗긴다) 앞뒤 공백을 벗기고: 빈 줄과 `#`로 시작하는 줄은 넘긴다. 나머지는 첫 `=`로 나눠 키와 값의 앞뒤 공백을 벗긴다(`KEY = v`도 받는다)
+  3. 형식 오류는 모두 `.env:줄`의 진단이고 fix는 경우마다: `=` 없음(`write KEY=VALUE`), `export `로 시작(`remove "export"`), 키가 `[A-Za-z_][A-Za-z0-9_]*`가 아님, 짝 없는 따옴표(`close the quote`), 따옴표 없는 값에 공백(`quote the value or remove the trailing comment`: `sqlite:app.db # dev`가 조용히 경로가 되지 않게. URL에는 공백이 없다)
+  4. 값이 `"`나 `'`로 시작하면 같은 따옴표로 끝나야 하고(길이 2 이상), 그 한 쌍만 벗긴다. 이스케이프는 해석하지 않는다. 따옴표 없는 값의 `#`은 값의 일부다(PG 비밀번호에 쓰일 수 있다, 줄 뒤 주석은 없다)
+  5. 같은 키가 두 번이면 두 번째 줄의 진단, 키가 무엇이든. §6의 "모르는 형식"보다 엄격하지만 어느 쪽이 이기는지 추측하지 않는다(PHILOSOPHY 6). 결정에 없는 선택
+  6. `.env`의 줄 진단은 환경 변수가 이길 때도 모두 낸다(D-61, 조용히 넘기지 않는다)
+  7. 환경 변수가 **있으면**(빈 값이어도) 그것, 아니면 `.env`의 값. 빈 값은 그 출처의 진단(`.env:줄: MAAGO_DATABASE_URL is empty` 또는 위치 없는 `environment variable MAAGO_DATABASE_URL is empty`). 둘 다 없으면 위치 없는 `MAAGO_DATABASE_URL is not set`, fix `add MAAGO_DATABASE_URL=sqlite:app.db or MAAGO_DATABASE_URL=postgres://localhost:5432/myapp to .env`. 단 `.env`에 줄 진단이 있으면 "not set"은 내지 않는다(깨진 줄이 그 키였을 수 있다, D-61 연쇄)
+  8. 방언: `sqlite:` 뒤에 무언가 있으면 SQLite(경로는 해석하지 않는다. 10번이 루트 기준으로 쓴다), `postgres://`·`postgresql://`는 Postgres. 그 밖(`sqlite:`만, `sqlite://`, 모르는 스킴, 스킴 없음)은 진단, fix에 두 형식. 스킴은 소문자만 받는다(결정에 없는 선택, 규칙 하나)
+- 진단의 위치: 값이 `.env`에서 왔으면 `.env:줄`, 환경 변수에서 왔으면 위치 없음이고 메시지에 `environment variable MAAGO_DATABASE_URL`
+- **진단에 주소도 줄 내용도 싣지 않는다.** PG 주소에 비밀번호가 있다. 모르는 스킴은 첫 `:` 앞이 스킴 모양(RFC 3986)일 때만 보이고, 아니면 `no scheme`이라고만 한다. 잘못된 키는 싣지 않는다(키를 빼먹고 붙여 넣은 주소일 수 있다). 올바른 키 이름은 싣는다
+- 하지 않는 것: 파이프라인 연결(8번), `export`·줄 뒤 주석·이스케이프·여러 줄 값·변수 치환, 경로 해석
+- 리뷰: codex(같은 키일 때 값, 연쇄 "not set", `Dialect` 자리와 §2, 비밀 노출 테스트, 환경 변수 행 나누기, 8번의 통합 확인), fable(연쇄 "not set", 빈 값의 위치와 빈 환경 변수, 따옴표 없는 값의 ` # 주석`, 빠진 행, 표 전체의 비밀 단언, 반환값, 결정에 없는 선택 표시, fix를 경우마다) 모두 반영. `Dialect`를 별도 잎 패키지로(codex)는 받지 않는다: 상수 둘에 패키지 하나는 과하고, fable의 "이름만 안다"로 §2와 맞춘다. 구현 리뷰: ponytail(키 검사는 `regexp`, 표와 겹치는 연쇄 테스트 삭제), codex(BOM → 벗긴다. 샌드박스로 테스트는 못 돌림), fable(잘못된 키를 인용해 비밀번호가 샘 → 싣지 않음, 닫힌 따옴표 뒤 주석을 "unclosed quote"로 내어 fix대로 고치면 통과 → 따로 진단, 스킴 모양이 아닌 `:` 앞도 찍힘 → `no scheme`, fix 문구를 글자로 고정·진단 개수 단언, `sqlite://`가 통과 → 진단, 빈 환경 변수의 fix) 모두 반영. 새 분기마다 돌연변이를 넣어 테스트가 잡는 것을 확인
+
+→ 확인 (`go test -count=1 ./internal/project`): 표 테스트 한 벌, 행마다 `.env` 내용(또는 없음), 환경 변수(없음·빈 값·값), 기대한 방언·주소, 또는 기대한 진단 전문(`.env:줄: …`과 fix). 행: 주석·빈 줄·CRLF, 두 따옴표, 짝 없는 따옴표, `#`이 든 값, ` # 주석`이 붙은 값, `KEY = v`, `export`, `=` 없는 줄, 잘못된 키, 같은 키 두 번(다른 키도), `export MAAGO_DATABASE_URL=…` 한 줄만(진단 정확히 하나), 모르는 스킴·스킴 없음·`sqlite:`만, `postgresql://`, 환경 변수 정상 + `.env` 모르는 스킴(환경 변수가 이긴다), 환경 변수가 모르는 스킴 + `.env` 정상(위치 없음, `environment variable` 문구), 환경 변수 정상이어도 `.env`의 줄 오류는 나온다, `.env` 빈 값(`.env:줄`), 빈 환경 변수 + `.env` 정상(빈 값 진단, `.env`로 떨어지지 않는다), `.env` 없음 ± 환경 변수. 표 전체에 걸쳐: 비밀번호 `s3cret`를 넣은 주소가 어느 행의 출력에도 없다, 진단이 있는 행은 `"", ""`. 읽기 오류는 `.env`를 디렉터리로 만들어 확인
+
 ## 2. 연습용 DB (`internal/practicedb`)
 
 - `Open(ctx, dialect, url) (*DB, []diag)`와 `Close`. 드라이버 이름(`sqlite`, `pgx`)으로 `sql.Open`하고, 드라이버는 `cmd/maago`가 등록한다(D-90). `DB`는 `*sql.Conn` 하나를 쥐고, 모든 일(PRAGMA, 스키마 생성, 적용, 읽기, 삭제)이 그 연결에서 일어난다
@@ -140,7 +159,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 1. 루트 모듈: 드라이버 없는 `Check`가 D-64 진단(위치 없음, fix 있음)으로 실패하고 아무것도 쓰지 않는다
 2. `cmd/maago` 모듈, 두 방언: 모델과 맞는 마이그레이션 → `check` 0. 그 뒤 초안을 한 곳씩 손으로 바꾼 표(완료 조건 2): 컬럼 삭제, 타입, NOT NULL, 기본값, CHECK 완화(`max` 삭제, 선택지 하나 더), FK 삭제·`ON DELETE CASCADE`, unique 삭제, index 컬럼 순서, `AUTOINCREMENT`·IDENTITY 삭제. 각각 `check` 1이고 문구가 바뀐 곳을 말한다
 3. 표시(완료 조건 3): 표시 없는 `DROP` → 그 문장 위치의 진단. 표시가 다른 문장에 붙은 경우, `DROP` 둘 중 하나만 표시한 경우. SQLite 재생성의 `DROP TABLE`은 표시 없이 통과하지만, 옮기는 `SELECT`에서 컬럼 하나를 빼면 진단(D-93)
-4. 문법 오류 문장은 그 줄을 짚는다. 번호 빈틈은 파일 위치의 진단
+4. 문법 오류 문장은 그 줄을 짚는다. 번호 빈틈은 파일 위치의 진단. 하위 디렉터리에서 돌려도 루트의 `.env`를 읽고, `.env` 오류면 아무것도 쓰지 않는다(1번)
 5. 두 브랜치가 각자 만든 `0003`이 함께 있으면 두 파일 위치의 진단, fix는 나중에 합친 쪽을 다음 번호로 바꾸고 `maago check`를 다시 돌리라는 것. 바꾼 뒤 두 파일을 차례로 적용한 결과는 기존 비교가 확인한다(Alembic의 head가 둘인 경우. merge 리비전 같은 개념은 두지 않는다)
 
 ## 9. `makemigrations`
@@ -178,7 +197,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 ## 12. 완료 조건 종단 테스트와 문서
 
 - 완료 조건 세 개를 그대로 `cmd/maago` 모듈의 테스트로: 빈 임시 프로젝트에서 모델 추가 → 필드 추가 → 필드 이름 변경(`--rename`) → 필드 삭제(표시를 단다), 단계마다 `makemigrations` → `check` 0, 끝에 새 DB에 `migrate`한 결과를 읽어 모델 DDL을 적용해 읽은 것과 같다. 두 방언
-- ARCHITECTURE(§2 `schema`·`practicedb`·`migrate`의 실제 모양, §3 DB 검사 단계), TUTORIAL-FUTURE §4(초안 모양, 가정 목록 4 지우기), TODO(`PRAGMA` 항목 닫기, 미룬 것 더하기) 갱신
+- ARCHITECTURE(§2 `schema`·`practicedb`·`migrate`의 실제 모양과 `project`의 `.env`·방언 이름, §3 DB 검사 단계), TUTORIAL-FUTURE §4(초안 모양, 가정 목록 4 지우기), TODO(`PRAGMA` 항목 닫기, 미룬 것 더하기) 갱신
 
 → 확인: 위 테스트가 두 방언에서 통과하고, 단계 하나를 빼거나(`--rename` 없이, 표시 없이, 초안 한 줄을 손으로 바꿔) 돌리면 해당 완료 조건이 실패한다
 
