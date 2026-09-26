@@ -150,6 +150,18 @@ func TestPracticePostgres(t *testing.T) {
 	}
 }
 
+// Strings are read as dialect.Split reads them, whatever the server's
+// default (here turned off for the connection).
+func TestPracticePostgresStrings(t *testing.T) {
+	url := pgURL(t)
+	sep := "?"
+	if strings.Contains(url, "?") {
+		sep = "&"
+	}
+	db := openPractice(t, project.Postgres, url+sep+"standard_conforming_strings=off")
+	mustExec(t, db, `SELECT 'a\'`)
+}
+
 // A server that is not running is reported with how to start it (D-64),
 // and the password stays out of the message.
 func TestPracticePostgresRefused(t *testing.T) {

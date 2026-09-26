@@ -115,17 +115,41 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 ## 3. SQL 토큰화와 문장 나누기 (`internal/dialect`)
 
-- 두 곳에 쓴다: 마이그레이션 파일을 문장으로 나누기(2·8번, DB 오류를 문장의 `파일:줄`로 짚고 PG의 여러 문장 제한을 피한다), SQLite `CREATE TABLE` 원문의 구조 읽기(4번, D-92)
+- 두 곳에 쓴다: 마이그레이션 파일을 문장으로 나누기(2·8번, DB 오류를 문장의 `파일:줄`로 짚고, 8번이 문장마다 `DROP`·트랜잭션 제어문을 본다), SQLite `CREATE TABLE` 원문의 구조 읽기(4번, D-92)
 - 문자열(`'…'`, `''`), 인용 식별자(`"…"`), 주석(`--`, `/* */`), PG의 `$tag$…$tag$`(여는 태그와 같은 태그에서만 닫힌다)를 안다. 줄·칸 위치를 가진다
 - `-- maago: allow-drop`(D-37)은 **바로 다음 문장 하나**에 붙는다. 한 파일의 여러 `DROP`은 하나씩 허락한다. 모르는 `-- maago:` 표시와 문장이 따라오지 않는 표시는 진단(닫힌 목록, D-17과 같은 원칙)
 - 정규화: 공백을 하나로, 키워드는 대문자, 인용 식별자와 문자열은 그대로. 비교에만 쓴다
 
 → 확인: 표 테스트. 문장마다 내용과 시작 줄·칸을 본다(세미콜론이 든 문자열·주석, `$$`·`$fn$` 본문, 서로 다른 태그가 겹친 본문, 닫히지 않은 문자열·주석·달러 인용의 위치 있는 진단, 빈 문장, 마지막 세미콜론 없음, CRLF). 표시가 다음 문장에만 붙는지
 
+**계획**
+- 새 파일: `internal/dialect/split.go`, `split_test.go`, `testdata/split.golden`. 다른 코드는 건드리지 않는다
+- **원칙**: 토큰화가 DB와 달라도 DB보다 **적게 보지는 않는다**. maago가 문자열·주석으로 보는 곳을 DB가 SQL로 읽으면 그 안의 `DROP`·`COMMIT`이 8번의 검사를 피한다. 반대 방향(maago가 SQL로 보는 곳이 DB에는 문자열)은 문장이 잘못 나뉘어 DB 오류나 과한 진단이 될 뿐 조용히 통과하지 않는다. 그래서 문자열을 여는 규칙은 두 방언의 합집합이되 한쪽에만 있는 것(`` ` ``·`E'`·`$$`)은 다른 쪽 DB에서 경계 조각이 오류가 나는 것만, 닫는 규칙은 DB와 같게. PG의 `standard_conforming_strings = off`(보통 `'…'` 안의 `\`가 이스케이프)는 연습용 DB가 `SET LOCAL … = on`으로 막는다(2번 코드, 3번 구현 리뷰 codex)
+- `Split(filename, src string) ([]Stmt, []diag.Diagnostic)`. `Stmt{Pos token.Position; SQL string; Tokens []Token; AllowDrop token.Position}`. `SQL`은 첫 토큰부터 마지막 토큰까지의 원문(안의 주석 포함, 끝 `;`와 그 앞 주석 제외): DB에 그대로 보낸다. `Pos`는 첫 토큰의 줄·칸(바이트 칸, Go와 같이)과 `Offset`(8번이 PG 오류의 글자 위치를 파일 위치로 옮길 때). `AllowDrop`은 붙은 표시의 `--` 위치, 없으면 영값(8번이 표시 줄을 짚을 수 있게). 4번은 `CREATE TABLE` 원문을 `Split("", 원문)`해 한 문장의 `Tokens`를 쓰고, 8번은 `Tokens`로 `DROP`·트랜잭션 제어문을 알아본다
+- `Token{Kind; Text string; Pos token.Position}`. 종류 넷: `Word`(따옴표 없는 이름·키워드·숫자 조각: 글자(`unicode.IsLetter`)·숫자·`_`, 둘째 글자부터 `$`), `Quoted`(`"…"`와 `` `…` ``, 안의 두 겹 따옴표), `Literal`(`'…'`와 안의 `''`, `E'…'`, 달러 인용), `Punct`(그 밖의 글자 하나씩: `::`는 `:` 둘. SQLite의 `[이름]`도 여기: PG에서는 배열 첨자이고, `Punct`로 보는 쪽이 위 원칙의 안전한 방향). 주석은 토큰이 아니다. `Text`는 원문 그대로(따옴표 포함)
+- `E'…'`(PG, 앞이 낱말이 아닌 `E`·`e` 바로 뒤 `'`): 안의 `\`가 다음 글자를 가린다. 이것을 모르면 `E'\''` 뒤를 통째로 문자열로 읽어 위 원칙을 어긴다(codex·fable). SQLite에서는 문법 오류이므로 DB가 낸다
+- 달러 인용: 낱말 안이 아닌 `$` 뒤에 태그(글자·`_`로 시작, 뒤는 글자·숫자·`_`, 없어도 됨)와 `$`가 오면 여는 태그. 같은 태그가 나올 때까지가 본문. `$1`(숫자)은 `Punct` `$`와 `Word` `1`
+- 주석: `--`는 줄 끝까지(`\r\n`의 `\r`은 공백), `/* */`는 겹치지 않는다. PG의 겹친 주석은 잘못 토큰화되지만 maago가 주석을 일찍 닫는 쪽이라 위 원칙의 안전한 방향(DB 오류나 과한 진단)
+- 닫히지 않은 문자열·인용 식별자·주석·달러 인용: 여는 곳의 위치에 진단(`unterminated string`, fix `close it with '`처럼 닫는 글자). 진단이 있으면 문장을 돌려주지 않는다(뒤가 모두 그 안이다). 표시 진단만 있으면 문장은 돌려준다
+- 문장: 최상위 `;`로 나눈다. 토큰이 없는 문장(`;;`, 주석만)은 버린다. 마지막 `;`가 없어도 된다
+- 표시(D-37): `--` 뒤 공백을 벗긴 글이 `maago:`(소문자)로 시작하는 줄 주석. `maago:` 뒤 공백을 벗긴 글이 `allow-drop`이어야 한다(`--maago:allow-drop`도 같다. 결정에 없는 선택: 정본 하나를 공백만 무시하고 맞춘다. fix에는 정본만). `/* maago: … */`는 표시가 아니라 주석이다(표시는 한 줄 주석 하나로만, 규칙을 늘리지 않는다). 위치는 `--`. 한 표시에 진단은 하나, 아래 순서로 처음 걸린 것
+  1. 모르는 표시: `unknown maago marker "…"`, fix `the only marker is -- maago: allow-drop`(닫힌 목록, D-17)
+  2. 같은 줄 앞에 토큰이 있다(`DROP TABLE x; -- maago: allow-drop`): `-- maago: allow-drop must be on its own line`, fix `move it to its own line right before the DROP statement`. 앞 문장에 붙는 것처럼 읽히지만 다음 문장에 붙는 자리를 막는다(PHILOSOPHY 5)
+  3. 앞 줄들에서 연 문장이 `;`로 닫히지 않았다(대개 앞 문장의 `;`를 빠뜨린 것): `-- maago: allow-drop is inside the statement starting at line N`, fix `end the statement starting at line N with ;`(fable: 이때 "혼자 있어야" 문구는 고칠 수 없는 조언)
+  4. 다음 줄이 문장의 첫 토큰으로 시작하지 않는다(빈 줄, 주석, 다른 표시, 파일 끝): `-- maago: allow-drop is not on the line right before a statement`, fix `put it on the line right before the DROP statement`. D-37의 "바로 앞"을 글자 그대로: 표시와 문장 사이에 아무것도 두지 않는다. 겹친 표시도 여기로(규칙 하나 적게, fable)
+  - 붙은 문장이 `DROP`인지는 보지 않는다. 8번이 `Tokens`로 보고, `DROP`이 아닌 문장에 붙은 표시도 8번이 진단한다(8번 본문에 더함)
+- `Normalize(toks []Token) string`: `Word`는 대문자, 나머지는 그대로, 토큰 사이 공백 하나. `a(b)`와 `a ( b )`가 같다("공백을 하나로"보다 강하다: 4번이 CHECK 식을 비교할 때 괄호 둘레 공백이 달라도 같게). 비교에만 쓴다. 한계 둘: `"title"`과 `title`은 다르다(SQLite에서는 같은 이름 → TODO), 여러 글자 연산자(`<=`)와 띄어 쓴 것(`< =`)이 같아진다(띄어 쓴 쪽은 DB가 받지 않으므로 비교할 두 식에 함께 나오지 않는다)
+- 방언 인자는 두지 않는다: 위 원칙 아래서 두 방언의 합집합으로 충분하다
+- 하지 않는 것: PG의 겹친 주석·SQLite의 `[…]` 인용(위), 트리거 본문(`BEGIN … END;` 안의 `;`, 트리거는 4번이 막는다), 키워드 목록(모든 `Word`를 대문자로), 숫자 해석(`1.5e3`은 여러 토큰이지만 양쪽에 같게)
+- 계획 리뷰: codex(`E'…'` → 다룸, SQLite `[…]`·`` ` `` → `` ` ``는 인용, `[`는 원칙에 따라 `Punct`, 유니코드 식별자·태그 → 다룸, `ALTER … DROP COLUMN`과 `END`·`ABORT`·`START TRANSACTION`·`RELEASE`·`RESET` → 8번 본문에, 겹친 주석 → 원칙의 안전한 방향, 연산자 정규화 → 한계로 적음, `DROP`이 아닌 문장의 표시 → 8번, `public.x` → 8번 계획에서, 숫자 → 양쪽에 같게, 실제 DB prepare 확인 → 8번의 종단 테스트). fable(표시는 "바로 앞 줄"로 엄격하게, 문장 중간 표시는 `;` 빠짐으로 진단, 빠진 fix·위치, 8번의 의무와 `AllowDrop` 위치, 표시 진단 때의 반환, `E'\''`, 골든에 토큰 열과 빠진 경우들, `Offset`, `"title"` TODO, 공백 무시 표시는 결정에 없는 선택) 모두 반영. 구현 리뷰: ponytail(지울 것 없음), codex(PG `standard_conforming_strings = off`면 `'a\';…`의 `DROP`이 숨음 → 연습용 DB가 켠다, 테스트는 연결 인자로 서버 기본값을 끈 채 확인. 표시 다음 줄의 `/* */` 뒤 문장에 표시가 붙음 → 사이에 줄바꿈만 허용. 샌드박스로 테스트는 못 돌림), fable(규칙 2·3의 순서를 가르는 경우, `PREPARE TRANSACTION`·트리거·PG 글자 위치 → 8번, `[이름]` → 4번, 원칙 문장과 "여러 문장 제한" 문구 고침, 패키지 주석) 모두 반영. 분기마다 돌연변이를 넣어 모두 잡는 것을 확인.
+
+→ 확인 (`go test -count=1 ./internal/dialect`): 골든 파일 하나에 입력마다 문장(시작 `줄:칸`, 표시 위치, `SQL`, 토큰 열 `종류:글`)과 진단. 입력: 세미콜론이 든 문자열·인용 식별자·`` ` ``·`--`·`/* */`, `'it''s; x'`·`"a""b;"`(두 겹 따옴표가 나누기에 영향), `E'\'; x'`, `$$`·`$fn$` 본문(안에 `;`와 `$$`), `$a$` 안의 `$b$`, `$태그$`, `$1`, `a$b`, 여러 줄 문자열·`$$` 본문 **뒤** 문장의 시작 줄, 문자열·달러 본문 안의 `-- maago: allow-drop`(표시 아님), `/* maago: allow-drop */`(표시 아님), 닫히지 않은 `'`·`"`·`/*`·`$x$`·`E'\'`(위치), 빈 문장·주석만 있는 문장, 마지막 `;` 없음, `;` 앞 주석이 `SQL`에서 빠짐, CRLF(줄·칸), 한글 뒤 칸(바이트). 표시: 다음 문장에만 붙고 그다음은 아님, `DROP` 둘 중 하나만, 사이에 빈 줄, 사이에 주석, 같은 줄 뒤, 앞 문장의 `;`가 빠진 경우(표시는 줄에 혼자), 둘 겹침, 파일 끝, 모르는 표시(`allow-dorp`), 모르는 표시가 같은 줄 뒤에도 있을 때 진단 하나, `--maago:allow-drop`. `Normalize` 표 테스트: 공백·줄바꿈·주석·대소문자가 달라도 같고, 문자열·인용 식별자의 대소문자는 가른다
+
 ## 4. 스키마 표현과 SQLite 읽기 (`internal/schema`, `internal/dialect/sqlite`)
 
 - `schema.Schema`: 테이블마다 STRICT 여부, 컬럼(이름, 타입, NOT NULL, 기본값, 순서), PK(컬럼과 자동 생성 방식: SQLite `AUTOINCREMENT`, PG IDENTITY `BY DEFAULT`), FK(컬럼 목록, 대상 테이블·컬럼, ON DELETE), unique(컬럼 집합), index(컬럼 목록), CHECK(붙은 컬럼 또는 테이블, 정규화된 식). 이름이 아니라 컬럼으로 맞춘다(D-87)
 - SQLite 읽기: `sqlite_schema`, `pragma_table_xinfo`(`pk` 순서, `hidden`), `pragma_index_list`(`origin`, `partial`)·`index_xinfo`(`cid = -2`는 식), `pragma_foreign_key_list`(여러 컬럼 FK는 `seq`로 묶는다). `AUTOINCREMENT`·STRICT·CHECK는 원문을 3번의 토큰으로 읽어 컬럼 정의와 테이블 제약을 최상위 쉼표로 나눈 뒤 꺼낸다(D-92). `sqlite_sequence`와 `maago_migrations`는 뺀다
+- SQLite의 `[이름]` 인용은 3번에서 `Punct`다(안전한 방향). 손으로 쓴 `[order] TEXT`의 컬럼 머리는 `[`를 다루거나 진단한다(3번 구현 리뷰 fable)
 - 표현에 없는 것은 조용히 넘기지 않고 진단(PHILOSOPHY 7): 부분 인덱스, 식 인덱스, generated 컬럼, `WITHOUT ROWID`, 트리거, 뷰. v0은 마이그레이션에서 이것들을 막는다(필요해지면 표현을 넓힌다 → TODO)
 
 → 확인 (`cmd/maago` 모듈)
@@ -170,8 +194,11 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
   - 적용 오류는 그 문장의 `파일:줄`(PG가 주는 위치가 있으면 칸까지)과 DB의 메시지
   - 바로 앞에 `-- maago: allow-drop`이 없는 `DROP`(테이블·컬럼) 문장은 그 위치의 진단(D-37, 3번). SQLite 재생성은 7번의 규칙대로
   - 모든 파일에 요구한다. `check`는 실제 DB를 보지 않으므로 적용 여부를 모르고, 표시는 파일에 남는 기록이다(D-37)
-  - 트랜잭션 제어문(`BEGIN`·`COMMIT`·`ROLLBACK`·`SAVEPOINT`), `CREATE INDEX CONCURRENTLY`, `search_path`를 바꾸는 `SET`은 그 위치의 진단. 파일은 `migrate`가 트랜잭션 하나로 감싸고(10번), PG 연습용 DB는 트랜잭션 안에서 돈다(D-96)
+  - 트랜잭션 제어문(`BEGIN`·`START TRANSACTION`·`COMMIT`·`END`·`ROLLBACK`·`ABORT`·`SAVEPOINT`·`RELEASE`), `CREATE INDEX CONCURRENTLY`, `search_path`를 바꾸는 `SET`(`LOCAL`·`SESSION` 포함)·`RESET`은 그 위치의 진단. `DROP` 판정은 `DROP TABLE`만이 아니라 `ALTER TABLE … DROP COLUMN`도. `-- maago: allow-drop`이 `DROP`이 아닌 문장에 붙었으면 표시 위치의 진단(3번의 `AllowDrop`). 파일은 `migrate`가 트랜잭션 하나로 감싸고(10번), PG 연습용 DB는 트랜잭션 안에서 돈다(D-96)
   - 스키마 이름이 붙은 이름(`public.x`)은 롤백되어 남지 않지만, 연습용 DB가 닫힐 때까지 그 실제 테이블의 잠금을 쥐어 다른 세션을 막을 수 있다. 진단할지 계획에서(2번 구현 리뷰, fable)
+  - 트랜잭션 제어문 목록에 `PREPARE TRANSACTION`·`COMMIT PREPARED`·`ROLLBACK PREPARED`도: 연습용 트랜잭션을 연결이 끊겨도 남는 객체로 바꾼다(D-96)
+  - SQLite `CREATE TRIGGER … BEGIN …; END;`는 3번이 본문의 `;`에서 나누므로 DB 문법 오류가 먼저 난다. 첫 두 `Word`가 `CREATE TRIGGER`면 적용 전에 `triggers are not supported`로 진단(4번이 막는 것과 같은 이유)
+  - PG 오류의 `Position`은 문장 안의 1부터 세는 **글자** 번호다. `Stmt.Pos.Offset`(바이트)에 더하기 전에 글자를 바이트로 바꾼다
   - 적용은 두 방언 모두 첫 실패에서 멈춘다(PG는 실패 뒤 트랜잭션이 aborted라 더 갈 수 없다. 방언마다 오류 개수가 달라지지 않게, D-61)
 - `makemigrations`(9번)는 같은 단계를 비교의 차이를 진단으로 바꾸지 않는 모드로 쓴다(모양 절). 단계 목록을 두 벌 만들지, 비교 단계만 바꿀지는 계획에서
 - 방언을 알게 되었으므로 PG 프로젝트는 `postgres.DDL`의 63바이트 검사가 이 단계 전에 돈다(M1에서 넘어옴)
@@ -199,7 +226,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 ## 10. `showmigrations`·`migrate`
 
 - 실제 DB(`MAAGO_DATABASE_URL`, SQLite 경로는 프로젝트 루트 기준)에 `maago_migrations`(이름, 적용 시각) 표. 없으면 `migrate`가 만든다
-- `migrate`: 적용되지 않은 파일을 번호 순으로, 파일마다 트랜잭션 하나. 그 파일의 문장과 `maago_migrations` 기록 삽입이 같은 트랜잭션이다. 실패하면 그 파일(기록 포함)을 되돌리고 멈춘다(앞 파일은 남는다), 종료 1과 `파일:줄`
+- `migrate`: 적용되지 않은 파일을 번호 순으로, 파일마다 트랜잭션 하나. PG는 그 트랜잭션에서 `SET LOCAL standard_conforming_strings = on`(연습용 DB와 같게, 3번이 문자열을 그렇게 읽는다). 그 파일의 문장과 `maago_migrations` 기록 삽입이 같은 트랜잭션이다. 실패하면 그 파일(기록 포함)을 되돌리고 멈춘다(앞 파일은 남는다), 종료 1과 `파일:줄`
 - SQLite의 `PRAGMA foreign_keys`는 트랜잭션 안에서 바뀌지 않는다. 재생성이 있는 파일은 같은 연결에서 `foreign_keys = OFF` → `BEGIN` → 문장들 → `PRAGMA foreign_key_check`(행이 나오면 롤백) → `COMMIT` → `foreign_keys = ON`. 실패해도 ON으로 돌린다. 연습용 DB의 적용(8번)도 같은 순서
 - 적용 기록에 있는데 파일이 없거나, 기록보다 앞 번호의 파일이 적용되지 않았으면 진단. 기록의 이름과 다르지만 해시가 같은 파일이 있으면 번호만 바뀐 것(브랜치를 합치며 다시 매긴 경우)으로 보고, fix에 기록의 이름을 고치는 `UPDATE maago_migrations …` 문장을 적는다
 - `maago_migrations`에 파일 내용의 SHA-256을 함께 기록한다. 적용 뒤 바뀐 파일은 `migrate`·`showmigrations`의 진단(파일 위치, fix: 되돌리거나 새 마이그레이션으로)이고, `migrate`는 아무것도 적용하지 않는다(D-95)

@@ -94,7 +94,13 @@ func (p *DB) setUp(ctx context.Context) error {
 		q, want = "PRAGMA foreign_keys", "1"
 	} else {
 		schema := "maago_practice_" + strings.ToLower(rand.Text())
-		for _, s := range []string{"BEGIN", "CREATE SCHEMA " + dialect.Quote(schema), "SET LOCAL search_path TO " + dialect.Quote(schema)} {
+		for _, s := range []string{
+			"BEGIN",
+			"CREATE SCHEMA " + dialect.Quote(schema),
+			"SET LOCAL search_path TO " + dialect.Quote(schema),
+			// Backslashes in '…' are plain, as dialect.Split reads them.
+			"SET LOCAL standard_conforming_strings = on",
+		} {
 			if _, err := p.conn.ExecContext(ctx, s); err != nil {
 				return err
 			}

@@ -1,5 +1,5 @@
 // Package dialect holds what the SQL dialects share: constraint names
-// (D-86), identifier quoting, and literals.
+// (D-86), identifier quoting, literals, and splitting SQL into statements.
 package dialect
 
 import (

@@ -7,6 +7,8 @@
 
 ## M2
 
+- [ ] `dialect.Normalize`는 `"title"`과 `title`을 다르게 본다. SQLite에서는 같은 이름이라, 손으로 따옴표 없이 쓴 CHECK가 모델의 것과 다르다고 나올 수 있다(M2 3번). 조용히 통과하지는 않는다
+
 - [ ] PG 연습용 DB의 `search_path`에 `public`이 없어, `public`에 설치된 확장(`citext`, `uuid-ossp` 등)의 타입·함수를 이름만으로 쓰는 마이그레이션이 연습용 DB에서 실패한다(M2 2번). 필요해지면 확장이 설치된 스키마만 뒤에 붙이는 법을 정한다
 
 - [ ] SQLite의 FK는 연결마다 `PRAGMA foreign_keys = ON`이 있어야 강제된다. 연습용 DB와 런타임 연결에서 켠다(M1 6번).

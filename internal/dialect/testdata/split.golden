@@ -1,0 +1,188 @@
+== semicolons in strings, names and comments
+"SELECT 'a;b', \"c;d\", `e;f` -- g;h\n/* i;j */ FROM t;SELECT 2"
+stmt 1:1 allow=- "SELECT 'a;b', \"c;d\", `e;f` -- g;h\n/* i;j */ FROM t"
+  word:SELECT literal:'a;b' punct:, quoted:"c;d" punct:, quoted:`e;f` word:FROM word:t
+stmt 2:18 allow=- "SELECT 2"
+  word:SELECT word:2
+== doubled quotes
+"SELECT 'it''s; x', \"a\"\"b;\";SELECT 2;"
+stmt 1:1 allow=- "SELECT 'it''s; x', \"a\"\"b;\""
+  word:SELECT literal:'it''s; x' punct:, quoted:"a""b;"
+stmt 1:28 allow=- "SELECT 2"
+  word:SELECT word:2
+== escape string
+"SELECT E'\\'; x', e'\\\\';SELECT 2"
+stmt 1:1 allow=- "SELECT E'\\'; x', e'\\\\'"
+  word:SELECT literal:E'\'; x' punct:, literal:e'\\'
+stmt 1:24 allow=- "SELECT 2"
+  word:SELECT word:2
+== dollar quoting
+"CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql;\nDO $fn$ BEGIN PERFORM '$$;'; END $fn$;"
+stmt 1:1 allow=- "CREATE FUNCTION f() RETURNS int AS $$ SELECT 1; $$ LANGUAGE sql"
+  word:CREATE word:FUNCTION word:f punct:( punct:) word:RETURNS word:int word:AS literal:$$ SELECT 1; $$ word:LANGUAGE word:sql
+stmt 2:1 allow=- "DO $fn$ BEGIN PERFORM '$$;'; END $fn$"
+  word:DO literal:$fn$ BEGIN PERFORM '$$;'; END $fn$
+== nested tags
+"SELECT $a$ x $b$ ; $b$ y $a$;SELECT 2"
+stmt 1:1 allow=- "SELECT $a$ x $b$ ; $b$ y $a$"
+  word:SELECT literal:$a$ x $b$ ; $b$ y $a$
+stmt 1:30 allow=- "SELECT 2"
+  word:SELECT word:2
+== unicode tag and names
+"SELECT $태그$;$태그$, 제목, a$b, $1;"
+stmt 1:1 allow=- "SELECT $태그$;$태그$, 제목, a$b, $1"
+  word:SELECT literal:$태그$;$태그$ punct:, word:제목 punct:, word:a$b punct:, punct:$ word:1
+== lines after multi-line text
+"SELECT 'a\nb', $$\n;\n$$;\n\n  SELECT /* c\n */ 2;"
+stmt 1:1 allow=- "SELECT 'a\nb', $$\n;\n$$"
+  word:SELECT literal:'a\nb' punct:, literal:$$\n;\n$$
+stmt 6:3 allow=- "SELECT /* c\n */ 2"
+  word:SELECT word:2
+== empty statements
+";; -- only a comment\n;/* and this */;SELECT 1;;"
+stmt 2:17 allow=- "SELECT 1"
+  word:SELECT word:1
+== no final semicolon, comment before semicolon
+"SELECT 1 /* gone */ -- also gone\n;SELECT 2"
+stmt 1:1 allow=- "SELECT 1"
+  word:SELECT word:1
+stmt 2:2 allow=- "SELECT 2"
+  word:SELECT word:2
+== CRLF
+"SELECT 1;\r\nSELECT\r\n  2;\r\n"
+stmt 1:1 allow=- "SELECT 1"
+  word:SELECT word:1
+stmt 2:1 allow=- "SELECT\r\n  2"
+  word:SELECT word:2
+== column after Korean
+"SELECT '가나'; SELECT 3;"
+stmt 1:1 allow=- "SELECT '가나'"
+  word:SELECT literal:'가나'
+stmt 1:18 allow=- "SELECT 3"
+  word:SELECT word:3
+== numbers and operators
+"CHECK (x::int >= 1.5e3 AND y <> 0x1F)"
+stmt 1:1 allow=- "CHECK (x::int >= 1.5e3 AND y <> 0x1F)"
+  word:CHECK punct:( word:x punct:: punct:: word:int punct:> punct:= word:1 punct:. word:5e3 word:AND word:y punct:< punct:> word:0x1F punct:)
+== unterminated string
+"SELECT 1;\nSELECT 'abc;\nSELECT 2;"
+m.sql:2:8: unterminated string
+  fix: close it with '
+== unterminated escape string
+"SELECT E'abc\\';"
+m.sql:1:8: unterminated string
+  fix: close it with '
+== unterminated name
+"SELECT \"abc;"
+m.sql:1:8: unterminated quoted name
+  fix: close it with "
+== unterminated comment
+"SELECT 1; /* abc;"
+m.sql:1:11: unterminated comment
+  fix: close it with */
+== unterminated dollar quote
+"SELECT $x$ abc $y$;"
+m.sql:1:8: unterminated dollar-quoted string
+  fix: close it with $x$
+== marker attaches to the next statement only
+"-- maago: allow-drop\nDROP TABLE a;\nDROP TABLE b;"
+stmt 2:1 allow=1:1 "DROP TABLE a"
+  word:DROP word:TABLE word:a
+stmt 3:1 allow=- "DROP TABLE b"
+  word:DROP word:TABLE word:b
+== one of two drops
+"DROP TABLE a;\n  -- maago: allow-drop\n  DROP TABLE b;"
+stmt 1:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+stmt 3:3 allow=2:3 "DROP TABLE b"
+  word:DROP word:TABLE word:b
+== no space
+"--maago:allow-drop\nDROP TABLE a;"
+stmt 2:1 allow=1:1 "DROP TABLE a"
+  word:DROP word:TABLE word:a
+== marker in text is not a marker
+"SELECT '\n-- maago: allow-drop\n', $$\n-- maago: allow-drop\n$$;\n/* maago: allow-drop */\nDROP TABLE a;"
+stmt 1:1 allow=- "SELECT '\n-- maago: allow-drop\n', $$\n-- maago: allow-drop\n$$"
+  word:SELECT literal:'\n-- maago: allow-drop\n' punct:, literal:$$\n-- maago: allow-drop\n$$
+stmt 7:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+== blank line between
+"-- maago: allow-drop\n\nDROP TABLE a;"
+stmt 3:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+m.sql:1:1: -- maago: allow-drop is not on the line right before a statement
+  fix: put it on the line right before the DROP statement
+== comment between
+"-- maago: allow-drop\n-- drop the old table\nDROP TABLE a;"
+stmt 3:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+m.sql:1:1: -- maago: allow-drop is not on the line right before a statement
+  fix: put it on the line right before the DROP statement
+== after a statement on the line
+"SELECT 1; -- maago: allow-drop\nDROP TABLE a;"
+stmt 1:1 allow=- "SELECT 1"
+  word:SELECT word:1
+stmt 2:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+m.sql:1:11: -- maago: allow-drop must be on its own line
+  fix: move it to its own line right before the DROP statement
+== missing semicolon before
+"SELECT 1\n-- maago: allow-drop\nDROP TABLE a;"
+stmt 1:1 allow=- "SELECT 1\n-- maago: allow-drop\nDROP TABLE a"
+  word:SELECT word:1 word:DROP word:TABLE word:a
+m.sql:2:1: -- maago: allow-drop is inside the statement starting at line 1
+  fix: end the statement starting at line 1 with ;
+== after a lone semicolon on the line
+"SELECT 1\n; -- maago: allow-drop\nDROP TABLE a;"
+stmt 1:1 allow=- "SELECT 1"
+  word:SELECT word:1
+stmt 3:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+m.sql:2:3: -- maago: allow-drop must be on its own line
+  fix: move it to its own line right before the DROP statement
+== comment mentioning a marker
+"-- see maago: allow-drop in the docs\nDROP TABLE a;"
+stmt 2:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+== comment before the statement on the next line
+"-- maago: allow-drop\n/* gap */ DROP TABLE a;"
+stmt 2:11 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+m.sql:1:1: -- maago: allow-drop is not on the line right before a statement
+  fix: put it on the line right before the DROP statement
+== CRLF after marker
+"-- maago: allow-drop\r\nDROP TABLE a;"
+stmt 2:1 allow=1:1 "DROP TABLE a"
+  word:DROP word:TABLE word:a
+== after a token, inside an open statement
+"SELECT 1 -- maago: allow-drop\nDROP TABLE a;"
+stmt 1:1 allow=- "SELECT 1 -- maago: allow-drop\nDROP TABLE a"
+  word:SELECT word:1 word:DROP word:TABLE word:a
+m.sql:1:10: -- maago: allow-drop must be on its own line
+  fix: move it to its own line right before the DROP statement
+== two markers
+"-- maago: allow-drop\n-- maago: allow-drop\nDROP TABLE a;"
+stmt 3:1 allow=2:1 "DROP TABLE a"
+  word:DROP word:TABLE word:a
+m.sql:1:1: -- maago: allow-drop is not on the line right before a statement
+  fix: put it on the line right before the DROP statement
+== end of file
+"DROP TABLE a;\n-- maago: allow-drop\n"
+stmt 1:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+m.sql:2:1: -- maago: allow-drop is not on the line right before a statement
+  fix: put it on the line right before the DROP statement
+== unknown marker
+"-- maago: allow-dorp\nDROP TABLE a;"
+stmt 2:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+m.sql:1:1: unknown maago marker "allow-dorp"
+  fix: the only marker is -- maago: allow-drop
+== unknown marker after a statement
+"SELECT 1; -- maago: allow-dorp\nDROP TABLE a;"
+stmt 1:1 allow=- "SELECT 1"
+  word:SELECT word:1
+stmt 2:1 allow=- "DROP TABLE a"
+  word:DROP word:TABLE word:a
+m.sql:1:11: unknown maago marker "allow-dorp"
+  fix: the only marker is -- maago: allow-drop
