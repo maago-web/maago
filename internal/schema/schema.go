@@ -63,7 +63,9 @@ func (s *Schema) Sort() {
 	slices.SortFunc(s.Tables, func(a, b *Table) int { return cmp.Compare(a.Name, b.Name) })
 	for _, t := range s.Tables {
 		slices.SortFunc(t.FKs, func(a, b FK) int {
-			return cmp.Or(slices.Compare(a.Columns, b.Columns), cmp.Compare(a.RefTable, b.RefTable))
+			return cmp.Or(slices.Compare(a.Columns, b.Columns), cmp.Compare(a.RefTable, b.RefTable),
+				slices.Compare(a.RefColumns, b.RefColumns), cmp.Compare(a.OnDelete, b.OnDelete),
+				cmp.Compare(a.OnUpdate, b.OnUpdate), cmp.Compare(a.Name, b.Name))
 		})
 		slices.SortFunc(t.Indexes, func(a, b Index) int {
 			return cmp.Or(compareBool(a.Unique, b.Unique), slices.Compare(a.Columns, b.Columns), cmp.Compare(a.Name, b.Name))

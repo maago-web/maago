@@ -242,6 +242,53 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 → 확인: 표 테스트(두 `Schema` → 변경 목록), unique의 `(a,b)`와 `(b,a)`는 같음, index는 다름(M1 5번)
 
+**계획**
+- 새 파일: `internal/migrate/diff.go`, `internal/migrate/diff_test.go`. 바꿀 파일: `internal/schema/schema.go`(`Sort`의 FK 키). 루트 모듈, DB 없음(읽은 `Schema` 둘만 받는다)
+- `Diff(from, to *schema.Schema) []Change`. `from`은 마이그레이션(A), `to`는 모델(B). 처음에 양쪽을 `Sort`한다(7·9·12번이 손으로 만든 `Schema`를 넘겨도 같은 결과)
+  ```go
+  type Kind int // 값의 순서가 곧 변경의 순서
+  const (
+      DropFK Kind = iota; DropIndex; DropCheck; DropPK; DropTable; DropColumn
+      CreateTable; AddColumn; AlterType; AlterNotNull; AlterDefault; AlterStrict
+      AddPK; AddIndex; AddCheck; AddFK
+  )
+  type Change struct {
+      Kind     Kind
+      From, To *schema.Table  // 양쪽의 테이블, 없는 쪽은 nil
+      Old, New *schema.Column // 컬럼 종류만, 없는 쪽은 nil
+      Index    *schema.Index  // AddIndex·DropIndex: Drop은 From의 것, Add는 To의 것
+      FK       *schema.FK     // 같은 규칙
+      Check    *schema.Check  // 같은 규칙
+  }
+  func (c Change) Message() string // "migrations do not match models: …"
+  ```
+  - 테이블을 통째로 담는 이유: 7번의 SQLite 재생성은 옛 테이블의 컬럼(옮길 것)과 새 테이블이 모두 필요하고, PG의 `DROP INDEX`·`DROP CONSTRAINT`는 `From`의 이름을 쓴다. PK는 `From.PK`·`To.PK`로 충분해 따로 담지 않는다
+- 맞추기(4번 계획의 기준): 테이블·컬럼은 이름. 컬럼은 `Type`·`NotNull`·`Default`를 글자 그대로 비교해 다른 것마다 변경 하나(타입과 기본값이 같이 다르면 둘: 서로 독립이다, D-61). 컬럼 순서는 보지 않는다. PK는 (`PK` 순서 있음, `PKAuto`)가 다르면 `DropPK`+`AddPK`(인덱스와 같이 삭제+추가. 한쪽에 PK가 없으면 그쪽 것만). 둘로 나눈 이유: PG에서 PK 컬럼을 지우기 전에 PK가 먼저 풀리고, 새 PK는 새 컬럼이 생긴 뒤에 걸린다(codex). unique 인덱스는 정렬한 컬럼 집합, 보통 인덱스는 컬럼 순서, 둘은 `Unique`로 갈린다(`Name`·`Constraint`는 보지 않는다). FK는 컬럼·대상 테이블·대상 컬럼·`OnDelete`·`OnUpdate`. CHECK는 `Expr`. 인덱스·FK·CHECK는 여럿 겹칠 수 있어 **짝 짓기**로 맞춘다(같은 CHECK 둘과 하나면 하나 삭제). 바뀐 인덱스·FK·CHECK는 삭제+추가
+- 새 테이블·지운 테이블은 변경 하나만 낸다. 그 테이블의 컬럼·인덱스·FK·CHECK는 따로 내지 않는다(초안은 테이블을 통째로 쓰고, 진단은 원인 하나에 하나, D-61). 남은 테이블에서 컬럼이 바뀌어 생긴 인덱스·CHECK 차이는 따로 낸다: 초안(7번)에 각각 필요하고, 손으로 고친 경우(`max`만 지움)에는 독립된 차이다
+- 순서: `Kind` 순 → 테이블 이름 순 → 테이블 안에서는 컬럼은 정의 순(삭제는 `From`의, 나머지는 `To`의), 인덱스·FK·CHECK는 `Sort`의 순서. M1 PG DDL(테이블 → FK → 인덱스)과 같은 생각으로, 삭제를 먼저(FK부터 풀어 다른 삭제를 막지 않게), 추가를 나중에(FK는 맨 끝, 가리킬 테이블·컬럼이 다 생긴 뒤). `DropTable`만 이름 순이 아니라 **의존의 역순**: 지우는 테이블끼리 FK가 있으면 가리키는 쪽을 먼저(PG는 참조되는 테이블을 먼저 지우지 못한다). 남은 테이블에서 지우는 테이블을 가리키던 FK는 `DropFK`로 먼저 나온다
+- 작업 본문과 다른 곳: "테이블은 모델 순" → **이름 순**. `Schema`에 모델 순서가 없고, `Diff`가 모델을 받게 하면 DB 없는 비교에 모델이 끼어든다. "초안과 진단이 같은 순서"는 초안에만 해당한다: 진단은 `diag.Write`가 위치·문구로 정렬한다
+- 7번에 넘길 것: `CreateTable`은 이름 순이라 PG의 새 테이블끼리 FK는 그 테이블의 DDL에 넣으면 아직 없는 테이블을 가리킬 수 있다. 새 테이블의 FK `ALTER`는 모든 `CreateTable` 뒤, `AddFK` 자리에 쓴다(M1 PG DDL과 같다, codex·fable). 또 `DropPK`는 남은 테이블의 **바뀌지 않은** FK가 그 PK를 가리키면 PG가 거부한다(FK가 같아 `DropFK`·`AddFK`는 나오지 않는다. `PKAuto`만 다른 경우). 7번이 그 FK를 함께 풀고 다시 걸지 정한다(구현 리뷰 fable)
+- 8번에 넘길 것: 위치는 8번이 (테이블, 컬럼) DB 이름 → 모델 필드 표로 붙인다(`Change`에는 위치가 없다). 인덱스·FK·CHECK는 첫 컬럼의 필드, 테이블 종류는 모델. 모델에서 필드 하나를 지우면 `DropColumn`에 딸린 `DropIndex`·`DropCheck`가 함께 나온다(초안에는 모두 필요). 진단 하나로 접을지 8번 계획에서 정한다(fable)
+- `Sort`의 FK 키에 대상 컬럼·`OnDelete`·`OnUpdate`·`Name`을 더한다: 같은 컬럼이 같은 테이블을 동작만 다르게 가리키는 FK 둘의 순서가 정해지지 않는다(codex). 읽기 골든은 바뀌지 않는다
+- 문구(`Message`): 접두 `migrations do not match models: `, 이름은 읽기의 진단처럼 `%q`. "마이그레이션에 없다"는 `is missing`, "모델에 없다"는 `is not in the models`
+  - `table "t" is missing` / `table "t" is not in the models`
+  - `column "c" of "t" is missing` / `… is not in the models`
+  - `column "c" of "t" is TEXT, the models have INTEGER`, `… is NOT NULL, the models have NULL`, `… has DEFAULT 0, the models have no default`
+  - `primary key ("id") AUTOINCREMENT of "t" is not in the models`, `table "t" is not STRICT, the models have STRICT`
+  - `unique index ("a", "b") of "t" is missing`, `foreign key ("a") -> "p" ("id") ON DELETE CASCADE of "t" is not in the models`(`ON UPDATE`는 `NO ACTION`이 아닐 때만), `check (LENGTH ("title") <= 200) of "t" is missing`
+  - 기본값·CHECK 식은 `Normalize`의 글(단어는 대문자)을 `dialect.Split`으로 다시 나눠 붙인다. 규칙: 기본은 공백 하나. `(`·`[` 뒤, `)`·`]`·`,` 앞, `.` 앞뒤, `[` 앞은 공백 없음. `:` 앞뒤도 공백 없음(`: :` → `::`). 이웃한 `Punct` 둘이 `<>=!|` 중이면 붙인다(`< =` → `<=`). 토큰 전체를 감싼 괄호는 벗긴다(PG의 CHECK는 `((a <> ''::TEXT))`로 읽힌다, 5번 계획이 넘긴 것). `- 1`은 `- 1`로 둔다(`a < - 1`과 가를 수 없다). 4번 계획이 넘긴 `1 . 5` 때문이다(`DEFAULT 1 . 5`는 다른 값으로 읽힌다). 문구에만 쓰고 비교는 `Normalize`의 글 그대로. 받지 않은 것: 문구의 식을 SQL로 다시 쓸 수 있게 만들기(codex: 표시 전용이다)
+- `diag.Diagnostic`은 만들지 않는다: fix `run maago makemigrations`와 위치는 8번이 붙인다. 6번은 `Message`까지
+- 하지 않는 것: 이름 변경 판정(작업 본문), FK 컬럼 짝의 순서 무시(`(a,b)->(x,y)`와 `(b,a)->(y,x)`는 다르게 본다. 모델이 여러 컬럼 FK를 만들지 않는다), 지우는 테이블끼리 FK가 고리를 이루는 경우(서로 가리키는 두 모델을 한 번에 지울 때. codex는 지우는 테이블의 FK를 `DropFK`로 먼저 풀자고 했으나 진단이 원인 하나에 여럿이 된다. PG 초안이 실패하고 9번이 쓰기 전 다시 적용하므로 조용히 통과하지는 않는다 → TODO, 7번이 한 문장 `DROP TABLE a, b`로 풀 수도 있다), `Column.Type`의 뜻 비교(4번 계획)
+- 리뷰: codex(PK를 삭제·추가로 나눔, 새 테이블 FK는 7번 `AddFK` 자리, 위치는 8번의 표, `Sort` FK 키) 반영. 고리는 위 이유로 TODO. 이름의 SQL식 이스케이프는 받지 않음(읽기 진단과 같은 `%q`). fable(컬럼 순서만 다름, 의존 순서가 이름 순서와 어긋나는 확인, Drop은 From의 것, 한 컬럼의 차이 둘, `Diff`가 `Sort`, 문구 예와 포매터 규칙, `unique(a)`+`index(a)`, 지운 필드의 딸린 변경은 8번, 7번에 넘길 FK) 모두 반영. 포매터를 빼자는 대안(ponytail)은 `1 . 5`가 다른 값으로 읽혀 받지 않음. 구현 리뷰: ponytail(`Sort` 테스트의 반복, 빈 `Name`) 반영, `reflect.DeepEqual`은 D-66 게이트 때문에 받지 않음. codex(`Diff`가 입력을 정렬하고 `Change`가 입력을 가리킴 → 주석) 반영. 새 테이블의 `AddFK`가 없다는 지적은 계획대로(7번), 고리는 TODO, 컬럼 순서는 읽기가 정의 순으로 결정적이라 받지 않음. 테스트는 샌드박스로 못 돌림. fable(FK 키의 `OnUpdate`·`RefColumns`·`RefTable`이 검증되지 않음, 16종 모두 나오는 경우, 정렬하지 않은 입력, 자기를 가리키는 지우는 테이블, PG CHECK의 바깥 괄호, `DropPK`와 바뀌지 않은 FK → 7번, 순서 문구, `%q` 키, 평평한 `if`) 모두 반영. 돌연변이: 살아남은 것은 `SortStableFunc` → `SortFunc` 하나(변경이 적어 우연히 안정적. 코드는 맞다)
+
+→ 확인 (루트에서 `go test -count=1 ./internal/migrate/`)
+1. 같은 스키마 → 변경 없음. 컬럼 순서만 다른 테이블 → 없음. 이름·`Constraint`만 다른 인덱스, `(a,b)`·`(b,a)` unique → 없음. `(a,b)`·`(b,a)` index → 삭제+추가(M1 5번)
+2. 종류마다 한 경우씩: 기대한 `Message` 목록과 같다(문구까지). Drop 쪽은 From과 To의 `Name`·`Constraint`를 다르게 두고 `Change`의 것이 From의 것임을 본다. 한 컬럼에 타입과 기본값이 함께 다르면 변경 둘. `unique(a)`+`index(a)` → `unique(a)`는 `DropIndex` 하나
+3. 순서: 여러 종류가 섞인 경우 `Kind` 순, 지우는 테이블 셋(`a → c → b` FK, 이름 순과도 역순과도 다름)은 `a, c, b`, 남은 테이블의 FK가 지우는 테이블을 가리키면 `DropFK`가 `DropTable`보다 앞. 입력을 정렬하지 않고 넘겨도 같다
+4. 새 테이블·지운 테이블은 변경 하나. 같은 CHECK 둘 → 하나면 `DropCheck` 하나
+5. 문구의 식: `1 . 5`, `< =`, PG의 `'draft' : : TEXT`, `ARRAY [ … ]`, `IN ( 0 , 1 )`이 붙은 모양으로
+6. `schema.Sort`: 동작만 다른 같은 컬럼의 FK 둘이 입력 순서와 상관없이 같은 순서(`cmd/maago`의 읽기 골든도 그대로)
+
 ## 7. 초안 DDL (`internal/dialect/sqlite`, `internal/dialect/postgres`)
 
 - 변경 목록 → 방언별 SQL. 새 테이블은 M1의 `DDL`을 그 테이블만큼 재사용한다
