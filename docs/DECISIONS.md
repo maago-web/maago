@@ -204,6 +204,7 @@ LIMIT :limit
 | U-04 | M2M의 admin 위젯. 연결 테이블이 모델이 된 뒤의 모양(구 Q-3) |
 | U-05 | 다중 DB·테넌시(구 Q-4) |
 | U-06 | contrib 앱(User, 세션, MFA 등)의 모델이 사용자 프로젝트의 스키마·마이그레이션에 들어오는 방식. 구 D-43(Ent 스키마 임베드)이 풀던 문제 |
+| U-07 | 마고로 만든 서비스의 테스트 방법(테스트 DB, HTTP 테스트 클라이언트, 데이터 준비, 메일 확인). Django(`TestCase`·`Client`·`locmem` 메일)와 FastAPI(`TestClient`·의존성 교체)를 참고해 정한다. M4·M5 설계와 함께 |
 
 ---
 
