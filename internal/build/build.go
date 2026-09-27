@@ -73,9 +73,6 @@ func stages(s *state, early, final func() []diag.Diagnostic) [][]pipeline.Step {
 	s.fset = token.NewFileSet()
 	var files []string
 	var pkgs []*model.Package
-	step := func(f func() []diag.Diagnostic) pipeline.Step {
-		return func(*pipeline.Run) []diag.Diagnostic { return f() }
-	}
 	checks := []pipeline.Step{
 		step(func() []diag.Diagnostic { return dialect.CheckNames(s.fset, s.apps, 0) }),
 		step(func() []diag.Diagnostic { return migrate.CheckFiles(s.migrations) }),
@@ -98,6 +95,11 @@ func stages(s *state, early, final func() []diag.Diagnostic) [][]pipeline.Step {
 		{step(func() (ds []diag.Diagnostic) { s.ddl, ds = dialects[s.d].ddl(s.fset, s.apps); return })},
 		{step(final)},
 	}
+}
+
+// step is a step that needs nothing of the run.
+func step(f func() []diag.Diagnostic) pipeline.Step {
+	return func(*pipeline.Run) []diag.Diagnostic { return f() }
 }
 
 // dialects are what the build needs of each dialect.

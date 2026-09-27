@@ -1,6 +1,9 @@
 package migrate
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"go/token"
@@ -31,6 +34,7 @@ type File struct {
 	Path   string // slash path from the project root
 	Number int
 	Stmts  []dialect.Stmt
+	Hash   string // of the content, line endings made \n, for the applied record (D-95)
 }
 
 // ReadFiles reads and splits the migration files of the project at root,
@@ -65,7 +69,8 @@ func ReadFiles(root string) ([]File, []diag.Diagnostic) {
 		stmts, sds := dialect.Split(p, string(src))
 		ds = append(ds, sds...)
 		n, _ := strconv.Atoi(m[1])
-		files = append(files, File{Path: p, Number: n, Stmts: stmts})
+		sum := sha256.Sum256(bytes.ReplaceAll(src, []byte("\r\n"), []byte("\n")))
+		files = append(files, File{Path: p, Number: n, Stmts: stmts, Hash: hex.EncodeToString(sum[:])})
 	}
 	slices.SortFunc(files, func(a, b File) int { return strings.Compare(a.Path, b.Path) }) // number, then name
 	prev := 0

@@ -66,6 +66,9 @@ func Database(root string, lookupEnv func(string) (string, bool)) (Dialect, stri
 		ds = append(ds, diag.New(pos, from+" has no file name after sqlite:", formats))
 	case scheme == "sqlite" && strings.HasPrefix(rest, "//"):
 		ds = append(ds, diag.New(pos, from+` starts with "sqlite://"`, "write sqlite:FILE, as in sqlite:app.db"))
+	case scheme == "sqlite" && (strings.Contains(rest, "?") || strings.HasPrefix(rest, "file:")):
+		// The driver would read what follows ? as options, and file: as a URI.
+		ds = append(ds, diag.New(pos, from+" has ? or file: in its file name", "write sqlite:FILE with a plain file name, as in sqlite:app.db"))
 	case scheme == "sqlite":
 		d = SQLite
 	case (scheme == "postgres" || scheme == "postgresql") && strings.HasPrefix(rest, "//"):

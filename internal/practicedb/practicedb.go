@@ -3,7 +3,8 @@
 // database for SQLite, and for PostgreSQL a schema in the development
 // database, created inside a transaction that is always rolled back
 // (D-96). Every statement runs on one connection, since an in-memory
-// database and search_path belong to a connection.
+// database and search_path belong to a connection. OpenDatabase opens the
+// project's own database the same way, for migrate.
 //
 // The drivers are registered by cmd/maago (D-90); this package only knows
 // their names.
@@ -16,6 +17,7 @@ import (
 	"fmt"
 	"go/token"
 	"net/url"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unicode/utf8"
@@ -37,6 +39,38 @@ var drivers = map[project.Dialect]string{project.SQLite: "sqlite", project.Postg
 // Open opens a practice database. url is used for PostgreSQL only. On
 // failure it closes what it opened and returns nil.
 func Open(ctx context.Context, d project.Dialect, url string) (*DB, []diag.Diagnostic) {
+	fix := "report this as a maago bug"
+	dsn := ":memory:"
+	if d == project.Postgres {
+		fix = "start the PostgreSQL server, check MAAGO_DATABASE_URL, and make sure its user may create schemas (GRANT CREATE ON DATABASE)"
+		dsn = url
+	}
+	return open(ctx, d, dsn, url, "the practice database", fix, true)
+}
+
+// OpenDatabase opens the project's own database, which migrate changes,
+// on one connection like a practice database: SQLite at the file named
+// after sqlite:, from the project root, with foreign keys on; PostgreSQL
+// as its address says, outside any transaction.
+func OpenDatabase(ctx context.Context, d project.Dialect, url, root string) (*DB, []diag.Diagnostic) {
+	dsn := url
+	if d == project.SQLite {
+		dsn = SQLitePath(url, root)
+	}
+	return open(ctx, d, dsn, url, "the database", "check MAAGO_DATABASE_URL and that the database is running", false)
+}
+
+// SQLitePath is the file of a sqlite:FILE address, from the project root
+// unless absolute.
+func SQLitePath(url, root string) string {
+	path := strings.TrimPrefix(url, "sqlite:")
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(root, path)
+	}
+	return path
+}
+
+func open(ctx context.Context, d project.Dialect, dsn, url, what, fix string, practice bool) (*DB, []diag.Diagnostic) {
 	name, ok := drivers[d]
 	if !ok {
 		panic("practicedb: unknown dialect " + string(d))
@@ -44,22 +78,16 @@ func Open(ctx context.Context, d project.Dialect, url string) (*DB, []diag.Diagn
 	if !slices.Contains(sql.Drivers(), name) {
 		return nil, fail(`no "`+name+`" database driver in this maago build`, "build maago from its cmd/maago module, which registers the drivers")
 	}
-	fix := "report this as a maago bug"
-	if d == project.Postgres {
-		fix = "start the PostgreSQL server, check MAAGO_DATABASE_URL, and make sure its user may create schemas (GRANT CREATE ON DATABASE)"
-	} else {
-		url = ":memory:"
-	}
 	cannotOpen := func(err error) []diag.Diagnostic {
-		return fail("cannot open the practice database: "+diag.OneLine(hidePassword(err.Error(), url)), fix)
+		return fail("cannot open "+what+": "+diag.OneLine(hidePassword(err.Error(), url)), fix)
 	}
-	db, err := sql.Open(name, url)
+	db, err := sql.Open(name, dsn)
 	if err != nil {
 		return nil, cannotOpen(err)
 	}
 	p := &DB{db: db, d: d}
 	if p.conn, err = db.Conn(ctx); err == nil {
-		err = p.setUp(ctx)
+		err = p.setUp(ctx, practice)
 	}
 	if err != nil {
 		p.Close()
@@ -101,15 +129,19 @@ func hidePassword(msg, addr string) string {
 }
 
 // setUp turns on foreign keys for SQLite, or creates the practice schema
-// for PostgreSQL. It reads each setting back, in case it was ignored.
-func (p *DB) setUp(ctx context.Context) error {
+// for PostgreSQL. It reads each setting back, in case it was ignored. A
+// real PostgreSQL database needs nothing set up.
+func (p *DB) setUp(ctx context.Context, practice bool) error {
 	var q, want string
-	if p.d == project.SQLite {
+	switch {
+	case p.d == project.Postgres && !practice:
+		return nil
+	case p.d == project.SQLite:
 		if _, err := p.conn.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
 			return err
 		}
 		q, want = "PRAGMA foreign_keys", "1"
-	} else {
+	default:
 		schema := "maago_practice_" + strings.ToLower(rand.Text())
 		for _, s := range []string{
 			"BEGIN",

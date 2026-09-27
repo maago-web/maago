@@ -19,7 +19,7 @@ import (
 // them after, as migrate does.
 func Apply(ctx context.Context, db *practicedb.DB, d project.Dialect, files []File) []diag.Diagnostic {
 	for _, f := range files {
-		if ds := applyFile(ctx, db, d, f, true); len(ds) > 0 {
+		if ds := applyFile(ctx, db, d, f, true, nil); len(ds) > 0 {
 			return ds
 		}
 	}
@@ -30,23 +30,44 @@ func Apply(ctx context.Context, db *practicedb.DB, d project.Dialect, files []Fi
 // a rebuild that leaves columns behind for its marker: a draft never has
 // one, and check asks for it once the draft is a file.
 func ApplyDraft(ctx context.Context, db *practicedb.DB, d project.Dialect, f File) []diag.Diagnostic {
-	return applyFile(ctx, db, d, f, false)
+	return applyFile(ctx, db, d, f, false, nil)
 }
 
-func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File, checkLost bool) (ds []diag.Diagnostic) {
+// applyFile applies f. With record, the statements that record it as
+// applied, it runs in a transaction of its own with them, as migrate does
+// on a real database: all of it or none. A practice database has no
+// record and needs no transaction of its own (D-96).
+func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File, checkLost bool, record []string) (ds []diag.Diagnostic) {
 	at := token.Position{Filename: f.Path}
 	if d == project.SQLite {
+		// Before BEGIN, and back on only after the transaction ends:
+		// SQLite ignores the pragma inside one.
 		if ds := db.Exec(ctx, at, "PRAGMA foreign_keys = OFF"); len(ds) > 0 {
 			return ds
 		}
 		defer func() {
-			if len(ds) == 0 {
-				ds = foreignKeyCheck(ctx, db, at)
-			}
 			if on := db.Exec(ctx, at, "PRAGMA foreign_keys = ON"); len(ds) == 0 {
 				ds = on
 			}
 		}()
+	}
+	if record != nil {
+		if ds := db.Exec(ctx, at, "BEGIN"); len(ds) > 0 {
+			return ds
+		}
+		defer func() {
+			if len(ds) > 0 {
+				// SQLite may have rolled back already; then this fails,
+				// and that is fine.
+				db.Exec(ctx, at, "ROLLBACK")
+			}
+		}()
+		if d == project.Postgres {
+			// Backslashes in '…' are plain, as dialect.Split reads them.
+			if ds := db.Exec(ctx, at, "SET LOCAL standard_conforming_strings = on"); len(ds) > 0 {
+				return ds
+			}
+		}
 	}
 	for i, st := range f.Stmts {
 		if cp := rebuild(f.Stmts, i); checkLost && cp != nil && !st.AllowDrop.IsValid() {
@@ -57,6 +78,19 @@ func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File
 		if ds := db.Exec(ctx, st.Pos, st.SQL); len(ds) > 0 {
 			return ds
 		}
+	}
+	for _, stmt := range record {
+		if ds := db.Exec(ctx, at, stmt); len(ds) > 0 {
+			return ds
+		}
+	}
+	if d == project.SQLite {
+		if ds := foreignKeyCheck(ctx, db, at); len(ds) > 0 {
+			return ds
+		}
+	}
+	if record != nil {
+		return db.Exec(ctx, at, "COMMIT")
 	}
 	return nil
 }
