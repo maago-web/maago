@@ -72,6 +72,64 @@ M3 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 → 확인: 표 테스트. 정상 머리(세 종류, 결과 있음·없음, 선택 파라미터, 슬라이스, 선택지, 설명 주석 줄), 잘못된 것 각각(이름 없음, 소문자 이름, 모르는 종류, `:exec` + 결과, `:many` + 결과 없음, 모르는 타입, `bool?`, `[]int64?`, 같은 파라미터 두 번, `-- parm:`의 did you mean, `-- name : X`, 같은 이름의 쿼리 두 파일)이 정확한 위치와 fix로
 
+### 계획
+
+파일
+- `internal/project/project.go`: `GoFiles`의 걷기를 `walk(root, keep)`로 빼고 `QueryFiles(root) ([]string, []diag.Diagnostic)`를 더한다. 루트 링크 해석, 읽기 오류 진단 뒤 계속, 정렬, 제외 규칙(`./...`: `.`·`_`·`testdata`·`vendor`·하위 모듈, 링크 파일)이 `GoFiles`와 같다. 고르는 것: 부모 디렉터리 이름이 정확히 `queries`인 `*.sql`(`.`·`_`로 시작하는 것 빼고). 바로 아래만: `queries/a/x.sql`은 아니다
+- `internal/diag/diag.go`: `model`의 `suggest`·`distance`를 `diag.Suggest`로 옮긴다(동작 그대로). 전용 테스트가 없었으므로 `diag`에 `TestSuggest` 표를 새로 쓴다(접두사 우선, 길이 1/3 올림 거리, 동률은 앞 이름)
+- 새 `internal/mapper/header.go`: `Read(root string, files []string) ([]*App, []diag.Diagnostic)`. 앱 = `queries/`의 부모 디렉터리(루트면 `.`). 머리에 오류가 있는 파일은 `Query`를 내지 않는다(2번이 연쇄 오류를 쏟지 않게, D-61). 앱 안에서 쿼리 이름이 겹치면 경로 순으로 첫 파일 뒤의 파일마다 오류(메시지에 첫 파일)
+- 새 `internal/mapper/header_test.go`: 표 테스트(글 → `diag.Write` 출력 전체, 골든 `testdata/errors.golden`). `QueryFiles` 표는 `internal/project/project_test.go`
+
+모양
+```go
+type App struct { Dir string; Queries []*Query }
+type Query struct {
+	File      string         // 루트 기준 슬래시 경로
+	Src       string         // 파일 전체. 2번은 이것을 통째로 dialect.Split에 넘긴다(머리는 -- 주석이라 토큰이 없다)
+	HeaderEnd int            // 머리 뒤 첫 바이트의 오프셋(원본 기준)
+	Name      string; NamePos token.Position
+	Kind      Kind           // One·Many·Exec
+	Result    string         // :exec면 ""
+	Params    []Param        // 선언 순서(파라미터 struct의 필드 순서가 된다)
+	Columns   []Column       // D-104
+}
+type Param  struct { Name string; Pos token.Position; Optional bool; Type Type }
+type Column struct { Name string; Pos token.Position; Optional bool; Type model.Type }
+type Type   struct { Base model.Type; Slice bool; Choices []string } // 선택지면 Base 0
+```
+위치는 `dialect`처럼 `token.Position`, 칸은 바이트(Go와 같다). 글을 다시 만들지 않으므로 오프셋은 원본과 같다(codex·fable 1).
+
+머리 규칙 (결정에 없는 선택은 ★)
+- 줄은 `\n`으로 나누고 줄 끝 `\r`은 무시한다(`\r`만 쓰는 파일은 한 줄이다. `Split`과 같다). 공백은 ASCII 공백·탭
+- 머리 = 파일 처음부터, 빈 줄이거나 (앞 공백 뒤) `--`로 시작하는 줄들. 다른 줄이 오면 거기서부터 본문. `/* */`는 본문의 시작
+- `--` 뒤(공백 무시)가 `단어` + (공백) + `:`이면 머리 줄. `단어`는 `[A-Za-z_][A-Za-z0-9_]*`. 키는 `name`·`param`·`column`, 모르면 did you mean과 `allowed: …; start a comment with something other than "word:"`. ★ `-- Note: …`와 `-- https://…`도 머리 줄로 보고 오류다(모양 절 그대로). `-- maago: …`도 모르는 키(마이그레이션 표시는 쿼리에 없다). `-- name : X`처럼 키와 `:` 사이 공백은 오류(fix: `-- name: X`)
+- ★ 같은 꼴(`-- 단어:`)의 주석이 본문에 있으면 2번에서 오류다(fix: 머리로 옮긴다). 주석의 뜻이 위치에 따라 갈리지 않게(PHILOSOPHY 4). 결정은 여기서, 검사는 2번
+- `name`: `이름 :종류 [결과]`. 이름·결과는 ★ `^[A-Z][A-Za-z0-9_]*$`(ASCII 내보내는 Go 식별자. 생성 이름 `SearchOrdersParams`·상수로 이어 붙고 한 가지 꼴만 둔다). 종류는 `:one`·`:many`·`:exec`, 모르면 did you mean, `:` 빠지면(`many`) 그 fix. 종류 없음, `:exec` + 결과, `:one`·`:many` + 결과 없음, 남는 단어, 두 번째 `name` 줄은 오류. `name` 줄이 없으면 `파일:1:1: query has no -- name: line`(fix는 SQL 앞 첫 줄에 쓰라고, `/* */` 뒤의 `--`는 머리가 아니라고)
+- `param`: `이름[?] 타입`. 이름은 ★ `^[a-z][a-z0-9_]*$`(SQL 쪽 이름. Go 필드 이름은 D-76의 거꾸로, 5·8번). `?`는 이름에 붙여 쓴다(`status ?`는 오류). 타입은 D-77의 7개(`[]byte`는 기본 타입), `[]` + 그것(슬라이스, `[][]byte`도), 또는 선택지 `a/b[/…]`. 타입 없음, 남는 단어는 오류. ★ 선택지는 2개 이상, 값은 param 이름과 같은 꼴(Go 상수 이름이 되므로 모델 `choices`보다 좁다), 겹치면 오류. `*int64`는 오류(fix: `name? int64`). 모르는 타입은 did you mean(`int` → `int64`)
+- `?` 금지: `bool`(모양 절), 슬라이스(모양 절, `[]byte`는 슬라이스가 아니므로 `data? []byte`는 된다), ★ 선택지(없음이 필요하면 값 하나를 더한다: `none/latest/amount`. 조건 값의 종류를 늘리지 않는다)
+- `column`: `이름[?] 타입`, 타입은 D-77의 7개만(슬라이스·선택지는 오류). 같은 이름 두 번은 오류. 판정(선언이 필요한지)은 5번
+- 한 줄에 오류가 여럿이면 첫 오류만(태그 읽기와 같다). 줄끼리는 독립이라 모두 모은다(D-61)
+
+하지 않기로 한 것
+- 본문(`:이름` 사용·미사용, 본문의 `-- 단어:` 주석, `name` 줄 뒤 본문이 빔)은 2번
+- 쿼리 이름과 모델·사용자 식별자의 충돌, 파라미터 이름의 Go 필드 충돌은 5·8번(모양 절)
+- 파이프라인 연결은 9번. 열린 질문(9번): `.go` 파일 없이 `queries/`만 있는 디렉터리의 package 이름
+
+단계
+1. `diag.Suggest` 옮기기 → 확인: `TestSuggest`, `go test ./internal/model ./internal/diag`(골든 바뀌지 않음)
+2. `project.QueryFiles` → 확인: 임시 트리(`a/queries/x.sql`, `queries/y.sql`, `a/queries/sub/z.sql`, `testdata/queries/t.sql`, `vendor/queries/v.sql`, `a/queries/_skip.sql`, `a/queries/.dot.sql`, `a/queries/x.txt`, 하위 모듈의 `queries/`, 링크 파일)에서 앞의 둘만, 루트가 링크여도 같음. 없는 루트는 오류 하나
+3. `mapper.Read` → 확인: 위 표 테스트의 경우 전부 + (`-- Note:`, `-- https://x`, `sort? a/b`, `*int64`, `a//b`, 선택지 하나, 겹친 선택지, 두 `name` 줄, `column` 두 번, `column`의 슬라이스·선택지, 타입 없는 `param`, 종류 없는 `name`, 남는 단어, `/* */` 뒤의 `-- name:`, 탭·공백으로 들여 쓴 머리 줄의 칸, `data? []byte`와 `[][]byte`, 같은 이름 세 파일, 한 파일의 잘못된 줄 둘은 둘 다 나오고 `Query`는 없음)이 정확한 `파일:줄:칸`과 fix로. 정상 경우는 `Query` 값 비교, `\r\n` 파일의 `HeaderEnd`가 원본 바이트 오프셋
+4. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)
+- 받음: `Body`/`BodyPos` 대신 `Src`·`HeaderEnd`(둘 다), `QueryFiles`의 오류·제외 계약과 표(codex), 공백·줄바꿈 정의(codex), 오류 난 파일은 `Query` 없음·잘못된 줄 둘(fable), `[]byte` 규칙(fable), 본문의 `-- 단어:`를 결정으로(fable), 확인 보강(fable), `TestSuggest` 새로(fable), 선택지 값 꼴의 이유·ASCII의 이유(둘 다), `1:1`(fable), package 이름은 9번 열린 질문(fable)
+- 받지 않음: codex 5 "`suggest` 주석과 구현이 다르다" — 주석은 "접두사가 맞는 이름이 이기고 동률은 앞 이름"이고 구현과 같다
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — `file` 필드, 겹침 검사용 map(앱 안 `IndexFunc`로), 공백 건너뛰기를 `TrimLeft`로. 받지 않음 — did you mean fix를 만드는 도우미(`unknownType`의 `[]` 붙이기 때문에 넷째 호출에서도 줄지 않는다)
+- codex: 받음 — 쿼리가 없는 디렉터리는 `App`을 만들지 않는다. 받지 않음 — "선택지 하나(`x latest`)가 통과한다": `/`가 없으면 선택지가 아니라 `unknown type`이다(표 줄을 더해 보였다). 샌드박스가 `/tmp` 쓰기를 막아 테스트를 돌리지 못했다(코드만 읽은 리뷰)
+- fable(변이 실험으로 겹친 이름·`?` 금지·오류 파일의 `Query` 없음 등이 잡히는 것을 확인): 받음 — fix 문구 전체를 골든으로, 메시지에 실제 이름(`write x? int64`, `{x}`), 빈 파일·`column: flag? bool`·읽기 실패 뒤 계속·앱 수 단언, `? int64`는 "no name". 받지 않음 — `x a/`의 문구(값이 빈 것이 곧 원인이다), `-- name:Q`(콜론 뒤 공백 없음)도 받음: 키 뒤는 공백으로 나누므로 뜻이 하나다. `-- Note:`가 `"name"`을 제안하는 것은 `diag.Suggest`의 규칙대로 둔다
+
 ## 2. 본문: 바인딩, 조건 줄, `{ }` 구역 (규칙 2·3·4)
 
 - M2의 토큰화(`dialect`)로 본문을 읽어 `:이름`, 줄 머리의 `{조건}`, `WHERE {`·`SET {` 구역을 찾는다

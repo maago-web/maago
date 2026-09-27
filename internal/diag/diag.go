@@ -10,6 +10,7 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Diagnostic is one error. Its fields are unexported so that New, which
@@ -82,4 +83,48 @@ func compare(a, b Diagnostic) int {
 		cmp.Compare(a.msg, b.msg),
 		cmp.Compare(a.fix, b.fix),
 	)
+}
+
+// Suggest returns the allowed name got most likely meant, or "". A name
+// that got starts with, or that starts with got, wins (maxlen → max);
+// otherwise the one within edit distance of a third of got's length,
+// rounded up and counted in runes (tabel → table, but not Foo → On).
+// Ties go to the earlier name in allowed.
+func Suggest(got string, allowed []string) string {
+	lower := strings.ToLower(got)
+	for _, a := range allowed {
+		la := strings.ToLower(a)
+		if strings.HasPrefix(lower, la) || strings.HasPrefix(la, lower) {
+			return a
+		}
+	}
+	best, bestDist := "", (utf8.RuneCountInString(got)+2)/3+1
+	for _, a := range allowed {
+		if d := distance(lower, strings.ToLower(a)); d < bestDist {
+			best, bestDist = a, d
+		}
+	}
+	return best
+}
+
+// distance is the Levenshtein distance between a and b, in runes.
+func distance(a, b string) int {
+	ra, rb := []rune(a), []rune(b)
+	prev := make([]int, len(rb)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+	for i := 1; i <= len(ra); i++ {
+		cur := make([]int, len(rb)+1)
+		cur[0] = i
+		for j := 1; j <= len(rb); j++ {
+			cost := 1
+			if ra[i-1] == rb[j-1] {
+				cost = 0
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		prev = cur
+	}
+	return prev[len(rb)]
 }

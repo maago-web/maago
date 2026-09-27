@@ -66,3 +66,20 @@ func TestNewRejects(t *testing.T) {
 		})
 	}
 }
+
+func TestSuggest(t *testing.T) {
+	allowed := []string{"max", "maxima", "table", "On"}
+	for _, c := range []struct{ got, want string }{
+		{"maxlen", "max"},  // got starts with an allowed name
+		{"ma", "max"},      // an allowed name starts with got; ties go to the earlier
+		{"MAX", "max"},     // case does not matter
+		{"tabel", "table"}, // distance 2, within ceil(5/3)
+		{"tbl", ""},        // distance 2, beyond ceil(3/3)
+		{"Foo", ""},        // distance 2 from On, beyond 1
+		{"xyz", ""},
+	} {
+		if got := Suggest(c.got, allowed); got != c.want {
+			t.Errorf("Suggest(%q) = %q, want %q", c.got, got, c.want)
+		}
+	}
+}

@@ -1,0 +1,164 @@
+""
+blog/queries/q.sql:1:1: query has no -- name: line
+  fix: start the file with -- name: Name :one|:many|:exec [Result]; -- lines after /* */ or SQL are not the header
+
+"SELECT 1"
+blog/queries/q.sql:1:1: query has no -- name: line
+  fix: start the file with -- name: Name :one|:many|:exec [Result]; -- lines after /* */ or SQL are not the header
+
+"/* x */\n-- name: Q :exec\n"
+blog/queries/q.sql:1:1: query has no -- name: line
+  fix: start the file with -- name: Name :one|:many|:exec [Result]; -- lines after /* */ or SQL are not the header
+
+"-- name:\n"
+blog/queries/q.sql:1:9: -- name: line has no query name
+  fix: write -- name: Name :one|:many|:exec [Result]
+
+"-- name: searchOrders :one R\n"
+blog/queries/q.sql:1:10: query name "searchOrders" is not an exported Go name
+  fix: start it with an uppercase ASCII letter, followed by letters, digits or _
+
+"-- name: 한글 :one R\n"
+blog/queries/q.sql:1:10: query name "한글" is not an exported Go name
+  fix: start it with an uppercase ASCII letter, followed by letters, digits or _
+
+"-- name: Q\n"
+blog/queries/q.sql:1:11: query Q has no kind
+  fix: add :one, :many or :exec after the name
+
+"-- name: Q :mnay R\n"
+blog/queries/q.sql:1:12: unknown query kind ":mnay"
+  fix: did you mean ":many"? allowed: :one, :many, :exec
+
+"-- name: Q many R\n"
+blog/queries/q.sql:1:12: query kind "many" has no colon
+  fix: write :many
+
+"-- name: Q :exec R\n"
+blog/queries/q.sql:1:18: :exec returns no rows, so it has no result type
+  fix: remove R, or use :one or :many
+
+"-- name: Q :many\n"
+blog/queries/q.sql:1:17: query Q :many has no result type
+  fix: name a model or a new type after :many, like :many PostSummary
+
+"-- name: Q :one r\n"
+blog/queries/q.sql:1:17: result type "r" is not an exported Go name
+  fix: start it with an uppercase ASCII letter, followed by letters, digits or _
+
+"-- name: Q :one R S\n"
+blog/queries/q.sql:1:19: unexpected "S" after the result type
+  fix: remove it; -- name: Name :one|:many|:exec [Result]
+
+"-- name : Q :one R\n"
+blog/queries/q.sql:1:8: space between name and its colon
+  fix: write -- name: with no space before the colon
+
+"-- name: Q :many R\n-- name: P :exec\n"
+blog/queries/q.sql:2:4: second -- name: line
+  fix: keep one -- name: line; a file holds one query
+
+"-- name: Q :many R\n-- parm: x int64\n"
+blog/queries/q.sql:2:4: unknown header key "parm"
+  fix: did you mean "param"? allowed: name, param, column; start a comment with something other than "word:"
+
+"-- name: Q :many R\n-- Note: see below\n"
+blog/queries/q.sql:2:4: unknown header key "Note"
+  fix: did you mean "name"? allowed: name, param, column; start a comment with something other than "word:"
+
+"-- name: Q :many R\n-- https://example.com\n"
+blog/queries/q.sql:2:4: unknown header key "https"
+  fix: allowed: name, param, column; start a comment with something other than "word:"
+
+"-- name: Q :many R\n-- maago: allow-drop\n"
+blog/queries/q.sql:2:4: unknown header key "maago"
+  fix: allowed: name, param, column; start a comment with something other than "word:"
+
+"-- name: Q :many R\n-- param:\n"
+blog/queries/q.sql:2:10: -- param: line has no name
+  fix: write -- param: name[?] type
+
+"-- name: Q :many R\n-- param: Status string\n"
+blog/queries/q.sql:2:11: param name "Status" is not lowercase snake_case
+  fix: write it in lowercase snake_case, like author_id
+
+"-- name: Q :many R\n-- param: x\n"
+blog/queries/q.sql:2:12: param x has no type
+  fix: write -- param: name[?] type
+
+"-- name: Q :many R\n-- param: ? int64\n"
+blog/queries/q.sql:2:11: -- param: line has no name
+  fix: write -- param: name[?] type
+
+"-- name: Q :many R\n-- param: x ? int64\n"
+blog/queries/q.sql:2:13: space between x and ?
+  fix: write x? with no space
+
+"-- name: Q :many R\n-- param: x int64 y\n"
+blog/queries/q.sql:2:19: unexpected "y" after the type of x
+  fix: remove it; -- param: name[?] type
+
+"-- name: Q :many R\n-- param: x int\n"
+blog/queries/q.sql:2:13: unknown type "int"
+  fix: did you mean "int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte; or a slice of one, like []int64, or choices, like latest/amount
+
+"-- name: Q :many R\n-- param: x []int\n"
+blog/queries/q.sql:2:13: unknown type "[]int"
+  fix: did you mean "[]int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte; or a slice of one, like []int64, or choices, like latest/amount
+
+"-- name: Q :many R\n-- param: x *int64\n"
+blog/queries/q.sql:2:13: pointer type *int64 in a header
+  fix: write x? int64 instead
+
+"-- name: Q :many R\n-- param: x? bool\n"
+blog/queries/q.sql:2:11: a bool cannot be optional: {x} would mean both present and true; use choices for three values
+  fix: remove the ? from x?
+
+"-- name: Q :many R\n-- param: x? []int64\n"
+blog/queries/q.sql:2:11: a slice cannot be optional: a nil or empty slice is already absent
+  fix: remove the ? from x?
+
+"-- name: Q :many R\n-- param: x? a/b\n"
+blog/queries/q.sql:2:11: choices cannot be optional: add a choice for none, like none/latest/amount
+  fix: remove the ? from x?
+
+"-- name: Q :many R\n-- param: x latest\n"
+blog/queries/q.sql:2:13: unknown type "latest"
+  fix: allowed: int64, int32, bool, float64, string, time.Time, []byte; or a slice of one, like []int64, or choices, like latest/amount
+
+"-- name: Q :many R\n-- param: x a//b\n"
+blog/queries/q.sql:2:15: choice "" is not lowercase snake_case
+  fix: write each choice in lowercase snake_case, separated by /, like latest/amount
+
+"-- name: Q :many R\n-- param: x a/B\n"
+blog/queries/q.sql:2:15: choice "B" is not lowercase snake_case
+  fix: write each choice in lowercase snake_case, separated by /, like latest/amount
+
+"-- name: Q :many R\n-- param: x a/\n"
+blog/queries/q.sql:2:15: choice "" is not lowercase snake_case
+  fix: write each choice in lowercase snake_case, separated by /, like latest/amount
+
+"-- name: Q :many R\n-- param: x a/b/a\n"
+blog/queries/q.sql:2:17: choice a appears twice
+  fix: remove the repeated choice
+
+"-- name: Q :many R\n-- param: x int64\n-- param: x string\n"
+blog/queries/q.sql:3:11: parameter x is declared twice
+  fix: remove one of them
+
+"-- name: Q :many R\n-- column: n int64\n-- column: n int64\n"
+blog/queries/q.sql:3:12: column n is declared twice
+  fix: remove one of them
+
+"-- name: Q :many R\n-- column: n []int64\n"
+blog/queries/q.sql:2:14: unknown type "[]int64"
+  fix: did you mean "int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte; a column cannot be a slice or choices
+
+"-- name: Q :many R\n-- column: n a/b\n"
+blog/queries/q.sql:2:14: unknown type "a/b"
+  fix: allowed: int64, int32, bool, float64, string, time.Time, []byte; a column cannot be a slice or choices
+
+"\t -- name: Q :mnay R\n"
+blog/queries/q.sql:1:14: unknown query kind ":mnay"
+  fix: did you mean ":many"? allowed: :one, :many, :exec
+

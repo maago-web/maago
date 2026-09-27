@@ -133,3 +133,36 @@ func TestGoFilesUnreadableDirectory(t *testing.T) {
 		t.Errorf("files = %q, want [z.go]", files)
 	}
 }
+
+func TestQueryFiles(t *testing.T) {
+	outside := tempDir(t)
+	write(t, filepath.Join(outside, "linked.sql"), "")
+
+	root := t.TempDir()
+	for _, p := range []string{
+		"go.mod", "a/queries/x.sql", "queries/y.sql", "a/queries/sub/z.sql",
+		"testdata/queries/t.sql", "vendor/queries/v.sql", "a/queries/_skip.sql",
+		"a/queries/.dot.sql", "a/queries/x.txt", "a/q/w.sql", "b.sql",
+		"submodule/go.mod", "submodule/queries/s.sql",
+	} {
+		write(t, filepath.Join(root, filepath.FromSlash(p)), "")
+	}
+	if err := os.Symlink(filepath.Join(outside, "linked.sql"), filepath.Join(root, "a", "queries", "link.sql")); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"a/queries/x.sql", "queries/y.sql"}
+	for _, r := range []string{root, link} {
+		got, ds := QueryFiles(r)
+		if len(ds) > 0 || !slices.Equal(got, want) {
+			t.Errorf("QueryFiles(%s) = %q, want %q\n%s", r, got, want, text(ds))
+		}
+	}
+	if _, ds := QueryFiles(filepath.Join(root, "missing")); len(ds) != 1 {
+		t.Errorf("missing root: want one error, got:\n%s", text(ds))
+	}
+}

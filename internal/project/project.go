@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -47,6 +48,20 @@ func Root(dir string) (string, []diag.Diagnostic) {
 // and directories holding another module. It follows root if root is a
 // symbolic link, but no link inside it.
 func GoFiles(root string) ([]string, []diag.Diagnostic) {
+	return walk(root, func(p string) bool { return strings.HasSuffix(p, ".go") })
+}
+
+// QueryFiles returns the mapper files under root: the .sql files right
+// inside a directory named queries. It looks where GoFiles looks.
+func QueryFiles(root string) ([]string, []diag.Diagnostic) {
+	return walk(root, func(p string) bool {
+		return strings.HasSuffix(p, ".sql") && path.Base(path.Dir(p)) == "queries"
+	})
+}
+
+// walk returns the regular files under root that keep accepts, as GoFiles
+// describes. Names starting with "." or "_" never reach keep.
+func walk(root string, keep func(slashPath string) bool) ([]string, []diag.Diagnostic) {
 	root, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		return nil, []diag.Diagnostic{diag.New(token.Position{}, "cannot read project: "+diag.OneLine(err.Error()), "run maago in the project directory")}
@@ -78,7 +93,7 @@ func GoFiles(root string) ([]string, []diag.Diagnostic) {
 			}
 			return nil
 		}
-		if d.Type().IsRegular() && strings.HasSuffix(name, ".go") && !strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_") {
+		if d.Type().IsRegular() && !strings.HasPrefix(name, ".") && !strings.HasPrefix(name, "_") && keep(p) {
 			files = append(files, p)
 		}
 		return nil
