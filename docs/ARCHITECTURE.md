@@ -180,6 +180,7 @@ MAAGO_DATABASE_URL=sqlite:app.db
 - SQLite 연습용 DB는 메모리라 `check`는 방언만 읽는다. `migrate`·`showmigrations`는 `sqlite:` 뒤의 경로를
   프로젝트 루트 기준으로 연다. `?` 옵션이나 `file:` 주소는 오류다(M2 10번).
 - `.env`는 커밋하지 않는다. `maago new`(v1)가 `.gitignore`에 넣는다.
+- 런타임의 `maago.OpenDB`도 같은 주소를 읽는다: 환경 변수, 없으면 작업 디렉터리의 `.env`. 런타임의 SQLite 상대 경로는 작업 디렉터리 기준이다(D-101, M3 6번에서 만든다).
 
 ---
 
