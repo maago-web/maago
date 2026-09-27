@@ -208,6 +208,65 @@ type Term struct { Pos token.Position; Not bool; Name, Value string }
 2. 빈 WHERE의 DELETE, 빈 SET의 UPDATE, 라벨이 보장하지 않는 파라미터(세 모양 각각)가 위치 있는 오류(완료 조건 3의 앞 둘). 상한을 넘는 쿼리
 3. PG 자리표시: 슬라이스가 가운데 있는 쿼리에서 스칼라의 번호가 고정이다
 
+### 계획
+
+파일
+- 새 `internal/mapper/variant.go`: `(q *Query) Variants() ([]Axis, []Variant, []diag.Diagnostic)`와 `(v Variant) SQL(d project.Dialect, n int) string`(슬라이스마다 원소 n개의 자리표시를 넣은 글. 4번은 n=1·2로 prepare, 테스트도 이것을 쓴다. 8번의 생성 코드는 같은 일을 Go로 한다. n<1은 부른 쪽의 버그라 panic: 빈 슬라이스는 8번의 생성 코드가 글을 고르기 전에 실행 오류로 막는다)
+- `internal/mapper/body.go`: 여는 줄 `WHERE {`에 그 구역의 문장 `Verb`(아래)를 적는다. 토큰의 괄호 깊이를 아는 곳이 여기다
+- 새 `internal/mapper/variant_test.go`, 손으로 쓴 `testdata/*.{sqlite,postgres}.sql`(`golden.Check`가 아니라 파일과 직접 비교: `-update`가 손으로 쓴 것을 덮지 못하게): `search_orders`, `delete_posts`(슬라이스·bool 축, `or` Lead, 슬라이스 자리), `update_post`(SET의 쉼표, 마지막 줄)
+- `internal/testdata/orders/queries/search_orders.sql`(커밋한다): DECISIONS의 원문. 8번이 `Order` 모델을 더해 예제 앱으로 만든다(모양 절). DECISIONS의 ```sql 덩어리와 글자까지 같은지 테스트가 본다
+- `cmd/maago`: modernc가 `?2, ?1, ?1`을 순번으로 묶는 작은 시험(★ `?n`이 기대는 드라이버 동작을 못 박는다)
+
+모양
+```go
+type Axis struct {
+	Param  string
+	Values []string // 선택지면 그 값들, 아니면 "absent","present" / "false","true" / "empty","non-empty"
+}
+type Variant struct {
+	Pieces []Piece  // SQL 조각과 슬라이스 자리
+	Args   []string // 스칼라 파라미터, 자리표시 번호 순(Args[i]가 $i+1)
+	Slices []string // 슬라이스 파라미터, 번호를 이어 받는 순. 인자는 Args의 값들 뒤에 Slices마다 원소들
+	Combos [][]int  // 이 글을 내는 조합들. 조합은 축마다 Values의 번호
+}
+type Piece struct {
+	SQL   string
+	Arg   int    // 스칼라 자리표시 번호(1부터). SQL·Arg·Slice 중 하나
+	Slice string
+	Pos   token.Position // 원문 위치(Part.Pos). 줄까지만 정확하다(조각이 여러 줄을 담고 줄바꿈·들여쓰기·Lead로 시작할 수 있다). 4번이 DB 오류를 원문으로 옮긴다(fable 1)
+}
+```
+- 축 = 조건에 나오는 파라미터, 선언 순. 조합은 축 값의 곱, 앞 축이 느리게 돈다(축이 없으면 빈 조합 하나). 글이 같은 조합은 한 `Variant`로, 순서는 처음 나온 조합 순. 8번은 실행 때 값 → 축마다 번호 → 표 조회
+- 자리표시 ★: 조합의 글마다 스칼라에 처음 나온 순으로 1…n(같은 파라미터는 같은 번호), PG `$n`, SQLite `?n`. 슬라이스는 실행 때 n+1부터 `Slices` 순으로 이어서(같은 슬라이스의 두 번째 자리는 같은 번호). 그래서 번호에 빈자리가 없고(PG는 쓰이지 않은 `$2`의 타입을 정하지 못한다, modernc도 빈자리 없는 순번을 요구한다), 스칼라 번호는 슬라이스 길이와 상관없다. 모양 절의 "스칼라에 `$1…$n` 고정"을 "조합마다"로 좁히고 SQLite `?`를 `?n`으로 바꾼다(modernc v1.59.0의 `bind`가 `?NNN`을 순번으로 맞춘다. `?NNN`은 SQLite 문법이고 순번 맞춤은 modernc의 동작이다. 드라이버를 바꾸면 다시 본다, D-89)
+- 글 모양: 살아남은 줄마다 원문 그 줄의 앞 공백(줄 시작부터 첫 글자까지, `Src`에서) + `Lead`(있고, 구역의 첫 살아남은 줄이 아니면) + `Parts` + `,`(`Trail`이고 구역의 마지막 살아남은 줄이 아니면). 없는 `AND`·쉼표를 생성기가 채우지 않는다(PHILOSOPHY 5, prepare가 잡는다). 원문의 같은 줄에서 온 것(`DELETE FROM t` + `WHERE`)은 공백 하나로 잇고, 다른 줄은 줄바꿈. 구역 키워드는 그 줄에, 빈 구역은 키워드째 빠진다. `}`는 아무것도 내지 않는다
+
+규칙 5의 정적 오류 (위치 + 어느 조합인지)
+- 선택 스칼라 `:x`가 있음을 보장하지 않는 줄에서 쓰임: 줄의 조건이 `&`(항 하나 포함)이고 `x`(`!`·`=` 없이)를 항으로 가져야 한다. 바인딩마다 따로 본다. 위치는 그 바인딩. 조합과 상관없는 판정이라 조합은 싣지 않는다(fix: 줄을 `{x}`로 가두거나 필수로)
+- ★ `WHERE { }`가 비는 조합이 있으면, 그 구역의 문장이 `SELECT`가 아닌 한 오류(위치는 `WHERE {`, 처음 비는 조합). 구역의 문장 = 구역 앞에서 괄호 깊이 0의 마지막 `SELECT`·`INSERT`·`UPDATE`·`DELETE`(2번이 구역을 깊이 0에서만 열게 했으므로 구역은 늘 최상위 문장의 것이다). `WITH … SELECT`·`INSERT … SELECT … WHERE { }`는 SELECT라 비어도 되고, `WITH … DELETE`·`UPDATE … FROM (SELECT …) s WHERE { }`는 오류, 그 밖(`MERGE` 등, 못 찾음)은 오류(fable 5). 규칙 5의 "빈 WHERE의 UPDATE/DELETE"를 넓힌 것이라 11번에 DECISIONS로 적는다(규칙 수는 그대로)
+- `SET { }`가 비는 조합(문장과 상관없이)
+- 조합 256개·글 64개 초과(위치는 `-- name:`, 숫자와 fix: 쿼리를 나누거나 조건을 Go의 bool로). 모양 절의 제안 그대로. prepare 시간은 4번에서 잰다
+- 조합의 적기: `status absent, from present, to absent, sort=latest`(값 이름 그대로)
+
+하지 않기로 한 것
+- 가운데 줄의 빠진 `AND`·쉼표, 문법 오류는 4번의 prepare
+- 코드 생성(조합을 고르는 Go, 빈 슬라이스 오류)은 8번
+- 11번에 넘길 것: 규칙 2의 "`?, ?, ?`"와 모양 절의 "SQLite는 `?`"를 `?n`으로, 위 ★ 둘을 DECISIONS에
+
+단계
+1. `Variants`·`SQL` → 확인: `SearchOrders` 16조합이 글 8개, 두 방언의 손 골든(조합·`Args`·글)과 같다. DECISIONS 원문과 픽스처가 같다. `delete_posts`·`update_post` 손 골든(가운데 줄 쉼표를 빠뜨린 줄이 그대로 나감 포함). 축 없는 쿼리는 조합 하나·글 하나
+2. 정적 오류 → 확인: 빈 WHERE의 `DELETE`(조합 적힘), `WITH … DELETE`, `UPDATE … FROM (SELECT …) s WHERE { }`, 빈 SET의 `UPDATE`는 오류. 늘 비지 않는 WHERE의 `DELETE`, `SELECT`·`WITH … SELECT`·`INSERT … SELECT`의 빈 WHERE는 통과. 보장하지 않는 파라미터 세 모양(조건 없는 줄, `{status | flag}`, `{!status}`)과 `{x & y}`에서 `:z`는 오류, `{x & y}`에서 `:x`·`:y`는 통과. 조합 257개, 글 65개
+3. 자리표시: `a = :a AND id IN (:ids) AND b = :b AND c = :a AND d IN (:ids2) AND e IN (:ids)`가 `Args` `[a b]`, `Slices` `[ids ids2]`, 원소 2개로 그리면 `$1`, `($3, $4)`, `$2`, `$1`, `($5, $6)`, `($3, $4)`. SQLite는 `?n`. modernc 시험(`cmd/maago`)
+4. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)
+- 받음: `Slices`로 인자 순서를 드러냄(codex 1), `Axes`와 번호 조합(둘 다), 빈 슬라이스는 8번이 막고 `SQL`은 panic(codex 4), 구역의 문장을 깊이 0의 마지막 동사로(fable 5, codex 5), `{x & y}`의 `:z`(codex 6), modernc 시험(codex 2), `Piece.Pos`(fable 1), `Trail`·`Lead`가 있을 때만(fable 2), 손 골든 둘 더(fable 3), `Variants`는 방언 없이·`SQL`은 n 하나(fable 6), 들여쓰기는 `Src`에서(fable 7), 문서 어긋남(fable 8)
+- 받지 않음: codex 7(모양을 더 나누자) — `Variant`가 이미 그 중간 표현이다
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — 구역의 동사를 한 번만 셈, 동사 비교를 `ToUpper` 한 줄로, `verbName`을 `cmp.Or`로. 받지 않음 — `Piece.Pos`(4번이 바로 쓴다)
+- codex(샌드박스 때문에 테스트는 못 돌림): 발견 없음. 손 골든을 규칙으로 따로 검산했다
+- fable(손 골든 검산, 변이 24개 중 19개를 잡음): 받음 — 빈 구역이 키워드째 빠짐, 같은 글·다른 인자의 두 변형, 상한 경계(256·64 통과), 구역마다 한 번·처음 비는 조합과 fix까지 비교, `Piece.Pos`는 줄까지만 정확하다고 적음, 모양 블록의 `Arg`, `Variants`의 전제(오류 없이 읽힌 쿼리). 받지 않음 — 선택지 값이 `absent`·`true` 같은 이름일 때 적기의 `=`(메시지 표기뿐)
+
 ## 4. 연습용 DB에서 prepare와 묘사 (`internal/mapper`, `cmd/maago`의 드라이버 함수)
 
 - 3번의 조합마다(슬라이스는 원소 1·2개로) 연습용 DB A에서 prepare. 실패는 그 쿼리 파일의 위치와 DB 메시지, 어느 조합인지. PG는 모양 절의 `SAVEPOINT` 절차로 다음 쿼리를 이어 간다

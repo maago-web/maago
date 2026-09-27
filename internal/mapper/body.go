@@ -18,6 +18,7 @@ type Line struct {
 	Cond    *Cond          // nil if the line is always in
 	Kind    LineKind
 	Keyword string // Open: WHERE or SET, as written
+	Verb    string // Open: SELECT, INSERT, UPDATE or DELETE, whichever is last at depth 0 before it; "" if none
 	Lead    string // a line in WHERE { }: its leading AND or OR, as written; not in Parts
 	Trail   bool   // a line in SET { }: it ends with a comma, which is not in Parts
 	Parts   []Part
@@ -98,6 +99,7 @@ func (q *Query) body() []diag.Diagnostic {
 			prev = &toks[i-1]
 		}
 		n := len(b.ds)
+		b.verb = verb(toks[i:j], b.depth, b.verb) // a WHERE { on the line comes after its tokens
 		b.line(toks[i:j], prev)
 		if len(b.ds) > n { // the line was not read to its end
 			for _, t := range toks[i:j] {
@@ -124,10 +126,11 @@ type bodyReader struct {
 	used     map[string]bool
 	maybe    map[string]bool // words on lines with errors, which may be uses
 	ds       []diag.Diagnostic
-	depth    int   // of parentheses, before the line
-	open     *Line // the open region, if any
-	inside   int   // lines in the open region
-	rejected int   // region openings reported as errors and not yet closed
+	depth    int    // of parentheses, before the line
+	open     *Line  // the open region, if any
+	inside   int    // lines in the open region
+	rejected int    // region openings reported as errors and not yet closed
+	verb     string // the last statement verb at depth 0, up to the end of the line
 }
 
 func (b *bodyReader) errf(pos token.Position, fix, format string, args ...any) {
@@ -146,6 +149,24 @@ func depth(toks []dialect.Token) int {
 		}
 	}
 	return d
+}
+
+// verb returns the last of SELECT, INSERT, UPDATE and DELETE in toks at
+// depth 0, where toks start at depth d; or v if there is none.
+func verb(toks []dialect.Token, d int, v string) string {
+	for _, t := range toks {
+		switch {
+		case is(t, "("):
+			d++
+		case is(t, ")"):
+			d--
+		case d == 0 && t.Kind == dialect.Word:
+			if u := strings.ToUpper(t.Text); u == "SELECT" || u == "INSERT" || u == "UPDATE" || u == "DELETE" {
+				v = u
+			}
+		}
+	}
+	return v
 }
 
 func is(t dialect.Token, punct string) bool { return t.Kind == dialect.Punct && t.Text == punct }
@@ -210,7 +231,7 @@ func (b *bodyReader) line(toks []dialect.Token, prev *dialect.Token) {
 			return
 		}
 		b.rejected--
-		open := Line{Pos: kw.Pos, Kind: Open, Keyword: kw.Text}
+		open := Line{Pos: kw.Pos, Kind: Open, Keyword: kw.Text, Verb: b.verb}
 		b.q.Lines = append(b.q.Lines, open)
 		b.open, b.inside = &open, 0
 		return

@@ -115,7 +115,7 @@ func dump(q *Query) string {
 	for _, l := range q.Lines {
 		fmt.Fprintf(&b, "%d:%d %s", l.Pos.Line, l.Pos.Column, l.Kind)
 		if l.Keyword != "" {
-			fmt.Fprintf(&b, " %s", l.Keyword)
+			fmt.Fprintf(&b, " %s verb=%s", l.Keyword, l.Verb)
 		}
 		if c := l.Cond; c != nil {
 			op := " & "

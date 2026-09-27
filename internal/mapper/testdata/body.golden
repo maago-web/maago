@@ -1,7 +1,7 @@
 "-- name: SearchOrders :many OrderSummary\n-- param: status?    string\n-- param: from?      time.Time\n-- param: to?        time.Time\n-- param: sort       latest/amount\n-- param: limit      int64\nSELECT id, status, amount, created_at FROM orders\nWHERE {\n  {status}          AND status = :status\n  {from & to}       AND created_at BETWEEN :from AND :to\n  {!status}         AND status <> 'deleted'\n}\nORDER BY\n  {sort=latest}     created_at DESC\n  {sort=amount}     amount DESC\nLIMIT :limit\n"
 7:1 text
     7:1 sql "SELECT id, status, amount, created_at FROM orders"
-8:1 open WHERE
+8:1 open WHERE verb=SELECT
 9:25 text cond@9:3&{9:4 status} lead=AND
     9:25 sql "status = "
     9:34 param status
@@ -26,7 +26,7 @@
 "-- name: UpdatePost :exec\r\n-- param: id int64\r\n-- param: title? string\r\n-- param: body? string\r\nUPDATE posts SET {\r\n  {title} title = :title,\r\n  {body | title} body = :body,\r\n}\r\nWHERE id = :id;\r\n"
 5:1 text
     5:1 sql "UPDATE posts"
-5:14 open SET
+5:14 open SET verb=UPDATE
 6:11 text cond@6:3&{6:4 title} trail
     6:11 sql "title = "
     6:19 param title
@@ -41,7 +41,7 @@
 "-- name: DeletePosts :exec\n-- param: ids []int64\n-- param: flag bool\nDELETE FROM posts WHERE {\n  {ids} id IN (:ids)\n  {!flag} or draft\n}\n"
 4:1 text
     4:1 sql "DELETE FROM posts"
-4:19 open WHERE
+4:19 open WHERE verb=DELETE
 5:9 text cond@5:3&{5:4 ids}
     5:9 sql "id IN ("
     5:16 param ids
@@ -53,13 +53,13 @@
 "-- name: Keep :exec\n-- param: flag bool\nUPDATE t SET {\n  {flag} AND = 1,\n}\nFROM (SELECT 1) AS s WHERE {\n  {flag} x = 1,\n}\n"
 3:1 text
     3:1 sql "UPDATE t"
-3:10 open SET
+3:10 open SET verb=UPDATE
 4:10 text cond@4:3&{4:4 flag} trail
     4:10 sql "AND = 1"
 5:1 close
 6:1 text
     6:1 sql "FROM (SELECT 1) AS s"
-6:22 open WHERE
+6:22 open WHERE verb=UPDATE
 7:10 text cond@7:3&{7:4 flag}
     7:10 sql "x = 1,"
 8:1 close
