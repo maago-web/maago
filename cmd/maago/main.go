@@ -4,11 +4,15 @@
 package main
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/maago-web/maago/internal/build"
 	"github.com/maago-web/maago/internal/diag"
@@ -16,8 +20,8 @@ import (
 
 	// The practice database opens drivers by name (D-89, D-90).
 	"github.com/jackc/pgx/v5/pgconn"
-	_ "github.com/jackc/pgx/v5/stdlib"
-	_ "modernc.org/sqlite"
+	"github.com/jackc/pgx/v5/stdlib"
+	"modernc.org/sqlite"
 )
 
 func init() {
@@ -28,6 +32,67 @@ func init() {
 		}
 		return 0
 	}
+	practicedb.DescribeQuery = describe
+}
+
+// describe prepares query without running it. For PostgreSQL the
+// statement is the unnamed one, which the server does not keep.
+func describe(ctx context.Context, conn *sql.Conn, query string) (desc practicedb.Description, err error) {
+	err = conn.Raw(func(dc any) error {
+		switch c := dc.(type) {
+		case *stdlib.Conn:
+			desc, err = describePostgres(ctx, c.Conn().PgConn(), query)
+			return err
+		case interface {
+			ColumnInfo(string) ([]sqlite.ColumnInfo, error)
+		}:
+			info, err := c.ColumnInfo(query)
+			for _, ci := range info {
+				desc.Columns = append(desc.Columns, practicedb.Column{Name: ci.Name, Table: ci.TableName, Origin: ci.OriginName})
+			}
+			return err
+		}
+		return fmt.Errorf("cannot describe queries with driver %T", dc)
+	})
+	return desc, err
+}
+
+func describePostgres(ctx context.Context, pg *pgconn.PgConn, query string) (practicedb.Description, error) {
+	sd, err := pg.Prepare(ctx, "", query, nil)
+	if err != nil {
+		return practicedb.Description{}, err
+	}
+	desc := practicedb.Description{Params: sd.ParamOIDs}
+	var tables []string
+	for _, f := range sd.Fields {
+		desc.Columns = append(desc.Columns, practicedb.Column{Name: f.Name, Type: f.DataTypeOID})
+		if f.TableOID != 0 {
+			tables = append(tables, strconv.FormatUint(uint64(f.TableOID), 10))
+		}
+	}
+	if len(tables) == 0 {
+		return desc, nil
+	}
+	// The sources' names, in one round trip; only tables of the practice
+	// schema count.
+	rr := pg.ExecParams(ctx, `SELECT a.attrelid, a.attnum, c.relname, a.attname
+		FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+		WHERE a.attrelid = ANY($1::oid[]) AND a.attnum > 0 AND c.relnamespace = current_schema()::regnamespace`,
+		[][]byte{[]byte("{" + strings.Join(tables, ",") + "}")}, nil, nil, nil)
+	names := map[string][2]string{} // by "table OID.attribute number"
+	for rr.NextRow() {
+		v := rr.Values()
+		names[string(v[0])+"."+string(v[1])] = [2]string{string(v[2]), string(v[3])}
+	}
+	if _, err := rr.Close(); err != nil {
+		return practicedb.Description{}, err
+	}
+	for i, f := range sd.Fields {
+		if n, ok := names[fmt.Sprint(f.TableOID, ".", f.TableAttributeNumber)]; ok {
+			desc.Columns[i].Table, desc.Columns[i].Origin = n[0], n[1]
+		}
+	}
+	return desc, nil
 }
 
 // command is one command. setup ties its flags to fs and returns what to

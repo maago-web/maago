@@ -14,6 +14,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"errors"
 	"fmt"
 	"go/token"
 	"net/url"
@@ -193,6 +194,74 @@ func (p *DB) Exec(ctx context.Context, pos token.Position, stmt string) []diag.D
 		}
 	}
 	return []diag.Diagnostic{diag.New(pos, diag.OneLine(err.Error()), "fix the SQL statement")}
+}
+
+// Column is a result column of a query, as the database describes it.
+type Column struct {
+	Name string
+	// Table and Origin are the table and column it comes from, in the
+	// practice schema; both "" for an expression. Table is the table's
+	// name, not the alias the query gives it.
+	Table, Origin string
+	Type          uint32 // PostgreSQL type OID; 0 for SQLite
+}
+
+// Description is what the database says about a query without running
+// it. Params are the PostgreSQL type OIDs of $1…$n; SQLite does not know
+// them, so they are nil.
+type Description struct {
+	Columns []Column
+	Params  []uint32
+}
+
+// DescribeQuery prepares query on conn and describes it. The root module
+// knows no driver (D-90), so the command that registers them fills it in.
+var DescribeQuery = func(ctx context.Context, conn *sql.Conn, query string) (Description, error) {
+	return Description{}, errors.New("no database driver to describe queries in this maago build")
+}
+
+// Describe prepares query and describes it. A failed query does not end
+// the practice database: in PostgreSQL it runs under a savepoint, rolled
+// back if it fails, so the transaction goes on (D-96). The error is the
+// query's fault; the diagnostics are the connection's, after which the
+// database cannot be used.
+func (p *DB) Describe(ctx context.Context, query string) (Description, error, []diag.Diagnostic) {
+	pg := p.d == project.Postgres
+	run := func(stmt string) []diag.Diagnostic {
+		if _, err := p.conn.ExecContext(ctx, stmt); err != nil {
+			return fail("practice database: "+diag.OneLine(err.Error()), "check that the PostgreSQL server is still running")
+		}
+		return nil
+	}
+	if pg {
+		if ds := run("SAVEPOINT maago_describe"); ds != nil {
+			return Description{}, nil, ds
+		}
+	}
+	desc, err := DescribeQuery(ctx, p.conn, query)
+	if pg {
+		if err != nil {
+			if ds := run("ROLLBACK TO SAVEPOINT maago_describe"); ds != nil {
+				return Description{}, nil, ds
+			}
+		}
+		if ds := run("RELEASE SAVEPOINT maago_describe"); ds != nil {
+			return Description{}, nil, ds
+		}
+	}
+	return desc, err, nil
+}
+
+// Dialect is the database's dialect.
+func (p *DB) Dialect() project.Dialect { return p.d }
+
+// TypeName is the PostgreSQL name of a type OID, for messages.
+func (p *DB) TypeName(ctx context.Context, oid uint32) string {
+	var name string
+	if err := p.conn.QueryRowContext(ctx, "SELECT format_type($1, NULL)", oid).Scan(&name); err != nil {
+		return fmt.Sprintf("type OID %d", oid)
+	}
+	return name
 }
 
 // QueryContext runs a query on the connection, for reading the schema.

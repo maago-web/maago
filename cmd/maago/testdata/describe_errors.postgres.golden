@@ -1,0 +1,28 @@
+blog/queries/choice.sql:3:32: parameter sort is string, but PostgreSQL reads :sort here as integer
+  fix: compare it with a column of type text
+blog/queries/differ.sql:1:10: result columns differ: sort=latest gives (id from posts.id, n from posts.n), but sort=title gives (id from posts.id, title from posts.title)
+  fix: keep the result columns out of {conditions}; write another query for other columns
+blog/queries/differ_and_fail.sql:6:17: ERROR: column "nope" does not exist (SQLSTATE 42703) (when sort=bad)
+  fix: fix the SQL
+blog/queries/int32.sql:3:32: parameter n is int64, but PostgreSQL reads :n here as integer
+  fix: declare it as int32, or write :n::bigint if the SQL needs a bigint there
+blog/queries/korean.sql:2:18: ERROR: column "nope" does not exist (SQLSTATE 42703)
+  fix: fix the SQL
+blog/queries/missing.sql:2:12: ERROR: column "nope" does not exist (SQLSTATE 42703)
+  fix: fix the SQL
+blog/queries/one_combo.sql:5:14: ERROR: column "nope" does not exist (SQLSTATE 42703) (when flag true)
+  fix: fix the SQL
+blog/queries/other_source.sql:1:10: result columns differ: sort=latest gives (x from posts.id), but sort=title gives (x from boards.id)
+  fix: keep the result columns out of {conditions}; write another query for other columns
+blog/queries/returning.sql:1:10: :exec query Returning returns columns (id from posts.id), which would be thrown away
+  fix: use :one or :many, or remove RETURNING
+blog/queries/same_error.sql:4:12: ERROR: column "nope" does not exist (SQLSTATE 42703) (when a false, b false)
+  fix: fix the SQL
+blog/queries/slice.sql:3:35: parameter ids is []int32, but PostgreSQL reads :ids here as bigint
+  fix: declare it as []int64, or compare it with a column of type integer
+blog/queries/slice_as_scalar.sql:3:35: ERROR: syntax error at or near "," (SQLSTATE 42601)
+  fix: fix the SQL
+blog/queries/syntax.sql:2:1: ERROR: syntax error at or near "SELEC" (SQLSTATE 42601)
+  fix: fix the SQL
+blog/queries/varchar.sql:3:36: parameter title is int64, but PostgreSQL reads :title here as text
+  fix: declare it as string, or write :title::bigint if the SQL needs a bigint there

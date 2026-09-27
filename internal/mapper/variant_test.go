@@ -5,6 +5,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/maago-web/maago/internal/project"
 )
@@ -249,6 +250,52 @@ func TestVariantErrors(t *testing.T) {
 	} {
 		if _, _, got := variants(t, src); got != "" {
 			t.Errorf("%q: unexpected errors:\n%s", src, got)
+		}
+	}
+}
+
+// A string that spans lines moves the lines after it.
+func TestPositionAfterMultilineString(t *testing.T) {
+	_, vs, errs := variants(t, "-- name: Q :many R\nSELECT 'a\nb', nope\n")
+	if errs != "" {
+		t.Fatal(errs)
+	}
+	text := vs[0].SQL(project.Postgres, 1)
+	char := utf8.RuneCountInString(text[:strings.Index(text, "nope")]) + 1
+	if p := vs[0].Position(project.Postgres, 1, char); p.Line != 3 || p.Column != 5 {
+		t.Errorf("nope: got %d:%d, want 3:5", p.Line, p.Column)
+	}
+}
+
+// A character of a variant's text maps to its place in the query file.
+func TestPosition(t *testing.T) {
+	src, err := os.ReadFile("../testdata/orders/queries/search_orders.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, vs, errs := variants(t, string(src))
+	if errs != "" {
+		t.Fatal(errs)
+	}
+	v := vs[6] // status present, from and to present, sort=latest
+	text := v.SQL(project.Postgres, 1)
+	for _, c := range []struct {
+		find string
+		line int
+		col  int
+	}{
+		{"SELECT", 7, 1},
+		{"created_at BETWEEN", 10, 25},
+		{"AND $3", 10, 50}, // SQL after a placeholder
+		{"$3", 10, 54},     // the placeholder is where :to is
+		{"status = $1", 9, 25},
+		{"LIMIT", 16, 1},
+		{"  AND created_at", 10, 1},    // indentation
+		{"\n  AND created_at", 10, 25}, // a line break, at the line it starts
+	} {
+		char := utf8.RuneCountInString(text[:strings.Index(text, c.find)]) + 1
+		if p := v.Position(project.Postgres, 1, char); p.Line != c.line || p.Column != c.col {
+			t.Errorf("%q at character %d: got %d:%d, want %d:%d", c.find, char, p.Line, p.Column, c.line, c.col)
 		}
 	}
 }

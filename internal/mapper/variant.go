@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/model"
@@ -38,10 +39,9 @@ type Piece struct {
 	SQL   string
 	Arg   int // placeholder number, from 1
 	Slice string
-	// Pos is where the piece comes from in the query file. A piece of SQL
-	// can hold several source lines, and starts with a line break,
-	// indentation or a Lead that the source has elsewhere, so Pos is
-	// exact only to the line.
+	// Pos is where the piece is in the query file: exact for SQL of a
+	// line and for placeholders; for the line break and indentation, the
+	// Lead and the comma maago puts between lines, the line they belong to.
 	Pos token.Position
 }
 
@@ -247,30 +247,19 @@ func (q *Query) render(axes []Axis, combo []int) (Variant, []Line) {
 			r.line(il, lead, il.Trail && k < len(in)-1)
 		}
 	}
-	r.flush()
 	return r.v, empty
 }
 
 type renderer struct {
-	q     *Query
-	v     Variant
-	b     strings.Builder
-	start token.Position // of the text in b
-	row   int            // source line of the last text written
+	q   *Query
+	v   Variant
+	row int // source line of the last text written
 }
 
+// text adds SQL that starts at pos in the query file. Pieces are not
+// merged, so that each keeps its own position.
 func (r *renderer) text(s string, pos token.Position) {
-	if r.b.Len() == 0 {
-		r.start = pos
-	}
-	r.b.WriteString(s)
-}
-
-func (r *renderer) flush() {
-	if r.b.Len() > 0 {
-		r.v.Pieces = append(r.v.Pieces, Piece{SQL: r.b.String(), Pos: r.start})
-		r.b.Reset()
-	}
+	r.v.Pieces = append(r.v.Pieces, Piece{SQL: s, Pos: pos})
 }
 
 // newLine separates what comes from l's source line from what came
@@ -281,7 +270,11 @@ func (r *renderer) newLine(l Line) {
 	case r.row == l.Pos.Line:
 		r.text(" ", l.Pos)
 	default:
-		r.text("\n"+r.q.indent(l.Pos), l.Pos)
+		r.text("\n", l.Pos)
+		start := l.Pos
+		start.Offset -= start.Column - 1
+		start.Column = 1
+		r.text(r.q.indent(l.Pos), start)
 	}
 	r.row = l.Pos.Line
 }
@@ -296,7 +289,6 @@ func (r *renderer) line(l Line, lead string, comma bool) {
 		case p.Param == "":
 			r.text(p.SQL, p.Pos)
 		case r.q.param(p.Param).Type.Slice:
-			r.flush()
 			r.v.Pieces = append(r.v.Pieces, Piece{Slice: p.Param, Pos: p.Pos})
 			if !slices.Contains(r.v.Slices, p.Param) {
 				r.v.Slices = append(r.v.Slices, p.Param)
@@ -307,7 +299,6 @@ func (r *renderer) line(l Line, lead string, comma bool) {
 				n = len(r.v.Args)
 				r.v.Args = append(r.v.Args, p.Param)
 			}
-			r.flush()
 			r.v.Pieces = append(r.v.Pieces, Piece{Arg: n + 1, Pos: p.Pos})
 		}
 	}
@@ -328,10 +319,39 @@ func (v Variant) key() string {
 	return v.SQL(project.Postgres, 1) + "\x00" + strings.Join(v.Args, ",") + "\x00" + strings.Join(v.Slices, ",")
 }
 
+// Position is where the char-th character of v.SQL(d, n), counting from
+// 1 as PostgreSQL does, comes from in the query file.
+func (v Variant) Position(d project.Dialect, n, char int) token.Position {
+	var pos token.Position
+	for _, p := range v.pieces(d, n) {
+		pos = p.Pos
+		for _, r := range p.SQL {
+			if char--; char == 0 {
+				return pos
+			}
+			pos.Offset += utf8.RuneLen(r)
+			pos.Column += utf8.RuneLen(r)
+			if r == '\n' { // in a string that spans lines
+				pos.Line, pos.Column = pos.Line+1, 1
+			}
+		}
+	}
+	return pos
+}
+
 // SQL is the text of v for d, with n placeholders for each slice. n is at
 // least 1: an empty slice has no SQL (IN () is not SQL), which the
 // generated code reports before it picks a text.
 func (v Variant) SQL(d project.Dialect, n int) string {
+	var b strings.Builder
+	for _, p := range v.pieces(d, n) {
+		b.WriteString(p.SQL)
+	}
+	return b.String()
+}
+
+// pieces are v's pieces with every placeholder written out as SQL.
+func (v Variant) pieces(d project.Dialect, n int) []Piece {
 	if n < 1 {
 		panic("mapper: a slice needs at least one element")
 	}
@@ -339,22 +359,19 @@ func (v Variant) SQL(d project.Dialect, n int) string {
 	if d == project.SQLite {
 		mark = "?"
 	}
-	var b strings.Builder
-	for _, p := range v.Pieces {
+	ps := slices.Clone(v.Pieces)
+	for i, p := range v.Pieces {
 		switch {
 		case p.Arg > 0:
-			b.WriteString(mark + strconv.Itoa(p.Arg))
+			ps[i].SQL = mark + strconv.Itoa(p.Arg)
 		case p.Slice != "":
 			first := len(v.Args) + slices.Index(v.Slices, p.Slice)*n + 1
+			marks := make([]string, n)
 			for k := range n {
-				if k > 0 {
-					b.WriteString(", ")
-				}
-				b.WriteString(mark + strconv.Itoa(first+k))
+				marks[k] = mark + strconv.Itoa(first+k)
 			}
-		default:
-			b.WriteString(p.SQL)
+			ps[i].SQL = strings.Join(marks, ", ")
 		}
 	}
-	return b.String()
+	return ps
 }

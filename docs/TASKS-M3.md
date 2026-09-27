@@ -21,7 +21,7 @@
 
 계획이 드라이버가 못 하는 일을 가정하지 않게 먼저 쟀다. codex·fable이 소스에서 다시 확인했다.
 
-- **PG는 실행 없이 묘사할 수 있다.** pgx v5.11.0의 `pgconn.StatementDescription`이 결과 컬럼마다 `TableOID`·`TableAttributeNumber`·`DataTypeOID`를, 파라미터마다 `ParamOIDs`를 준다. `sql.Conn.Raw` → `*stdlib.Conn` → `Conn()`(`*pgx.Conn`)의 `Prepare`로 닿는다. 서버에 이름 있는 prepared statement가 남으므로 묘사 뒤 `Deallocate`한다
+- **PG는 실행 없이 묘사할 수 있다.** pgx v5.11.0의 `pgconn.StatementDescription`이 결과 컬럼마다 `TableOID`·`TableAttributeNumber`·`DataTypeOID`를, 파라미터마다 `ParamOIDs`를 준다. `sql.Conn.Raw` → `*stdlib.Conn` → `Conn()`(`*pgx.Conn`) → `PgConn().Prepare(ctx, "", …)`로 닿는다. 이름이 빈 문장은 서버에 남지 않는다(이름 있는 것은 `Deallocate`가 필요하다. 4번 계획에서 고침)
 - **SQLite는 컬럼의 출처만 안다.** modernc v1.59.0의 `ColumnInfo(query)`(비공개 `*conn`의 메서드라 `Raw`의 driverConn을 `interface{ ColumnInfo(string) ([]sqlite.ColumnInfo, error) }`로 단언해 부른다. modernc 자체 테스트가 그렇게 한다)가 결과 컬럼마다 이름, 선언 타입, 출처 테이블·컬럼을 준다. 식(`count(*)`)은 모두 비어 있고, 파라미터의 타입은 없다
 - **출처로는 NULL 여부를 알 수 없다.** `LEFT JOIN`된 쪽의 `x.id`도 두 드라이버 모두 NOT NULL인 원래 컬럼으로 보고한다. `CASE`·`COALESCE`·집계·스칼라 서브쿼리·`UNION`도 NULL을 낼 수 있고, 이것들은 출처가 없다
 - **SQLite의 `time.Time`은 그대로 되지 않는다.** STRICT `TEXT` 컬럼에 `time.Time`을 넘기면 modernc는 Go의 `String()` 모양(`2026-09-27 12:00:00 +0900 KST`)으로 쓰고, 읽기의 자동 변환은 선언 타입이 `DATE`·`DATETIME`·`TIMESTAMP`일 때뿐이라 `*time.Time`으로 읽으면 Scan 오류다. → D-105
@@ -279,6 +279,62 @@ type Piece struct {
 2. PG 파라미터 타입 불일치(`status int64`인데 컬럼이 `varchar`)가 오류. `int32` 컬럼에 `int64` 선언도 오류
 3. 조합마다 결과 컬럼이 다른 쿼리가 오류
 4. 묘사 표 테스트(직접 컬럼, 별칭, JOIN, 식, 바깥 조인)가 "먼저 확인한 사실"과 같다. 연습용 DB를 닫은 뒤 PG에 prepared statement가 남지 않는다
+
+### 계획
+
+파일
+- `internal/practicedb/practicedb.go`: `Describe` 자리와 메서드.
+  ```go
+  type Column struct {
+  	Name          string // 결과 컬럼 이름
+  	Table, Origin string // 출처 테이블·컬럼(연습용 스키마의 것). 식이면 ""
+  	Type          uint32 // PG 타입 OID, SQLite는 0
+  }
+  type Description struct { Columns []Column; Params []uint32 } // Params: PG 파라미터 OID, 번호 순. SQLite는 nil
+  var DescribeQuery = func(ctx context.Context, conn *sql.Conn, query string) (Description, error) // cmd/maago가 꽂는다(ErrorPosition과 같은 모양)
+  func (p *DB) Describe(ctx context.Context, query string) (Description, error, []diag.Diagnostic) // error: 쿼리의 잘못, 진단: 연결·SAVEPOINT의 실패(쿼리 탓이 아니다)
+  func (p *DB) Dialect() project.Dialect
+  func (p *DB) TypeName(ctx context.Context, oid uint32) string // PG format_type, 불일치 메시지에만
+  ```
+  `Describe`는 PG에서 `SAVEPOINT maago_describe` → `DescribeQuery` → 실패면 `ROLLBACK TO SAVEPOINT maago_describe` → 어느 쪽이든 `RELEASE SAVEPOINT maago_describe`(모양 절). 드라이버 없는 빌드의 기본값은 오류
+- `cmd/maago/main.go`: `DescribeQuery`를 꽂는다. PG: `conn.Raw` → `*stdlib.Conn` → `Conn()` → `PgConn().Prepare(ctx, "", query, nil)`(이름 없는 문장: 서버에 남지 않고 다음 문장이 덮는다. 먼저 확인한 사실의 `Deallocate`가 필요 없다), 출처는 `TableOID`·`TableAttributeNumber`를 묘사마다 한 번의 조회(`pg_attribute JOIN pg_class`, `attrelid = ANY($1)`, `relnamespace = current_schema()::regnamespace`)로 이름에(연습용 스키마 밖·카탈로그는 출처 없음, fable 5). SQLite: `Raw`의 driverConn을 `interface{ ColumnInfo(string) ([]sqlite.ColumnInfo, error) }`로 단언, `TableName`·`OriginName`(`DeclType`은 버린다: 출처가 있는 컬럼은 모델 필드의 타입을 쓰고, 출처 없는 식은 선언이 필요하다, D-104. 뷰는 D-100이 막아 연습용 DB에 없다)
+- 새 `internal/mapper/describe.go`: `Describe(ctx, db *practicedb.DB, q *Query, axes []Axis, vs []Variant) ([]practicedb.Column, []diag.Diagnostic)`. 변형마다(슬라이스가 있으면 원소 1·2개로 두 번) `db.Describe`. 9번이 쿼리마다 부르고, 5번이 돌려받은 컬럼으로 결과 타입을 본다
+- `internal/mapper/variant.go`: `renderer`가 `text` 부를 때마다 조각을 따로 둔다(합치지 않는다). 그러면 `Parts`에서 온 조각의 `Pos`는 칸까지 정확하고, 줄바꿈·들여쓰기·Lead 조각만 그 줄의 위치다(3번 fable 5). 새 `(v Variant) Position(d, n, char int) token.Position`: 글의 `char`번째 글자(1부터, PG `Position`이 세는 것)가 원문의 어디인지
+- 새 `cmd/maago/describe_test.go`(두 방언, 연습용 DB에 표를 만들고)
+
+오류 (위치 + 어느 조합인지, D-61·D-62)
+- prepare 실패: 위치는 PG면 `ErrorPosition`을 `Position`으로 옮긴 곳, 없으면(SQLite) `-- name:` 줄. 메시지는 DB 메시지 + ` (when status absent, …)`, 조합이 하나뿐이면(축 없음) 붙이지 않는다. fix는 `fix the SQL`. 한 쿼리 안에서 위치·DB 메시지가 같은 오류는 처음 조합의 것 하나만(변형 여럿이 같은 줄에서 같은 이유로 실패한다)
+- 결과 컬럼이 변형마다 다름(이름·출처·PG 타입 중 하나라도): `-- name:`에, 두 조합과 각각의 컬럼 이름 목록. fix: 결과 컬럼은 `{조건}`으로 바꾸지 말 것
+- PG 파라미터 타입: `Params[i]`가 선언의 받는 OID 안에 있어야 한다. 표(M1이 만드는 타입과 같게): `int64` 20, `int32` 23, `string` 25·1043·1042, `float64` 701, `bool` 16, `time.Time` 1184, `[]byte` 17, 선택지는 `string`. 슬라이스는 원소의 표로 원소 자리마다. 위치는 그 파라미터가 처음 쓰인 자리(변형의 그 번호 조각). 메시지 `parameter status is string, but PostgreSQL reads :status here as integer`(사용자가 쓰지 않은 `$1`을 보이지 않는다, fable 4. 타입 이름은 `TypeName`), fix `declare it as int32, or write :status::text if the SQL needs a text there`(선언을 먼저: 컬럼과 비교하는 자리의 캐스트는 새 오류를 낸다, 4번 구현 리뷰 fable 1. 선택지·슬라이스는 `compare it with a column of type text`). 변형·원소 수를 가로질러 같은 것은 하나만
+- SQLite는 파라미터 타입을 모른다: 맞춰 보지 않는다(11번에 ARCHITECTURE·TUTORIAL-FUTURE로)
+- `:exec`인데 결과 컬럼이 있음(`RETURNING`): `-- name:`에, 컬럼 이름들. fix `use :one or :many, or remove RETURNING`(결과를 조용히 버리지 않는다, PHILOSOPHY 7, fable 7)
+- 연결·`SAVEPOINT`의 실패는 쿼리 오류가 아니라 그 진단 그대로(연습용 DB를 더 쓸 수 없으니 거기서 멈춘다)
+- prepare 실패가 있는 쿼리는 결과 컬럼 비교를 하지 않는다(연쇄)
+
+하지 않기로 한 것
+- 결과 타입(D-23·D-104)은 5번. 이 작업은 컬럼 묘사를 넘길 뿐
+- 파이프라인 연결은 9번. 테스트는 연습용 DB를 직접 연다
+- `Describe`가 쓰는 시간(조합 상한의 근거, 모양 절)은 테스트에서 `SearchOrders` 16조합 × 두 방언을 재어 계획에 숫자로 적는다. 잰 값(2026-09-27, 로컬 PG 18): `SearchOrders`(글 8개)와 쿼리 둘, 글 10개의 묘사가 SQLite 0.9ms, PG 5.5ms. 글 64개인 쿼리 하나는 PG 40ms 안팎이라 D-65(PG 3초)에 비해 작다. 상한은 그대로 둔다
+- 5번에 넘길 것(fable 7·8): `Column.Table`은 별칭이 아니라 테이블 이름이다(바깥 조인 판정은 테이블 단위가 한계, 한쪽만 바깥인 셀프 조인은 그 테이블 전부가 NULL 쪽). 두 드라이버 모두 CTE를 꿰뚫어 출처를 준다: CTE 안의 `LEFT JOIN`을 보려면 토큰 스캔이 글 전체를 보거나 `WITH`를 "분류할 수 없는 모양"으로. 출처가 모델이 아닌 테이블(손으로 만든 표, PG의 스키마 밖)은 한 규칙("선언하라")
+- 8번에 넘길 것: 조각을 `text`마다 나눴으므로 생성 코드는 이웃한 SQL 조각을 이어 쓴다
+- modernc `ColumnInfo`는 첫 문장만 prepare한다. 규칙 1이 둘째 문장을 막으므로 충분하다
+
+단계
+1. `practicedb.Describe`와 `cmd/maago`의 두 드라이버 함수 → 확인 4: 실패 두 종류(문법 오류: Parse에서, 없는 컬럼: 분석에서)가 두 방언에서 오류로 오고, 묘사 표(직접 컬럼, 별칭 `AS x`, JOIN의 두 테이블, `count(*)`, `LEFT JOIN`의 오른쪽, 파라미터 OID)가 먼저 확인한 사실과 같다. PG에서 묘사 뒤 `pg_prepared_statements`에 `stmtcache_%`(pgx가 자기 조회에 쓰는 것) 밖의 문장이 없다(fable 2)
+2. `SAVEPOINT` → 확인 1의 뒤 절: PG에서 실패한 묘사 뒤 다음 묘사가 된다(`ROLLBACK TO`를 지우면 여기서 실패). 끝에 `RELEASE SAVEPOINT maago_describe`를 한 번 더 보내 SQLSTATE `3B001`(`RELEASE`를 지우면 여기서 실패: 같은 이름의 SAVEPOINT는 다시 세워지므로 다른 것은 깨지지 않는다, fable 1). 둘을 하나씩 지워 실패를 보고 되돌린다(WORKFLOW 5)
+3. `Position`과 조각 나눔 → 확인: 3번의 손 골든 그대로, 여러 줄 글에서 둘째 줄 바인딩 뒤 글자의 위치가 원문 칸과 같다
+4. `mapper.Describe` → 확인 1·2·3: 없는 컬럼(PG는 그 칸, SQLite는 `-- name:`), 문법 오류, 조합 하나에서만 나는 오류(`{flag} AND nope = 1`이 `flag true`를 짚는다), 쿼리 둘의 오류가 한 실행에 모두, `status int64`인데 컬럼이 `varchar`·`int32` 컬럼에 `int64`(PG), 슬라이스 원소 타입, 조합마다 결과 컬럼이 다른 쿼리, 여러 변형이 같은 줄에서 같은 이유로 실패하면 진단 하나(처음 조합), 잘못된 컬럼 앞의 `'한글'`(PG의 글자 수 → 칸), `:exec` + `RETURNING`. 통과: `SearchOrders`(두 방언), `:exec`의 `UPDATE`, `:one`의 `INSERT … RETURNING id`
+5. 두 모듈 `go vet`·`go test`(PG는 로컬 서버로), `gofmt -l .`
+
+계획 리뷰 (codex·fable)
+- 받음: pgx 경로와 "먼저 확인한 사실"의 `Deallocate`(codex 1·2), 실패 두 종류의 표(codex 3의 앞), `DeclType`을 버리는 이유(codex 4), `Position`의 줄바꿈(codex 5: 줄바꿈과 들여쓰기를 따로 조각으로), `RELEASE`의 3B001 확인(fable 1), `stmtcache_%`를 뺀 확인(fable 2), 확인 보강(fable 3), `$1` 대신 `:status`(fable 4), 카탈로그 조회 한 번과 `format_type`(fable 5), `d` 인자 없음·연결 실패는 따로(fable 6), `:exec` + `RETURNING`(fable 7), 5·8번에 넘길 것(fable 7·8·9), 첫 문장만(fable 10)
+- 받지 않음: codex 3의 뒤(취소·연결 끊김의 시험) — 둘 다 연습용 DB를 끝내는 경로이고 진단은 그대로 나간다
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — `slices.Clone`, 시간 로그 삭제(잰 값은 위에), `MkdirAll` 한 번, `RuneCountInString`, 카탈로그 결과의 문자열 키
+- codex(PG 없이 코드만 읽음): 받음 — 준비에 실패한 쿼리는 결과 컬럼을 비교하지 않음(`differ_and_fail`), 파라미터 오류의 중복 키에 OID
+- fable(PG로 돌리고 변이 실험, 잡힌 변이 10개): 받음 — 캐스트보다 선언을 먼저 권하는 fix, 살아남은 변이 셋의 사례(슬라이스를 스칼라 자리에: 원소 2개에서만 실패, 카탈로그 표는 출처 없음, 이름이 같고 출처가 다른 컬럼), 여러 줄 문자열 뒤의 위치. 받지 않음 — 슬라이스 오용의 DB 메시지에 보이는 `,`(위치가 이미 `:ids`를 짚는다)
+- 5·9번에 넘길 것(fable): 식 컬럼의 이름이 방언마다 다르다(PG `count`, SQLite `count(*)`: `AS`를 요구하는 5번의 규칙이 덮는다). `Describe`는 진단이 있으면 컬럼을 주지 않는다(파라미터 타입만 틀려도): 9번에서 결과 타입 검사를 같은 실행에 돌리려면 파라미터 진단과 컬럼을 함께 주도록 고칠지 정한다
 
 ## 5. 결과 타입 (D-23)
 

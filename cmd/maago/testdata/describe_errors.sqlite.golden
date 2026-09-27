@@ -1,0 +1,20 @@
+blog/queries/differ.sql:1:10: result columns differ: sort=latest gives (id from posts.id, n from posts.n), but sort=title gives (id from posts.id, title from posts.title)
+  fix: keep the result columns out of {conditions}; write another query for other columns
+blog/queries/differ_and_fail.sql:1:10: SQL logic error: no such column: nope (1) (when sort=bad)
+  fix: fix the SQL
+blog/queries/korean.sql:1:10: SQL logic error: no such column: nope (1)
+  fix: fix the SQL
+blog/queries/missing.sql:1:10: SQL logic error: no such column: nope (1)
+  fix: fix the SQL
+blog/queries/one_combo.sql:1:10: SQL logic error: no such column: nope (1) (when flag true)
+  fix: fix the SQL
+blog/queries/other_source.sql:1:10: result columns differ: sort=latest gives (x from posts.id), but sort=title gives (x from boards.id)
+  fix: keep the result columns out of {conditions}; write another query for other columns
+blog/queries/returning.sql:1:10: :exec query Returning returns columns (id from posts.id), which would be thrown away
+  fix: use :one or :many, or remove RETURNING
+blog/queries/same_error.sql:1:10: SQL logic error: no such column: nope (1) (when a false, b false)
+  fix: fix the SQL
+blog/queries/slice_as_scalar.sql:1:10: SQL logic error: near ",": syntax error (1)
+  fix: fix the SQL
+blog/queries/syntax.sql:1:10: SQL logic error: near "SELEC": syntax error (1)
+  fix: fix the SQL
