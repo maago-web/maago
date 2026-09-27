@@ -1,0 +1,307 @@
+-- initial
+
+CREATE TABLE "blog_author" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "name" TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE "blog_comment" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "post_id" INTEGER NOT NULL,
+    "parent_id" INTEGER,
+    CONSTRAINT "blog_comment_post_id_fkey" FOREIGN KEY ("post_id") REFERENCES "blog_post" ("id") ON DELETE NO ACTION,
+    CONSTRAINT "blog_comment_parent_id_fkey" FOREIGN KEY ("parent_id") REFERENCES "blog_comment" ("id") ON DELETE NO ACTION
+) STRICT;
+
+CREATE INDEX "blog_comment_post_id_idx" ON "blog_comment" ("post_id");
+
+CREATE INDEX "blog_comment_parent_id_idx" ON "blog_comment" ("parent_id");
+
+CREATE TABLE "blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "views" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
+CREATE TABLE "blog_tag" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "label" TEXT NOT NULL
+) STRICT;
+
+-- add nullable field
+
+ALTER TABLE "blog_post" ADD COLUMN "summary" TEXT;
+
+-- add field without default
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "body" TEXT NOT NULL,
+    "views" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+-- ⚠ Column "body" of "blog_post" is NOT NULL without a default, so this fails if "blog_post" has rows. Give the field a default, or add it as a pointer, fill it, then make it NOT NULL.
+INSERT INTO "maago_new_blog_post" ("id", "author_id", "title", "views") SELECT "id", "author_id", "title", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
+-- add field with max and default
+
+ALTER TABLE "blog_post" ADD COLUMN "lang" TEXT NOT NULL DEFAULT 'ko' CHECK (length("lang") <= 5);
+
+-- add foreign key field
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "editor_id" INTEGER,
+    "views" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION,
+    CONSTRAINT "blog_post_editor_id_fkey" FOREIGN KEY ("editor_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+INSERT INTO "maago_new_blog_post" ("id", "author_id", "title", "views") SELECT "id", "author_id", "title", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
+CREATE INDEX "blog_post_editor_id_idx" ON "blog_post" ("editor_id");
+
+-- add field with choices
+
+ALTER TABLE "blog_post" ADD COLUMN "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'published'));
+
+-- add fields with unusual defaults
+
+ALTER TABLE "blog_post" ADD COLUMN "ratio" REAL NOT NULL DEFAULT 1e-07;
+
+ALTER TABLE "blog_post" ADD COLUMN "delta" INTEGER NOT NULL DEFAULT -3;
+
+-- drop field
+
+-- ⚠ This drops column "views" of "blog_post" and its values. If that is intended, put "-- maago: allow-drop" on the line right before the DROP statement.
+ALTER TABLE "blog_post" DROP COLUMN "views";
+
+-- drop foreign key field
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "views" INTEGER NOT NULL DEFAULT 0
+) STRICT;
+
+INSERT INTO "maago_new_blog_post" ("id", "title", "views") SELECT "id", "title", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+-- ⚠ This drops the values of "author_id" in "blog_post", which the copy above leaves out. If that is intended, put "-- maago: allow-drop" on the line right before the DROP statement.
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+-- type
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "views" REAL NOT NULL DEFAULT 0,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+INSERT INTO "maago_new_blog_post" ("id", "author_id", "title", "views") SELECT "id", "author_id", "title", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
+-- type and default
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "code" INTEGER NOT NULL DEFAULT 0,
+    "views" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+INSERT INTO "maago_new_blog_post" ("id", "author_id", "title", "code", "views") SELECT "id", "author_id", "title", "code", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
+-- max
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 100),
+    "views" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+INSERT INTO "maago_new_blog_post" ("id", "author_id", "title", "views") SELECT "id", "author_id", "title", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
+-- nullable
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT CHECK (length("title") <= 200),
+    "views" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+INSERT INTO "maago_new_blog_post" ("id", "author_id", "title", "views") SELECT "id", "author_id", "title", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
+-- default
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "views" INTEGER NOT NULL DEFAULT 1,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+INSERT INTO "maago_new_blog_post" ("id", "author_id", "title", "views") SELECT "id", "author_id", "title", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
+-- add unique
+
+CREATE UNIQUE INDEX "blog_tag_label_key" ON "blog_tag" ("label");
+
+-- drop unique
+
+DROP INDEX "blog_tag_label_key";
+
+-- add choices
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'published')),
+    "views" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+INSERT INTO "maago_new_blog_post" ("id", "author_id", "title", "status", "views") SELECT "id", "author_id", "title", "status", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
+-- drop model
+
+-- ⚠ This drops table "blog_comment" and all its rows. If that is intended, put "-- maago: allow-drop" on the line right before the DROP statement.
+DROP TABLE "blog_comment";
+
+-- by hand
+
+CREATE TABLE "maago_new_blog_tag" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "label" TEXT NOT NULL
+) STRICT;
+
+INSERT INTO "maago_new_blog_tag" ("id", "label") SELECT "id", "label" FROM "blog_tag";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_tag';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_tag', seq FROM sqlite_sequence WHERE name = 'blog_tag';
+
+DROP TABLE "blog_tag";
+
+ALTER TABLE "maago_new_blog_tag" RENAME TO "blog_tag";
+
+-- unique constraint
+
+CREATE TABLE "maago_new_blog_tag" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "label" TEXT NOT NULL
+) STRICT;
+
+INSERT INTO "maago_new_blog_tag" ("id", "label") SELECT "id", "label" FROM "blog_tag";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_tag';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_tag', seq FROM sqlite_sequence WHERE name = 'blog_tag';
+
+DROP TABLE "blog_tag";
+
+ALTER TABLE "maago_new_blog_tag" RENAME TO "blog_tag";
+

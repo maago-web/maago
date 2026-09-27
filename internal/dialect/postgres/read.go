@@ -190,7 +190,7 @@ func (r *reader) readConstraints(t *readTable) (map[int64]string, error) {
 		}
 		switch kind {
 		case "p":
-			t.t.PK = cols
+			t.t.PK, t.t.PKName = cols, con
 			backing[dialect.Num(v[15])] = "primary key"
 		case "u":
 			t.t.Indexes = append(t.t.Indexes, schema.Index{Name: con, Columns: cols, Unique: true, Constraint: true})

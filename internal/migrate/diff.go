@@ -219,6 +219,14 @@ func column(t *schema.Table, name string) *schema.Column {
 	return nil
 }
 
+// Table is the name of the table c changes.
+func (c Change) Table() string {
+	if c.To != nil {
+		return c.To.Name
+	}
+	return c.From.Name
+}
+
 // Message says what differs, naming tables and columns as the database
 // does. "Missing" is in the models but not the migrations.
 func (c Change) Message() string {

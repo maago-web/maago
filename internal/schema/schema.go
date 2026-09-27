@@ -22,6 +22,7 @@ type Table struct {
 	Strict  bool     // SQLite
 	Columns []Column // in definition order, which a comparison ignores
 	PK      []string // in key order
+	PKName  string   // PostgreSQL's constraint name, for a draft to drop it
 	PKAuto  string   // "AUTOINCREMENT"; PostgreSQL "BY DEFAULT" or "ALWAYS"; "" if none
 	FKs     []FK
 	Indexes []Index // unique ones included

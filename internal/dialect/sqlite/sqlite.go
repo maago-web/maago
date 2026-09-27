@@ -28,21 +28,29 @@ func DDL(fset *token.FileSet, apps []*model.App) (string, []diag.Diagnostic) {
 	for _, app := range apps {
 		tables := dialect.Tables(app)
 		for _, m := range app.Models {
-			stmts = append(stmts, table(m, tables))
-			for _, cols := range m.Uniques {
-				stmts = append(stmts, fmt.Sprintf("CREATE UNIQUE INDEX %s ON %s (%s);",
-					dialect.Quote(dialect.UniqueName(m.Table, cols)), dialect.Quote(m.Table), dialect.QuoteAll(cols)))
-			}
-			for _, cols := range m.Indexes {
-				stmts = append(stmts, fmt.Sprintf("CREATE INDEX %s ON %s (%s);",
-					dialect.Quote(dialect.IndexName(m.Table, cols)), dialect.Quote(m.Table), dialect.QuoteAll(cols)))
-			}
+			stmts = append(stmts, table(m, m.Table, tables))
+			stmts = append(stmts, indexes(m)...)
 		}
 	}
 	return strings.Join(stmts, "\n\n") + "\n", nil
 }
 
-func table(m *model.Model, tables map[string]string) string {
+func indexes(m *model.Model) []string {
+	var stmts []string
+	for _, cols := range m.Uniques {
+		stmts = append(stmts, fmt.Sprintf("CREATE UNIQUE INDEX %s ON %s (%s);",
+			dialect.Quote(dialect.UniqueName(m.Table, cols)), dialect.Quote(m.Table), dialect.QuoteAll(cols)))
+	}
+	for _, cols := range m.Indexes {
+		stmts = append(stmts, fmt.Sprintf("CREATE INDEX %s ON %s (%s);",
+			dialect.Quote(dialect.IndexName(m.Table, cols)), dialect.Quote(m.Table), dialect.QuoteAll(cols)))
+	}
+	return stmts
+}
+
+// table is the CREATE TABLE of m under name, which differs from m.Table
+// while a draft rebuilds the table.
+func table(m *model.Model, name string, tables map[string]string) string {
 	var lines []string
 	for _, f := range m.Fields {
 		lines = append(lines, column(f))
@@ -53,7 +61,7 @@ func table(m *model.Model, tables map[string]string) string {
 				dialect.Quote(dialect.ForeignKeyName(m.Table, f.Column)), dialect.Quote(f.Column), dialect.Quote(tables[f.FK]), dialect.Quote("id")))
 		}
 	}
-	return fmt.Sprintf("CREATE TABLE %s (\n    %s\n) STRICT;", dialect.Quote(m.Table), strings.Join(lines, ",\n    "))
+	return fmt.Sprintf("CREATE TABLE %s (\n    %s\n) STRICT;", dialect.Quote(name), strings.Join(lines, ",\n    "))
 }
 
 func column(f *model.Field) string {
