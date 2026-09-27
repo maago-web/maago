@@ -467,6 +467,25 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 → 확인: `cmd/maago`의 `go mod tidy -diff`, 두 모듈 `go vet`·`go test`, CI에서 PG 테스트가 실제로 돈다(건너뜀 0, CI에서 변수를 빼면 실패). M2의 완료 확인은 PG를 건너뛴 로컬 결과로 대신하지 않는다
 
+**계획**
+- 바꿀 파일: `cmd/maago/main.go`(명령 표와 플래그), `cmd/maago/main_test.go`(`TestRun`·`TestUsage`와 새 명령), `CLAUDE.md`(스모크 스크립트 줄), `internal/dialect/sqlite/sqlite_test.go`·`internal/dialect/postgres/postgres_test.go`(스모크를 가리키는 주석), `docs/DECISIONS.md`(D-68). 새 파일: `cmd/maago/example_test.go`(스모크의 경우들). 지울 파일: `internal/dialect/{sqlite,postgres}/testdata/smoke.sh`(사람의 결정, 2026-09-27)
+- **명령 표**: `command`가 `run(stdout, stderr)` 대신 `setup(fs *flag.FlagSet) func(stdout, stderr io.Writer) int`를 가진다: 명령마다 자기 플래그를 `fs`에 매고, 파싱 뒤 부를 함수를 돌려준다(`gen`·`check`는 플래그 없음). 파싱·`-h`·남는 인자·종료 코드는 지금 `run`의 한 벌 그대로
+  - `makemigrations [--name NAME] [--rename TABLE.OLD:NEW]...`: `--name`은 `fs.String`, `--rename`은 `fs.Func`로 반복을 모은다. 모양 검사는 9번의 `build.MakeMigrations`가 진단으로 해 종료 1(D-68에 더함, 사람의 결정: 사용법 오류 2는 `flag`가 거부하는 것뿐). `--name -h`는 `flag`가 `-h`를 값으로 읽어 이름 진단(1)이 된다: 그대로 둔다(codex). 출력: `created migrations/0002_x.sql`, 차이가 없으면 `no changes`, 둘 다 stdout
+  - `migrate`: 적용한 파일마다 `applied 0002_x.sql`(뒤에서 실패해도 앞 것은 찍는다, `gen`의 `removed`와 같다), 적용할 것이 없으면 `nothing to apply`
+  - `showmigrations`: 10번의 목록을 stdout에
+  - 사용법: `usage: maago <command> [flags]`, 명령 줄은 이름을 가장 긴 이름에 맞추고 요약 뒤에 플래그를 적는다. 명령별 `-h`는 전체 사용법(지금과 같다). 순서: `gen`, `check`, `makemigrations`, `showmigrations`, `migrate`(쓰는 순서)
+- **드라이버·CI**: 2번이 이미 했다. GitHub Actions는 `CI=true`를 주고 `MAAGO_TEST_PG_URL`을 읽는 곳은 `pgURL` 하나라 CI에서 건너뛰지 않고 실패한다(D-91). 로컬에서 `CI=1`에 주소를 빼고 돌려 실패하는 것을 확인한다. CI의 실제 실행(건너뜀 0)은 push 뒤에만 보이므로 "M2 끝"의 확인 목록에 둔다(push는 사람에게 묻는다)
+- **스모크 스크립트**(M1에서 넘어옴): Go 테스트로 옮기고 스크립트를 지운다(스크립트는 CI에서 돈 적이 없다: `sqlite3` 명령·PG 서버 바이너리가 필요). `cmd/maago/example_test.go`: 경우마다 **새** 연습용 DB(PG는 실패한 문장이 트랜잭션을 망치므로 경우끼리 DB를 나눠 쓸 수 없다)에 M1 골든(`example.sql`)을 `apply`(있는 도우미)로 적용하고, 경우의 문장 목록을 한 문장씩 `Exec`(pgx는 여러 문장을 한 번에 받지 않는다), 마지막 문장의 기대 오류 글(부분 문자열, 드라이버 메시지에서. 방언마다 먼저 돌려 글을 맞춘다) 또는 성공. 값 확인(기본값, id 재사용 없음, 인덱스 수)은 `CASE`로 글 하나를 `rowsText`로 읽어 비교. 경우는 스크립트 그대로, 방언 간 비대칭도 그대로(SQLite 15, PG 16: PG에만 명시적 id, PG의 기본값 경우만 `"order"`). PG 카탈로그 조회는 `current_schema()`로 좁힌다(codex: 연습용 스키마 밖의 같은 이름). PG 임시 클러스터 대신 `MAAGO_TEST_PG_URL`의 연습용 스키마(CI에서 돈다). CLAUDE.md의 스모크 줄과 두 테스트 주석은 이 테스트를 가리키게. TASKS-M1의 기록은 그대로(그때의 사실)
+- 하지 않는 것: 명령별 도움말, 플래그 약어, `--json`(D-62), `migrate`의 번호 지정(10번)
+- 리뷰: codex(경우 수, PG 카탈로그를 연습용 스키마로, 오류 글은 부분 문자열로, `--name -h`, CI 확인 범위) 반영. fable(D-68에 적기 → 사람의 결정, 여러 문장 경우를 한 문장씩과 경우마다 새 DB인 이유, `migrate`가 실패 앞 것을 찍는 확인, 경우 수, 매달리는 주석, `--rename` 둘은 빈 프로젝트의 진단으로, 있는 도우미, CI 실행은 M2 끝 목록에) 모두 반영 구현 리뷰: ponytail(`readFile`·`mustExec` 다시 쓰기, `t.Chdir` 한 번) 반영. codex(값 없는 `--name`, 남는 인자 뒤의 플래그, `showmigrations extra`) 반영, stderr 전체 비교는 받지 않음(두 값이 닿는 것은 부분 문자열로 충분). 테스트는 샌드박스로 못 돌림. 스모크 경우의 대응은 codex·fable 모두 1:1로 확인. fable(첫 파일부터 실패한 `migrate`의 출력과 진단을 내는 `showmigrations`의 종료 코드가 테스트되지 않음, `readExample` 중복, D-68 괄호의 사실, `CASE`의 `ELSE`) 반영. 돌연변이: fable의 아홉 가지 중 살아남은 둘도 이제 잡힌다
+
+→ 확인
+1. `cmd/maago`의 `go mod tidy -diff`, 두 모듈 `go vet`·`go test`(PG 포함), `gofmt -l` 비어 있음
+2. `TestRun` 표(빈 모듈): 새 명령의 `-h`(0), 모르는 플래그(2), 남는 인자(2), `makemigrations --rename bad --rename worse` → 1과 두 진단(두 값이 모두 `build`에 닿는다), `makemigrations` → `no changes`, `showmigrations` → `no migrations`, `migrate` → `nothing to apply`. `TestUsage` 골든에 새 줄과 순서
+3. 임시 프로젝트에서 명령으로: `makemigrations` → `created …`, `showmigrations` → `[ ]`, `migrate` → `applied …`, 다시 → `nothing to apply`, 틀린 `--name` → 1과 진단. 정상 0002와 틀린 0003을 두면 `migrate`가 stdout에 `applied 0002_…`, stderr에 0003의 진단, 종료 1
+4. `example_test.go`: 스크립트의 경우 모두(SQLite 15, PG 16)가 통과하고, 경우 하나의 기대 오류를 바꾸면 실패한다. 스크립트가 없다
+5. `CI=1`에 `MAAGO_TEST_PG_URL`을 빼면 PG 테스트가 실패한다(건너뛰지 않는다)
+
 ## 12. 완료 조건 종단 테스트와 문서
 
 - 완료 조건 세 개를 그대로 `cmd/maago` 모듈의 테스트로: 빈 임시 프로젝트에서 모델 추가 → 필드 추가 → 필드 이름 변경(`--rename`) → 필드 삭제(표시를 단다), 단계마다 `makemigrations` → `check` 0, 끝에 새 DB에 `migrate`한 결과를 읽어 모델 DDL을 적용해 읽은 것과 같다. 두 방언
@@ -481,6 +500,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 - [ ] 1~12 완료
 - [ ] 위 M2 완료 조건 세 개를 실제로 돌려 확인
 - [ ] MILESTONES.md의 M2 체크박스 갱신
+- [ ] push 뒤 GitHub Actions 로그에서 PG 테스트가 실제로 돈 것(건너뜀 0)을 확인(11번)
 
 ## 열린 질문 (계획 단계에서 정하거나 사람에게 묻는다)
 

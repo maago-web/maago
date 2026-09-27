@@ -7,5 +7,5 @@
   - fable: `general-purpose` 서브에이전트에 `model: fable`.
   - 두 리뷰어는 한 메시지에서 병렬로 띄운다.
 - 확인 명령: 루트와 `cmd/maago`에서 각각 `go vet ./... && go test ./...`, `cmd/maago`는 `go mod tidy -diff`도. `gofmt -l .`은 비어야 한다.
-- PG 테스트(M2~): `MAAGO_TEST_PG_URL`이 있어야 돈다(D-91). M1의 PG 스모크는 `sh internal/dialect/postgres/testdata/smoke.sh`(임시 클러스터).
+- PG 테스트(M2~): `MAAGO_TEST_PG_URL`이 있어야 돈다(D-91). M1 예제 스키마가 받을 것과 막을 것은 `cmd/maago`의 `TestExample*`(두 방언, M2 11번에서 스모크 스크립트를 옮김).
 - 커밋 메시지는 한국어, `종류(범위): 내용 (Mn N번, D-xx)`. 공동 작성자 표시는 붙이지 않는다. push는 묻고 한다.

@@ -34,6 +34,17 @@ func TestRun(t *testing.T) {
 		{[]string{"gen", "-x"}, 2, toStderr, []string{"-x", "usage:"}},
 		{[]string{"gen", "extra"}, 2, toStderr, []string{`"extra"`, "usage:"}},
 		{[]string{"gen", "--"}, 0, toStdout, nil},
+		{[]string{"makemigrations", "-h"}, 0, toStdout, []string{"usage:", "makemigrations"}},
+		{[]string{"makemigrations", "--nope"}, 2, toStderr, []string{"-nope", "usage:"}},
+		{[]string{"migrate", "extra"}, 2, toStderr, []string{`"extra"`, "usage:"}},
+		{[]string{"showmigrations", "extra"}, 2, toStderr, []string{`"extra"`, "usage:"}},
+		{[]string{"makemigrations", "--name"}, 2, toStderr, []string{"needs an argument", "usage:"}},
+		{[]string{"makemigrations", "x", "--name", "y"}, 2, toStderr, []string{`"x"`, "usage:"}},
+		{[]string{"makemigrations"}, 0, toStdout, []string{"no changes"}},
+		// Both values reach makemigrations, which reports each (D-68: 1, not 2).
+		{[]string{"makemigrations", "--rename", "bad", "--rename=worse"}, 1, toStderr, []string{`--rename "bad"`, `--rename "worse"`}},
+		{[]string{"showmigrations"}, 0, toStdout, []string{"no migrations"}},
+		{[]string{"migrate"}, 0, toStdout, []string{"nothing to apply"}},
 		{[]string{""}, 2, toStderr, []string{`unknown command ""`, "usage:"}},
 	}
 	for _, tt := range tests {
@@ -66,11 +77,14 @@ func TestRun(t *testing.T) {
 func TestUsage(t *testing.T) {
 	var stdout bytes.Buffer
 	run([]string{"help"}, &stdout, &bytes.Buffer{})
-	const want = `usage: maago <command>
+	const want = `usage: maago <command> [flags]
 
 commands:
-  gen    check the project, then write generated code
-  check  check the project and that generated code is up to date
+  gen            check the project, then write generated code
+  check          check the project and that generated code is up to date
+  makemigrations write the next migration from the models; --name NAME, --rename TABLE.OLD:NEW (repeatable)
+  showmigrations list the migrations and which the database has applied
+  migrate        apply the migrations the database has not applied
 `
 	if got := stdout.String(); got != want {
 		t.Errorf("usage:\n%s\nwant:\n%s", got, want)
@@ -115,5 +129,46 @@ func TestGenCheck(t *testing.T) {
 	code, _, errs := maago(blog, "gen")
 	if code != 1 || !strings.Contains(errs, `blog/models.go:15:32: unknown tag key "maxlen" in Post.Title`) || !strings.Contains(errs, `did you mean "max"?`) {
 		t.Errorf("gen with maxlen: %d %s", code, errs)
+	}
+}
+
+// The migration commands as a project uses them.
+func TestMigrationCommands(t *testing.T) {
+	root := draftSQLite.makeProject(t, makeBase)
+	t.Chdir(root)
+	maago := func(args ...string) (int, string, string) {
+		var stdout, stderr bytes.Buffer
+		code := run(args, &stdout, &stderr)
+		return code, stdout.String(), stderr.String()
+	}
+	if code, out, errs := maago("makemigrations"); code != 0 || out != "created migrations/0001_initial.sql\n" {
+		t.Fatalf("makemigrations: %d %q %q", code, out, errs)
+	}
+	if code, out, _ := maago("showmigrations"); code != 0 || out != "[ ] 0001_initial.sql\n0 of 1 applied\n" {
+		t.Errorf("showmigrations: %d %q", code, out)
+	}
+	if code, out, errs := maago("migrate"); code != 0 || out != "applied 0001_initial.sql\n" {
+		t.Errorf("migrate: %d %q %q", code, out, errs)
+	}
+	if code, out, _ := maago("migrate"); code != 0 || out != "nothing to apply\n" {
+		t.Errorf("migrate again: %d %q", code, out)
+	}
+	if code, _, errs := maago("makemigrations", "--name", "Bad"); code != 1 || !strings.Contains(errs, `--name "Bad"`) {
+		t.Errorf("makemigrations --name Bad: %d %q", code, errs)
+	}
+	// A failing file stops migrate; what it applied before is still said.
+	writeFile(t, filepath.Join(root, "migrations", "0002_ok.sql"), "CREATE TABLE ok (id INTEGER);\n")
+	writeFile(t, filepath.Join(root, "migrations", "0003_bad.sql"), "CREATE TABLE bad (id INTEGER,, x INTEGER);\n")
+	if code, out, errs := maago("migrate"); code != 1 || out != "applied 0002_ok.sql\n" || !strings.HasPrefix(errs, "migrations/0003_bad.sql:1:") {
+		t.Errorf("migrate with a bad file: %d %q %q", code, out, errs)
+	}
+	// Failing on the first pending file: no "applied", no "nothing to apply".
+	if code, out, _ := maago("migrate"); code != 1 || out != "" {
+		t.Errorf("migrate again with a bad file: %d %q", code, out)
+	}
+	// A changed applied file is a diagnostic for showmigrations too.
+	writeFile(t, filepath.Join(root, "migrations", "0002_ok.sql"), "CREATE TABLE ok (id INTEGER, y INTEGER);\n")
+	if code, out, errs := maago("showmigrations"); code != 1 || out != "" || !strings.HasPrefix(errs, "migrations/0002_ok.sql: migration was changed after it was applied") {
+		t.Errorf("showmigrations with a changed file: %d %q %q", code, out, errs)
 	}
 }
