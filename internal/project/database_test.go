@@ -57,6 +57,8 @@ func TestDatabase(t *testing.T) {
 			want: ".env:1: MAAGO_DATABASE_URL has no scheme\n  fix: write sqlite:FILE or postgres://HOST:PORT/DB\n"},
 		{name: "not a scheme before :", env: unset, dotenv: "MAAGO_DATABASE_URL=s3cret@h:5432/db",
 			want: ".env:1: MAAGO_DATABASE_URL has no scheme\n  fix: " + formats + "\n"},
+		{name: "sqlite::memory:", env: unset, dotenv: "MAAGO_DATABASE_URL=sqlite::memory:",
+			want: ".env:1: MAAGO_DATABASE_URL is sqlite::memory:, which is not a file\n  fix: write sqlite:FILE, as in sqlite:app.db; maago migrate makes the file\n"},
 		{name: "sqlite://", env: unset, dotenv: "MAAGO_DATABASE_URL=sqlite://app.db",
 			want: ".env:1: MAAGO_DATABASE_URL starts with \"sqlite://\"\n  fix: write sqlite:FILE, as in sqlite:app.db\n"},
 		{name: "sqlite options", env: unset, dotenv: "MAAGO_DATABASE_URL=sqlite:app.db?mode=ro",
@@ -123,5 +125,20 @@ func TestDatabaseUnreadable(t *testing.T) {
 	d, url, ds := Database(root, func(string) (string, bool) { return "sqlite:a.db", true })
 	if out := text(ds); d != "" || url != "" || len(ds) != 1 || !strings.HasPrefix(out, "cannot read .env: ") {
 		t.Errorf("got %q, %q, want one cannot-read error:\n%s", d, url, out)
+	}
+}
+
+// The password goes where an address holds it, and nowhere else: a short
+// one must not mangle the message.
+func TestHidePassword(t *testing.T) {
+	for _, c := range []struct{ msg, addr, want string }{
+		{"failed to connect to user=maago database=data", "postgres://maago:a@h/data", "failed to connect to user=maago database=data"},
+		{"cannot parse postgres://maago:s3cret@h/x", "postgres://maago:s3cret@h/x", "cannot parse postgres://maago:xxxxx@h/x"},
+		{"bad dsn password=s3cret host=h", "postgres://h/x?password=s3cret", "bad dsn password=xxxxx host=h"},
+		{"at postgres://u:p%40ss@h", "postgres://u:p%40ss@h", "at postgres://u:xxxxx@h"},
+	} {
+		if got := HidePassword(c.msg, c.addr); got != c.want {
+			t.Errorf("HidePassword(%q, %q) = %q, want %q", c.msg, c.addr, got, c.want)
+		}
 	}
 }

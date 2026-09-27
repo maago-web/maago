@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/token"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,6 +54,19 @@ func Database(root string, lookupEnv func(string) (string, bool)) (Dialect, stri
 		return "", "", ds
 	}
 
+	d, uds := URLDialect(url, pos, from)
+	ds = append(ds, uds...)
+	if len(ds) > 0 {
+		return "", "", ds
+	}
+	return d, url, nil
+}
+
+// URLDialect checks a database address and returns its dialect. pos and
+// from say where the address came from, for the diagnostics; pos has no
+// line unless it is in .env.
+func URLDialect(url string, pos token.Position, from string) (Dialect, []diag.Diagnostic) {
+	var ds []diag.Diagnostic
 	scheme, rest, ok := strings.Cut(url, ":")
 	var d Dialect
 	switch {
@@ -64,6 +78,9 @@ func Database(root string, lookupEnv func(string) (string, bool)) (Dialect, stri
 		ds = append(ds, diag.New(pos, from+" has no scheme", formats))
 	case scheme == "sqlite" && rest == "":
 		ds = append(ds, diag.New(pos, from+" has no file name after sqlite:", formats))
+	case scheme == "sqlite" && rest == ":memory:":
+		// Every connection of a pool would get its own empty database.
+		ds = append(ds, diag.New(pos, from+" is sqlite::memory:, which is not a file", "write sqlite:FILE, as in sqlite:app.db; maago migrate makes the file"))
 	case scheme == "sqlite" && strings.HasPrefix(rest, "//"):
 		ds = append(ds, diag.New(pos, from+` starts with "sqlite://"`, "write sqlite:FILE, as in sqlite:app.db"))
 	case scheme == "sqlite" && (strings.Contains(rest, "?") || strings.HasPrefix(rest, "file:")):
@@ -76,10 +93,7 @@ func Database(root string, lookupEnv func(string) (string, bool)) (Dialect, stri
 	default:
 		ds = append(ds, diag.New(pos, fmt.Sprintf("%s starts with %q, not sqlite:, postgres:// or postgresql://", from, scheme+":"), formats))
 	}
-	if len(ds) > 0 {
-		return "", "", ds
-	}
-	return d, url, nil
+	return d, ds // d is "" whenever ds is not empty
 }
 
 var (
@@ -145,4 +159,24 @@ func parseEnv(src string) (vars map[string]envVar, maybeURL bool, ds []diag.Diag
 		vars[key] = envVar{value, i + 1}
 	}
 	return vars, maybeURL, ds
+}
+
+// HidePassword removes the password of addr from msg, where an address
+// holds it: after "user:" and as password=. pgx already leaves it out of
+// its errors; this does not rely on that. Replacing it everywhere would
+// mangle the message when the password is short.
+func HidePassword(msg, addr string) string {
+	u, err := url.Parse(addr)
+	if err != nil {
+		return msg // pgx's own parse error redacts it
+	}
+	if pw, ok := u.User.Password(); ok && pw != "" {
+		msg = strings.ReplaceAll(msg, ":"+pw+"@", ":xxxxx@")
+		msg = strings.ReplaceAll(msg, ":"+url.UserPassword("", pw).String()[1:]+"@", ":xxxxx@") // as escaped in the address
+	}
+	if pw := u.Query().Get("password"); pw != "" {
+		msg = strings.ReplaceAll(msg, "password="+pw, "password=xxxxx")
+		msg = strings.ReplaceAll(msg, "password="+url.QueryEscape(pw), "password=xxxxx")
+	}
+	return msg
 }

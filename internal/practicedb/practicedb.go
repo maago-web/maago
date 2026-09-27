@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 	"go/token"
-	"net/url"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -80,7 +79,7 @@ func open(ctx context.Context, d project.Dialect, dsn, url, what, fix string, pr
 		return nil, fail(`no "`+name+`" database driver in this maago build`, "build maago from its cmd/maago module, which registers the drivers")
 	}
 	cannotOpen := func(err error) []diag.Diagnostic {
-		return fail("cannot open "+what+": "+diag.OneLine(hidePassword(err.Error(), url)), fix)
+		return fail("cannot open "+what+": "+diag.OneLine(project.HidePassword(err.Error(), url)), fix)
 	}
 	db, err := sql.Open(name, dsn)
 	if err != nil {
@@ -112,22 +111,6 @@ func open(ctx context.Context, d project.Dialect, dsn, url, what, fix string, pr
 // minPostgres is the oldest PostgreSQL whose catalog the schema reader
 // knows (server_version_num), D-98.
 const minPostgres = 150000
-
-// hidePassword removes the password of addr from msg. pgx already leaves
-// it out of its errors; this does not rely on that.
-func hidePassword(msg, addr string) string {
-	u, err := url.Parse(addr)
-	if err != nil {
-		return msg // pgx's own parse error redacts it
-	}
-	pw, _ := u.User.Password()
-	for _, p := range []string{pw, u.Query().Get("password")} {
-		if p != "" {
-			msg = strings.ReplaceAll(msg, p, "xxxxx")
-		}
-	}
-	return msg
-}
 
 // setUp turns on foreign keys for SQLite, or creates the practice schema
 // for PostgreSQL. It reads each setting back, in case it was ignored. A

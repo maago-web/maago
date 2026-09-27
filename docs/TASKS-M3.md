@@ -411,6 +411,63 @@ type Piece struct {
 
 → 확인: 루트 `go.mod`에 `require`가 없다. `cmd/maago`에서 두 방언: 환경 변수가 `.env`를 이기고, SQLite FK가 풀의 모든 연결에서 켜져 있다(연결 둘을 잡아 확인, TODO 닫힘). 시각: 소수 자릿수가 다른 두 시각의 SQLite `ORDER BY`가 시간 순서, 다른 오프셋의 입력이 UTC `…ffffff` 글로 저장되고 `datetime('now')`와의 비교가 맞다, NULL(`*time.Time`), 손으로 넣은 RFC 3339 일반형 읽기, 잘못된 글은 Scan 오류. PG `TIMESTAMPTZ` 왕복은 `==`가 아니라 `Equal`로 비교한다(위치·모노토닉이 사라진다). 빈 슬라이스는 오류. `:one`의 두 행은 오류
 
+### 계획
+
+파일 (루트 패키지 `maago`, stdlib와 이 모듈의 `internal`만)
+- 새 `db.go`:
+  ```go
+  type DB interface { // *sql.DB·*sql.Tx·*sql.Conn이 만족
+  	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+  	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+  	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+  }
+  type DBConfig struct {
+  	URL                              string        // ""면 MAAGO_DATABASE_URL, 없으면 작업 디렉터리의 .env
+  	MaxOpenConns, MaxIdleConns       int           // 0이면 기본값, 음수면 제한 없음(database/sql과 같은 뜻)
+  	ConnMaxLifetime, ConnMaxIdleTime time.Duration // 같다
+  }
+  func OpenDB(ctx context.Context, cfg DBConfig) (*sql.DB, error)
+  ```
+  주소는 `internal/project.Database`로 읽는다(★ D-101이 남긴 선택: 다시 쓰지 않는다. CLI와 같은 규칙·같은 오류 문구이고 D-97의 닫힌 형식이 한 곳에 있다). `cfg.URL`은 환경 변수처럼 이긴다. 진단은 `diag.Write`의 글 그대로 오류로(주소를 싣지 않는 규칙도 그대로). `.env`는 작업 디렉터리의 것(D-101). 드라이버 이름 `sqlite`·`pgx`가 등록되지 않았으면 오류(fix: `main`에 `_ "modernc.org/sqlite"`·`_ "github.com/jackc/pgx/v5/stdlib"`). SQLite 주소: `sqlite:` 뒤의 파일(작업 디렉터리 기준) + `?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)`(modernc가 연결마다 실행한다). 풀 기본값은 D-101. 연 뒤 `PingContext`로 한 번 닿아 본다(주소가 틀리면 첫 쿼리가 아니라 여기서 실패)
+- 새 `query.go`: 생성 코드가 쓰는 작은 것들
+  ```go
+  func One[T any](ctx context.Context, db DB, scan func(*sql.Rows) (T, error), query string, args ...any) (T, error) // 없으면 sql.ErrNoRows, 둘 이상이면 ErrManyRows
+  func Many[T any](ctx context.Context, db DB, scan func(*sql.Rows) (T, error), query string, args ...any) ([]T, error)
+  func Placeholders(mark string, first, n int) string // "$3, $4". n<1은 부른 쪽의 버그(panic): 빈 슬라이스는 생성 코드가 먼저 ErrEmptySlice로
+  var ErrManyRows = errors.New("maago: query returned more than one row")
+  var ErrEmptySlice = errors.New("maago: empty slice") // 생성 코드가 쿼리·파라미터 이름을 붙여 감싼다
+  ```
+  쿼리를 스스로 돌려 생성 코드가 한 줄이다(`db.QueryContext(…)`의 두 값을 다른 인자와 함께 넘길 수는 없다, codex 1). 성공 전에 `rows.Err()`와 `rows.Close()`의 오류를 돌려준다. 제네릭이라 reflect가 없다
+- 새 `sqlitetime.go` (D-105):
+  ```go
+  func SQLiteTime(t time.Time) string            // t.UTC()의 "2006-01-02 15:04:05.000000"
+  func ScanSQLiteTime(dst *time.Time) sql.Scanner // NULL은 오류
+  func ScanNullSQLiteTime(dst **time.Time) sql.Scanner // NULL은 nil
+  ```
+  읽기는 `YYYY-MM-DD HH:MM:SS[.소수]`(UTC로 읽는다)와 RFC 3339(오프셋 그대로 읽고 UTC로), 글은 `string`·`[]byte`. 그 밖의 글은 Scan 오류(글을 싣는다). 돌려주는 시각은 UTC
+- 새 `query_test.go`·`sqlitetime_test.go`(루트, 드라이버 없이): `Placeholders`, 시각의 쓰기·읽기 표(소수 자릿수, 오프셋, RFC 3339 일반형, 잘못된 글, NULL)
+- 새 `cmd/maago/runtime_test.go`(두 방언): 아래 확인의 DB 쪽
+
+하지 않기로 한 것
+- 선택지의 모르는 값, 파라미터 struct, 조합 고르기는 생성 코드(8번). 런타임은 그것이 부를 것만
+- PG의 시각은 pgx가 `time.Time`을 그대로 다룬다: 도우미가 필요 없다(확인만)
+
+단계
+1. `DB`·`OpenDB` → 확인: 루트 `go.mod`에 `require`가 없다(`go mod tidy -diff`). `cmd/maago`에서 두 방언: 빈 `URL`에 환경 변수가 `.env`를 이긴다(`t.Setenv`, `t.Chdir`), `.env`만 있어도 열린다, `cfg.URL`이 둘 다를 이긴다, 드라이버 이름이 없는 빌드의 오류는 루트 테스트(드라이버가 없다)에서, 잘못된 주소는 `.env:줄`의 오류. SQLite FK가 풀의 연결 둘(`db.Conn` 둘을 잡아)에서 모두 켜져 있다(TODO 닫음). 풀 기본값(`db.Stats().MaxOpenConnections`)과 덮기
+2. `One`·`Many`·`Placeholders` → 확인: `:one`의 0행은 `sql.ErrNoRows`, 2행은 `ErrManyRows`, 쿼리 오류는 그대로, `Placeholders("$",3,2)`·`("?",1,1)`, `n=0`은 panic
+3. SQLite 시각 → 확인(`cmd/maago`, STRICT `TEXT` 컬럼): 소수 자릿수가 다른 두 시각(`…:05.5`와 `…:05.25`를 넣고)의 `ORDER BY`가 시간 순서, `+09:00` 입력이 UTC `…ffffff` 글로 저장되고 `datetime('now')`와의 `<`가 맞다, NULL은 `*time.Time` nil·`time.Time`에는 오류, 손으로 넣은 `2026-09-27T12:00:00+09:00` 읽기, 잘못된 글은 Scan 오류. PG `TIMESTAMPTZ` 왕복은 `Equal`
+4. 두 모듈 `go vet`·`go test`(PG 포함), `gofmt -l .`, `go mod tidy -diff`
+
+계획 리뷰 (codex·fable) — 구현이 계획과 달라진 곳은 여기가 정본이다
+- 받음: `One`·`Many`가 쿼리를 스스로 돌린다(`One(ctx, db, scan, query, args...)`: `db.QueryContext(…)`의 두 값은 다른 인자와 함께 넘길 수 없다, codex 1). 성공 전에 `rows.Err()`·`Close` 오류(codex 2). PG 왕복은 마이크로초로 자른 뒤 `Equal`(codex 4). 음수 설정의 뜻을 바로(유휴는 "남기지 않음"), 유휴 기본값의 확인(fable 1). ★ SQLite 파일은 `file:…?mode=rw`로 열어 없는 파일은 새 빈 DB가 아니라 파일 이름이 든 오류(fix: `maago migrate` 또는 프로젝트 루트에서 실행). 파일은 CLI가 만든다(fable 2, PHILOSOPHY 7). `DBConfig.URL`이 있으면 `.env`를 읽지 않고 오류의 출처도 `DBConfig.URL`(`project.URLDialect`를 뽑아 냄, fable 3a). 런타임이 기대는 이 모듈의 패키지가 `internal/diag`·`internal/project`뿐임을 시험으로(fable 3b, 11번에서 ARCHITECTURE §2에 적는다). PRAGMA 셋을 연결 둘에서(fable 4). 그대로 넘긴 `time.Time`은 읽히지 않음·소수부 0도 여섯 자리(fable 5). `ErrManyRows`의 고치는 법, `Ping` 실패의 한 줄 문구, "not set"의 확인(fable 6). `Many`의 0행은 빈 슬라이스(JSON `[]`, fable 7)
+- 8번에 넘길 것: SQLite에서 `time.Time` 파라미터·CRUD 값은 `maago.SQLiteTime`을, `*time.Time`은 nil이면 nil을, `[]time.Time`은 원소마다(codex 3, fable 8). 결과의 NULL(값 타입·포인터, `:one`·`:many`)을 실제 DB로 시험(codex 7). PG는 `time.Time`을 로컬 위치로 돌려주고 SQLite 도우미는 UTC다(D-31이라 섞이지 않는다, 11번에 한 줄)
+- 받지 않음: codex 5의 "연결을 놓고 새로 만든 뒤" 시험(연결 둘을 동시에 잡는 것이 이미 연결마다를 증명한다), codex 6의 취소 시험(`database/sql`을 그대로 통과한다), fable 4의 검증되는 단축 키(`_foreign_keys` 등. `_pragma`는 연결마다 읽어서 확인했다)
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — `pick` 대신 `cmp.Or`, `URLDialect`의 끝을 `return d, ds`로. 받지 않음 — `DB`의 `QueryRowContext`(D-101이 세 메서드를 정했다), `Placeholders`의 panic(생성기 버그를 크게 알린다, 매퍼와 같다)
+- codex(샌드박스 때문에 테스트는 못 돌림): 받음 — `DBConfig.URL`이 있으면 `.env`를 아예 읽지 않게(먼저 갈라서), PG 오류의 비밀번호 가리기(`practicedb`의 것을 `project.HidePassword`로 옮겨 함께 쓴다). 받지 않음 — `One`의 이른 반환에서 `Close` 오류(이미 오류를 돌려주는 길이고 `rows.Err()`를 먼저 본다), `ErrManyRows` 문구를 처음 계획대로(계획 리뷰에서 고치는 법을 넣기로 했다)
+- fable(돌연변이 26개 중 21개를 잡음): 받음 — `sqlite::memory:`는 파일이 아니라는 오류(풀의 연결마다 빈 DB가 되고, CLI는 `:memory:`라는 파일을 만든다), SQLite 열기 실패의 문구를 없는 파일(작업 디렉터리를 싣는다)과 쓸 수 없는 파일(WAL이 쓴다)로 나눔, `ConnMaxLifetime` 덮기와 `MaxOpenConns: -1`의 시험, `#`·`%`가 든 파일 이름, `HidePassword`가 짧은 비밀번호에서 글을 망가뜨리던 것(주소가 담는 자리만 바꾼다), `DB`를 만족하는 세 타입의 컴파일 단언, 문구와 시험 위생(`pgURL`은 PG 사례에서만, `TestSQLiteTimes`의 오류). 시험하지 않음: `ConnMaxIdleTime`(`database/sql`의 청소가 1초 이상 간격으로 한다)과 수명·유휴 시간의 기본값 자체(`Stats`로 보이지 않는다). 11번으로: CI의 reflect import 검사(D-66, 지금은 `noreflect_test.go`가 한다)
+
 ## 7. PK CRUD의 SQL (D-21)
 
 DB 검사가 CRUD SQL도 prepare하려면 생성 전에 SQL이 있어야 한다. 그래서 SQL을 만드는 일과 Go 코드를 쓰는 일(8번)을 나눈다.
