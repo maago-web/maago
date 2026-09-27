@@ -29,7 +29,7 @@ PK는 `ID int64`(D-74), NULL은 포인터(D-75), 테이블 `앱_모델`·컬럼 
 | `float64` | `REAL` | `DOUBLE PRECISION` | |
 | `string` + `max=N` | `TEXT` | `VARCHAR(N)` | SQLite는 `CHECK (length(x) <= N)` |
 | `string` | `TEXT` | `TEXT` | |
-| `time.Time` | `TEXT` | `TIMESTAMPTZ` | SQLite는 RFC 3339 문자열 |
+| `time.Time` | `TEXT` | `TIMESTAMPTZ` | SQLite는 UTC `YYYY-MM-DD HH:MM:SS.ffffff` 문자열(D-105, M3에서 고침) |
 | `[]byte` | `BLOB` | `BYTEA` | |
 | 위의 포인터 | 같음, `NULL` 허용 | 같음, `NULL` 허용 | 포인터가 아니면 `NOT NULL` |
 
