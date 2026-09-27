@@ -344,6 +344,66 @@ type Piece struct {
 
 → 확인: 컬럼이 빠진 모델 결과 타입이 오류(완료 조건 3의 셋째). 남는 컬럼, `FROM boards`를 골라 `:many Post`(다른 테이블의 같은 이름), 식별자가 안 되는 컬럼(`count(*)`에 별칭 없음), 두 컬럼이 같은 필드 이름이 각각 오류. 순서만 다른 모델 컬럼은 통과. 두 쿼리가 같은 새 이름을 같은 모양·다른 모양으로. D-104의 경우들(선언이 필요한데 없음, 필요 없는데 있음, 분류할 수 없는 조인, PG에서 선언과 OID가 다름)
 
+### 계획
+
+파일
+- 새 `internal/mapper/result.go`:
+  ```go
+  type Result struct {
+  	Name   string
+  	Pos    token.Position // 처음 이 이름을 쓴 쿼리의 -- name: (8번의 이름 충돌 오류가 짚는다)
+  	Model  *model.Model   // 모델이면 그 모델, 새 타입이면 nil
+  	Fields []ResultField  // 결과 컬럼마다 하나, 결과 컬럼 순(Scan 순서). 모델이면 그 컬럼이 들어갈 필드
+  }
+  type ResultField struct {
+  	Name, Column string // Go 필드 이름, 결과 컬럼 이름
+  	Type         model.Type
+  	Pointer      bool // NULL일 수 있다(D-75)
+  }
+  func Results(apps []*model.App, dir string, qs []*Query, cols [][]practicedb.Column, typeName func(uint32) string) ([]*Result, []diag.Diagnostic)
+  ```
+  `typeName`은 PG 타입 OID의 이름(메시지에만, 9번이 `practicedb.DB.TypeName`을 넘긴다). 한 앱(`dir`)의 쿼리들과 4번이 돌려준 컬럼(쿼리마다). 돌려주는 것은 쿼리마다(`:exec`면 nil). 같은 이름의 새 타입은 같은 `*Result`. `cols[i]`가 nil인 쿼리(4번이 진단을 냈다)는 건너뛴다(D-61, 연쇄 "missing"을 쏟지 않는다). 자기 검사에 실패한 쿼리는 같은 새 이름의 모양을 정하지 않는다. DB가 필요 없다: 테스트는 컬럼을 손으로 만든 표(드라이버의 답은 4번이 시험했다). `Result`만으로 8번의 struct와 `Scan` 인자가 정해진다
+- `internal/mapper/body.go`: 문장의 토큰을 `Query`에 남긴다(비공개). 바깥 조인 판정이 쓴다
+- 새 `internal/mapper/result_test.go`, 골든 `testdata/model_result_errors.golden`·`new_result_errors.golden`. 모델은 `modeltest.Example`로 읽는 작은 예제 앱(`internal/mapper/testdata/example/blog`: Board·Post, 포인터 필드 둘)
+
+모델 결과 (D-23)
+- 결과 이름이 같은 앱의 모델이면: 결과 컬럼마다 출처가 그 모델의 테이블·필드 컬럼이고, 바깥 조인의 NULL 쪽이 아니고, 겹치지 않고, 모델의 컬럼을 모두 덮어야 한다. 순서는 상관없다(필드는 결과 컬럼 순으로 대응)
+- 어긋남은 한 진단에 모아서(TUTORIAL-FUTURE §6의 문구): `result columns do not match model Post: missing "published_at"; extra "n"; "id" comes from boards; "title" is an expression, not posts.title; "title" is selected twice; "title" is on the outer side of a join`. 위치는 본문의 첫 줄(§6의 `3:1`). fix `select every column of Post, or declare a new result type name (e.g. ":many PostSummary")`
+- 모델 결과의 쿼리에 `-- column:` 줄은 오류(선언은 새 타입의 것)
+
+새 타입 (D-23·D-104)
+- 결과 컬럼 이름은 `^[a-z][a-z0-9_]*$`이고 서로 달라야 한다. 먼저 본다: 어기면 그것만(fix: `AS snake_name`. SQLite `count(*)`, PG의 대문자 따옴표 이름, `a.id, b.id`). 선언은 결과 컬럼 이름으로 맞춘다
+- 필드 이름: 컬럼 이름이 출처 컬럼 이름과 같고 출처가 모델 필드면 그 필드의 이름(`AuthorID`), 아니면(별칭·식·모델 아닌 표) 컬럼 이름의 거꾸로 snake: `_`로 나눠 첫 글자를 대문자로, 조각이 `id`면 `ID`(`board_id` → `BoardID`, `parent_id` → `ParentID`). ★ 약어는 `id` 하나: D-76의 거꾸로가 모델의 `…ID`와 맞으려면 이것이 필요하고, 그 밖의 약어는 이름 휴리스틱이다(PHILOSOPHY 6. 필요하면 필드 이름은 모델에서 오게 쓴다)
+- 타입(D-104): 출처가 모델 필드이고 NULL 쪽이 아니면 그 필드의 타입·포인터, 이때 `-- column:` 선언은 오류(선언 줄에, fix `remove it; author_id is posts.author_id (int64)`). 그 밖(출처 없는 식, NULL 쪽, 모델이 아닌 표)은 선언이 반드시 있어야 하고 선언이 타입·`?`를 정한다. 선언이 없으면 `-- name:`에 `result column author_name needs a declaration: posts.author_name is on the outer side of a join`(식이면 `…: it is an expression`), fix는 넣을 줄 그대로 `add -- column: author_name? string`(NULL 쪽 모델 컬럼은 타입을 안다), 식이면 `add -- column: n TYPE`. 쓰이지 않은 선언(결과 컬럼에 없는 이름)도 오류. PG는 선언을 컬럼 OID와 맞춰 본다(4번의 표, 틀리면 선언 줄에, fix `declare it as X`, 표 밖 OID(`numeric`·`date` 등)면 `cast the expression, e.g. sum(amount)::bigint`). SQLite는 맞춰 보지 않는다
+- 같은 앱에서 같은 새 이름을 쓰는 쿼리들은 필드(이름·타입·포인터·순서)가 같아야 한다. 다르면 뒤 쿼리의 `-- name:`에, 앞 파일과 다른 첫 필드
+- 이름 충돌(쿼리 이름·파라미터 타입·결과 타입·CRUD 이름끼리, 사용자 식별자와)은 8번: 생성할 이름이 모두 정해지는 곳이다(모양 절)
+
+바깥 조인 판정 (D-104, 토큰으로, 문장 전체: CTE·서브쿼리 안의 것도. 드라이버가 CTE·서브쿼리를 꿰뚫어 출처를 주므로 안쪽 조인도 봐야 한다)
+- `LEFT [OUTER] JOIN [ONLY] 이름[.이름]`의 끝 이름(따옴표는 `dialect.Name`, 대소문자 무시)이 NULL 쪽 테이블. `RIGHT`·`FULL`이 하나라도 있으면 출처 있는 모든 컬럼이 NULL 쪽(D-104 그대로. 오른쪽의 보존 쪽까지 선언을 요구하지만 안전한 쪽이다)
+- ★ `UNION`·`INTERSECT`·`EXCEPT`가 어디든 있으면 모든 컬럼의 출처를 버린다(모두 선언). SQLite는 첫 `SELECT`의 출처를 주고 PG는 주지 않아(fable, 두 드라이버로 잼), 같은 파일이 방언마다 달라지면 안 된다(D-104 "방언과 상관없다"). "먼저 확인한 사실"의 `UNION` 줄은 11번에서 고친다
+- 분류할 수 없는 모양은 오류(위치는 그 토큰): `NATURAL`, `LEFT JOIN (`·`LEFT JOIN LATERAL`(안쪽 `JOIN (`은 NULL을 만들지 않고, 그 안의 `LEFT JOIN`은 문장 전체를 훑는 판정이 본다), 조인 대상이 CTE 이름(`WITH [RECURSIVE] 이름 … AS`로 모은 것: 드라이버는 CTE 안의 테이블을 출처로 주므로 이름으로는 NULL 쪽을 알 수 없다, fable 1), 괄호로 묶은 조인(`FROM (` 뒤가 `SELECT`·`WITH`·`VALUES`가 아닌 것), `JOIN` 뒤가 위 모양이 아닌 것. 결과 타입이 있는 쿼리(`:one`·`:many`)에서만. fix: 테이블을 직접 조인하거나 쿼리를 나눈다
+- ★ D-104는 "`FROM`의 서브쿼리"를 분류할 수 없는 모양에 넣었지만, 문장 전체를 훑으면 서브쿼리 안의 조인도 보이고 드라이버가 출처를 꿰뚫어 주므로 받는다(`FROM (SELECT …) s`는 통과). 11번에서 D-104를 고친다
+- 한계(안전한 쪽으로만 틀린다: 선언을 더 요구할 뿐 조용히 틀리지 않는다): 테이블 이름 단위라 한쪽만 바깥인 셀프 조인, 다른 스코프(CTE·`WHERE`의 서브쿼리)의 `LEFT JOIN t`가 바깥 쿼리의 `t`도 NULL 쪽으로 만든다
+
+하지 않기로 한 것
+- 코드 생성(struct와 Scan)은 8번. 이름 충돌도 8번. 8번에 넘길 것: 모델 결과의 필드 대응은 결과 컬럼 순이다
+- 모델이 아닌 테이블을 모델 결과로 고르는 것: 모델 결과는 모델 테이블만
+
+단계
+1. 바깥 조인 판정 → 확인: 표 테스트(`LEFT JOIN b`, `LEFT OUTER JOIN ONLY s."B" AS x`, `RIGHT JOIN`, `FULL JOIN`, CTE 안의 `LEFT JOIN`, 문자열·주석 속 `LEFT JOIN`은 무시, `UNION`, `NATURAL JOIN`·`LEFT JOIN (SELECT …)`·`JOIN LATERAL`·`LEFT JOIN <CTE 이름>`·`FROM (a JOIN b)`는 오류, `FROM (SELECT …) s`·안쪽 `JOIN`은 통과)
+2. 모델 결과 → 확인: 완료 조건 3의 셋째(빠진 컬럼, §6 문구 그대로), 남는 컬럼, `FROM boards`의 `:many Post`, 식(`COALESCE(title,'') AS title`), 두 번 고름, NULL 쪽의 모델(`RIGHT JOIN` 포함), 네 절이 한꺼번에 나오는 골든 하나, 모델 결과의 `-- column:`, 순서만 다른 모델 컬럼은 통과(필드 대응이 컬럼 순)
+3. 새 타입 → 확인: 모델 필드 이름을 그대로(`AuthorName` 같은 것), 별칭(`b.name AS board_name` → `BoardName`), 거꾸로 snake(`parent_id` → `ParentID`), `count(*)`(식별자 아님), `a.id, b.id`(이름 겹침), 선언 필요한데 없음(식·NULL 쪽·모델 아닌 표·`UNION`), 필요 없는데 있음, 쓰이지 않은 선언, PG에서 선언과 OID가 다름(표 안·표 밖의 fix, SQLite는 통과), 같은 새 이름 두 쿼리가 같은 모양(한 `*Result`)·다른 모양(오류), 4번이 진단을 낸 쿼리(`cols` nil)는 건너뜀
+4. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)
+- 받음: 스코프를 잃는 한계를 적음(codex 1, fable 11), `ONLY`·따옴표·`LATERAL`과 그 밖은 오류(codex 3), 거꾸로 snake의 규칙을 고정(codex 4), 이름 겹침을 먼저·선언은 이름으로(codex 5), 필드 대응은 결과 컬럼 순(codex 6), `LEFT JOIN <CTE>`는 오류(fable 1), 별칭이면 별칭의 이름(fable 2), `UNION`은 출처를 버림(fable 3), `FROM` 서브쿼리를 받는 것을 ★로(fable 4), `cols` nil 건너뜀(fable 5), 표 밖 OID의 캐스트 fix(fable 6), 선언이 필요한 오류의 위치·문구(fable 7), 약어는 `id`만(fable 8), 모델 불일치 문구 둘(fable 9), `Result.Pos`(fable 10), 확인 보강(fable 12)
+- 받지 않음: codex 2(`RIGHT`의 보존 쪽을 가려 내자) — D-104가 `RIGHT`·`FULL`을 모든 테이블로 정했고 안전한 쪽이다. codex 7(바깥 조인이 있으면 모든 출처를 선언) — D-104가 테이블 단위를 정했다
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — `fieldString`이 `fieldType`을 씀, 손으로 든 OID 이름 표 대신 `typeName` 인자(`format_type`), 테스트의 선언 줄을 사례에 바로. 받지 않음 — OID→타입 되찾기 루프 둘(두 곳뿐)
+- codex(샌드박스 때문에 테스트는 못 돌림): 발견 없음
+- fable(돌연변이 36개 중 31개를 잡음): 받음 — 두 컬럼이 같은 필드 이름(`a_1_b`·`a1_b` → `A1B`, 생성 코드가 컴파일되지 않는다), 모델 필드 이름 규칙의 시험(`URL`), 출처 타입을 아는 선언은 방언과 상관없이 맞춰 봄, `word(-1)`, 모델 결과 + `UNION`의 문구, 선언 타입에 맞춘 캐스트 fix, `WITH RECURSIVE`·CTE 컬럼 목록·모델 없는 앱의 시험, 계획 문구 셋. 기록만: PG는 `count(*)`를 `count`로·미인용 대문자를 소문자로 주어 SQLite에서만 "snake_case 아님"이 나는 파일이 있다(안전한 쪽, D-31)
+
 ## 6. 런타임 (`maago`, 루트 패키지)
 
 - `maago.DB` 인터페이스, 슬라이스 펼치기, `:one`의 두 행 검사, D-105의 시각 변환, D-101의 여는 함수와 풀 기본값, `.env` 읽기

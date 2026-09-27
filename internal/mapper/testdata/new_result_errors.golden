@@ -1,0 +1,63 @@
+SELECT count(*) FROM posts
+blog/queries/q1.sql:1:10: result column "count(*)" is not a lowercase snake_case name, which a Go field needs
+  fix: name it with AS, like AS snake_name
+
+SELECT p.id, b.id FROM posts p JOIN boards b ON true
+blog/queries/q1.sql:1:10: result column id appears twice
+  fix: give one of them another name with AS
+
+SELECT count(*) AS n FROM posts
+blog/queries/q1.sql:1:10: result column n needs a declaration: it is an expression
+  fix: add -- column: n TYPE
+
+SELECT b.name FROM posts p LEFT JOIN boards b ON true
+blog/queries/q1.sql:1:10: result column name needs a declaration: boards.name is on the outer side of a join
+  fix: add -- column: name? string
+
+SELECT name FROM hand_made
+blog/queries/q1.sql:1:10: result column name needs a declaration: hand_made is not a model's table
+  fix: add -- column: name TYPE
+
+SELECT title FROM posts UNION SELECT name FROM boards
+blog/queries/q1.sql:1:10: result column title needs a declaration: UNION, INTERSECT and EXCEPT leave no source column
+  fix: add -- column: title TYPE
+
+-- column: title string
+SELECT title FROM posts
+blog/queries/q1.sql:2:12: result column title needs no declaration
+  fix: remove it; title is posts.title (string)
+
+-- column: nope int64
+SELECT title FROM posts
+blog/queries/q1.sql:2:12: -- column: nope is not a result column
+  fix: remove it, or select a column of that name
+
+-- column: n int32
+SELECT count(*) AS n FROM posts
+blog/queries/q1.sql:2:12: column n is declared int32, but PostgreSQL gives bigint
+  fix: declare it as int64
+
+-- column: n int64
+SELECT sum(id) AS n FROM posts
+blog/queries/q1.sql:2:12: column n is declared int64, but PostgreSQL gives numeric
+  fix: cast the expression to bigint, like …::bigint
+
+-- column: n int32
+SELECT count(*) AS n FROM posts
+
+-- column: n string
+SELECT sum(id) AS n FROM posts
+blog/queries/q1.sql:2:12: column n is declared string, but PostgreSQL gives numeric
+  fix: cast the expression to text, like …::text
+
+-- column: name? int64
+SELECT b.name FROM posts p LEFT JOIN boards b ON true
+blog/queries/q1.sql:2:12: column name is declared int64, but boards.name is string
+  fix: declare it as name? string
+
+-- column: a_1_b int64
+-- column: a1_b int64
+SELECT 1 AS a_1_b, 2 AS a1_b
+blog/queries/q1.sql:1:10: result columns a_1_b and a1_b both become the field A1B
+  fix: give one of them another name with AS
+

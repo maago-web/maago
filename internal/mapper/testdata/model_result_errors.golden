@@ -1,0 +1,31 @@
+SELECT id, board_id, title, author_name, url FROM posts
+blog/queries/q1.sql:2:1: result columns do not match model Post: missing "published_at"
+  fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
+
+SELECT id, board_id, title, author_name, published_at, url, 1 AS n FROM posts
+blog/queries/q1.sql:2:1: result columns do not match model Post: extra "n"
+  fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
+
+SELECT id, name FROM boards
+blog/queries/q1.sql:2:1: result columns do not match model Post: missing "board_id", "title", "author_name", "published_at", "url"; "id" comes from boards; "name" comes from boards
+  fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
+
+SELECT p.id, b.id, COALESCE(title, '') AS title, p.author_name, p.author_name FROM posts p JOIN boards b ON true
+blog/queries/q1.sql:2:1: result columns do not match model Post: missing "board_id", "published_at", "url"; "id" comes from boards; "title" is an expression, not posts.title; "author_name" is selected twice
+  fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
+
+SELECT p.id, p.board_id, p.title, p.author_name, p.published_at, p.url FROM posts p RIGHT JOIN boards b ON true
+blog/queries/q1.sql:2:1: result columns do not match model Post: "id" is on the outer side of a join; "board_id" is on the outer side of a join; "title" is on the outer side of a join; "author_name" is on the outer side of a join; "published_at" is on the outer side of a join; "url" is on the outer side of a join
+  fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
+
+SELECT * FROM posts UNION SELECT * FROM posts
+blog/queries/q1.sql:2:1: result columns do not match model Post: they come through UNION, INTERSECT or EXCEPT, which hide their source
+  fix: declare a new result type name and its columns with -- column:
+
+SELECT p.id, p.board_id, p.title, p.author_name, p.published_at, p.url FROM boards b LEFT JOIN posts p ON true
+blog/queries/q1.sql:2:1: result columns do not match model Post: "id" is on the outer side of a join; "board_id" is on the outer side of a join; "title" is on the outer side of a join; "author_name" is on the outer side of a join; "published_at" is on the outer side of a join; "url" is on the outer side of a join
+  fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
+
+-- column: with a model
+blog/queries/q1.sql:2:12: -- column: declares a column of a new result type, but Post is a model
+  fix: remove the -- column: lines; the model's fields give the types

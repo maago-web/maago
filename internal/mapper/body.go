@@ -89,6 +89,7 @@ func (q *Query) body() []diag.Diagnostic {
 		return b.ds
 	}
 	toks := stmts[0].Tokens
+	q.toks = toks
 	for i := 0; i < len(toks); {
 		j := i + 1
 		for j < len(toks) && toks[j].Pos.Line == toks[i].Pos.Line {

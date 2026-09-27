@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/maago-web/maago/internal/diag"
+	"github.com/maago-web/maago/internal/dialect"
 	"github.com/maago-web/maago/internal/model"
 )
 
@@ -35,7 +36,8 @@ type Query struct {
 	Result    string // "" for :exec
 	Params    []Param
 	Columns   []Column
-	Lines     []Line // the body
+	Lines     []Line          // the body
+	toks      []dialect.Token // of the body's statement, for the joins (D-104)
 }
 
 // Kind is what a query returns.
