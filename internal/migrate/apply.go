@@ -19,14 +19,21 @@ import (
 // them after, as migrate does.
 func Apply(ctx context.Context, db *practicedb.DB, d project.Dialect, files []File) []diag.Diagnostic {
 	for _, f := range files {
-		if ds := applyFile(ctx, db, d, f); len(ds) > 0 {
+		if ds := applyFile(ctx, db, d, f, true); len(ds) > 0 {
 			return ds
 		}
 	}
 	return nil
 }
 
-func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File) (ds []diag.Diagnostic) {
+// ApplyDraft applies a draft as Apply applies a file, but without asking
+// a rebuild that leaves columns behind for its marker: a draft never has
+// one, and check asks for it once the draft is a file.
+func ApplyDraft(ctx context.Context, db *practicedb.DB, d project.Dialect, f File) []diag.Diagnostic {
+	return applyFile(ctx, db, d, f, false)
+}
+
+func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File, checkLost bool) (ds []diag.Diagnostic) {
 	at := token.Position{Filename: f.Path}
 	if d == project.SQLite {
 		if ds := db.Exec(ctx, at, "PRAGMA foreign_keys = OFF"); len(ds) > 0 {
@@ -42,7 +49,7 @@ func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File
 		}()
 	}
 	for i, st := range f.Stmts {
-		if cp := rebuild(f.Stmts, i); cp != nil && !st.AllowDrop.IsValid() {
+		if cp := rebuild(f.Stmts, i); checkLost && cp != nil && !st.AllowDrop.IsValid() {
 			if ds := lost(ctx, db, st, cp); len(ds) > 0 {
 				return ds
 			}

@@ -28,7 +28,7 @@ func Gen(dir string) (removed []string, ds []diag.Diagnostic) {
 	if len(ds) > 0 {
 		return nil, ds
 	}
-	return pipeline.Gen(root, stages(root))
+	return pipeline.Gen(root, checking(root))
 }
 
 // Check checks the project holding dir and that its generated files are up
@@ -39,77 +39,113 @@ func Check(dir string) []diag.Diagnostic {
 		return ds
 	}
 	r := &pipeline.Run{Root: root, Files: map[string][]byte{}}
-	if ds := pipeline.Generate(r, stages(root)); len(ds) > 0 {
+	if ds := pipeline.Generate(r, checking(root)); len(ds) > 0 {
 		return ds
 	}
 	return pipeline.Check(root, r.Files)
 }
 
-// stages returns fresh stages for one run. What a stage hands to the next
-// lives in these variables, so each run starts clean. A stage runs only if
-// the ones before it found nothing wrong, so none of them sees
-// half-finished work (D-61). The stages follow ARCHITECTURE §3: reading,
-// parsing, checking without a database, the database check, generating.
-// Go syntax comes first, since the models are read from it.
-func stages(root string) [][]pipeline.Step {
-	fset := token.NewFileSet()
+// checking is the stages of gen and check: every check, the database's
+// included, then the generated files.
+func checking(root string) [][]pipeline.Step {
+	s := &state{root: root}
+	return append(stages(s, nil, func() []diag.Diagnostic { return checkDatabase(s) }),
+		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic { maps.Copy(r.Files, model.Files(s.apps)); return nil }})
+}
+
+// state is what the stages of one run hand on, fresh for each run.
+type state struct {
+	root       string
+	fset       *token.FileSet
+	apps       []*model.App
+	d          project.Dialect
+	url, ddl   string
+	migrations []migrate.File
+}
+
+// stages returns the stages up to and including the database's. A stage
+// runs only if the ones before it found nothing wrong, so none of them
+// sees half-finished work (D-61). The stages follow ARCHITECTURE §3:
+// reading, parsing, checking without a database, the database check.
+// Go syntax comes first, since the models are read from it. early joins
+// the checks without a database; final is the database stage.
+func stages(s *state, early, final func() []diag.Diagnostic) [][]pipeline.Step {
+	s.fset = token.NewFileSet()
 	var files []string
 	var pkgs []*model.Package
-	var apps []*model.App
-	var d project.Dialect
-	var url, ddl string
-	var migrations []migrate.File
 	step := func(f func() []diag.Diagnostic) pipeline.Step {
 		return func(*pipeline.Run) []diag.Diagnostic { return f() }
 	}
+	checks := []pipeline.Step{
+		step(func() []diag.Diagnostic { return dialect.CheckNames(s.fset, s.apps, 0) }),
+		step(func() []diag.Diagnostic { return migrate.CheckFiles(s.migrations) }),
+	}
+	if early != nil {
+		checks = append(checks, step(early))
+	}
 	return [][]pipeline.Step{
-		{step(func() (ds []diag.Diagnostic) { files, ds = project.GoFiles(root); return })},
-		{step(func() (ds []diag.Diagnostic) { pkgs, ds = model.Read(fset, root, files); return })},
+		{step(func() (ds []diag.Diagnostic) { files, ds = project.GoFiles(s.root); return })},
+		{step(func() (ds []diag.Diagnostic) { pkgs, ds = model.Read(s.fset, s.root, files); return })},
 		// .env and the migration files beside the tags: none of them
 		// needs another, so none hides another.
 		{
-			step(func() (ds []diag.Diagnostic) { apps, ds = model.Check(fset, pkgs); return }),
-			step(func() (ds []diag.Diagnostic) { d, url, ds = project.Database(root, os.LookupEnv); return }),
-			step(func() (ds []diag.Diagnostic) { migrations, ds = migrate.ReadFiles(root); return }),
+			step(func() (ds []diag.Diagnostic) { s.apps, ds = model.Check(s.fset, pkgs); return }),
+			step(func() (ds []diag.Diagnostic) { s.d, s.url, ds = project.Database(s.root, os.LookupEnv); return }),
+			step(func() (ds []diag.Diagnostic) { s.migrations, ds = migrate.ReadFiles(s.root); return }),
 		},
-		{
-			step(func() []diag.Diagnostic { return dialect.CheckNames(fset, apps, 0) }),
-			step(func() []diag.Diagnostic { return migrate.CheckFiles(migrations) }),
-		},
+		checks,
 		// PostgreSQL's name length limit, now that the dialect is known.
-		{step(func() (ds []diag.Diagnostic) { ddl, ds = dialects[d].ddl(fset, apps); return })},
-		{step(func() []diag.Diagnostic { return checkDatabase(d, url, migrations, ddl, positions(fset, apps)) })},
-		{func(r *pipeline.Run) []diag.Diagnostic { maps.Copy(r.Files, model.Files(apps)); return nil }},
+		{step(func() (ds []diag.Diagnostic) { s.ddl, ds = dialects[s.d].ddl(s.fset, s.apps); return })},
+		{step(final)},
 	}
 }
 
 // dialects are what the build needs of each dialect.
 var dialects = map[project.Dialect]struct {
-	ddl  func(*token.FileSet, []*model.App) (string, []diag.Diagnostic)
-	read func(context.Context, dialect.Querier) (*schema.Schema, []diag.Diagnostic)
+	ddl   func(*token.FileSet, []*model.App) (string, []diag.Diagnostic)
+	read  func(context.Context, dialect.Querier) (*schema.Schema, []diag.Diagnostic)
+	draft func([]*model.App, []migrate.Change) string
 }{
-	project.SQLite:   {sqlite.DDL, sqlite.Read},
-	project.Postgres: {postgres.DDL, postgres.Read},
+	project.SQLite:   {sqlite.DDL, sqlite.Read, sqlite.Draft},
+	project.Postgres: {postgres.DDL, postgres.Read, postgres.Draft},
 }
 
 // checkDatabase applies the migrations to one practice database and the
 // models' DDL to another, and reports how the two differ (D-34, D-64).
-func checkDatabase(d project.Dialect, url string, files []migrate.File, ddl string, pos func(table, column string) token.Position) []diag.Diagnostic {
+func checkDatabase(s *state) []diag.Diagnostic {
 	ctx := context.Background()
-	a, ds := applied(ctx, d, url, files)
+	a, diff, ds := compared(ctx, s)
 	if len(ds) > 0 {
 		return ds
 	}
 	defer a.Close()
-	want, ds := modelSchema(ctx, d, url, ddl)
+	cs, ds := diff()
 	if len(ds) > 0 {
 		return ds
 	}
-	got, ds := dialects[d].read(ctx, a)
+	return migrate.Diagnose(cs, positions(s.fset, s.apps))
+}
+
+// compared returns the practice database the migrations were applied to,
+// which the caller closes, and diff, which reads it and compares it with
+// the schema of the models' DDL.
+func compared(ctx context.Context, s *state) (*practicedb.DB, func() ([]migrate.Change, []diag.Diagnostic), []diag.Diagnostic) {
+	a, ds := applied(ctx, s.d, s.url, s.migrations)
 	if len(ds) > 0 {
-		return ds
+		return nil, nil, ds
 	}
-	return migrate.Diagnose(migrate.Diff(got, want), pos)
+	want, ds := modelSchema(ctx, s.d, s.url, s.ddl)
+	if len(ds) > 0 {
+		a.Close()
+		return nil, nil, ds
+	}
+	return a, func() ([]migrate.Change, []diag.Diagnostic) {
+		got, ds := dialects[s.d].read(ctx, a)
+		if len(ds) > 0 {
+			return nil, ds
+		}
+		return migrate.Diff(got, want), nil
+	}, nil
 }
 
 // applied opens a practice database and applies the migrations to it.

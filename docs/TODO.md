@@ -16,6 +16,8 @@
 
 - [ ] 모델의 테이블 이름이 `maago_`로 시작하면 거부한다. 읽기가 `maago_migrations`를 건너뛰고 초안이 `maago_new_*`를 임시 이름으로 쓴다(M2 8번)
 
+- [ ] 테이블(모델) 이름 변경의 `--rename`. v0은 컬럼만이고, 테이블 이름 변경은 삭제+추가로 보여 allow-drop이 막는다(M2 9번)
+
 - [ ] SQLite의 FK는 연결마다 `PRAGMA foreign_keys = ON`이 있어야 강제된다. 연습용 DB와 런타임 연결에서 켠다(M1 6번).
 
 ## 모델 태그

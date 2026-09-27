@@ -21,6 +21,11 @@ const Dir = "migrations"
 
 var fileName = regexp.MustCompile(`^(\d{4})_([a-z0-9_]+)\.sql$`)
 
+// ValidName reports whether name can name a migration file.
+func ValidName(name string) bool {
+	return fileName.MatchString("0000_" + name + ".sql")
+}
+
 // File is one migration file.
 type File struct {
 	Path   string // slash path from the project root
