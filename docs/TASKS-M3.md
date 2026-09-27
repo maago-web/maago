@@ -510,7 +510,7 @@ DB 검사가 CRUD SQL도 prepare하려면 생성 전에 SQL이 있어야 한다.
 결정 (계획에서 정한 것, 11번에서 DECISIONS로)
 - ★ 함수 이름 `GetPost`·`InsertPost`·`UpdatePost`·`DeletePost`(동사 + 모델), 파일은 `models_gen.go`(모델의 생성 코드가 한 파일. ARCHITECTURE §5의 "관심사마다 하나"에서 CRUD는 모델의 관심사다). 코드는 8번이 쓴다. 이름 충돌 검사도 8번(모양 절)
 - ★ `auto`는 `time.Time`(포인터 아님)에만
-- ★ CRUD는 모델의 값을 모두 쓴다: Go의 영값이 이기고 DB 기본값(`default`, D-83)은 CRUD에서 쓰이지 않는다. Go 영값은 "주지 않음"과 가를 수 없다. `default`는 마이그레이션(기존 행), 손으로 쓴 SQL, 그리고 admin·폼의 처음 값(M4·M6)의 몫이다. 대가: 영값 `Post`의 `Status`는 `""`로 들어가 choices CHECK에 걸리고(시끄럽다), `Score *float64 default=1.50`의 `nil`은 NULL로 들어간다(태그를 읽은 사람의 기대와 다르다). 모델의 기본값을 채운 값을 만드는 생성 함수(Django가 인스턴스를 만들 때 기본값을 넣는 것처럼)는 8번에서 사람에게 묻는다(codex 1, fable 2)
+- CRUD는 모델의 값을 모두 쓴다: Insert에서 DB 기본값(`default`, D-83)은 쓰이지 않는다(Go 영값은 "주지 않음"과 가를 수 없다). 기본값은 **D-106**의 생성된 생성자 `NewPost()`가 채운다(사람의 결정: 영값이 조용히 들어가면 안 된다). 생성자와 구조체 리터럴 경로는 8번(codex 1, fable 2)
 - ★ `models_gen.go`는 8번이 통째로 쓴다(D-18 주석과 CRUD). 지금 `model.Files`가 `fmt`로 쓰는 것은 8번으로 접히고, 모델이 있는 앱은 늘 이 파일을 갖는다(fable 1. ARCHITECTURE §5의 "M1의 `models_gen.go`는 `fmt`로"를 11번에서 고친다)
 - CRUD SQL의 prepare 실패는 maago의 버그(`dialect.Bug`)이고 파이프라인 연결은 9번. 이 작업의 확인은 테스트가 한다
 
@@ -537,6 +537,7 @@ DB 검사가 CRUD SQL도 prepare하려면 생성 전에 SQL이 있어야 한다.
 - `text/template`(`embed.FS`) + `go/format`(ARCHITECTURE §5). 파라미터 struct, 선택지 타입, 새 결과 타입, 쿼리 함수(조합마다 고정 조각을 잇는 코드), CRUD 함수
 - 생성 코드는 방언별이다(자리표시, SQLite 시각 변환). D-31: 프로젝트는 방언 하나
 - `SearchOrders` 픽스처: `Order` 모델(`table=orders`, `status`·`amount`·`created_at`)을 둔 예제 앱을 `internal/testdata/`에 둔다. 3번(글 골든)과 이 작업(생성·실행)이 같은 픽스처를 쓴다
+- D-106: 모델마다 생성자 `NewPost()`가 `default`를 채운다(포인터 필드의 기본값은 그 값을 가리키는 포인터). 구조체 리터럴(`Post{}`)로 만든 값이 영값을 조용히 넣지 않게 할 방법(생성자만 쓰게 강제할지, Insert가 기본값 있는 필드의 영값을 알아챌지, 문서로만 둘지)은 이 작업의 계획에서 정하고 사람에게 확인한다
 
 → 확인: 예제 앱의 생성 골든(두 방언). 생성 코드가 컴파일되고 두 방언의 실제 DB에서 돈다(`cmd/maago` 모듈): CRUD 왕복(nullable FK, 시각, 0행 `Update`·`Delete`의 `sql.ErrNoRows`), `SearchOrders`의 조합(두 정렬의 첫 행이 다름을 단언해 `sort`를 무시하는 돌연변이를 잡는다, 선택 파라미터 있음·없음의 행 수), `:one`의 `sql.ErrNoRows`, 선택지 밖의 값, 새 결과 타입의 NULL(`*T`는 `nil`, 선언되지 않은 NULL은 Scan 오류), `*sql.Tx` 안에서 부르기
 
