@@ -67,6 +67,7 @@ type Field struct {
 	Choices     []string
 	Label, Help string
 	FK          string // model name in the same app
+	Auto        string // "create" or "update": generated CRUD fills it with the time (D-102)
 }
 
 // Unsupported is a field that is not a column, and why (D-18, D-82).
@@ -78,7 +79,7 @@ type Unsupported struct {
 
 var (
 	modelKeys = []string{"table", "ordering", "unique", "index"}
-	fieldKeys = []string{"max", "unique", "index", "default", "choices", "label", "help", "fk"}
+	fieldKeys = []string{"max", "unique", "index", "default", "choices", "label", "help", "fk", "auto"}
 	tableName = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 )
 
@@ -310,6 +311,20 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, models []s
 			}
 		case "default":
 			defaultOpt = o
+		case "auto":
+			switch {
+			case !c.shape(o, where, Bare, 1, "write auto=create or auto=update"):
+			case first(o) != "create" && first(o) != "update":
+				c.unknown(o.ValuePos[0], "auto value", first(o), where, []string{"create", "update"})
+			case f.Type != Time || f.Pointer:
+				typ := f.Type.String()
+				if f.Pointer {
+					typ = "*" + typ
+				}
+				c.errf(o.KeyPos, "declare the field as time.Time, or remove auto", "auto fills a time.Time, but %s is %s", where, typ)
+			default:
+				f.Auto = first(o)
+			}
 		}
 	}
 	if defaultOpt != nil {

@@ -42,6 +42,7 @@ create table people (
   reviewer_id bigint, code text not null unique,
   "order" integer not null default (7),
   admin boolean not null default FALSE,
+  created_at timestamp with time zone not null, "updated_at" TIMESTAMPTZ NOT NULL,
   foreign key (editor_id) references people (id),
   constraint x foreign key (reviewer_id) references people on delete no action
 );

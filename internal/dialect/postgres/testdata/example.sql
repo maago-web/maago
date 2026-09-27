@@ -23,6 +23,8 @@ CREATE TABLE "people" (
     "code" TEXT NOT NULL,
     "order" INTEGER NOT NULL DEFAULT 7,
     "admin" BOOLEAN NOT NULL DEFAULT false,
+    "created_at" TIMESTAMPTZ NOT NULL,
+    "updated_at" TIMESTAMPTZ NOT NULL,
     CONSTRAINT "people_editor_id_key" UNIQUE ("editor_id"),
     CONSTRAINT "people_code_key" UNIQUE ("code")
 );

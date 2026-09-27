@@ -472,11 +472,65 @@ type Piece struct {
 
 DB 검사가 CRUD SQL도 prepare하려면 생성 전에 SQL이 있어야 한다. 그래서 SQL을 만드는 일과 Go 코드를 쓰는 일(8번)을 나눈다.
 
-- 모델마다 `Get`·`Insert`·`Update`·`Delete`의 방언별 SQL. `Insert`는 `m.ID`를 무시하고 `RETURNING id`로 받아 채운다(SQLite 3.35+·PG). `Update`·`Delete`가 0행이면 `sql.ErrNoRows`(M4가 404로, 조용히 성공하지 않는다). D-102의 자동 시각(M1 태그 검사에 `auto`를 더한다: `time.Time`에만, 값은 `create`·`update`)
+- 모델마다 `Get`·`Insert`·`Update`·`Delete`의 방언별 SQL. `Insert`는 `m.ID`를 무시하고 `RETURNING id`로 받아 채운다(SQLite 3.37+(D-87)·PG 15+(D-98)). `Update`·`Delete`가 0행이면 `sql.ErrNoRows`(M4가 404로, 조용히 성공하지 않는다). D-102의 자동 시각(M1 태그 검사에 `auto`를 더한다: `time.Time`에만, 값은 `create`·`update`)
 - DB 검사 단계에서 4번과 같은 자리로 prepare한다. 실패는 maago의 버그(`dialect.Bug`)
 - 함수 이름(`GetPost`·`InsertPost` …)과 파일(`models_gen.go` 또는 `crud_gen.go`)은 계획에서. 이름 충돌은 모양 절
 
 → 확인: 공용 예제 모델(FK, NULL, 기본값, 예약어 컬럼)의 CRUD SQL 골든(두 방언)이 연습용 DB에서 prepare된다. `RETURNING`이 modernc v1.59.0과 PG 15에서 실제로 id를 돌려준다
+
+### 계획
+
+파일
+- `internal/model/check.go`: 필드 태그 `auto`(D-102). `Field.Auto`(`""`·`"create"`·`"update"`). 규칙: 값은 `create`·`update` 하나(모르면 did you mean), 필드는 포인터 아닌 `time.Time`(늘 채우므로 NULL일 일이 없다. `*time.Time`이면 오류, fix `declare it as time.Time`), `ID`에는 이미 막힌다(ID는 `label`·`help`만). `time.Time`의 `default`는 원래 오류라 `auto`와 부딪히지 않는다. 스키마(DDL)는 바뀌지 않는다
+- `internal/testdata/example/blog/models.go`(공용 예제): `Author`에 `CreatedAt t.Time maago:"auto=create"`, `UpdatedAt t.Time maago:"auto=update"`. `Author`는 FK·NULL·예약어 컬럼(`order`)을 이미 가졌다. 공용 예제를 쓰는 골든(M1 DDL·dump, M2 읽기·빌드)은 컬럼 둘이 늘어난 것으로 다시 뽑는다(그 밖의 차이가 없는지 diff로 본다)
+- 새 `internal/mapper/crud.go`:
+  ```go
+  type CRUD struct {
+  	Model               *model.Model
+  	Get, Insert, Delete Statement
+  	Update              *Statement // ID 말고 바꿀 필드가 없으면 nil: 그 모델에는 UpdateX를 만들지 않는다
+  }
+  type Statement struct {
+  	SQL  string
+  	Args []string // 자리표시 번호 순의 필드 이름(Args[i]가 $i+1·?i+1)
+  }
+  func CRUDs(app *model.App, d project.Dialect) []CRUD // 앱 하나, 모델 선언 순(8번이 앱마다 파일을 쓴다)
+  ```
+  실행 계약(8번이 따른다, 필드마다 고정): Get은 행 하나를 필드 순으로 Scan(없으면 `sql.ErrNoRows`), Insert는 `QueryRow`로 id 하나를 받아 `m.ID`에(`Exec`가 아니다), Update·Delete는 `Exec`하고 영향 행이 0이면 `sql.ErrNoRows
+  ```
+  SQL(식별자는 모두 `dialect.Quote`, 자리표시는 3번과 같게 PG `$n`·SQLite `?n`):
+  - Get: `SELECT 모든 컬럼(필드 순) FROM t WHERE "id" = $1`, Args `[ID]`
+  - Insert: `INSERT INTO t (ID 밖의 컬럼) VALUES ($1, …) RETURNING "id"`. ID 밖의 필드가 없으면 `INSERT INTO t DEFAULT VALUES RETURNING "id"`. `m.ID`는 쓰지 않는다. auto 필드도 Args에 있다(8번이 `time.Now()`로 채운다)
+  - Update: `UPDATE t SET "c" = $1, … WHERE "id" = $n`. SET은 ID와 `auto=create` 밖의 필드(`auto=update`는 있다, 8번이 채운다)
+  - Delete: `DELETE FROM t WHERE "id" = $1`
+  - 0행이면 `sql.ErrNoRows`는 8번의 Go 코드(`RowsAffected`)
+- 새 `internal/mapper/crud_test.go`: 공용 예제의 두 방언 골든(`testdata/crud.sqlite.golden`·`crud.postgres.golden`, 모델마다 넷, Args 포함). 필드가 ID뿐인 모델(Insert의 `DEFAULT VALUES`, Update 없음)은 작은 인라인 모델
+- 새 `cmd/maago/crud_test.go`(두 방언): 공용 예제의 DDL을 연습용 DB에 적용하고 CRUD의 SQL을 모두 `practicedb.Describe`로 prepare(실패 없음). PG는 `Params[i]`가 `Args[i]` 필드의 타입과 맞는지(4번의 `pgTypes`), Get의 결과 컬럼이 필드 순인지 본다(자리표시와 `Args`가 어긋나면 잡힌다). 그리고 실제로 Insert를 실행해(인자는 필드 이름 → 값 표에서 `Args` 순으로. SQLite 시각은 `maago.SQLiteTime`, D-105) `RETURNING`의 id를 받고(두 번 넣어 1, 2), 그 id로 Get·Update·Delete가 도는 것까지. nullable FK(`ParentID`)는 nil과 값 둘 다 넣고 읽는다. 영값 `Post`의 Insert는 choices CHECK로 실패한다(위 ★의 대가를 못 박는다)
+
+결정 (계획에서 정한 것, 11번에서 DECISIONS로)
+- ★ 함수 이름 `GetPost`·`InsertPost`·`UpdatePost`·`DeletePost`(동사 + 모델), 파일은 `models_gen.go`(모델의 생성 코드가 한 파일. ARCHITECTURE §5의 "관심사마다 하나"에서 CRUD는 모델의 관심사다). 코드는 8번이 쓴다. 이름 충돌 검사도 8번(모양 절)
+- ★ `auto`는 `time.Time`(포인터 아님)에만
+- ★ CRUD는 모델의 값을 모두 쓴다: Go의 영값이 이기고 DB 기본값(`default`, D-83)은 CRUD에서 쓰이지 않는다. Go 영값은 "주지 않음"과 가를 수 없다. `default`는 마이그레이션(기존 행), 손으로 쓴 SQL, 그리고 admin·폼의 처음 값(M4·M6)의 몫이다. 대가: 영값 `Post`의 `Status`는 `""`로 들어가 choices CHECK에 걸리고(시끄럽다), `Score *float64 default=1.50`의 `nil`은 NULL로 들어간다(태그를 읽은 사람의 기대와 다르다). 모델의 기본값을 채운 값을 만드는 생성 함수(Django가 인스턴스를 만들 때 기본값을 넣는 것처럼)는 8번에서 사람에게 묻는다(codex 1, fable 2)
+- ★ `models_gen.go`는 8번이 통째로 쓴다(D-18 주석과 CRUD). 지금 `model.Files`가 `fmt`로 쓰는 것은 8번으로 접히고, 모델이 있는 앱은 늘 이 파일을 갖는다(fable 1. ARCHITECTURE §5의 "M1의 `models_gen.go`는 `fmt`로"를 11번에서 고친다)
+- CRUD SQL의 prepare 실패는 maago의 버그(`dialect.Bug`)이고 파이프라인 연결은 9번. 이 작업의 확인은 테스트가 한다
+
+하지 않기로 한 것
+- Go 코드 생성(Scan, 0행 오류, auto 채우기, SQLite 시각 변환)은 8번
+- 부분 갱신(바뀐 필드만)은 하지 않는다: Update는 모든 필드를 쓴다(D-21 "PK 기준 기본 CRUD", 나머지는 손으로)
+
+단계
+1. `auto` 태그 → 확인: 태그 표에 `auto=create`·`auto=update` 통과, `auto=crate`(did you mean), `auto` 값 없음, `*time.Time`·`string`에 `auto`는 각각 위치 있는 오류. 공용 예제 골든(dump·DDL·읽기·빌드)을 다시 뽑고 diff가 두 컬럼뿐인지 본다
+2. `CRUDs` → 확인: 두 방언 골든(손으로 읽어 따옴표·자리표시·`RETURNING`·auto의 자리를 확인), ID뿐인 모델
+3. `cmd/maago` → 확인: 모든 CRUD SQL이 두 방언의 연습용 DB에서 prepare되고, Insert가 1, 2를 돌려주고, Get·Update·Delete가 돈다(Update의 영향 행 1, 없는 id의 Delete 영향 행 0)
+4. 두 모듈 `go vet`·`go test`(PG 포함), `gofmt -l .`
+
+계획 리뷰 (codex·fable)
+- 받음: 기본값의 뜻(둘 다, 위 ★), nullable FK 왕복(codex 2), ID뿐인 모델은 `UpdateX` 없음과 `*Statement`(codex 3, fable 8), 필드마다의 실행 계약(codex 4, fable 6), 1단계는 이미 구현(codex 5), SQLite 3.37(codex 6), `models_gen.go`의 주인(fable 1), `Args` 순서를 시험(fable 4), SQLite 시각은 `maago.SQLiteTime`(fable 5), 앱 단위 `CRUDs`(fable 7). M6에 D-21이 주는 것은 Get·Insert·Update·Delete와 `Field.Auto`(읽기 전용)까지: 목록·필터·개수는 D-48의 생성 코드 몫이다(fable 9). 모양 절의 "SQLite는 `?`"는 11번에서 `?n`으로(fable 3)
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — Get의 묘사를 다시 하지 않음, 한 번 쓰는 타입 이름 도우미를 풀어 씀. 받지 않음 — `TestCRUDPrepares`가 `openPractice`를 쓰게(실행 시험에 날 연결이 필요해 `exampleConn`이 남는다), `WHERE "id"` 조각 나눔(줄지 않는다)
+- codex(샌드박스 때문에 테스트는 못 돌림): 받음 — 실행 시험이 `Args`에 기대지 않게 넣은 값을 되읽어 비교(같은 타입 필드가 바뀌어도 잡힌다), ID뿐인 모델의 Insert를 두 방언에서 실행
+- fable(돌연변이 15종, 같은 타입 필드 맞바꿈까지 잡힘): 받음 — 시험의 PG 타입 표가 `mapper`의 것을 옮겨 적은 이유를 주석으로, 자리표시 수와 `Args` 수가 다르면 panic 대신 오류. 8번에 넘길 것: `Statement.Args`가 이름이라 템플릿이 필드를 찾아야 한다(시끄러우면 `[]*model.Field`로). 11번에 넘길 것: ARCHITECTURE·TUTORIAL-FUTURE의 "allowed:" 예시에 `auto`, D-102의 대가에 "기존 테이블에 `auto` 필드를 더하면 초안이 `NoDefault` 경고를 내고 사람이 마이그레이션을 손본다"
 
 ## 8. 코드 생성 (`queries_gen.go`, CRUD)
 

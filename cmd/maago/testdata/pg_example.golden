@@ -25,6 +25,8 @@ table "people" strict=false pk=["id"] auto="BY DEFAULT"
   column "code" TEXT notnull=true default=""
   column "order" INTEGER notnull=true default="7"
   column "admin" BOOLEAN notnull=true default="FALSE"
+  column "created_at" TIMESTAMP WITH TIME ZONE notnull=true default=""
+  column "updated_at" TIMESTAMP WITH TIME ZONE notnull=true default=""
   index "people_code_idx" ["code"]
   index "people_parent_id_idx" ["parent_id"]
   index "people_reviewer_id_idx" ["reviewer_id"]

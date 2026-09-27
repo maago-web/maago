@@ -59,7 +59,7 @@ type Post struct {
 	Title string ` + "`" + `maago:"maxlen=200"` + "`" + `
 }
 `})
-	want := "blog/models.go:9:23: unknown tag key \"maxlen\" in Post.Title\n  fix: did you mean \"max\"? allowed: max, unique, index, default, choices, label, help, fk\n"
+	want := "blog/models.go:9:23: unknown tag key \"maxlen\" in Post.Title\n  fix: did you mean \"max\"? allowed: max, unique, index, default, choices, label, help, fk, auto\n"
 	if errs != want {
 		t.Errorf("got:\n%s\nwant:\n%s", errs, want)
 	}
@@ -92,6 +92,10 @@ type Post struct {
 	OwnerID  string    ` + q + `maago:"fk=Post"` + q + `
 	Legacy   int       ` + q + `maago:"index"` + q + `
 	secret   string    ` + q + `maago:"label='hidden'"` + q + `
+	Made     time.Time  ` + q + `maago:"auto=crate"` + q + `
+	Seen     *time.Time ` + q + `maago:"auto=create"` + q + `
+	Word     string     ` + q + `maago:"auto=update"` + q + `
+	Bare     time.Time  ` + q + `maago:"auto"` + q + `
 }
 
 type Author struct {

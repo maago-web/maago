@@ -45,6 +45,9 @@ type Author struct {
 	// A reserved word as a column, and a default written unusually.
 	Order int32 `maago:"default=007"`
 	Admin bool  `maago:"default=false"`
+	// Filled by the generated CRUD (D-102).
+	CreatedAt t.Time `maago:"auto=create"`
+	UpdatedAt t.Time `maago:"auto=update"`
 }
 
 type NotAModel struct {

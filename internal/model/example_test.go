@@ -49,6 +49,9 @@ func dump(fset *token.FileSet, apps []*model.App) string {
 				if f.FK != "" {
 					fmt.Fprintf(&b, " fk=%s", f.FK)
 				}
+				if f.Auto != "" {
+					fmt.Fprintf(&b, " auto=%s", f.Auto)
+				}
 				b.WriteString("\n")
 			}
 			for _, u := range m.Unsupported {

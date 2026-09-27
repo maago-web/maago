@@ -41,7 +41,7 @@ func (c exampleCase) run(t *testing.T, d project.Dialect, url, example string) {
 // The cases of M1's SQLite smoke script, moved here to run in CI.
 func TestExampleSQLite(t *testing.T) {
 	example := readFile(t, "../../internal/dialect/sqlite/testdata/example.sql")
-	author := "INSERT INTO people (name, editor_id, code) VALUES ('a', 1, 'c1')"
+	author := "INSERT INTO people (name, editor_id, code, created_at, updated_at) VALUES ('a', 1, 'c1', '2026-09-27 00:00:00.000000', '2026-09-27 00:00:00.000000')"
 	post := "INSERT INTO blog_post (author_id, title, slug, body) VALUES (1, 't', 's', x'00')"
 	postWith := func(col, val string) string {
 		return "INSERT INTO blog_post (author_id, title, slug, body, " + col + ") VALUES (1, 't', 's', x'00', " + val + ")"
@@ -65,8 +65,8 @@ func TestExampleSQLite(t *testing.T) {
 			want: "NOT NULL constraint failed: blog_post.title"},
 		{name: "composite unique and indexes exist",
 			cond: "SELECT CASE WHEN count(*) = 9 THEN 'ok' ELSE 'no' END FROM sqlite_master WHERE type = 'index' AND name IN ('blog_post_author_id_slug_key', 'blog_post_slug_key', 'blog_post_status_idx', 'blog_post_author_id_idx', 'people_editor_id_key', 'people_code_key', 'people_reviewer_id_idx', 'people_code_idx', 'people_parent_id_idx')"},
-		{name: "ids are not reused", stmts: []string{author, "INSERT INTO people (name, editor_id, code) VALUES ('b', 2, 'c2')", "DELETE FROM people WHERE id = 2",
-			"INSERT INTO people (name, editor_id, code) VALUES ('c', 3, 'c3')"}, cond: "SELECT CASE WHEN max(id) = 3 THEN 'ok' ELSE 'no' END FROM people"},
+		{name: "ids are not reused", stmts: []string{author, "INSERT INTO people (name, editor_id, code, created_at, updated_at) VALUES ('b', 2, 'c2', '2026-09-27 00:00:00.000000', '2026-09-27 00:00:00.000000')", "DELETE FROM people WHERE id = 2",
+			"INSERT INTO people (name, editor_id, code, created_at, updated_at) VALUES ('c', 3, 'c3', '2026-09-27 00:00:00.000000', '2026-09-27 00:00:00.000000')"}, cond: "SELECT CASE WHEN max(id) = 3 THEN 'ok' ELSE 'no' END FROM people"},
 	} {
 		c.run(t, project.SQLite, "", example)
 	}
@@ -77,7 +77,7 @@ func TestExampleSQLite(t *testing.T) {
 func TestExamplePG(t *testing.T) {
 	url := pgURL(t)
 	example := readFile(t, "../../internal/dialect/postgres/testdata/example.sql")
-	author := "INSERT INTO people (name, editor_id, code) VALUES ('a', 1, 'c1')"
+	author := "INSERT INTO people (name, editor_id, code, created_at, updated_at) VALUES ('a', 1, 'c1', now(), now())"
 	post := `INSERT INTO blog_post (author_id, title, slug, body) VALUES (1, 't', 's', '\x00')`
 	postWith := func(col, val string) string {
 		return `INSERT INTO blog_post (author_id, title, slug, body, ` + col + `) VALUES (1, 't', 's', '\x00', ` + val + `)`
@@ -104,9 +104,9 @@ func TestExamplePG(t *testing.T) {
 		{name: "composite unique and indexes exist",
 			cond: "SELECT CASE WHEN (SELECT count(*) FROM pg_constraint WHERE conname = 'blog_post_author_id_slug_key' AND connamespace = current_schema()::regnamespace) = 1 " +
 				"AND (SELECT count(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname IN ('blog_post_status_idx', 'blog_post_author_id_idx', 'people_parent_id_idx', 'people_reviewer_id_idx', 'people_code_idx')) = 5 THEN 'ok' ELSE 'no' END"},
-		{name: "an explicit id is accepted (BY DEFAULT)", stmts: []string{"INSERT INTO people (id, name, editor_id, code) VALUES (10, 'a', 10, 'c1')"}},
-		{name: "ids are not reused", stmts: []string{author, "INSERT INTO people (name, editor_id, code) VALUES ('b', 2, 'c2')", "DELETE FROM people WHERE id = 2",
-			"INSERT INTO people (name, editor_id, code) VALUES ('c', 3, 'c3')"}, cond: "SELECT CASE WHEN max(id) = 3 THEN 'ok' ELSE 'no' END FROM people"},
+		{name: "an explicit id is accepted (BY DEFAULT)", stmts: []string{"INSERT INTO people (id, name, editor_id, code, created_at, updated_at) VALUES (10, 'a', 10, 'c1', now(), now())"}},
+		{name: "ids are not reused", stmts: []string{author, "INSERT INTO people (name, editor_id, code, created_at, updated_at) VALUES ('b', 2, 'c2', now(), now())", "DELETE FROM people WHERE id = 2",
+			"INSERT INTO people (name, editor_id, code, created_at, updated_at) VALUES ('c', 3, 'c3', now(), now())"}, cond: "SELECT CASE WHEN max(id) = 3 THEN 'ok' ELSE 'no' END FROM people"},
 	} {
 		c.run(t, project.Postgres, url, example)
 	}

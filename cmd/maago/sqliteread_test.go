@@ -99,6 +99,7 @@ create table people (
   reviewer_id integer, code text not null,
   "order" integer not null default (7),
   admin integer not null default 0 check ("admin" in (0,1)),
+  created_at text not null, "updated_at" TEXT NOT NULL,
   foreign key (parent_id) references people,
   foreign key (editor_id) references people (id),
   foreign key (reviewer_id) references people

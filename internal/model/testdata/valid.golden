@@ -25,3 +25,5 @@ app blog (blog)
     Code(code) string
     Order(order) int32 default="007"
     Admin(admin) bool default="false"
+    CreatedAt(created_at) time.Time auto=create
+    UpdatedAt(updated_at) time.Time auto=update
