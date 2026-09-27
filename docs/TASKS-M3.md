@@ -139,6 +139,60 @@ type Type   struct { Base model.Type; Slice bool; Choices []string } // 선택�
 
 → 확인: 표 테스트. `::text`·문자열 속 `:x`·`'{1,2}'`·주석 속 `{a}`·`$$…:x…$$`는 무시된다. `{a & b | c}`, `{(a)}`, `{sort=oldest}`(선택지 밖), `{limit}`(필수 int64), 선언되지 않은 `:x`, 쓰이지 않은 파라미터 각각 위치 있는 오류. 닫히지 않은 구역
 
+### 계획
+
+파일
+- `internal/dialect/split.go`: splitter에 플래그 둘(`markers`: `-- maago:` 표시 해석, `comments`: `--` 주석을 따로 모음). `Split`은 지금과 같이 표시 켬·주석 끔, 새 `SplitComments(filename, src) ([]Stmt, []Token, []diag.Diagnostic)`는 표시 끔·주석 켬(새 종류 `Comment`, 글은 `--`부터 줄 끝까지). 진단은 하나도 버리지 않는다(codex·fable 2). 본문의 `-- 단어:` 주석(1번의 ★)을 찾으려면 문자열·`/* */` 안이 아닌 진짜 주석의 위치가 필요하고, 그것을 아는 것은 토큰화뿐이다. 머리 줄도 주석이므로 `Offset < HeaderEnd`인 주석은 건너뛴다
+- 새 `internal/mapper/body.go`: 머리를 읽은 쿼리의 본문을 읽어 `Query.Lines`를 채운다. `Read`가 머리 다음에 부르고, 본문에 오류가 있는 파일도 `Query`를 내지 않는다(1번과 같은 이유)
+- 새 `internal/mapper/body_test.go`: 오류 표(골든 `testdata/body.golden`, 글 → `diag.Write` 전체)와 `Lines`를 한 줄씩 적은 덤프 비교(`SearchOrders` 원문 포함)
+
+모양 (3번이 조합마다 이것을 걸러 SQL 글을 만든다)
+```go
+type Line struct {
+	Pos     token.Position // 조건 뒤 첫 토큰
+	Cond    *Cond          // nil이면 늘 들어간다
+	Kind    LineKind       // Text, Open(WHERE {·SET {), Close(})
+	Keyword string         // Open: 쓴 그대로의 WHERE·SET
+	Lead    string         // WHERE 구역의 줄: 맨 앞 AND·OR(쓴 그대로). Parts에 없다
+	Trail   bool           // SET 구역의 줄: 끝 쉼표. Parts에 없다
+	Parts   []Part         // SQL 조각과 바인딩이 번갈아
+}
+type Part struct { SQL, Param string; Pos token.Position } // 둘 중 하나
+type Cond struct { Pos token.Position; Or bool; Terms []Term }
+type Term struct { Pos token.Position; Not bool; Name, Value string }
+```
+- 줄 = 시작 줄이 같은 토큰들(토큰은 시작 위치로 줄에 묶인다. `/* */`는 어느 줄에도 토큰을 더하지 않는다. 여러 줄 문자열 토큰은 시작한 줄에 속한다). `Parts`의 SQL은 원문을 바이트 그대로 자른 것이다: 첫 토큰부터 끝 토큰까지(토큰 끝 = `Pos.Offset+len(Text)`), 바인딩 `:이름` 자리만 `Param`으로. 그래서 `Parts`를 이으면(바인딩은 `:이름`으로) 원문과 바이트까지 같다. 3번의 골든은 원문에서 자리표시를 바꾼 것이 된다
+- `DELETE FROM t WHERE {`는 Text 줄 `DELETE FROM t`와 Open 줄로 나눈다
+- 정리(규칙 4)는 3번의 몫: 구역에서 살아남은 첫 줄의 `Lead`와 마지막 줄의 `Trail`을 뺀다. `Lead`·`Trail`은 있으면 떼어 둘 뿐, 모든 줄에 요구하지 않는다(가운데 줄에 `AND`를 빠뜨린 SQL은 4번의 prepare가 그 조합과 함께 잡는다)
+
+규칙 (결정에 없는 선택은 ★)
+- 문장은 하나(규칙 1): 둘째 문장은 오류, 끝의 `;`는 된다. 문장이 없으면 오류
+- 바인딩: ★ `:` 바로 뒤에 붙은 모든 단어이고 앞에 붙은 `:`가 없을 때. `::text`, `: x`는 바인딩이 아니다. `a[1:2]`는 선언되지 않은 파라미터 `2`로 오류다(fix: `a[1: 2]`): SQLite는 `:2`·`:한글`도 제 파라미터로 읽는다(codex 구현 리뷰 3, 처음 계획은 글자로 시작하는 단어만이었다). 선언되지 않은 이름은 did you mean과 fix 끝에 `if it is not a parameter, put a space after the colon`
+- ★ 네이티브 자리표시는 방언과 상관없이 오류(fix: `:name`): `$`·`@` 바로 뒤에 붙은 단어(`$1`, `$name`, `@x`. 닫힌 `$tag$…$tag$`는 토큰화가 문자열로 읽고, `foo$bar`는 한 단어라 아니다), 그리고 맨 `?`(`?1` 포함). PG에서 `$1`은 생성기가 매기는 번호와 겹쳐 값이 조용히 바뀌어 들어가고, SQLite의 `?`·`@x`는 드라이버가 파라미터 수를 알려 주지 않아(modernc `NumInput`은 -1) 실행 때에야 드러난다(fable 1, 처음 계획은 4번에 미뤘다). 대가: PG jsonb의 `?`·`?|`·`?&` 연산자를 쓸 수 없다 → fix에 `jsonb_exists`·`jsonb_exists_any`·`jsonb_exists_all`. `?`는 머리에서 "없을 수 있다"는 한 뜻이다(PHILOSOPHY 4)
+- 조건: 줄의 첫 토큰이 `{`이고 같은 줄에 `}`. 항은 `이름`, `!이름`, `이름=값`, 잇는 것은 `&` 또는 `|` 한 종류. 오류: 섞기, 괄호, 빈 조건, 닫히지 않음, `!이름=값`, 모르는 이름(did you mean), 조건 뒤에 SQL이 없음
+- 항의 뜻(모양 절): `이름`·`!이름`은 선택 파라미터(있음), `bool`(참), 슬라이스(원소 있음)에만. 필수 스칼라·선택지는 오류(늘 참. 선택지는 fix에 `{sort=latest}`). `이름=값`은 선택지에만, 값은 그 선택지 안(did you mean)
+- 구역: `WHERE`·`SET`(대소문자 무시) 바로 뒤의 `{`가 그 줄의 마지막 토큰이면 여는 것, 줄에 `}` 하나뿐이면 닫는 것. ★ 구역은 겹치지 않고 괄호 깊이 0에서만 연다(서브쿼리의 `WHERE {`는 오류. 3번이 "WHERE가 사라지는 UPDATE·DELETE"를 볼 때 구역이 최상위인지 따로 묻지 않는다, fable 5). 빈 구역, 닫히지 않은 구역, 짝 없는 `}`, 여는·닫는 줄의 조건, 그 밖 자리의 `{`·`}`는 오류. `WHERE` 다음 줄에 `{` 홀로면 fix는 `WHERE {`를 한 줄에
+- ★ 본문의 `-- 단어:` 주석은 오류(1번의 결정, fix: 머리로 옮기거나 다른 말로 시작). 판정은 머리와 같은 함수(fable 3). `-- maago:`도 이것으로 잡힌다(`SplitComments`는 표시를 해석하지 않는다)
+- 쓰이지 않은 파라미터(바인딩에도 조건에도 없음)는 그 `param` 줄에 오류
+- 오류는 줄마다 첫 것만, 줄끼리는 모두(D-61)
+
+하지 않기로 한 것
+- 조합·번역·빈 WHERE의 UPDATE·DELETE·라벨이 보장하지 않는 파라미터는 3번. 3번에 넘기는 확인: PG가 `$1`·`$3`만 쓰고 `$2`가 없는 글을 prepare하는지(못 하면 조합마다 번호를 매긴다. 이 모양은 그대로, fable 5)
+
+단계
+1. `SplitComments` → 확인: `dialect` 표에 주석 토큰(문자열·`/* */` 안의 `--`는 아님), 기존 테스트 그대로
+2. `body.go` → 확인: 위 원래 확인 전부 + 둘째 문장, 빈 본문, `$1`·`$name`·`@x`·`?`·`?1`(오류)과 `foo$bar`·`$tag$…$tag$`(통과), `{a=b}`(선택지 아님), `{!sort=x}`, `{a b}`, `{}`, `{a`, `{a}`만 있는 줄, `{sort}`, 중첩 구역, 괄호 안 구역, 빈 구역, 짝 없는 `}`, `x = {`, `{a} WHERE {`, `WHERE` 다음 줄의 `{`, 본문의 `-- param:`·`-- maago: allow-drop`, 한 파일의 독립 오류 둘. 통과: `a[1: 2]`·`: x`(바인딩 아님), `:from::date`(바인딩 뒤 형 변환), `:xfoo`는 파라미터 `xfoo`, `data? []byte` + `{data}`, 조건에서만 쓰인 `bool`. 덤프(골든): `SearchOrders`(DECISIONS 원문 그대로), `SET {` + `Trail`, `DELETE … WHERE {` 한 줄, CRLF 파일, `a::text`. 덤프는 줄마다 Kind·Keyword·Lead·Trail·조건(쓴 대로)·Part마다 종류와 위치를 찍는다(무엇이 떨어져도 골든이 바뀐다, fable 4). `dialect`: 주석 토큰 표, `Split`의 표시 진단이 그대로
+3. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)
+- 받음: 표시·주석 플래그로 나누고 진단을 버리지 않음(둘 다), 줄 묶기 계약(codex 5), `$`·`?`·`@` 경우의 표(둘 다), `?`·`@x`도 2번에서 막음(fable 1: modernc는 파라미터 수를 알려 주지 않는다), 괄호 깊이 0의 구역(fable 5), `Parts`가 원문과 바이트까지 같음(fable 5), 머리와 같은 `단어:` 판정(fable 3), 확인 보강과 덤프 형식(fable 4)
+- 받지 않음: codex 1·4 "토큰에 끝 위치가 없다" — `Text`가 원문 `src[i:j]`라 끝은 `Pos.Offset+len(Text)`다. 바인딩마다 `Part.Pos`가 있다
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — `typeString`의 닿지 않는 선택지 갈래, 이름 첫 글자 판정을 `isNameStart` 하나로. 받지 않음 — `TestSplitComments`의 "주석이 토큰에 섞이지 않음" 루프(지금 늘 참인 것이 회귀 시험이다), `prev` 인자(읽기 쉽다)
+- codex(샌드박스가 임시 디렉터리를 막아 코드만 읽음): 받음 — 오류 난 줄이 있으면 "쓰이지 않은 파라미터"를 모두 숨기던 것을, 그 줄에 나온 이름만 숨기게. `:` 뒤의 모든 단어를 바인딩으로(위 ★). 독립 오류 여럿이 함께 나오는 표 줄
+- fable(변이 실험): 받음 — 조건 속 모르는 이름에 "콜론 뒤 공백" fix가 나가던 것, `AND`·`,`만 남은 구역 줄은 오류, 계획 문구, 괄호가 앞 줄에서 열린 `WHERE {`·`SELECT\n{`·구역 밖 정리 없음의 표와 덤프, `Parts`가 원문과 바이트까지 같음을 단언, `!name=value` 문구, `}`의 fix, `Line.Pos` 주석, 덤프에 연산자를 늘 찍기. 받지 않음 — 본문 `-- maago:`의 fix(드물다)
+
 ## 3. 조합과 번역 (규칙 3·4·5의 정적 오류)
 
 - 조합을 모두 만들고(모양 절), 조합마다 방언의 SQL 글을 만든다: 조건이 거짓인 줄을 빼고, 구역을 정리하고, 빈 구역은 절째 없애고, `:이름`을 자리표시로. 같은 글은 하나로

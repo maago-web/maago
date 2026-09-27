@@ -103,3 +103,22 @@ func TestNormalize(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// SplitComments reads no markers and returns only real comments.
+func TestSplitComments(t *testing.T) {
+	src := "-- a\r\nSELECT '-- b', $$ -- c $$ /* -- d */, 1 -- e\n-- maago: nope\nFROM t"
+	stmts, comments, ds := SplitComments("q.sql", src)
+	var got []string
+	for _, c := range comments {
+		got = append(got, fmt.Sprintf("%d:%d %q", c.Pos.Line, c.Pos.Column, c.Text))
+	}
+	want := `1:1 "-- a" 2:41 "-- e" 3:1 "-- maago: nope"`
+	if strings.Join(got, " ") != want || len(stmts) != 1 || ds != nil {
+		t.Errorf("got %s, %d statements, %v\nwant %s, 1 statement, no errors", strings.Join(got, " "), len(stmts), ds, want)
+	}
+	for _, tok := range stmts[0].Tokens {
+		if tok.Kind == Comment {
+			t.Errorf("comment %q among the tokens", tok.Text)
+		}
+	}
+}

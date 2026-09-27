@@ -35,6 +35,7 @@ type Query struct {
 	Result    string // "" for :exec
 	Params    []Param
 	Columns   []Column
+	Lines     []Line // the body
 }
 
 // Kind is what a query returns.
@@ -103,6 +104,10 @@ func Read(root string, files []string) ([]*App, []diag.Diagnostic) {
 		q, qds := parse(f, string(src))
 		ds = append(ds, qds...)
 		if q == nil {
+			continue
+		}
+		if bds := q.body(); bds != nil {
+			ds = append(ds, bds...)
 			continue
 		}
 		if dir := path.Dir(path.Dir(f)); len(apps) == 0 || apps[len(apps)-1].Dir != dir {
@@ -193,20 +198,31 @@ func (h *header) fields(i int) []field {
 	return fs
 }
 
+// headerKey finds word: in t from i, where a comment's text starts. The
+// word is t[start:end] and the colon is at colon; colon is -1 if the
+// comment does not start with word:.
+func headerKey(t string, i int) (start, end, colon int) {
+	i += len(t[i:]) - len(strings.TrimLeft(t[i:], " \t"))
+	start = i
+	for i < len(t) && (isNameStart(t[i]) || i > start && '0' <= t[i] && t[i] <= '9') {
+		i++
+	}
+	colon = len(t) - len(strings.TrimLeft(t[i:], " \t"))
+	if i == start || colon == len(t) || t[colon] != ':' {
+		return start, i, -1
+	}
+	return start, i, colon
+}
+
 // read reads the line from i, just past its --. A line whose comment
 // starts with word: is a header line; any other is a description.
 func (h *header) read(i int) {
 	t := h.text
-	i += len(t[i:]) - len(strings.TrimLeft(t[i:], " \t"))
-	start := i
-	for i < len(t) && (t[i] == '_' || 'a' <= t[i] && t[i] <= 'z' || 'A' <= t[i] && t[i] <= 'Z' || i > start && '0' <= t[i] && t[i] <= '9') {
-		i++
-	}
-	key := t[start:i]
-	colon := len(t) - len(strings.TrimLeft(t[i:], " \t"))
-	if key == "" || colon == len(t) || t[colon] != ':' {
+	start, i, colon := headerKey(t, i)
+	if colon < 0 {
 		return
 	}
+	key := t[start:i]
 	if !slices.Contains(keys, key) {
 		fix := "allowed: name, param, column; start a comment with something other than \"word:\""
 		if s := diag.Suggest(key, keys); s != "" {

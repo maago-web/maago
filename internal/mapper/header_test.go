@@ -158,14 +158,14 @@ func TestParseSeveralErrors(t *testing.T) {
 func TestRead(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
-		"blog/queries/a.sql": "-- name: Q :exec\n",
-		"blog/queries/b.sql": "-- name: Q :exec\n",
-		"blog/queries/c.sql": "-- name: Q :exec\n",
-		"blog/queries/d.sql": "-- name: R :exec\n",
-		"blog/queries/e.sql": "-- name: bad :exec\n",
-		"shop/queries/a.sql": "-- name: Q :exec\n",
-		"none/queries/a.sql": "-- name: bad :exec\n",
-		"queries/x.sql":      "-- name: X :exec\n",
+		"blog/queries/a.sql": "-- name: Q :exec\nDELETE FROM t WHERE false\n",
+		"blog/queries/b.sql": "-- name: Q :exec\nDELETE FROM t WHERE false\n",
+		"blog/queries/c.sql": "-- name: Q :exec\nDELETE FROM t WHERE false\n",
+		"blog/queries/d.sql": "-- name: R :exec\nDELETE FROM t WHERE false\n",
+		"blog/queries/e.sql": "-- name: bad :exec\nDELETE FROM t WHERE false\n",
+		"shop/queries/a.sql": "-- name: Q :exec\nDELETE FROM t WHERE false\n",
+		"none/queries/a.sql": "-- name: bad :exec\nDELETE FROM t WHERE false\n",
+		"queries/x.sql":      "-- name: X :exec\nDELETE FROM t WHERE false\n",
 	}
 	var list []string
 	for p, src := range files {

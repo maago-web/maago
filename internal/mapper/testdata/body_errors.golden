@@ -1,0 +1,218 @@
+"SELECT :x\n"
+blog/queries/q.sql:8:8: parameter x is not declared
+  fix: declare it with -- param: x type; if it is not a parameter, put a space after the colon, like a[1: 2]
+
+"SELECT 1\n{status & flag | ids} AND 1\n"
+blog/queries/q.sql:9:16: condition mixes & and |
+  fix: use only & or only | in one condition; compute anything more complex in Go and pass a bool (rule 3)
+
+"SELECT 1\n{(status)} AND 1\n"
+blog/queries/q.sql:9:2: parentheses in a condition
+  fix: compute the condition in Go and pass a bool (rule 3)
+
+"SELECT 1\n{sort=oldest} AND 1\n"
+blog/queries/q.sql:9:7: oldest is not a choice of sort
+  fix: allowed: latest, amount
+
+"SELECT 1\n{limit} AND 1\n"
+blog/queries/q.sql:9:2: {limit} is always true: limit is required
+  fix: declare it optional (limit? int64), or remove the condition
+
+"SELECT 1 WHERE {\n{status} AND status = :status\n"
+blog/queries/q.sql:8:10: WHERE { is not closed
+  fix: close it with } on a line of its own
+
+"SELECT :2"
+blog/queries/q.sql:8:8: parameter 2 is not declared
+  fix: parameter names are lowercase snake_case; if it is not a parameter, put a space after the colon, like a[1: 2]
+
+"SELECT a[1:2]"
+blog/queries/q.sql:8:11: parameter 2 is not declared
+  fix: parameter names are lowercase snake_case; if it is not a parameter, put a space after the colon, like a[1: 2]
+
+"SELECT :한글"
+blog/queries/q.sql:8:8: parameter 한글 is not declared
+  fix: parameter names are lowercase snake_case; if it is not a parameter, put a space after the colon, like a[1: 2]
+
+"SELECT :x\n{sort} AND 1\nWHERE x = {"
+blog/queries/q.sql:8:8: parameter x is not declared
+  fix: declare it with -- param: x type; if it is not a parameter, put a space after the colon, like a[1: 2]
+blog/queries/q.sql:9:2: {sort} is always true: sort always has a choice
+  fix: compare it with a choice, like {sort=latest}
+blog/queries/q.sql:10:11: unexpected {
+  fix: use { only for a {condition} at the start of a line, or right after WHERE or SET at the end of a line
+
+"SELECT 1\n{Status} AND 1\n"
+blog/queries/q.sql:9:2: parameter Status is not declared
+  fix: did you mean "status"? or parameter names are lowercase snake_case
+
+"SELECT :Status"
+blog/queries/q.sql:8:8: parameter Status is not declared
+  fix: did you mean "status"? or parameter names are lowercase snake_case; if it is not a parameter, put a space after the colon, like a[1: 2]
+
+"SELECT 1;\nSELECT 2"
+blog/queries/q.sql:9:1: second statement in a query file
+  fix: keep one statement per file; put the other in a file of its own
+
+""
+blog/queries/q.sql:8:1: query has no SQL
+  fix: write the SQL after the header
+
+"SELECT 'x"
+blog/queries/q.sql:8:8: unterminated string
+  fix: close it with '
+
+"SELECT $1"
+blog/queries/q.sql:8:8: placeholder $1 in a query
+  fix: write values as :name (rule 2)
+
+"SELECT $name"
+blog/queries/q.sql:8:8: placeholder $name in a query
+  fix: write values as :name (rule 2)
+
+"SELECT @x"
+blog/queries/q.sql:8:8: placeholder @x in a query
+  fix: write values as :name (rule 2)
+
+"SELECT ?"
+blog/queries/q.sql:8:8: placeholder ? in a query
+  fix: write values as :name (rule 2); for the PostgreSQL jsonb operators ? ?| ?& use jsonb_exists, jsonb_exists_any, jsonb_exists_all
+
+"SELECT ?1"
+blog/queries/q.sql:8:8: placeholder ? in a query
+  fix: write values as :name (rule 2); for the PostgreSQL jsonb operators ? ?| ?& use jsonb_exists, jsonb_exists_any, jsonb_exists_all
+
+"SELECT j ?| array['a']"
+blog/queries/q.sql:8:10: placeholder ? in a query
+  fix: write values as :name (rule 2); for the PostgreSQL jsonb operators ? ?| ?& use jsonb_exists, jsonb_exists_any, jsonb_exists_all
+
+"SELECT 1\n{status=a} AND 1\n"
+blog/queries/q.sql:9:2: {status=…} needs choices, but status is string
+  fix: write {status}
+
+"SELECT 1\n{!sort=latest} AND 1\n"
+blog/queries/q.sql:9:2: !name=value is not a condition
+  fix: write {name=choice} for each of the other choices, joined by |
+
+"SELECT 1\n{status flag} AND 1\n"
+blog/queries/q.sql:9:9: unexpected "flag" in condition
+  fix: join terms with & or |
+
+"SELECT 1\n{} AND 1\n"
+blog/queries/q.sql:9:1: empty condition
+  fix: write a condition, like {status}, or remove the {}
+
+"SELECT 1\n{status AND 1\n"
+blog/queries/q.sql:9:1: condition is not closed
+  fix: close the condition with } on the same line
+
+"SELECT 1\n{status}\n"
+blog/queries/q.sql:9:1: condition has no SQL after it
+  fix: write the SQL the condition keeps after it, on the same line
+
+"SELECT 1\n{sort} AND 1\n"
+blog/queries/q.sql:9:2: {sort} is always true: sort always has a choice
+  fix: compare it with a choice, like {sort=latest}
+
+"SELECT 1\n{stauts} AND 1\n"
+blog/queries/q.sql:9:2: parameter stauts is not declared
+  fix: did you mean "status"? or declare it with -- param: stauts type
+
+"SELECT 1\n{status &} AND 1\n"
+blog/queries/q.sql:9:9: condition ends with &
+  fix: write a term after it, or remove it
+
+"SELECT 1\n{!} AND 1\n"
+blog/queries/q.sql:9:2: condition needs a parameter name here
+  fix: write name, !name or name=value
+
+"SELECT 1\n{sort=} AND 1\n"
+blog/queries/q.sql:9:6: = needs a value after it
+  fix: write name, !name or name=value
+
+"SELECT 1 WHERE {\nAND x IN (SELECT y FROM u WHERE {\n{status} AND y = :status\n}\n)\n}"
+blog/queries/q.sql:9:27: WHERE { inside WHERE { at line 8
+  fix: close WHERE { first, or move this into Go
+
+"SELECT 1 WHERE x IN (SELECT y FROM u WHERE {\n{status} AND y = :status\n})"
+blog/queries/q.sql:8:38: WHERE { inside parentheses
+  fix: write WHERE without { inside parentheses
+blog/queries/q.sql:10:1: unexpected }
+  fix: close a region with } alone on its line, or remove it
+
+"SELECT 1 WHERE {\n}"
+blog/queries/q.sql:8:10: WHERE { } is empty
+  fix: remove the empty region
+
+"SELECT 1\n}"
+blog/queries/q.sql:9:1: } closes no region
+  fix: remove it, or open a region with WHERE { or SET {
+
+"SELECT 1 WHERE x = {"
+blog/queries/q.sql:8:20: unexpected {
+  fix: use { only for a {condition} at the start of a line, or right after WHERE or SET at the end of a line
+
+"SELECT 1\n{status} WHERE {\nAND 1\n}"
+blog/queries/q.sql:9:1: condition on the line that opens WHERE {
+  fix: remove the condition; put conditions on the lines inside
+
+"SELECT 1 WHERE {\nAND 1\n{status} }"
+blog/queries/q.sql:10:1: condition on the } that closes WHERE {
+  fix: remove the condition
+
+"SELECT 1 WHERE\n{\nAND 1\n}"
+blog/queries/q.sql:9:1: { on the line after WHERE
+  fix: write WHERE { on one line
+
+"SELECT 1 WHERE x IN (\nSELECT y FROM u WHERE {\nAND 1\n}\n)"
+blog/queries/q.sql:9:17: WHERE { inside parentheses
+  fix: write WHERE without { inside parentheses
+
+"SELECT\n{"
+blog/queries/q.sql:9:1: condition is not closed
+  fix: close the condition with } on the same line
+
+"SELECT 1 WHERE {\n{status} AND\n}"
+blog/queries/q.sql:9:10: AND with nothing after it
+  fix: write the condition after it, or remove the line
+
+"UPDATE t SET {\n{status} ,\n}"
+blog/queries/q.sql:9:10: comma with nothing before it
+  fix: write the assignment before it, or remove the line
+
+"SELECT 1\n} ORDER BY x"
+blog/queries/q.sql:9:1: unexpected }
+  fix: close a region with } alone on its line, or remove it
+
+"SELECT 1\n{!status=x} AND 1\n"
+blog/queries/q.sql:9:2: !name=value is not a condition
+  fix: write {name=choice} for each of the other choices, joined by |
+
+"SELECT 1\n-- param: x int64\n"
+blog/queries/q.sql:9:4: -- param: comment after the SQL
+  fix: move header lines above the SQL; start other comments with something other than "word:"
+
+"SELECT 1\n-- maago: allow-drop\n"
+blog/queries/q.sql:9:4: -- maago: comment after the SQL
+  fix: move header lines above the SQL; start other comments with something other than "word:"
+
+"SELECT 1\n{limit} AND x = :status\n:flag :ids :data"
+blog/queries/q.sql:5:11: parameter sort is not used
+  fix: use it as :sort or in a {condition}, or remove the -- param: line
+blog/queries/q.sql:9:2: {limit} is always true: limit is required
+  fix: declare it optional (limit? int64), or remove the condition
+
+"SELECT 1"
+blog/queries/q.sql:2:11: parameter status is not used
+  fix: use it as :status or in a {condition}, or remove the -- param: line
+blog/queries/q.sql:3:11: parameter flag is not used
+  fix: use it as :flag or in a {condition}, or remove the -- param: line
+blog/queries/q.sql:4:11: parameter ids is not used
+  fix: use it as :ids or in a {condition}, or remove the -- param: line
+blog/queries/q.sql:5:11: parameter sort is not used
+  fix: use it as :sort or in a {condition}, or remove the -- param: line
+blog/queries/q.sql:6:11: parameter limit is not used
+  fix: use it as :limit or in a {condition}, or remove the -- param: line
+blog/queries/q.sql:7:11: parameter data is not used
+  fix: use it as :data or in a {condition}, or remove the -- param: line
+

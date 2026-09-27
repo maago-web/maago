@@ -19,10 +19,11 @@ const (
 	Quoted              // "name" or `name`
 	Literal             // 'text', E'text' or $tag$text$tag$
 	Punct               // any other single character
+	Comment             // -- to the end of the line; only from SplitComments
 )
 
 func (k Kind) String() string {
-	return [...]string{"word", "quoted", "literal", "punct"}[k]
+	return [...]string{"word", "quoted", "literal", "punct", "comment"}[k]
 }
 
 // Token is one token of SQL. Text is as written, quotes included.
@@ -51,16 +52,27 @@ const marker = "-- maago: allow-drop"
 // statement can hide from the checks on Tokens. An unterminated string or
 // comment gives no statements; a misplaced marker (D-37) still gives them.
 func Split(filename, src string) ([]Stmt, []diag.Diagnostic) {
-	s := splitter{file: filename, src: src, lines: []int{0}}
+	stmts, _, ds := split(filename, src, true)
+	return stmts, ds
+}
+
+// SplitComments is Split for SQL other than migrations: it reads no
+// markers, and it also returns the -- comments, in order.
+func SplitComments(filename, src string) ([]Stmt, []Token, []diag.Diagnostic) {
+	return split(filename, src, false)
+}
+
+func split(filename, src string, markers bool) ([]Stmt, []Token, []diag.Diagnostic) {
+	s := splitter{file: filename, src: src, lines: []int{0}, markers: markers}
 	for i := range len(src) {
 		if src[i] == '\n' {
 			s.lines = append(s.lines, i+1)
 		}
 	}
 	if !s.run() {
-		return nil, s.ds
+		return nil, nil, s.ds
 	}
-	return s.stmts, s.ds
+	return s.stmts, s.comments, s.ds
 }
 
 type splitter struct {
@@ -75,6 +87,9 @@ type splitter struct {
 	after   int            // where the pending marker's comment ends
 	lastRow int            // line of the last token or semicolon
 	ds      []diag.Diagnostic
+
+	markers  bool    // read -- maago: markers; otherwise collect comments
+	comments []Token // when not reading markers
 }
 
 func (s *splitter) pos(off int) token.Position {
@@ -227,6 +242,10 @@ func (s *splitter) flush() {
 // comment checks the -- comment src[i:end]. Only "maago:" comments are
 // markers.
 func (s *splitter) comment(i, end int) {
+	if !s.markers {
+		s.comments = append(s.comments, Token{Comment, strings.TrimSuffix(s.src[i:end], "\r"), s.pos(i)})
+		return
+	}
 	text := strings.TrimSpace(s.src[i+2 : end])
 	if !strings.HasPrefix(text, "maago:") {
 		return

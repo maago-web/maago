@@ -1,0 +1,81 @@
+"-- name: SearchOrders :many OrderSummary\n-- param: status?    string\n-- param: from?      time.Time\n-- param: to?        time.Time\n-- param: sort       latest/amount\n-- param: limit      int64\nSELECT id, status, amount, created_at FROM orders\nWHERE {\n  {status}          AND status = :status\n  {from & to}       AND created_at BETWEEN :from AND :to\n  {!status}         AND status <> 'deleted'\n}\nORDER BY\n  {sort=latest}     created_at DESC\n  {sort=amount}     amount DESC\nLIMIT :limit\n"
+7:1 text
+    7:1 sql "SELECT id, status, amount, created_at FROM orders"
+8:1 open WHERE
+9:25 text cond@9:3&{9:4 status} lead=AND
+    9:25 sql "status = "
+    9:34 param status
+10:25 text cond@10:3&{10:4 from & 10:11 to} lead=AND
+    10:25 sql "created_at BETWEEN "
+    10:44 param from
+    10:49 sql " AND "
+    10:54 param to
+11:25 text cond@11:3&{11:4 !status} lead=AND
+    11:25 sql "status <> 'deleted'"
+12:1 close
+13:1 text
+    13:1 sql "ORDER BY"
+14:21 text cond@14:3&{14:4 sort=latest}
+    14:21 sql "created_at DESC"
+15:21 text cond@15:3&{15:4 sort=amount}
+    15:21 sql "amount DESC"
+16:1 text
+    16:1 sql "LIMIT "
+    16:7 param limit
+
+"-- name: UpdatePost :exec\r\n-- param: id int64\r\n-- param: title? string\r\n-- param: body? string\r\nUPDATE posts SET {\r\n  {title} title = :title,\r\n  {body | title} body = :body,\r\n}\r\nWHERE id = :id;\r\n"
+5:1 text
+    5:1 sql "UPDATE posts"
+5:14 open SET
+6:11 text cond@6:3&{6:4 title} trail
+    6:11 sql "title = "
+    6:19 param title
+7:18 text cond@7:3|{7:4 body | 7:11 title} trail
+    7:18 sql "body = "
+    7:25 param body
+8:1 close
+9:1 text
+    9:1 sql "WHERE id = "
+    9:12 param id
+
+"-- name: DeletePosts :exec\n-- param: ids []int64\n-- param: flag bool\nDELETE FROM posts WHERE {\n  {ids} id IN (:ids)\n  {!flag} or draft\n}\n"
+4:1 text
+    4:1 sql "DELETE FROM posts"
+4:19 open WHERE
+5:9 text cond@5:3&{5:4 ids}
+    5:9 sql "id IN ("
+    5:16 param ids
+    5:20 sql ")"
+6:14 text cond@6:3&{6:4 !flag} lead=or
+    6:14 sql "draft"
+7:1 close
+
+"-- name: Keep :exec\n-- param: flag bool\nUPDATE t SET {\n  {flag} AND = 1,\n}\nFROM (SELECT 1) AS s WHERE {\n  {flag} x = 1,\n}\n"
+3:1 text
+    3:1 sql "UPDATE t"
+3:10 open SET
+4:10 text cond@4:3&{4:4 flag} trail
+    4:10 sql "AND = 1"
+5:1 close
+6:1 text
+    6:1 sql "FROM (SELECT 1) AS s"
+6:22 open WHERE
+7:10 text cond@7:3&{7:4 flag}
+    7:10 sql "x = 1,"
+8:1 close
+
+"-- name: Odd :many R\n-- param: from time.Time\n-- param: xfoo int64\n-- param: data? []byte\n-- param: flag bool\nSELECT a::text, a[1: 2], foo$bar, $tag$ :x ? $1 $tag$, '{1,2}', ' :x ', \"a:b\" -- :x {a}\n  /* :x { } ? */ , :from::date, :xfoo, x = : x\n{data} AND d = :data\n{flag} AND e\n"
+6:1 text
+    6:1 sql "SELECT a::text, a[1: 2], foo$bar, $tag$ :x ? $1 $tag$, '{1,2}', ' :x ', \"a:b\""
+7:18 text
+    7:18 sql ", "
+    7:20 param from
+    7:25 sql "::date, "
+    7:33 param xfoo
+    7:38 sql ", x = : x"
+8:8 text cond@8:1&{8:2 data}
+    8:8 sql "AND d = "
+    8:16 param data
+9:8 text cond@9:1&{9:2 flag}
+    9:8 sql "AND e"
+
