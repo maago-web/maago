@@ -395,7 +395,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 - 8번의 단계를 돌고, 차이가 있으면 다음 번호의 초안을 쓴다. 차이가 없으면 `no changes`, 종료 0
 - 이름(D-94): 첫 파일은 `0001_initial`. 그 뒤는 변경에서 짓는다: 변경 하나면 `add_blog_post_body`·`drop_blog_post_summary`·`create_blog_comment`처럼, 여럿이면 한 테이블이면 그 테이블 이름, 여러 테이블이면 계획에서. `--name`이 이긴다(`[a-z0-9_]+`만). 기존 마이그레이션이 적용되지 않으면(8번의 적용 오류) 초안을 쓰지 않고 1
-- 이름 변경(D-36): 같은 테이블에서 컬럼 하나가 사라지고 하나가 생기면 초안에 ⚠와 대안 `ALTER TABLE … RENAME COLUMN …`을 주석으로. `--rename 테이블.옛이름:새이름`(DB 이름, TUTORIAL §4)을 주면 삭제+추가 대신 `RENAME COLUMN`. `--rename`이 가리키는 컬럼이 차이에 없으면 진단
+- 이름 변경(D-36): 같은 테이블에서 컬럼 하나가 사라지고 하나가 생기면 초안에 ⚠와 `--rename` 명령을 주석으로(처음엔 대안 `RENAME COLUMN` SQL이었다. 12번에서 D-36을 구현에 맞춰 고침). `--rename 테이블.옛이름:새이름`(DB 이름, TUTORIAL §4)을 주면 삭제+추가 대신 `RENAME COLUMN`. `--rename`이 가리키는 컬럼이 차이에 없으면 진단
 - 쓰기 직전 초안을 연습용 DB에 한 번 더 적용해 `Diff`가 비는지 본다. 비지 않으면 maago의 버그이므로 쓰지 않고 실패한다
 - `migrations/`는 생성 파일이 아니다(ARCHITECTURE §5). 표시(`pipeline.Marker`)를 달지 않고, `pipeline.Write`의 지우기 대상도 아니다. 기존 파일은 덮어쓰지 않는다
 - 하지 않는 것: 테이블(모델) 이름 변경의 `--rename`(v0은 컬럼만, 테이블은 삭제+추가로 보이고 allow-drop이 막는다 → TODO), 대화형 질문(D-36)
@@ -493,19 +493,54 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 
 → 확인: 위 테스트가 두 방언에서 통과하고, 단계 하나를 빼거나(`--rename` 없이, 표시 없이, 초안 한 줄을 손으로 바꿔) 돌리면 해당 완료 조건이 실패한다
 
+**계획**
+- 새 파일: `cmd/maago/done_test.go`(`TestM2Done`, 두 방언). 있는 도우미를 쓴다: `makeProject`·`setModels`·`makeMigrations`·`mark`(9번), `expect`(8번), `newRealDB`·`realDB.open`(10번), `draftDialect.open`·`schema`(7번)
+- **완료 조건 1**(작업 본문): 빈 프로젝트(마이그레이션 없음)에 모델 둘(`Author`, `Post`: FK, `max`, 지울 필드 `Text`) → `makemigrations` → `0001_initial`, `check` 0. 필드 추가: `Post`의 **가운데**(`AuthorID`와 `Title` 사이, 4번 계획이 넘긴 것: 끝에만 붙이면 컬럼 순서 문제가 숨는다)에 기본값·인덱스 있는 필드 → `0002_add_…`, `check` 0. 이름 변경: `Title` → `Heading`, `--rename blog_post.title:heading` → `0003_rename_…`(`RENAME COLUMN`), `check` 0. 필드 삭제: `Text`를 지움 → `0004_drop_…`, `check`는 그 `DROP` 줄의 표시 진단 하나, 표시를 달면 0. 가운데 필드는 끝까지 남아 마지막 비교에 "모델은 가운데, DB는 끝"인 컬럼이 들어간다(fable). 끝에 **새** 실제 DB(10번의 `newRealDB`: SQLite 파일, PG는 새 DB)에 `maago migrate`(`build.Migrate`) → 네 파일 적용 → `OpenDatabase`로 연 연결을 방언의 `Read`로 읽은 것과, 마지막 모델의 DDL을 연습용 DB에 적용해 읽은 것의 `Diff`가 비어 있다. "같다"는 `Diff`의 같음(컬럼 순서는 보지 않는다, 4번 계획: `ADD COLUMN`은 끝에 붙는다)
+- **완료 조건 2**: 끝난 프로젝트의 `0002`를 한 줄 손으로 바꾸면(가운데 필드의 기본값 `''` → `'x'`) `check` 1이고 진단이 그 필드 줄(`blog/models.go:15:2`)을 짚는다(8번이 경우별 표를 이미 가졌다: 여기는 종단에서 한 번)
+- **완료 조건 3**: `0004`의 표시를 지우면 `check` 1, 진단은 그 `DROP` 줄(파일:줄까지 단언)
+- **단계를 빼면 실패**(확인): `--rename` 없이 이름 변경을 만들면 ⚠ 초안이고 `check`가 표시 진단(완료 조건 1의 "각 단계 뒤 0"이 깨진다). 표시 없이는 조건 3. 초안 한 줄 바꾸기는 조건 2. 셋 모두 위 흐름 안에서 단언한다
+- **문서**:
+  - ARCHITECTURE §2: `project/` 줄에 `.env`·방언 이름(1번), `schema/`는 "DB에서 읽은 스키마(두 방언 공통 표현)", `practicedb/`는 "maago가 운전하는 연결 하나: 연습용 DB(SQLite 메모리, PG 롤백되는 스키마)와 `migrate`의 실제 DB"(10번), `migrate/`는 "파일 읽기·문장 검사, 비교, 초안 이름, 적용·기록", 초안 쓰기는 `dialect/*`(7번)에 있음을 적는다. 원칙 "방언 차이는 `dialect` 안에만"을 "방언의 SQL은 `dialect` 안에만, 연결·트랜잭션을 모는 곳은 `project.Dialect` 이름으로 갈린다"로 다시 쓴다(예외를 늘어놓으면 `practicedb`·`build`까지 빠진다, fable)
+  - ARCHITECTURE §3: 단계 표에 실제 순서(읽기 → 해석 → [모델 검사·`.env`·마이그레이션 파일] → [이름·문장 검사] → [방언 DDL] → DB 검사 → 생성, 8번)와 `makemigrations`는 DB 검사만 바꾸고 생성이 없다(9번), `migrate`·`showmigrations`는 모델을 읽지 않는다(10번)
+  - ARCHITECTURE §6: "파일 이름은 쓰지 않는다"를 고친다: 연습용 DB는 메모리, `migrate`·`showmigrations`는 `sqlite:` 뒤 경로를 루트 기준으로(10번), `?`·`file:`은 오류
+  - DECISIONS D-93: "SQLite 테이블 재생성" → 두 방언(8번: 예외와 잃는 컬럼 검사는 방언을 가리지 않는다)
+  - TUTORIAL-FUTURE §4: 초안 모양은 M2의 출력과 맞춘다(`created …`, `showmigrations`의 `[ ]`·`N of M applied`, `migrate`의 `applied …`), 가정 목록의 4번 줄(초안의 파일 모양)을 지운다
+  - TODO: `PRAGMA foreign_keys` 항목은 연습용·실제 DB 연결이 켜므로 "런타임 연결(M3)"만 남긴다. 새로 미룬 것은 각 작업이 이미 적었다(FK 고리, `maago_` 이름, 테이블 이름 변경)
+  - README: "M2를 하고 있다" → "M2가 끝났고 M3(SQL 매퍼)", TASKS-M2 줄은 "마지막으로 끝난 마일스톤"(TASKS-M3 초안은 M1 끝처럼 다음 커밋). MILESTONES의 M2 완료 조건 체크, 같음의 범위(컬럼 순서는 보지 않는다)를 적는다(codex). 이 문서의 "M2 끝" 체크와 "M3로 넘기는 것", 완료 조건을 증명하는 테스트 이름(fable). CI 로그는 push 뒤라 남긴다
+  - DECISIONS D-36: "⚠ 경고와 대안 SQL" → "⚠ 경고와 `--rename` 명령"(코드가 이쪽, 사람의 결정 2026-09-27). TUTORIAL §4의 이름 변경 문단을 맞춘다. D-100: 8번이 막는 문장 목록과 이유(fable)
+  - ARCHITECTURE §3 "해석" 행에서 마이그레이션 파일을 뺀다(모델 검사와 같은 단계, fable). 열린 질문 둘에 답을 적는다(fable)
+- **속도**(열린 질문, D-65): 완료 조건 테스트의 `check` 한 번(마이그레이션 넷, 모델 둘)을 두 방언에서 잰다. "보통 규모"는 없으므로 모델 20개·마이그레이션 20개의 합성 프로젝트로도 한 번 재서 열린 질문에 적는다(테스트가 아니라 한 번 잰 기록. 3초를 넘으면 사람에게 알린다)
+- 하지 않는 것: 튜토리얼(M8)의 게시판 커밋, 새 기능
+
+→ 확인
+1. `TestM2Done`이 두 방언에서 통과한다(PG 포함, 로컬 서버)
+2. 돌연변이: `--rename` 줄을 빼면, `mark`를 빼면, `0002`의 한 줄을 바꾸지 않으면(조건 2의 단언이 거꾸로), 마지막 비교를 지우기 전 모델과 하면 각각 실패하는 것을 한 번씩 확인
+3. 두 모듈 `go vet`·`go test`, `gofmt -l`, `go mod tidy -diff`
+
+- 계획 리뷰: codex(조건 2를 `0002`로 → 그대로면 `0004`가 지우는 컬럼이라 통과해 버린다, 아래 fable 1로 풀어 받음, 끝 체크리스트, MILESTONES의 같음 범위) 반영. fable(조건 2의 대상이 지워지는 컬럼이고 가운데 필드가 마지막 비교에 없음 → 따로 지울 `Text`, D-36과 코드의 어긋남 → 사람에게 물어 D-36 고침, §2 원칙을 예외 나열 대신 다시 쓰기, D-100, M3로 넘기는 것, README의 가리킴, 열린 질문, §3 해석 행, 조건 3의 줄 번호) 모두 반영. 확인: 두 방언 통과, 돌연변이 넷 모두 실패
+- 구현 리뷰: ponytail(`newRealDB`와 겹치는 `Setenv`, 되풀이한 조건 3 블록, `pgURLOr` 인라인, `dd.schema`·`expect`·`differ` 다시 쓰기, 쓸모없는 가드, 9번 줄의 자기 부정, D-100 순서) 반영. `lineOf`를 빼자는 것은 받지 않음(계획이 DROP 줄까지 단언한다). `TestMakeMigrations`에 붙이자는 것도 받지 않음(그쪽은 가운데 필드를 지워 마지막 비교에 순서 차이가 없다). §3 검사 행 줄이기는 받지 않음(표가 단계 순서의 자리). codex(PG가 로컬에서 건너뛰어도 녹색 → "M2 끝"에 로컬 서버에서 돌린 것과 건너뜀은 확인이 아님을 적음, CI는 11번의 `CI=1`이 이미 실패로 막는다. CI 로그 전에 완료 표시 보류는 받지 않음: 조건은 PG에서 실제로 돌렸고 CI 항목은 열려 있다. D-100의 "스키마 이름이 붙은 대상"이 구현보다 넓음 → 검사하는 자리로 좁힘) 반영. fable(`--rename` 없는 초안에 그 명령이 있는지 단언, 주석의 SQLite 재생성, `project.Postgres` 관용구, D-100 순서, TASKS-M3 초안 항목과 TODO에 남는 것, 속도의 재현 근거) 반영. `doneBase`를 `makeBase`로 합치는 것은 받지 않음(0004 모양이 바뀐다)
+
 ---
 
 ## M2 끝
 
-- [ ] 1~12 완료
-- [ ] 위 M2 완료 조건 세 개를 실제로 돌려 확인
-- [ ] MILESTONES.md의 M2 체크박스 갱신
+- [x] 1~12 완료 (2026-09-27)
+- [x] 위 M2 완료 조건 세 개를 실제로 돌려 확인: 세 조건 모두 `cmd/maago`의 `TestM2Done`(두 방언). 조건 2의 경우별 표는 `TestCheckEditedDraft`(8번), 조건 3의 경우는 `TestCheckDrops`·`TestCheckRebuild`(8번). PG는 로컬 서버(`MAAGO_TEST_PG_URL`)에서 돌려 확인했다. 로컬에서 URL 없이 건너뛴 실행은 확인이 아니다
+- [x] MILESTONES.md의 M2 체크박스 갱신
 - [ ] push 뒤 GitHub Actions 로그에서 PG 테스트가 실제로 돈 것(건너뜀 0)을 확인(11번)
+- [ ] TASKS-M3 초안(다음 커밋, M1 끝과 같은 순서)
+
+M3로 넘기는 것
+- 쿼리 여럿을 연습용 DB에서 prepare하며 실패를 모두 모으려면 PG는 쿼리마다 `SAVEPOINT`가 필요하다(2번, D-96)
+- 연습용 DB는 연결 하나(`*sql.Conn`)다. 매퍼 검증도 그 연결에서 한다(2번)
+- 런타임 연결에서 SQLite `PRAGMA foreign_keys = ON`(TODO)
+- PG 연습용 DB의 `search_path`에 `public`이 없는 대가(TODO)
+- TODO의 나머지 M2 항목(FK 고리, `maago_` 이름 거부, 테이블 `--rename` 등)은 M3에 꼭 필요하지 않아 TODO에 남긴다
 
 ## 열린 질문 (계획 단계에서 정하거나 사람에게 묻는다)
 
-- 재생성으로 사라지는 컬럼을 알아내는 구체적인 방법(7·8번, D-93)
-- 속도(D-65): 매번 연습용 DB 둘에 전체 마이그레이션을 적용한다. 보통 규모에서 PG 3초를 넘기는지 M2 끝에 한 번 잰다
+- ~~재생성으로 사라지는 컬럼을 알아내는 구체적인 방법(7·8번, D-93)~~ → 8번: 옛 테이블의 컬럼과 `INSERT … SELECT` 목록을 비교한다(`AS` 별칭은 옮김으로 치지 않는다)
+- ~~속도(D-65): 매번 연습용 DB 둘에 전체 마이그레이션을 적용한다. 보통 규모에서 PG 3초를 넘기는지 M2 끝에 한 번 잰다~~ → 12번에서 잼(2026-09-27, 로컬): 모델 20개·마이그레이션 20개(FK 사슬, 인덱스, 기본값)의 `check` 한 번이 SQLite 약 6ms, PG 약 105ms. 3초와 거리가 멀다. 재현할 수 있는 근거로는 `TestM2Done` 전체(makemigrations 다섯, check 여러 번, migrate 하나)가 PG 약 0.5초
 
 ## 초안 리뷰 (2026-09-26)
 

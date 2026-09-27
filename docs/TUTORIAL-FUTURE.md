@@ -141,14 +141,26 @@ CREATE INDEX "posts_author_id_idx" ON "posts" ("author_id");
 
 ```sh
 maago showmigrations
+```
+
+```
+[ ] 0001_initial.sql
+0 of 1 applied
+```
+
+```sh
 maago migrate
+```
+
+```
+applied 0001_initial.sql
 ```
 
 ### 필드 이름을 바꾸면
 
 `Text`를 `Body`로 바꾸고 `makemigrations`를 돌리면, Maago는 “이름 변경인가요?”라고 묻지 않습니다
-(에이전트는 `[y/N]`에 답하지 못합니다). 대신 초안에 ⚠ 경고와 대안 SQL을 적습니다. 이름 변경이 맞다면
-이렇게 알려 줍니다.
+(에이전트는 `[y/N]`에 답하지 못합니다). 대신 삭제+추가 초안에 ⚠ 경고를 적습니다. 이름 변경이 맞다면
+그 초안을 지우고 이렇게 알려 줍니다.
 
 ```sh
 maago makemigrations --rename posts.text:body
@@ -389,7 +401,6 @@ maago check
 | 3 | NULL 허용은 포인터 타입 | D-43 |
 | 3 | 모델 태그 `ordering=-PublishedAt`의 `-`가 내림차순 | D-13 |
 | 4 | auth 사용자 테이블 이름 `auth_user`, `fk=auth.User` 표기 | U-06 |
-| 4 | 마이그레이션 초안의 파일 모양(DDL 자체는 M1에서 정했다: D-77, D-84~D-87) | D-32 |
 | 5 | `maago.Handler()`로 전체 핸들러를 얻는다 | D-40, D-46 |
 | 5 | `maago createsuperuser` 명령 | D-50 |
 | 6 | 생성된 쿼리 함수의 시그니처, `maago.DB` 타입 | D-20 |

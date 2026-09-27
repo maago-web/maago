@@ -37,18 +37,21 @@ github.com/maago-web/maago
 │                          별도 모듈(자체 go.mod). DB 드라이버는 여기에만
 │
 └── internal/            생성기. 사용자는 import할 수 없다
-    ├── build/           gen·check의 단계 조립(모든 단계를 아는 유일한 곳)         M1
+    ├── build/           gen·check·makemigrations·migrate의 단계 조립(모든 단계를 아는 유일한 곳)  M1·M2
     ├── diag/            진단: 위치·메시지·고치는 법, 정렬·중복 제거·출력       M0
     ├── pipeline/        단계 실행, 오류 수집, 메모리 생성물, 쓰기·최신성 비교    M0
     ├── golden/          골든 파일 테스트 도구 (테스트 전용)                    M0
-    ├── project/         사용자 프로젝트 찾기: go.mod 루트, `./...` 파일 목록       M1
+    ├── project/         사용자 프로젝트 찾기: go.mod 루트, `./...` 파일 목록,      M1·M2
+    │                      `.env`의 `MAAGO_DATABASE_URL`과 방언 이름
     ├── model/           태그 파서, 모델 읽기·검사, 제약 모으기                  M1
-    ├── schema/          DB에서 읽은 스키마와 모델의 비교 표현                    M2
+    ├── schema/          DB에서 읽은 스키마(두 방언 공통 표현)                    M2
     ├── dialect/         방언 공통: 제약 이름(D-86), 인용, 리터럴. SQL 토큰화(M2)
-    │   ├── sqlite/      DDL 쓰기, 스키마 읽기, 테이블 재생성                   M1·M2
+    │   ├── sqlite/      DDL 쓰기, 스키마 읽기, 변경에서 초안 쓰기(테이블 재생성)  M1·M2
     │   └── postgres/                                                      M1·M2
-    ├── practicedb/      연습용 DB 열기·닫기 (SQLite 메모리, PG 임시 스키마)      M2
-    ├── migrate/         비교, 초안, 적용, 검증, allow-drop                    M2
+    ├── practicedb/      maago가 모는 연결 하나: 연습용 DB(SQLite 메모리, PG 롤백되는  M2
+    │                      스키마)와 `migrate`의 실제 DB
+    ├── migrate/         파일 읽기·문장 검사(allow-drop), 비교, 진단, 초안 이름,    M2
+    │                      적용·기록(`maago_migrations`)
     ├── mapper/          SQL 파일 파서, 커버 조합, Go 번역, PK 기본 CRUD         M3
     ├── web/             라우트 표 읽기, 뷰 어댑터·폼 생성, 템플릿 검사          M4
     └── admingen/        admin 코드 생성                                    M6
@@ -60,7 +63,9 @@ github.com/maago-web/maago
   라이브러리만 `go get`하는 사용자에게 드라이버가 따라가지 않는다 (D-03, D-09).
 - **런타임 공개 API는 루트 패키지 `maago` 하나.** 사용자가 import할 경로를 늘리지 않는다.
 - **생성기는 모두 `internal/`.** 공개 API가 아니므로 마음대로 고칠 수 있다.
-- **방언 차이는 `internal/dialect/` 안에만.** 다른 패키지는 방언을 모른다. MySQL(v1)은 디렉터리 하나를 더하는 일이 된다.
+- **방언의 SQL은 `internal/dialect/` 안에만.** DDL 쓰기, 스키마 읽기, 초안 쓰기는 방언 디렉터리에 있다. MySQL(v1)은
+  디렉터리 하나를 더하는 일이 된다. 연결과 트랜잭션을 모는 곳(`practicedb`, `migrate`의 적용·기록, `build`의 방언 표)은
+  `project.Dialect` 이름으로 갈린다: SQLite의 `PRAGMA foreign_keys`와 `foreign_key_check`, PG의 스키마와 `SET LOCAL` 같은 것(M2).
 - 마일스톤마다 패키지가 하나둘씩 는다. 먼저 있는 패키지를 고치기보다 새 패키지를 더하는 모양이 되게 한다.
 
 ---
@@ -74,8 +79,8 @@ github.com/maago-web/maago
 | 단계 | 입력 | 출력 | 하는 일 |
 |---|---|---|---|
 | 읽기 | 작업 디렉터리 | 프로젝트 정보 | go.mod, 앱 패키지, 파일 목록 (`project`) |
-| 해석 | 파일들 | 구문 트리 | Go 소스(`go/parser`), 태그, SQL 파일, 템플릿, 마이그레이션 파일 |
-| 검사 | 구문 트리 | 진단 | DB 없이 할 수 있는 모든 검사: 태그 목록, SQL 규칙 1~4, 라우트 표, 템플릿 필드 |
+| 해석 | 파일들 | 구문 트리 | Go 소스(`go/parser`), 태그, SQL 파일, 템플릿 |
+| 검사 | 구문 트리 | 진단 | DB 없이 할 수 있는 모든 검사: 태그 목록, SQL 규칙 1~4, 라우트 표, 템플릿 필드. 모델 검사·`.env`·마이그레이션 파일 읽기 → 이름·문장 검사 → 방언 DDL의 작은 단계들이다(M2 8번) |
 | DB 검사 | 스키마, 마이그레이션, 쿼리 | 진단 + 읽은 스키마 | 연습용 DB에 마이그레이션 적용 → 읽기 → 모델과 비교, 쿼리 커버 조합 prepare |
 | 생성 | 검사를 통과한 모든 것 | 메모리 속 파일들 | `path → []byte` 표. 디스크는 아직 건드리지 않는다 |
 | 쓰기 / 비교 | 메모리 속 파일들 | 디스크 / 진단 | `gen`은 쓰고 옛 생성물을 지운다. `check`는 디스크와 비교만 한다 |
@@ -89,6 +94,8 @@ github.com/maago-web/maago
   파일 시스템이 주지 않는다. 이름 바꾸기 중 실패하면 실패한 파일을 알리고 다시 돌리라고 한다.
   디스크와 같은 파일은 건너뛰므로, 다시 돌리면 남은 파일만 쓴다.
 - 검사기는 단계에 붙는 함수다. M1부터는 새 검사기를 붙이기만 하고 파이프라인은 고치지 않는다.
+- 다른 명령은 같은 단계를 쓰고 끝만 바꾼다. `makemigrations`는 DB 검사 자리에서 초안을 쓰고 생성이 없다.
+  `migrate`·`showmigrations`는 모델을 읽지 않는다: `.env`와 마이그레이션 파일을 읽고 문장 검사 뒤 실제 DB에 간다(M2 9·10번).
 
 ---
 
@@ -170,7 +177,8 @@ MAAGO_DATABASE_URL=sqlite:app.db
   (CI에서 덮어쓰기 위해).
 - `.env` 해석은 `KEY=VALUE` 줄, `#` 주석, 따옴표 벗기기만 한다. 외부 라이브러리를 쓰지 않는다.
   모르는 형식의 줄은 조용히 넘기지 않고 `.env:줄` 위치와 함께 오류로 낸다.
-- SQLite 프로젝트의 연습용 DB는 메모리라 주소의 파일 이름은 쓰지 않는다. 방언만 읽는다.
+- SQLite 연습용 DB는 메모리라 `check`는 방언만 읽는다. `migrate`·`showmigrations`는 `sqlite:` 뒤의 경로를
+  프로젝트 루트 기준으로 연다. `?` 옵션이나 `file:` 주소는 오류다(M2 10번).
 - `.env`는 커밋하지 않는다. `maago new`(v1)가 `.gitignore`에 넣는다.
 
 ---
