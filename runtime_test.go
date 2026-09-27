@@ -94,3 +94,30 @@ func TestRuntimeDependencies(t *testing.T) {
 		t.Errorf("the runtime depends on %q, want %q", got, want)
 	}
 }
+
+func TestOpt(t *testing.T) {
+	var unset Opt[string]
+	if got := unset.Or("draft"); got != "draft" {
+		t.Errorf("unset: %q", got)
+	}
+	if got := Set("").Or("draft"); got != "" {
+		t.Errorf("set to the zero value: %q", got)
+	}
+	var none Opt[*float64]
+	if got := none.Or(Ptr(1.5)); got == nil || *got != 1.5 {
+		t.Errorf("pointer default: %v", got)
+	}
+	if got := Set[*float64](nil).Or(Ptr(1.5)); got != nil {
+		t.Errorf("set to nil: %v", got)
+	}
+}
+
+func TestSQLiteNullTime(t *testing.T) {
+	if SQLiteNullTime(nil) != nil {
+		t.Error("nil is not NULL")
+	}
+	at := time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+	if got := SQLiteNullTime(&at); got != "2026-09-27 12:00:00.000000" {
+		t.Errorf("got %v", got)
+	}
+}

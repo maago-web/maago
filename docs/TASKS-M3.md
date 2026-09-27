@@ -541,6 +541,112 @@ DB 검사가 CRUD SQL도 prepare하려면 생성 전에 SQL이 있어야 한다.
 
 → 확인: 예제 앱의 생성 골든(두 방언). 생성 코드가 컴파일되고 두 방언의 실제 DB에서 돈다(`cmd/maago` 모듈): CRUD 왕복(nullable FK, 시각, 0행 `Update`·`Delete`의 `sql.ErrNoRows`), `SearchOrders`의 조합(두 정렬의 첫 행이 다름을 단언해 `sort`를 무시하는 돌연변이를 잡는다, 선택 파라미터 있음·없음의 행 수), `:one`의 `sql.ErrNoRows`, 선택지 밖의 값, 새 결과 타입의 NULL(`*T`는 `nil`, 선언되지 않은 NULL은 Scan 오류), `*sql.Tx` 안에서 부르기
 
+### 계획
+
+생성되는 Go의 모양 (예: 앱 `orders`, SQLite. PG는 자리표시와 시각 변환만 다르다)
+
+`models_gen.go` — 모델이 있는 앱마다 늘(D-18 주석 + CRUD. 지금 `model.Files`가 쓰는 주석은 이 파일로 접힌다)
+```go
+// NewOrderInput is what InsertOrder takes (D-106): no ID, no auto field.
+// A field with a default is a maago.Opt: left unset, it takes the default.
+type NewOrderInput struct {
+	CustomerID *int64
+	Status     maago.Opt[string] // default 'new'
+	Amount     int64
+	Priority   maago.Opt[*int32] // default 1
+	CreatedAt  time.Time
+}
+
+func GetOrder(ctx context.Context, db maago.DB, id int64) (Order, error)       // 없으면 sql.ErrNoRows
+func InsertOrder(ctx context.Context, db maago.DB, in NewOrderInput) (Order, error) // 기본값·auto를 채우고 RETURNING id까지 채운 모델
+func UpdateOrder(ctx context.Context, db maago.DB, o *Order) error            // auto=update를 o에 채운다. 0행이면 sql.ErrNoRows. ID뿐인 모델은 없다
+func DeleteOrder(ctx context.Context, db maago.DB, id int64) error            // 0행이면 sql.ErrNoRows
+```
+`queries_gen.go` — `queries/`가 있는 앱마다
+```go
+type SearchOrdersSort string // 선택지 타입과 상수
+const (
+	SearchOrdersSortLatest SearchOrdersSort = "latest"
+	SearchOrdersSortAmount SearchOrdersSort = "amount"
+)
+type SearchOrdersParams struct { // 파라미터 선언 순, 필드 이름은 D-76의 거꾸로(5번의 fieldName)
+	Status *string
+	From   *time.Time
+	To     *time.Time
+	Sort   SearchOrdersSort
+	Limit  int64
+}
+type OrderSummary struct{ … } // 새 결과 타입, 앱에 한 번(5번의 공유 *Result)
+
+func SearchOrders(ctx context.Context, db maago.DB, p SearchOrdersParams) ([]OrderSummary, error)
+```
+- 종류: `:one` → `(T, error)`(`maago.One`), `:many` → `([]T, error)`(`maago.Many`), `:exec` → `(int64, error)`(영향 행). 파라미터가 없으면 `p` 인자가 없다
+- 몸통: 축마다 값의 번호를 구해 혼합 진법 열쇠 하나로 모으고(3번의 `Combos`와 같은 순), `switch key { case 0, 2, 4: … }`로 변형의 고정 SQL과 인자를 고른다(D-22: 런타임은 SQL을 해석하지 않는다). 선택지의 모르는 값은 `fmt.Errorf("SearchOrders: sort %q is not latest or amount")`. 슬라이스가 있는 변형은 먼저 빈 슬라이스를 `fmt.Errorf("DeleteOrders: ids: %w", maago.ErrEmptySlice)`로 막고, 고정 조각 사이에 `maago.Placeholders(mark, first, len)`을 잇는다(`first`는 스칼라 수 + 앞 슬라이스들의 길이 + 1, 3번의 번호 규칙). 이웃한 SQL 조각은 하나의 문자열 상수로 잇는다(4번에서 넘긴 것)
+- 인자: 스칼라는 `Args` 순, 그 뒤 `Slices` 순의 원소들. 선택 파라미터는 그 줄이 있음을 보장하므로 `*p.Status`, 선택지는 `string(p.Sort)`
+- Scan: 쿼리마다 비공개 `scanSearchOrders(*sql.Rows) (T, error)`(결과 컬럼 순, 모델 결과도 5번의 필드 대응대로). CRUD의 Get은 `scanOrder`(필드 순)
+- SQLite 시각(D-105, 6번에서 넘긴 것): `time.Time` 인자는 `maago.SQLiteTime(v)`, `*time.Time`은 `maago.SQLiteNullTime(v)`(nil이면 nil, 런타임에 더한다), `[]time.Time`은 원소마다. Scan은 `maago.ScanSQLiteTime(&v.X)`·`maago.ScanNullSQLiteTime(&v.X)`. PG는 그대로
+- D-106: `maago.Opt[T]`(영값이 "주지 않음"), `maago.Set(v) Opt[T]`, `(Opt[T]) Or(def T) T`, 포인터 기본값을 위한 `maago.Ptr(v) *T`를 런타임에 더한다. 기본값의 Go 글자: 문자열은 `strconv.Quote`, 수는 `dialect.Number`(DDL과 같은 정규형: `010`을 그대로 쓰면 Go는 8로 읽는다, fable 1), bool은 그대로. `InsertX`는 `time.Now().Truncate(time.Microsecond)` 하나로 `auto` 필드를 모두 채운다(D-102. DB의 정밀도와 같게 잘라, Insert가 돌려준 값과 Get이 읽은 값이 같다, fable 8)
+- `InsertX`는 입력·기본값·auto·`RETURNING`의 id로 모델을 모두 채워 돌려준다(다시 읽지 않는다, codex 1). `UpdateX`는 영향 행이 1인 것을 확인한 뒤에야 `o`의 `auto=update` 필드를 바꾼다(실패하면 호출자의 모델은 그대로, fable 8). 주석: "pass what GetX returned: every column is written"(fable 9). ★ `InsertX`가 모델을 돌려주는 것과 `UpdateX`가 포인터를 받는 것은 11번에서 DECISIONS로
+- import는 쓰는 것만(`go/format`은 쓰지 않는 import를 지우지 않는다, fable 2)
+- 실행 오류: Scan 오류는 `fmt.Errorf("CustomerOrdersStrict: %w", err)`로 쿼리 이름을 붙인다(D-104의 "판정이 틀리면 실행 때 Scan 오류"가 어느 `.sql`인지 보이게, fable 11). 선택지는 `sort %q is not one of latest, amount`, `ErrEmptySlice`의 글에 고치는 법(fable 12)
+
+파일
+- 새 `internal/mapper/gen.go`와 `internal/mapper/templates/{models,queries}.go.tmpl`(`embed.FS`, `text/template` + `go/format`, ARCHITECTURE §5):
+  ```go
+  type Checked struct { // 한 쿼리의 검사 결과: 3·4·5번이 만든 것
+  	Query    *Query
+  	Axes     []Axis
+  	Variants []Variant
+  	Result   *Result // :exec면 nil
+  }
+  func ModelsFile(d project.Dialect, app *model.App) []byte                 // 모델이 있는 앱
+  func QueriesFile(d project.Dialect, pkg string, qs []Checked) []byte      // queries/가 있는 앱. pkg는 9번이 정한다(열린 질문)
+  func Names(root, dir string, app *model.App, qs []Checked) []diag.Diagnostic // 이름 충돌(아래)
+  ```
+  `go/format`이 실패하면 maago의 버그(panic): 생성물이 Go가 아니면 조용히 쓰지 않는다
+- `internal/build/build.go`: 생성 단계가 `model.Files` 대신 `mapper.ModelsFile`을 쓴다(한 파일의 주인이 둘이 되지 않게, 7번의 결정). `model.Files`와 그 골든은 지운다. 쿼리 쪽 연결은 9번
+- 루트 `maago`: `Opt`·`Set`·`Or`·`Ptr`(`opt.go`), `SQLiteNullTime`(`sqlitetime.go`)
+- 새 픽스처 앱 `internal/testdata/orders/`(이미 `queries/search_orders.sql`이 있다): `models.go`(`Customer`, `Order`: `CustomerID *int64 fk=Customer`, `Status string default='new'`, `Amount int64`, `Priority *int32 default=010`(정규형 10), `CreatedAt time.Time`, `UpdatedAt time.Time auto=update`)와 쿼리 몇 개 더: `customer_orders.sql`(`LEFT JOIN`의 NULL 쪽을 `-- column: amount? int64`로), `customer_orders_strict.sql`(같은 것을 `?` 없이: NULL이면 Scan 오류), `order_by_amount.sql`(`:one Order`, SELECT 순서를 필드 순과 다르게: 결과 컬럼 순 대응을 실행으로 본다, fable 5), `delete_orders.sql`(`:exec`, 슬라이스 `ids`), `orders_matching.sql`(슬라이스가 스칼라보다 먼저, 슬라이스 둘, `[]time.Time`, 슬라이스 뒤의 스칼라: 인자 조립이 어긋나면 행이 틀린다, codex 3·fable 4)
+- 새 `cmd/maago/internal/gentest/{sqlite,postgres}/{orders,blog,plain}/`: 생성물이 실제로 컴파일되고 도는 자리. 이 패키지들의 `models_gen.go`·`queries_gen.go`가 곧 생성 골든이다(`TestGenerated`가 픽스처에서 다시 만들어 `golden.Check`로 비교, `-update`로 쓴다). `models.go`는 픽스처의 복사본(같은지 시험이 본다). 손으로 쓴 `*_test.go`가 두 방언의 실제 DB에서 부른다. cmd/maago 모듈 안이라 드라이버가 이미 있고 따로 모듈을 만들지 않는다(사용자 모듈 모양으로 걷는 시험은 10번의 튜토리얼 스크립트, codex 5)
+  - `orders`: 위 픽스처
+  - `blog`: 공용 예제(`internal/testdata/example/blog`). 예약어 `order`, `[]byte`, bool 기본값, `auto=create`, D-18 주석이 컴파일되고 CRUD가 한 번 왕복한다(fable 3). `cmd/maago`의 `models_gen.golden`을 보던 빌드 시험은 이 파일로
+  - `plain`: 시각·선택지·슬라이스가 없는 앱(모델 하나, 쿼리 하나). 쓰지 않는 import가 없음을 컴파일로 본다(fable 2)
+  - PG 골든은 결과 타입이 실제 PG의 묘사에서 오므로 `MAAGO_TEST_PG_URL`이 있어야 비교·갱신된다. 정본은 CI(D-91, fable 6)
+
+이름 충돌 (모양 절, 생성 오류)
+- 앱의 생성 이름: CRUD 넷과 `NewXInput`·`scanX`(모델마다), 쿼리 함수·`QParams`·선택지 타입과 상수·새 결과 타입·`scanQ`(쿼리마다). 이것끼리 겹치거나, 그 패키지의 생성되지 않은 `.go` 파일(표시 없는 파일. 같은 패키지 이름의 `_test.go`도: 테스트 바이너리에서 함께 컴파일된다, codex 2·fable 13)의 최상위 이름과 겹치면 오류. 위치는 쿼리의 `-- name:`(모델 쪽 이름이면 모델), 메시지에 겹치는 상대의 위치. fix: 쿼리나 결과 타입의 이름을 바꾼다
+- 사용자 이름은 `go/parser`로 그 디렉터리의 표시 없는 파일을 읽어 모은다(`model.Read`는 모델만 남긴다)
+
+하지 않기로 한 것
+- 파이프라인에 쿼리를 잇는 일(해석·검사·DB 검사·생성 단계), `queries/`만 있는 앱의 패키지 이름, 생성물의 `text/template`·`reflect` 게이트는 9번
+- 선택지의 모르는 값·빈 슬라이스를 가를 오류 타입(M4가 400으로)은 필요해질 때. 지금은 `fmt.Errorf`와 `ErrEmptySlice`
+- 생성물의 문서 주석은 짧게: 함수마다 한 줄(어느 파일에서 왔는지)
+
+단계
+1. 런타임 `Opt`·`Set`·`Or`·`Ptr`·`SQLiteNullTime` → 확인: 루트 표 시험
+2. `ModelsFile` → 확인: 공용 예제의 골든(두 방언, gentest `blog`), `build`가 이것을 쓰고 빌드 시험이 새 골든으로 통과. `TestGenThenCheck`의 끝 단언("모든 필드가 컬럼이면 지워진다")은 "앱의 모델이 모두 사라지면 지워진다"로 고친다(fable 7)
+3. `QueriesFile` → 확인: `orders` 픽스처의 골든(두 방언, 위 gentest 자리)
+4. gentest 실행 → 확인(두 방언의 실제 DB): CRUD 왕복(nullable FK nil·값, 시각은 마이크로초로 자른 `Equal`, `Opt` 안 줌 → 기본값(`Priority` 10)·`Set` → 그 값, `auto=update`가 바뀜·실패한 `Update`는 모델을 바꾸지 않음, 없는 id의 `Update`·`Delete`는 `sql.ErrNoRows`), `SearchOrders`의 16조합을 모두 실제로 돌려 결과를 Go로 거른 기대값과 비교(열쇠 계산과 `Combos`의 대응을 실행으로 본다, codex 4: 두 정렬, 선택 파라미터 있음·없음, `from`만 있으면 기간 조건이 빠짐), `orders_matching`의 행(인자 조립), `:one`의 `sql.ErrNoRows`·`ErrManyRows`, 선택지 밖의 값, 빈 슬라이스의 `ErrEmptySlice`, 슬라이스 원소 2개의 삭제, 새 결과 타입의 NULL(`*int64`는 nil, `?` 없는 선언은 Scan 오류), `*sql.Tx` 안에서 부르기와 롤백
+5. 이름 충돌 → 확인: 쿼리 `GetOrder`(CRUD와), 결과 타입이 쿼리 함수 이름과, 두 쿼리의 선택지 타입, 사용자 파일의 같은 이름, 같은 패키지 `_test.go`의 `scanOrder`·`NewOrderInput`이 각각 위치 있는 오류. 생성 파일과 `package x_test` 파일의 이름은 세지 않는다
+6. 두 모듈 `go vet`·`go test`(PG 포함), `gofmt -l .`(생성물 포함), `go mod tidy -diff`
+
+계획 리뷰 (codex·fable)
+- 받음: `InsertX`는 다시 읽지 않고 채운다(codex 1), 같은 패키지 `_test.go`의 이름(codex 2, fable 13), 인자 조립을 실행으로 보는 쿼리(codex 3, fable 4), `SearchOrders` 16조합을 모두 실행해 기대값과 비교(codex 4: 열쇠를 단위로 시험하면 같은 계산을 다시 적는 것이라 실행으로), 기본값은 `dialect.Number`로(fable 1), 쓰는 import만과 `plain`(fable 2), gentest `blog`(fable 3), 모델 결과의 컬럼 순(fable 5), PG 골든의 정본은 CI(fable 6), `TestGenThenCheck`(fable 7), `UpdateX`의 쓰는 때와 마이크로초(fable 8), 주석(fable 9), Scan 오류에 쿼리 이름(fable 11), 문구(fable 12)
+- 11번에 넘길 것: `:exec`는 0행이어도 오류가 아니고 CRUD의 `Update`·`Delete`는 `sql.ErrNoRows`(TUTORIAL-FUTURE §6에 한 줄, fable 10), 선택 파라미터는 `maago.Ptr("paid")`로 채운다(fable 14)
+- 받지 않음: codex 5(따로 사용자 모듈을 만드는 스모크) — CI가 `cmd/maago` 모듈을 돌리고, 사용자 모듈 모양은 10번의 튜토리얼 스크립트가 걷는다
+
+구현에서 달라진 것
+- 런타임에 `maago.Exec(ctx, db, query, args...) (int64, error)`(영향 행)를 더했다: `:exec` 쿼리가 그대로 돌려주고, CRUD의 `Update`·`Delete`는 0이면 `sql.ErrNoRows`
+- 이름 충돌은 생성 파일이 import하는 이름(`context`·`sql`·`time`·`fmt`·`maago`)을 사용자가 최상위에 선언한 것도 잡는다(Go는 파일 블록과 패키지 블록에 같은 이름을 금한다). 두 생성자가 여러 이름(선택지 상수들)에서 겹치면 한 번만 알린다. 생성 파일을 가리려고 `pipeline.IsGenerated`를 내보냈다
+- `build`는 모델 앱마다 `Names`를 검사 단계에서 돌린다: 이제 `models_gen.go`에 CRUD가 있어 사용자 이름과 겹치면 컴파일이 깨진다. 모델 앱이면 늘 `models_gen.go`가 있으므로 `cmd/maago`의 `expect`는 check 앞에 gen을 돈다
+- gentest의 손 시험은 두 방언에 같은 파일이다(`gentest.Open`이 디렉터리로 방언을 안다). `TestGenerated`가 PG 쪽이 SQLite 쪽의 복사본인지 본다. 표는 DDL 생성기(`sqlite.DDL`·`postgres.DDL`)로 만든다: `default=010`이 DDL과 Go에서 같은 10임을 실행으로 본다
+- 11번에 넘길 것: 파라미터 `ids`의 필드는 `Ids`다(D-76이 되돌리는 약어는 `id`뿐)
+
+구현 리뷰 (ponytail·codex·fable)
+- 받음: 시험의 포인터 출력을 제네릭 하나로(ponytail 1), nullable 시각에 값이 있는 왕복(codex 2), `InsertX`·`UpdateX` 주석을 사실대로(fable 1·2: 입력 시각은 그대로 담고 DB는 마이크로초로 쓴다, `auto=create` 필드는 Update가 쓰지 않는다), 생성물끼리 겹칠 때 상대의 위치(fable 3), Go가 무시하는 `.`·`_`로 시작하는 파일은 세지 않는다(fable 4), `Names`를 `makemigrations`가 아니라 gen·check의 검사로(fable 6), `plain`에 bool 축 쿼리, 쿼리 없는 앱에 남은 `queries_gen.go`를 `TestGenerated`가 잡는다(fable 8)
+- 받지 않음: `IsOwned`라는 이름(ponytail 2: 바뀌는 자리 수는 같고 `IsGenerated`가 뜻을 말한다), import 이름 충돌을 실제 import만으로(codex 1, fable 5): 쿼리를 더할 때 import가 늘어 그때 가서 오류가 나지 않게 고정 목록을 두고, 메시지만 "may import"로. 최상위 `time`·`fmt`를 둔 패키지는 스스로도 그 패키지를 import할 수 없다
+- 11번에 넘길 것: `InsertX`가 돌려준 모델은 입력의 포인터를 그대로 담는다(fable 7)
+
 ## 9. 파이프라인 연결과 게이트 (`internal/build`)
 
 - 해석 단계에 매퍼 파일 읽기, 검사 단계에 1~3번과 7번의 SQL, DB 검사 단계에서 M2 비교가 통과한 뒤 4·5번과 CRUD prepare, 생성 단계에 8번. `makemigrations`는 쿼리 파일을 읽지 않는다(모양 절)

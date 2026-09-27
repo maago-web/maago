@@ -62,7 +62,7 @@ func TestGenThenCheck(t *testing.T) {
 	if removed, ds := build.Gen(filepath.Join(root, "blog")); len(ds) > 0 || len(removed) > 0 {
 		t.Fatalf("gen: removed %v\n%s", removed, text(ds))
 	}
-	if got, want := readFile(t, gen), readFile(t, "../../internal/model/testdata/models_gen.golden"); got != want {
+	if got, want := readFile(t, gen), readFile(t, "internal/gentest/sqlite/blog/models_gen.go"); got != want {
 		t.Errorf("models_gen.go:\n%s\nwant:\n%s", got, want)
 	}
 	if ds := build.Check(root); len(ds) > 0 {
@@ -78,17 +78,10 @@ func TestGenThenCheck(t *testing.T) {
 		t.Errorf("check after removing it:\n%s", out)
 	}
 
-	// Once every field is a column, gen removes models_gen.go.
+	// Once the app has no models, gen removes models_gen.go.
 	build.Gen(root)
-	models := filepath.Join(root, "blog", "models.go")
-	var kept []string
-	for _, line := range strings.SplitAfter(readFile(t, models), "\n") {
-		if f := strings.Fields(line); len(f) > 0 && slices.Contains([]string{"Kind", "Count", "cache", "Digest", "Audit"}, f[0]) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	writeFile(t, models, strings.Join(kept, ""))
+	writeFile(t, filepath.Join(root, "blog", "models.go"), "package blog\n")
+	os.RemoveAll(filepath.Join(root, "migrations"))
 	removed, ds := build.Gen(root)
 	if len(ds) > 0 || !slices.Equal(removed, []string{"blog/models_gen.go"}) {
 		t.Errorf("removed %v\n%s", removed, text(ds))

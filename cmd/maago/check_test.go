@@ -66,10 +66,13 @@ func (dd draftDialect) checkProject(t *testing.T, edits []string, more map[strin
 	return root
 }
 
-// expect checks that check on root reports exactly want: each is the
-// start of a diagnostic, position included, in any order.
+// expect checks that check on root, after gen, reports exactly want: each
+// is the start of a diagnostic, position included, in any order. Gen
+// writes models_gen.go only if nothing is wrong, and then check passes
+// but for the database.
 func expect(t *testing.T, root string, want ...string) {
 	t.Helper()
+	build.Gen(root)
 	out := text(build.Check(root))
 	var lines []string
 	for _, l := range strings.Split(out, "\n") {

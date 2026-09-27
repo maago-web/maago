@@ -83,7 +83,7 @@ func Write(root string, files map[string][]byte) (removed []string, ds []diag.Di
 			todo = append(todo, p)
 		case err != nil:
 			ds = append(ds, diag.New(at(p), "cannot read file: "+diag.OneLine(err.Error()), "make sure the file can be read, then rerun maago gen"))
-		case !isOwned(old):
+		case !IsGenerated(old):
 			ds = append(ds, notGenerated(p))
 		case !bytes.Equal(old, files[p]):
 			todo = append(todo, p)
@@ -148,7 +148,7 @@ func Check(root string, files map[string][]byte) []diag.Diagnostic {
 			ds = append(ds, diag.New(at(p), "generated file is missing", "run maago gen"))
 		case err != nil:
 			ds = append(ds, diag.New(at(p), "cannot read file: "+diag.OneLine(err.Error()), "make sure the file can be read"))
-		case !isOwned(old):
+		case !IsGenerated(old):
 			ds = append(ds, notGenerated(p))
 		case !bytes.Equal(old, files[p]):
 			ds = append(ds, diag.New(at(p), "generated file is out of date", "run maago gen; do not edit generated files by hand"))
@@ -173,14 +173,16 @@ func Owned(root string) ([]string, []diag.Diagnostic) {
 			ds = append(ds, diag.New(at(p), "cannot read file: "+diag.OneLine(err.Error()), "make sure the file can be read"))
 			continue
 		}
-		if isOwned(b) {
+		if IsGenerated(b) {
 			owned = append(owned, p)
 		}
 	}
 	return owned, ds
 }
 
-func isOwned(b []byte) bool {
+// IsGenerated reports whether b is a file maago generated: its first
+// line is Marker.
+func IsGenerated(b []byte) bool {
 	line, _, _ := bytes.Cut(b, []byte("\n"))
 	return string(bytes.TrimSuffix(line, []byte("\r"))) == Marker
 }
@@ -193,7 +195,7 @@ func checkFiles(paths []string, files map[string][]byte) []diag.Diagnostic {
 		switch {
 		case path.Clean(p) != p || !filepath.IsLocal(filepath.FromSlash(p)) || strings.ContainsAny(p, "\r\n"):
 			ds = append(ds, diag.New(at(p), "generated file path is not a clean path inside the project", "this is a bug in maago; please report it"))
-		case !isOwned(files[p]):
+		case !IsGenerated(files[p]):
 			ds = append(ds, diag.New(at(p), "generated content lacks the maago marker", "this is a bug in maago; please report it"))
 		}
 	}

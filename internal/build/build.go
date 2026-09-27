@@ -6,13 +6,14 @@ package build
 import (
 	"context"
 	"go/token"
-	"maps"
 	"os"
+	"path"
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/dialect"
 	"github.com/maago-web/maago/internal/dialect/postgres"
 	"github.com/maago-web/maago/internal/dialect/sqlite"
+	"github.com/maago-web/maago/internal/mapper"
 	"github.com/maago-web/maago/internal/migrate"
 	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/pipeline"
@@ -49,8 +50,19 @@ func Check(dir string) []diag.Diagnostic {
 // included, then the generated files.
 func checking(root string) [][]pipeline.Step {
 	s := &state{root: root}
-	return append(stages(s, nil, func() []diag.Diagnostic { return checkDatabase(s) }),
-		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic { maps.Copy(r.Files, model.Files(s.apps)); return nil }})
+	names := func() (ds []diag.Diagnostic) { // the generated files' names; not makemigrations' concern
+		for _, app := range s.apps {
+			ds = append(ds, mapper.Names(s.fset, s.root, app.Dir, app, nil)...)
+		}
+		return
+	}
+	return append(stages(s, names, func() []diag.Diagnostic { return checkDatabase(s) }),
+		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic {
+			for _, app := range s.apps {
+				r.Files[path.Join(app.Dir, "models_gen.go")] = mapper.ModelsFile(s.d, app)
+			}
+			return nil
+		}})
 }
 
 // state is what the stages of one run hand on, fresh for each run.

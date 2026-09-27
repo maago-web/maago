@@ -14,6 +14,14 @@ const sqliteLayout = "2006-01-02 15:04:05.000000"
 // SQLiteTime is t as SQLite stores it (D-105).
 func SQLiteTime(t time.Time) string { return t.UTC().Format(sqliteLayout) }
 
+// SQLiteNullTime is t as SQLite stores it, or nil for NULL.
+func SQLiteNullTime(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return SQLiteTime(*t)
+}
+
 // ScanSQLiteTime reads a SQLite time into dst. NULL is an error; use
 // ScanNullSQLiteTime for a column that may be NULL.
 func ScanSQLiteTime(dst *time.Time) sql.Scanner {

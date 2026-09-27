@@ -15,7 +15,7 @@ var ErrManyRows = errors.New("maago: :one query returned more than one row; make
 // ErrEmptySlice is what a generated query returns for an empty slice
 // parameter where the SQL needs one element or more: IN () is not SQL.
 // The generated code wraps it with the query's and the parameter's names.
-var ErrEmptySlice = errors.New("maago: empty slice")
+var ErrEmptySlice = errors.New("maago: empty slice, which IN (…) cannot take; check it before calling the query, or put its line under {name}")
 
 // One runs a :one query and reads its one row: sql.ErrNoRows if there is
 // none, ErrManyRows if there are more.
@@ -65,6 +65,16 @@ func Many[T any](ctx context.Context, db DB, scan func(*sql.Rows) (T, error), qu
 		return nil, err
 	}
 	return vs, rows.Close()
+}
+
+// Exec runs a statement and returns how many rows it touched: an :exec
+// query, and the CRUD's Update and Delete, which make 0 sql.ErrNoRows.
+func Exec(ctx context.Context, db DB, query string, args ...any) (int64, error) {
+	res, err := db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // Placeholders returns n placeholders numbered from first, like "$3, $4"

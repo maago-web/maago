@@ -1,0 +1,73 @@
+{{.Marker}}
+
+package {{.Package}}
+{{if .Unsupported}}
+// Fields that are not columns (D-18):
+//
+{{range .Unsupported}}//   - {{.}}
+{{end}}{{end}}
+import (
+{{range .Imports}}{{if .}}	"{{.}}"{{end}}
+{{end}})
+{{range .Models}}
+// New{{.Name}}Input is what Insert{{.Name}} takes (D-106): every column but
+// the ID and the auto times.{{if .Defaults}} A maago.Opt field left unset takes the
+// column's default; maago.Set gives any value, even the zero value.{{end}}
+type New{{.Name}}Input struct {
+{{range .Input}}	{{.Name}} {{.Type}}{{if .Default}} // default {{.Default}}{{end}}
+{{end}}}
+
+// Get{{.Name}} reads the {{.Name}} with id: sql.ErrNoRows if there is none.
+func Get{{.Name}}(ctx context.Context, db maago.DB, id int64) ({{.Name}}, error) {
+	return maago.One(ctx, db, scan{{.Name}}, {{.Get}}, id)
+}
+
+// Insert{{.Name}} inserts in and returns the {{.Name}}: in's fields, with
+// the defaults, the auto times and the new ID filled in. A time goes in
+// to the microsecond; Get{{.Name}} reads what was written.
+func Insert{{.Name}}(ctx context.Context, db maago.DB, in New{{.Name}}Input) ({{.Name}}, error) {
+{{if .InsertNow}}	now := time.Now().Truncate(time.Microsecond)
+{{end}}	o := {{.Name}}{
+{{range .Build}}		{{.}},
+{{end}}	}
+	if err := db.QueryRowContext(ctx, {{.Insert}}{{range .InsertArgs}}, {{.}}{{end}}).Scan(&o.ID); err != nil {
+		return {{.Name}}{}, err
+	}
+	return o, nil
+}
+{{if .Update}}
+// Update{{.Name}} writes every column of o{{range .InsertOnly}} but {{.}}{{end}} to the row of its ID,
+// so pass what Get{{.Name}} returned, changed: sql.ErrNoRows if there is no
+// such row.{{if .UpdateNow}}
+// Once the row is written, o has its new auto times.{{end}}
+func Update{{.Name}}(ctx context.Context, db maago.DB, o *{{.Name}}) error {
+{{if .UpdateNow}}	now := time.Now().Truncate(time.Microsecond)
+{{end}}	n, err := maago.Exec(ctx, db, {{.Update}}{{range .UpdateArgs}}, {{.}}{{end}})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+{{range .UpdateNow}}	o.{{.}} = now
+{{end}}	return nil
+}
+{{end}}
+// Delete{{.Name}} deletes the {{.Name}} with id: sql.ErrNoRows if there is none.
+func Delete{{.Name}}(ctx context.Context, db maago.DB, id int64) error {
+	n, err := maago.Exec(ctx, db, {{.Delete}}, id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func scan{{.Name}}(rows *sql.Rows) ({{.Name}}, error) {
+	var v {{.Name}}
+	err := rows.Scan({{.Scan}})
+	return v, err
+}
+{{end}}

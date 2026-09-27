@@ -1,0 +1,37 @@
+{{.Marker}}
+
+package {{.Package}}
+
+import (
+{{range .Imports}}{{if .}}	"{{.}}"{{end}}
+{{end}})
+{{range .Queries}}{{$q := .}}{{range .Choices}}
+// {{.Type}} is a value of parameter {{.Param}} of {{$q.Name}}.
+type {{.Type}} string
+
+const (
+{{range .Consts}}	{{.}}
+{{end}})
+{{end}}{{if .Params}}
+// {{.Params}} is what {{.Name}} takes.
+type {{.Params}} struct {
+{{range .Fields}}	{{.}}
+{{end}}}
+{{end}}{{if .Result}}
+// {{.Result}} is a row of {{.Name}}.
+type {{.Result}} struct {
+{{range .ResultFields}}	{{.}}
+{{end}}}
+{{end}}
+// {{.Name}} runs {{.File}}.
+func {{.Name}}(ctx context.Context, db maago.DB{{if .Params}}, p {{.Params}}{{end}}) {{.Returns}} {
+{{.Body}}}
+{{if .Row}}
+func scan{{.Name}}(rows *sql.Rows) ({{.Row}}, error) {
+	var v {{.Row}}
+	if err := rows.Scan({{.Scan}}); err != nil {
+		return v, fmt.Errorf("{{.Name}}: %w", err)
+	}
+	return v, nil
+}
+{{end}}{{end}}
