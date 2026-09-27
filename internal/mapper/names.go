@@ -16,15 +16,17 @@ import (
 	"github.com/maago-web/maago/internal/pipeline"
 )
 
-// imported are the packages the generated files may import: no top-level
-// name of the package may be one of them.
-var imported = []string{"context", "sql", "time", "fmt", "maago"}
+// Imports are the packages the generated files may import: no top-level
+// name of the package may be one of their names.
+var Imports = []string{"context", "database/sql", "fmt", "time", "github.com/maago-web/maago"}
 
 // Names reports the names the generated files of the app at dir would
 // declare twice: in two places of their own, or where the package's own
 // files, its tests included, already declare them. app is nil for an app
-// without models, and qs for one without queries.
-func Names(fset *token.FileSet, root, dir string, app *model.App, qs []Checked) []diag.Diagnostic {
+// without models, and qs for one without queries. It needs no database:
+// a query's result is a new type when it names no model of the app, as
+// Results decides.
+func Names(fset *token.FileSet, root, dir string, app *model.App, qs []*Query) []diag.Diagnostic {
 	type decl struct {
 		by  string // what generates the name
 		pos token.Position
@@ -58,9 +60,8 @@ func Names(fset *token.FileSet, root, dir string, app *model.App, qs []Checked) 
 			}
 		}
 	}
-	results := map[*Result]bool{}
-	for _, c := range qs {
-		q := c.Query
+	results := map[string]bool{} // new result types, declared once
+	for _, q := range qs {
 		by, fix := "query "+q.Name, "rename the query, or what else declares that name"
 		add(q.Name, by, q.NamePos, fix)
 		if q.Kind != Exec {
@@ -81,12 +82,13 @@ func Names(fset *token.FileSet, root, dir string, app *model.App, qs []Checked) 
 				add(typ+fieldName(v), by, p.Pos, fix)
 			}
 		}
-		if r := c.Result; r != nil && r.Model == nil && !results[r] {
-			results[r] = true
-			add(r.Name, "the result type of query "+q.Name, q.NamePos, "rename the result type, or what else declares that name")
+		if q.Kind != Exec && modelNamed(app, q.Result) == nil && !results[q.Result] {
+			results[q.Result] = true
+			add(q.Result, "the result type of query "+q.Name, q.NamePos, "rename the result type, or what else declares that name")
 		}
 	}
-	for _, name := range imported {
+	for _, imp := range Imports {
+		name := path.Base(imp)
 		if at, ok := user[name]; ok {
 			ds = append(ds, diag.New(at, fmt.Sprintf("%s is declared at the top level, but maago's generated files in this package may import a package %s", name, name),
 				"rename it"))
@@ -95,11 +97,39 @@ func Names(fset *token.FileSet, root, dir string, app *model.App, qs []Checked) 
 	return ds
 }
 
+// PackageName is the package of the app at dir: the package clause of a
+// Go file there that is not a test and that maago did not generate. An app
+// with queries but no such file has no package to generate into.
+func PackageName(root, dir string) (string, []diag.Diagnostic) {
+	for _, f := range goFiles(root, dir) {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		if err != nil || pipeline.IsGenerated(src) {
+			continue
+		}
+		if af, err := parser.ParseFile(token.NewFileSet(), f, src, parser.PackageClauseOnly); err == nil {
+			return af.Name.Name, nil
+		}
+	}
+	return "", []diag.Diagnostic{diag.New(token.Position{Filename: path.Join(dir, "queries")},
+		"directory "+dir+" has queries but no Go file saying which package they belong to",
+		"add a Go file with a package clause to "+dir+", such as a doc.go")}
+}
+
+// goFiles are the Go files in dir that Go does not ignore, sorted.
+func goFiles(root, dir string) []string {
+	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.go"))
+	return slices.DeleteFunc(files, func(f string) bool {
+		return strings.HasPrefix(filepath.Base(f), ".") || strings.HasPrefix(filepath.Base(f), "_")
+	})
+}
+
 // declared are the top-level names of the Go files in dir that maago did
 // not generate, and where they are. A test file counts unless it is an
 // external test package, since the tests compile with the package.
 func declared(root, dir string) map[string]token.Position {
-	files, _ := filepath.Glob(filepath.Join(root, filepath.FromSlash(dir), "*.go"))
 	fset := token.NewFileSet()
 	names := map[string]token.Position{}
 	add := func(id *ast.Ident) {
@@ -107,10 +137,7 @@ func declared(root, dir string) map[string]token.Position {
 			names[id.Name] = fset.Position(id.Pos())
 		}
 	}
-	for _, f := range files {
-		if strings.HasPrefix(filepath.Base(f), ".") || strings.HasPrefix(filepath.Base(f), "_") {
-			continue // Go ignores it
-		}
+	for _, f := range goFiles(root, dir) {
 		src, err := os.ReadFile(f)
 		if err != nil || pipeline.IsGenerated(src) {
 			continue

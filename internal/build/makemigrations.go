@@ -57,7 +57,7 @@ func MakeMigrations(dir, name string, renames []string) (written string, ds []di
 		written, ds = draftDatabase(s, name, rs)
 		return ds
 	}
-	if ds := pipeline.Generate(&pipeline.Run{Root: root}, stages(s, early, final)); len(ds) > 0 {
+	if ds := pipeline.Generate(&pipeline.Run{Root: root}, stages(s, nil, early, final)); len(ds) > 0 {
 		return "", ds
 	}
 	return written, nil

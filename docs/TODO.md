@@ -30,6 +30,10 @@
     라벨·도움말은 `label='…'`·`help='…'`
   - 제외 후보: 다중 테이블 상속, proxy 모델, GenericForeignKey, `db_tablespace`, `swappable`
 
+## M3
+
+- [ ] 빌드 제약(`//go:build ignore` 등)이 붙은 `.go` 파일: 매퍼의 `declared`(이름 충돌)와 `PackageName`이 보통 파일처럼 읽는다. 도구 파일이 다른 package 절을 가지면 그것을 쓸 수 있다. `go/build`의 제약 판정으로 거를지(M3 9번 fable 6)
+
 ## 언젠가
 
 - [ ] 마이그레이션 롤백(down 마이그레이션)

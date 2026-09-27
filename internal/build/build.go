@@ -50,16 +50,53 @@ func Check(dir string) []diag.Diagnostic {
 // included, then the generated files.
 func checking(root string) [][]pipeline.Step {
 	s := &state{root: root}
-	names := func() (ds []diag.Diagnostic) { // the generated files' names; not makemigrations' concern
-		for _, app := range s.apps {
-			ds = append(ds, mapper.Names(s.fset, s.root, app.Dir, app, nil)...)
+	parse := func() []diag.Diagnostic {
+		files, ds := project.QueryFiles(s.root)
+		if len(ds) > 0 {
+			return ds
 		}
-		return
+		s.queries, ds = mapper.Read(s.root, files)
+		return ds
 	}
-	return append(stages(s, names, func() []diag.Diagnostic { return checkDatabase(s) }),
+	early := func() (ds []diag.Diagnostic) { // what makemigrations does not need
+		s.checked, s.pkgs = map[string][]mapper.Checked{}, map[string]string{}
+		for _, qa := range s.queries {
+			for _, q := range qa.Queries {
+				axes, vs, vds := q.Variants()
+				ds = append(ds, vds...)
+				s.checked[qa.Dir] = append(s.checked[qa.Dir], mapper.Checked{Query: q, Axes: axes, Variants: vs})
+			}
+			if app := s.app(qa.Dir); app != nil {
+				s.pkgs[qa.Dir] = app.Name
+			} else {
+				var pds []diag.Diagnostic
+				s.pkgs[qa.Dir], pds = mapper.PackageName(s.root, qa.Dir)
+				ds = append(ds, pds...)
+			}
+		}
+		for _, app := range s.apps {
+			var qs []*mapper.Query
+			for _, qa := range s.queries {
+				if qa.Dir == app.Dir {
+					qs = qa.Queries
+				}
+			}
+			ds = append(ds, mapper.Names(s.fset, s.root, app.Dir, app, qs)...)
+		}
+		for _, qa := range s.queries {
+			if s.app(qa.Dir) == nil {
+				ds = append(ds, mapper.Names(s.fset, s.root, qa.Dir, nil, qa.Queries)...)
+			}
+		}
+		return ds
+	}
+	return append(stages(s, parse, early, func() []diag.Diagnostic { return checkDatabase(s) }),
 		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic {
 			for _, app := range s.apps {
 				r.Files[path.Join(app.Dir, "models_gen.go")] = mapper.ModelsFile(s.d, app)
+			}
+			for dir, qs := range s.checked {
+				r.Files[path.Join(dir, "queries_gen.go")] = mapper.QueriesFile(s.d, s.pkgs[dir], qs)
 			}
 			return nil
 		}})
@@ -73,15 +110,29 @@ type state struct {
 	d          project.Dialect
 	url, ddl   string
 	migrations []migrate.File
+	queries    []*mapper.App               // nil for makemigrations
+	checked    map[string][]mapper.Checked // each app's queries, by directory
+	pkgs       map[string]string           // the package of each app with queries
+}
+
+// app is the app with models at dir, or nil.
+func (s *state) app(dir string) *model.App {
+	for _, a := range s.apps {
+		if a.Dir == dir {
+			return a
+		}
+	}
+	return nil
 }
 
 // stages returns the stages up to and including the database's. A stage
 // runs only if the ones before it found nothing wrong, so none of them
 // sees half-finished work (D-61). The stages follow ARCHITECTURE §3:
 // reading, parsing, checking without a database, the database check.
-// Go syntax comes first, since the models are read from it. early joins
-// the checks without a database; final is the database stage.
-func stages(s *state, early, final func() []diag.Diagnostic) [][]pipeline.Step {
+// Go syntax comes first, since the models are read from it. parse joins
+// the parsing, early the checks without a database; final is the
+// database stage.
+func stages(s *state, parse, early, final func() []diag.Diagnostic) [][]pipeline.Step {
 	s.fset = token.NewFileSet()
 	var files []string
 	var pkgs []*model.Package
@@ -92,16 +143,20 @@ func stages(s *state, early, final func() []diag.Diagnostic) [][]pipeline.Step {
 	if early != nil {
 		checks = append(checks, step(early))
 	}
+	parsing := []pipeline.Step{
+		step(func() (ds []diag.Diagnostic) { s.apps, ds = model.Check(s.fset, pkgs); return }),
+		step(func() (ds []diag.Diagnostic) { s.d, s.url, ds = project.Database(s.root, os.LookupEnv); return }),
+		step(func() (ds []diag.Diagnostic) { s.migrations, ds = migrate.ReadFiles(s.root); return }),
+	}
+	if parse != nil {
+		parsing = append(parsing, step(parse))
+	}
 	return [][]pipeline.Step{
 		{step(func() (ds []diag.Diagnostic) { files, ds = project.GoFiles(s.root); return })},
 		{step(func() (ds []diag.Diagnostic) { pkgs, ds = model.Read(s.fset, s.root, files); return })},
-		// .env and the migration files beside the tags: none of them
-		// needs another, so none hides another.
-		{
-			step(func() (ds []diag.Diagnostic) { s.apps, ds = model.Check(s.fset, pkgs); return }),
-			step(func() (ds []diag.Diagnostic) { s.d, s.url, ds = project.Database(s.root, os.LookupEnv); return }),
-			step(func() (ds []diag.Diagnostic) { s.migrations, ds = migrate.ReadFiles(s.root); return }),
-		},
+		// .env, the migration files and the query files beside the tags:
+		// none of them needs another, so none hides another.
+		parsing,
 		checks,
 		// PostgreSQL's name length limit, now that the dialect is known.
 		{step(func() (ds []diag.Diagnostic) { s.ddl, ds = dialects[s.d].ddl(s.fset, s.apps); return })},
@@ -137,7 +192,57 @@ func checkDatabase(s *state) []diag.Diagnostic {
 	if len(ds) > 0 {
 		return ds
 	}
-	return migrate.Diagnose(cs, positions(s.fset, s.apps))
+	if ds := migrate.Diagnose(cs, positions(s.fset, s.apps)); len(ds) > 0 {
+		return ds // the queries would fail on what differs
+	}
+	return checkQueries(ctx, s, a)
+}
+
+// checkQueries prepares every query on a, the practice database that
+// matches the models, and works out the result types (rule 5, D-23).
+// Each query's errors are its own, so all of them are reported, unless
+// the connection fails. Then the CRUD's SQL is prepared: it fails only
+// through a bug of maago, which TestCRUDPrepares pins down, so this is a
+// seat belt.
+func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagnostic {
+	var ds []diag.Diagnostic
+	for dir, checked := range s.checked {
+		var qs []*mapper.Query
+		var cols [][]practicedb.Column
+		for _, c := range checked {
+			cs, qds, fatal := mapper.Describe(ctx, a, c.Query, c.Axes, c.Variants)
+			if fatal {
+				return qds
+			}
+			ds = append(ds, qds...)
+			qs, cols = append(qs, c.Query), append(cols, cs)
+		}
+		results, rds := mapper.Results(s.apps, dir, qs, cols, func(oid uint32) string { return a.TypeName(ctx, oid) })
+		ds = append(ds, rds...)
+		for i := range checked {
+			checked[i].Result = results[i]
+		}
+	}
+	if len(ds) > 0 {
+		return ds
+	}
+	for _, app := range s.apps {
+		for _, c := range mapper.CRUDs(app, s.d) {
+			for _, st := range []*mapper.Statement{&c.Get, &c.Insert, c.Update, &c.Delete} {
+				if st == nil {
+					continue
+				}
+				_, err, fatal := a.Describe(ctx, st.SQL)
+				if fatal != nil {
+					return fatal
+				}
+				if err != nil {
+					return dialect.Bug(err)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // compared returns the practice database the migrations were applied to,

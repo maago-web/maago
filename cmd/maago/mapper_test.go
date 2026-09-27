@@ -1,8 +1,10 @@
 package main
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -42,7 +44,10 @@ func describeQueries(t *testing.T, db *practicedb.DB, files map[string]string) (
 		if ds != nil {
 			t.Fatalf("%s:\n%s", q.File, text(ds))
 		}
-		c, ds := mapper.Describe(ctx(t), db, q, axes, vs)
+		c, ds, fatal := mapper.Describe(ctx(t), db, q, axes, vs)
+		if fatal {
+			t.Fatalf("%s: the connection failed:\n%s", q.File, text(ds))
+		}
 		all = append(all, ds...)
 		cols = append(cols, c)
 	}
@@ -79,11 +84,41 @@ func TestDescribeQueryErrors(t *testing.T) {
 		"int32":   "-- name: Int32 :many R\n-- param: n int64\nSELECT id FROM posts WHERE n = :n\n",
 		"slice":   "-- name: Slice :many R\n-- param: ids []int32\nSELECT id FROM posts WHERE id IN (:ids)\n",
 	}
+	// In PostgreSQL a wrong parameter type leaves the columns good: they
+	// come with the error, so the result type is checked in the same run.
+	// SQLite does not check parameter types, so these give no error there.
+	const withColumns = "choice int32 slice varchar"
 	for _, d := range []project.Dialect{project.SQLite, project.Postgres} {
 		t.Run(string(d), func(t *testing.T) {
-			_, ds := describeQueries(t, describeDB(t, d), files)
+			cols, ds := describeQueries(t, describeDB(t, d), files)
 			golden.Check(t, "testdata/describe_errors."+string(d)+".golden", []byte(text(ds)))
+			var got []string
+			for i, name := range slices.Sorted(maps.Keys(files)) {
+				if cols[i] != nil {
+					got = append(got, name)
+				}
+			}
+			if s := strings.Join(got, " "); s != withColumns {
+				t.Errorf("queries with columns: %s, want %s", s, withColumns)
+			}
 		})
+	}
+}
+
+// A failed connection ends the description at once, and says so.
+func TestDescribeFatal(t *testing.T) {
+	db := describeDB(t, project.Postgres)
+	q := "-- name: Q :many R\nSELECT id FROM posts\n"
+	db.Close()
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "blog", "queries", "q.sql"), q)
+	apps, ds := mapper.Read(root, []string{"blog/queries/q.sql"})
+	if ds != nil {
+		t.Fatal(text(ds))
+	}
+	axes, vs, _ := apps[0].Queries[0].Variants()
+	if cols, ds, fatal := mapper.Describe(ctx(t), db, apps[0].Queries[0], axes, vs); !fatal || cols != nil || len(ds) != 1 {
+		t.Errorf("fatal %v, cols %v:\n%s", fatal, cols, text(ds))
 	}
 }
 

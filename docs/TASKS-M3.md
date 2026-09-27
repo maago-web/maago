@@ -654,6 +654,78 @@ func SearchOrders(ctx context.Context, db maago.DB, p SearchOrdersParams) ([]Ord
 
 → 확인: `gen` → `check` 0, 쿼리 파일을 바꾸면 `check` 1(생성물이 낡음). 모델 필드를 지우고 `makemigrations`하면 그 필드를 쓰는 쿼리가 있어도 초안이 나오고, `check`는 그 쿼리의 오류. 잘못된 `.sql`이 있어도 `makemigrations`는 돈다. 게이트는 임시 트리에 `text/template`을 import한 표시 있는 파일을 넣어 실패하고, 표시 없는 파일(생성기 코드)은 통과(WORKFLOW 5)
 
+### 계획
+
+단계 (ARCHITECTURE §3의 자리. `stages`에는 해석 단계의 훅 `parse` 하나만 더하고, 나머지는 `checking`의 `early`·`final`·생성 단계가 는다. `makemigrations`는 `parse`에 nil을 넘기고 자기 `early`·`final`을 쓰므로 쿼리를 읽지 않는다)
+- 1단계(읽기): 그대로. `project.QueryFiles`는 `parse` 안에서 부른다(목록 실패와 읽기 실패를 한 단계에)
+- 3단계(해석, 모델 검사·`.env`·마이그레이션 파일 옆): `parse` = `QueryFiles` → `mapper.Read`. `.sql` 읽기는 모델이 필요 없으므로 태그 오류가 `.sql` 오류를 숨기지 않는다(fable 1)
+- 4단계(DB 없는 검사, `early`): 읽힌 쿼리마다 `Variants()`, 앱 디렉터리마다(모델 앱 ∪ 쿼리 앱) `Names`, 쿼리 앱마다 패키지 이름. `Variants`·`Names`는 읽힌 쿼리만 본다(`Read`는 오류 난 파일의 `Query`를 주지 않는다)
+- 6단계(DB 검사, `final`): 지금의 `checkDatabase` 안에서, A를 닫기 전에(`defer a.Close()`가 함수 끝에서 닫는다, codex 1의 (가)). M2 비교(`Diagnose`)에 진단이 있으면 쿼리로 가지 않는다(모델과 다른 DB에 prepare하면 연쇄 오류). 통과하면 `checkQueries(ctx, s, a)`:
+  1. 쿼리 앱마다 쿼리마다 `mapper.Describe`. 쿼리 진단은 모아 두고 그 쿼리의 컬럼은 nil로 다음 쿼리로(쿼리끼리 독립, D-61). 연결·`SAVEPOINT`의 실패(치명)면 그 진단 하나로 곧바로 돌아간다(fable 2: 죽은 연결에 계속 보내지 않는다, 4번의 결정). 앱마다 `mapper.Results`(`typeName`은 `a.TypeName`)의 진단도 모은다. 앱들의 진단을 모두 모아 돌려준다
+  2. 모델 앱마다 `mapper.CRUDs`의 문장을 `a.Describe`로 prepare. 쿼리 오류면 `dialect.Bug`(7번). **실행으로 실패시킬 수 없는 안전띠다**: M2 비교를 통과한 DB는 모델과 같으므로 생성기의 버그로만 실패하고, 그 생성기는 `TestCRUDPrepares`가 방언마다 고정한다. 작업 글(모양 절 그림)에 있으므로 남기고, 이 한 줄로 이유를 적는다(fable 3)
+- 생성: 모델 앱마다 `models_gen.go`(그대로), 쿼리 앱마다 `queries_gen.go` = `mapper.QueriesFile(d, 패키지 이름, checked)`
+
+`Describe`가 치명 실패를 가르고, 파라미터 타입 오류에도 컬럼을 준다 (4번의 넘긴 질문, fable 2·6)
+- 시그니처 `Describe(…) (cols []practicedb.Column, ds []diag.Diagnostic, fatal bool)`. `db.Describe`의 셋째 값(치명)이면 `nil, 그것, true`
+- 파라미터 타입 검사는 prepare가 성공한 뒤라 컬럼은 유효하다. prepare 실패·조합마다 다른 컬럼·`:exec`+컬럼이 아니면 파라미터 진단과 함께 `cols`를 준다. 그러면 파라미터 타입 오류와 결과 타입 오류가 한 실행에 나온다(독립 오류를 두 왕복으로 나누지 않는다). 처음 계획의 "고치지 않는다"는 D-61을 잘못 읽은 것이었다
+
+`Names`를 DB 앞으로 (8번과 달라지는 것)
+- `Names(…, qs []*Query)`. 새 결과 타입은 `result()`와 같은 규칙으로 정적으로: `:exec`가 아니고 결과 이름이 그 앱의 모델 이름이 아니면 새 타입. 두 곳이 `modelNamed(app, name) *model.Model` 하나를 쓴다. 새 결과 타입은 **이름으로** 한 번만 더한다(지금은 `*Result` 포인터로: 같은 `R`을 쓰는 두 쿼리가 거짓 충돌이 되지 않게, fable 5). `gen_test.go`의 호출도 바꾼다
+- 이득: DB에 닿지 않아도 이름 충돌이 나온다
+
+`queries/`만 있는 디렉터리의 패키지 이름 (열린 질문, 1번에서 넘어옴)
+- **package 절을 요구한다**(fable 4): 그 디렉터리의 생성되지 않은 비테스트 `.go` 파일의 package 절. 없으면 오류(위치 `dir/queries`, fix: "add a .go file with a package clause to dir, such as doc.go with package <name>"). 디렉터리 이름으로 짓는 것은 추측이다: 루트에서는 import 경로 끝과 다르고, 나중에 `main.go`를 더하면 빌드가 깨진다(PHILOSOPHY 6). 식별자·키워드 검사도 필요 없어진다(codex 5는 fallback이 없어져 해당 없음)
+- 첫 파일의 것을 쓴다. 두 package 절은 Go 빌드가 막는다. 구문 오류는 `model.Read`가 앞 단계에서 모든 `.go`에 대해 먼저 내므로 `PackageClauseOnly`가 깨진 파일을 볼 일은 없다
+- 모델 앱은 `app.Name`을 그대로 쓴다
+- 새 `mapper.PackageName(root, dir string) (string, []diag.Diagnostic)`. 파일 거르기는 `declared`와 같다(`.`·`_`, 생성물, `_test.go`)
+
+게이트 (완료 조건 4)
+- 생성기가 import할 수 있는 경로를 `mapper.Imports`로 내보낸다(`context`, `database/sql`, `fmt`, `time`, `github.com/maago-web/maago`). `names.go`의 `imported`(이름)는 이것의 `path.Base`로 만든다
+- 루트 `noreflect_test.go` 옆에 둘째 검사 `generatedImports(root string) []string`: 트리를 걸으며(`.git`만 건너뜀, `cmd/maago`·`testdata` 포함) `pipeline.IsGenerated`인 `.go`(CRLF 표시 포함, codex 6)의 import가 `mapper.Imports` 밖이면(`text/template`·`reflect`를 포함한다), 읽기·해석에 실패하면, `.tmpl`에 `"text/template"`·`"reflect"` 글이 있으면 문제 한 줄. 허용 목록이 금지 목록보다 세다: 템플릿이 `strconv`를 더하면 `Names`가 그 충돌을 놓치는 어긋남까지 잡는다(fable 7)
+- `TestGeneratedImports`: `"."`에서 빈 것. 뜻이 있는 것은 gentest의 생성 골든이 표시를 달고 이 트리에 있기 때문(fable 7c). `TestGeneratedImportsGate`: 임시 트리에서 표시 있는 파일의 `text/template`, 표시 있는 파일의 `reflect`, CRLF 표시 파일의 `text/template`, 표시 있는 깨진 Go, `.tmpl`의 `"text/template"`가 각각 걸리고, 표시 없는 파일의 `text/template`와 표시 있는 파일의 허용 import는 통과
+
+파일
+- `internal/build/build.go`: `stages`의 `parse` 훅, `state`의 쿼리 필드, `checking`, `checkQueries`. `makemigrations.go`: `parse`에 nil
+- `internal/mapper/describe.go`: 셋째 반환값과 파라미터 진단 + 컬럼. `names.go`: `[]*Query`, `Imports`, `PackageName`. `result.go`: `modelNamed`
+- `cmd/maago/gen_test.go`·`mapper_test.go`: `Names`·`Describe` 호출
+- `noreflect_test.go`: 게이트
+- 새 `cmd/maago/queries_build_test.go`
+
+하지 않기로 한 것
+- `TestGenerated`의 `checkedQueries`를 `build`로 바꾸기: 골든이 gentest 자리에 가고 PG를 골라 돌리므로 그대로. `build`가 같은 것을 만드는지는 아래 시험이 골든과 비교해 본다
+- 쿼리 파일만 바뀐 `check`를 빠르게 하기: D-65는 M9에서 잰다
+- 생성 코드를 임시 모듈에서 `go vet`로 컴파일하기(처음 계획의 `reports/`): 새로 증명할 것은 package 절뿐이고, 컴파일은 gentest가, 사용자 모듈 모양은 10번이 본다(fable 11)
+
+단계
+1. `Describe`의 반환 → 확인: `TestDescribeQueryErrors`·`TestDescribeQueries`(두 방언) 그대로, 더해 파라미터 타입만 틀린 PG 쿼리가 진단과 컬럼을 함께 준다. 닫힌 연습용 DB에서 `fatal`이 참
+2. `Names`의 `[]*Query`와 `modelNamed` → 확인: `TestNames`(DB 없음, codex 4)의 골든 그대로(같은 `R`의 두 쿼리가 거짓 충돌이 되지 않는 것이 판별, fable 5), 표에 `:exec` 쿼리(결과 없음)와 모델 이름을 결과로 쓴 쿼리(새 타입으로 세지 않음)를 더한다. `TestGenerated` 골든 그대로
+3. `PackageName` → 확인: 표 시험(package 절 있는 파일 → 그것, 생성물만 → 오류, `_test.go`만 → 오류, 파일 없음 → 오류와 위치, `.`·`_`로 시작하는 파일만 → 오류)
+4. `build` 연결 → 확인(`cmd/maago`, SQLite. `orders` 픽스처를 임시 프로젝트로 복사하고 `go.mod`, `makemigrations`로 `0001`):
+   - `gen` → `check` 0. 생성된 `models_gen.go`·`queries_gen.go`가 gentest `sqlite/orders`의 골든과 같다. 쿼리만 있는 디렉터리 `reports/`(`doc.go`의 `package reports`, 모델 표를 읽는 쿼리 하나)도 `queries_gen.go`를 받고 `go/parser`로 읽은 package 절이 `reports`(codex 7, fable 11). `reports/`에서 `doc.go`를 지우면 `reports/queries` 위치의 오류
+   - 쿼리 파일 하나를 고치면(`SearchOrders`의 `LIMIT`) `check`가 `queries_gen.go: generated file is out of date`. `queries/`를 모두 지우면 `gen`이 `queries_gen.go`를 지운다
+   - 순서(fable 9): 모델에 필드 `Note string`을 더하고 마이그레이션 없이 `note`를 쓰는 쿼리를 두면 `check`는 마이그레이션 불일치만 내고 prepare 오류는 내지 않는다. 그 상태에서 `-- nmae: X`인 `.sql`을 넣어도 `makemigrations`는 초안을 쓴다(차이가 있을 때라 "초안을 쓴다"를 단언할 수 있다, fable 8)
+   - 모델에서 `Priority`를 지우고 `makemigrations` → 초안이 써진다(`order_by_amount.sql`이 `priority`를 쓰는데도). `allow-drop` 표시 뒤 `check`는 `queries/order_by_amount.sql:줄:칸`의 오류 **하나**. 하나인 것이 판별이다: 생성물 비교나 다른 쿼리의 연쇄가 섞이면 줄이 는다(fable 12)
+   - 여러 앱·여러 쿼리의 오류가 한 실행에(codex 2, fable 10): `orders`와 `reports`에 깨진 쿼리 하나씩(없는 컬럼) → `check`에 둘 다
+   - 이름 충돌(쿼리 `GetOrder`)은 DB 없이: `MAAGO_DATABASE_URL`을 닿지 않는 PG 주소로 두면 이름 충돌만 나오고 DB 연결 오류는 없다(`early`에서 멈춤)
+   - 태그 오류와 `.sql` 머리 오류가 한 실행에 함께(fable 1의 판별: `parse`가 3단계에 있다)
+   - PG(`MAAGO_TEST_PG_URL`이 있을 때): `gen` → `check` 0, `queries_gen.go`가 gentest `postgres/orders` 골든과 같다. 앞 쿼리 하나가 prepare에 실패해도 뒤 쿼리와 CRUD prepare에서 "transaction is aborted"가 나오지 않고 그 쿼리의 오류만(codex 3: `SAVEPOINT`가 연결을 지킨다)
+5. 게이트 → 확인: 위 두 시험, 그리고 일부러 템플릿에 `"strconv"` import를 넣으면 `TestGeneratedImports`(골든 갱신 뒤)가 실패(되돌림)
+6. 두 모듈 `go vet`·`go test`(PG 포함), `gofmt -l .`, `go mod tidy -diff`
+
+계획 리뷰 (codex·fable)
+- 받음: A의 수명(codex 1), `checkQueries`의 모으는 법과 앱 둘의 시험(codex 2, fable 10), PG에서 실패한 쿼리 뒤의 prepare(codex 3), DB 없는 `TestNames` 표(codex 4), `IsGenerated`·CRLF·깨진 Go(codex 6), 파일·package 절 단언(codex 7), `parse`를 3단계로(fable 1), 치명 실패를 가름(fable 2), CRUD prepare는 안전띠로 이유를 적고 남김(fable 3), package 절 요구(fable 4), 이름으로 한 번(fable 5), `Describe`가 컬럼을 줌(fable 6), 허용 목록 게이트(fable 7), 확인 순서들(fable 8·9·12), `go vet` 대신 package 절(fable 11)
+- 해당 없음: codex 5(디렉터리 이름 fallback을 뺐다)
+
+구현에서 달라진 것
+- SQLite는 오류 위치를 주지 않아 prepare 오류는 쿼리의 `-- name:` 자리다(4번 그대로). 시험의 위치를 그에 맞췄다. PG는 SQL 안의 자리
+- `Names`는 모델 앱마다(그 디렉터리의 쿼리와 함께), 그다음 모델 없는 쿼리 앱마다 부른다
+- 게이트의 `.tmpl` 검사는 파일 단위(줄·칸 없이). 템플릿은 둘뿐이다
+
+구현 리뷰 (ponytail·codex·fable)
+- 받음: 한 번 쓰는 도우미 `queryApp`·`dirs`를 `early` 안으로(ponytail 1), 시험은 `expect`를 쓰고 `expect`는 `diagnostics`를 쓴다(ponytail 2), `withColumns` 상수(ponytail 3), `.tmpl`은 `Contains`(ponytail 5), 게이트 시험에 `strconv`: 허용 목록을 금지 목록으로 바꾸는 변이가 살아남았다(fable 1), 쿼리만 있는 디렉터리의 `Names`: 빼는 변이가 살아남았다 → `reports/doc.go`의 `OrderCount`와 충돌(fable 2), `t.TempDir()`을 `Clean`(fable 4: `GOTMPDIR`에 `..`), 주석을 PG로 좁힘(fable 5). fable의 변이 13개 중 10개가 잡혔고 살아남은 셋 중 둘을 위에서 막았다
+- 받지 않음: CRUD prepare 지우기(ponytail 4, 계획의 fable 3대로 안전띠로 남김), 앱을 정렬해 돌기(codex 1: `diag.Write`가 위치 순으로 정렬하므로 출력은 이미 결정적이다), `checkQueries`의 `fatal`을 빌드 수준에서 시험(fable 3: prepare로는 연결을 죽일 수 없다. `TestDescribeFatal`이 `Describe`를 덮고 호출자는 한 줄), `//go:build ignore`인 파일의 package 절(fable 6: `declared`와 같은 기존 맹점, TODO로)
+- codex는 샌드박스가 임시 디렉터리를 막아 시험을 돌리지 못했다(코드만 읽은 리뷰). fable은 복사본에서 PG까지 돌렸다
+
 ## 10. 게시판 튜토리얼의 모델·마이그레이션·매퍼 단계 (D-103)
 
 - D-103의 자리, 기대 상태 목록, 걷는 스크립트, 가운데 단계를 고치는 스크립트를 만든다

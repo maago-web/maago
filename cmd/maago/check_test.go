@@ -74,12 +74,7 @@ func expect(t *testing.T, root string, want ...string) {
 	t.Helper()
 	build.Gen(root)
 	out := text(build.Check(root))
-	var lines []string
-	for _, l := range strings.Split(out, "\n") {
-		if l != "" && !strings.HasPrefix(l, "  fix: ") {
-			lines = append(lines, l)
-		}
-	}
+	lines := diagnostics(out)
 	missing := false
 	for _, w := range want {
 		if i := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, w) }); i >= 0 {

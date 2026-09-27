@@ -32,10 +32,11 @@ var pgTypes = map[model.Type]struct {
 // share. It reports what the database finds wrong, at the place in the
 // query file and with the combination that shows it (rule 5). The
 // parameter types are checked for PostgreSQL only: SQLite does not know
-// them.
-func Describe(ctx context.Context, db *practicedb.DB, q *Query, axes []Axis, vs []Variant) ([]practicedb.Column, []diag.Diagnostic) {
+// them. A wrong parameter type leaves the columns good, so they come with
+// its diagnostics. fatal is true when the connection failed, after which
+// db cannot be used.
+func Describe(ctx context.Context, db *practicedb.DB, q *Query, axes []Axis, vs []Variant) (cols []practicedb.Column, ds []diag.Diagnostic, fatal bool) {
 	d := db.Dialect()
-	var ds []diag.Diagnostic
 	seen := map[string]bool{} // what was reported, so each is reported once
 	report := func(key string, dg diag.Diagnostic) {
 		if !seen[key] {
@@ -43,7 +44,6 @@ func Describe(ctx context.Context, db *practicedb.DB, q *Query, axes []Axis, vs 
 			ds = append(ds, dg)
 		}
 	}
-	var cols []practicedb.Column
 	colsFrom := -1              // the variant cols come from
 	var differ *diag.Diagnostic // reported only if every variant prepares
 	failed := false
@@ -57,9 +57,9 @@ func Describe(ctx context.Context, db *practicedb.DB, q *Query, axes []Axis, vs 
 			ns = []int{1, 2}
 		}
 		for _, n := range ns {
-			desc, err, fatal := db.Describe(ctx, v.SQL(d, n))
-			if fatal != nil {
-				return nil, fatal
+			desc, err, broken := db.Describe(ctx, v.SQL(d, n))
+			if broken != nil {
+				return nil, broken, true
 			}
 			if err != nil {
 				failed = true
@@ -95,19 +95,16 @@ func Describe(ctx context.Context, db *practicedb.DB, q *Query, axes []Axis, vs 
 		}
 	}
 	if failed {
-		return nil, ds
+		return nil, ds, false
 	}
 	if differ != nil {
-		ds = append(ds, *differ)
+		return nil, append(ds, *differ), false
 	}
 	if q.Kind == Exec && len(cols) > 0 {
-		ds = append(ds, diag.New(q.NamePos, fmt.Sprintf(":exec query %s returns columns %s, which would be thrown away", q.Name, columnNames(cols)),
-			"use :one or :many, or remove RETURNING"))
+		return nil, append(ds, diag.New(q.NamePos, fmt.Sprintf(":exec query %s returns columns %s, which would be thrown away", q.Name, columnNames(cols)),
+			"use :one or :many, or remove RETURNING")), false
 	}
-	if ds != nil {
-		return nil, ds
-	}
-	return cols, nil
+	return cols, ds, false
 }
 
 // paramType checks the type PostgreSQL reads parameter name as.

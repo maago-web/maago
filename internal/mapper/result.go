@@ -102,15 +102,25 @@ func (q *Query) result(app *model.App, tables map[string]*model.Model, cols []pr
 		}
 		return nil
 	}
-	if app != nil {
-		for _, m := range app.Models {
-			if m.Name == q.Result {
-				r.Model = m
-				return r, q.modelResult(r, cols, src, j)
-			}
-		}
+	if r.Model = modelNamed(app, q.Result); r.Model != nil {
+		return r, q.modelResult(r, cols, src, j)
 	}
 	return r, q.newResult(r, cols, src, j, typeName)
+}
+
+// modelNamed is the model of app, which may be nil, named name: a query
+// naming it as its result gets rows of it, and any other name is a new
+// type (D-23).
+func modelNamed(app *model.App, name string) *model.Model {
+	if app == nil {
+		return nil
+	}
+	for _, m := range app.Models {
+		if m.Name == name {
+			return m
+		}
+	}
+	return nil
 }
 
 func (q *Query) modelResult(r *Result, cols []practicedb.Column, src func(practicedb.Column) *model.Field, j joins) []diag.Diagnostic {

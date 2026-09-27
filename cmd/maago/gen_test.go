@@ -38,7 +38,11 @@ func TestGenerated(t *testing.T) {
 				apps, fset := modeltest.Example(t, g.root)
 				app := apps[slices.IndexFunc(apps, func(a *model.App) bool { return a.Dir == g.dir })]
 				qs := checkedQueries(t, d, g.root, g.dir, fset, apps)
-				if ds := mapper.Names(fset, g.root, g.dir, app, qs); ds != nil {
+				var queries []*mapper.Query
+				for _, c := range qs {
+					queries = append(queries, c.Query)
+				}
+				if ds := mapper.Names(fset, g.root, g.dir, app, queries); ds != nil {
 					t.Fatalf("names:\n%s", text(ds))
 				}
 				golden.Check(t, out+"/models_gen.go", mapper.ModelsFile(d, app))
@@ -99,7 +103,7 @@ func checkedQueries(t *testing.T, d project.Dialect, root, dir string, fset *tok
 		if ds != nil {
 			t.Fatalf("%s:\n%s", q.File, text(ds))
 		}
-		c, ds := mapper.Describe(ctx(t), db, q, axes, vs)
+		c, ds, _ := mapper.Describe(ctx(t), db, q, axes, vs)
 		if ds != nil {
 			t.Fatalf("%s:\n%s", q.File, text(ds))
 		}

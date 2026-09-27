@@ -28,6 +28,8 @@ func TestNames(t *testing.T) {
 		"orders/old_gen.go":            pipeline.Marker + "\n\npackage orders\n\nfunc Qux() {}\n",
 		"orders/queries/get_order.sql": "-- name: GetOrder :exec\nDELETE FROM orders\nWHERE id = 1\n",
 		"orders/queries/foo.sql":       "-- name: Foo :many Foo\nSELECT id FROM orders\n",
+		// Rows of the model: no new type Order.
+		"orders/queries/by_id.sql": "-- name: ByID :one Order\nSELECT id FROM orders\nWHERE id = 1\n",
 		"orders/queries/list.sql": "-- name: List :many R\n-- param: sort_by a/b\nSELECT id FROM orders ORDER BY\n" +
 			"  {sort_by=a} id\n  {sort_by=b} id DESC\n",
 		"orders/queries/list_sort.sql": "-- name: ListSort :many R\n-- param: by a/b\nSELECT id FROM orders ORDER BY\n" +
@@ -50,19 +52,44 @@ func TestNames(t *testing.T) {
 	if ds != nil {
 		t.Fatal(ds)
 	}
-	var qs []Checked
-	r := &Result{Name: "R"} // one type for both, as Results gives
-	for _, q := range qapps[0].Queries {
-		c := Checked{Query: q}
-		switch q.Name {
-		case "Foo":
-			c.Result = &Result{Name: "Foo", Pos: q.NamePos}
-		case "List", "ListSort":
-			c.Result = r
-		}
-		qs = append(qs, c)
-	}
 	var b strings.Builder
-	diag.Write(&b, Names(fset, root, "orders", apps[0], qs))
+	diag.Write(&b, Names(fset, root, "orders", apps[0], qapps[0].Queries))
 	golden.Check(t, "testdata/names.golden", []byte(b.String()))
+}
+
+// The package of an app is what its own Go files say; without one there
+// is nothing to go by.
+func TestPackageName(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		files map[string]string
+		want  string
+	}{
+		{"clause", map[string]string{"doc.go": "package reports\n", "a_test.go": "package reports_test\n"}, "reports"},
+		{"main", map[string]string{"main.go": "package main\n"}, "main"},
+		{"generated only", map[string]string{"queries_gen.go": pipeline.Marker + "\n\npackage reports\n"}, ""},
+		{"tests only", map[string]string{"a_test.go": "package reports\n"}, ""},
+		{"ignored only", map[string]string{"_a.go": "package reports\n", ".b.go": "package reports\n"}, ""},
+		{"none", nil, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			root := t.TempDir()
+			for name, src := range c.files {
+				if err := os.WriteFile(filepath.Join(root, name), []byte(src), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, ds := PackageName(root, ".")
+			want := ""
+			if c.want == "" {
+				want = "queries: directory . has queries but no Go file saying which package they belong to\n" +
+					"  fix: add a Go file with a package clause to ., such as a doc.go\n"
+			}
+			var b strings.Builder
+			diag.Write(&b, ds)
+			if got != c.want || b.String() != want {
+				t.Errorf("got %q\n%s", got, b.String())
+			}
+		})
+	}
 }
