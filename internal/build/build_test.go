@@ -4,7 +4,6 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -18,7 +17,14 @@ func example(t *testing.T) string {
 	if err := os.CopyFS(root, os.DirFS("../testdata/example")); err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("MAAGO_DATABASE_URL", "sqlite:app.db")
 	return root
+}
+
+// noEnv leaves MAAGO_DATABASE_URL unset for the test, so .env is read.
+func noEnv(t *testing.T) {
+	t.Setenv("MAAGO_DATABASE_URL", "") // restores it afterwards
+	os.Unsetenv("MAAGO_DATABASE_URL")
 }
 
 func read(t *testing.T, path string) string {
@@ -58,46 +64,6 @@ func snapshot(t *testing.T, dir string) map[string]string {
 	return m
 }
 
-func TestGenThenCheck(t *testing.T) {
-	root := example(t)
-	gen := filepath.Join(root, "blog", "models_gen.go")
-
-	if removed, ds := Gen(filepath.Join(root, "blog")); len(ds) > 0 || len(removed) > 0 {
-		t.Fatalf("gen: removed %v\n%s", removed, text(ds))
-	}
-	if got, want := read(t, gen), read(t, "../model/testdata/models_gen.golden"); got != want {
-		t.Errorf("models_gen.go:\n%s\nwant:\n%s", got, want)
-	}
-	if ds := Check(root); len(ds) > 0 {
-		t.Fatalf("check right after gen:\n%s", text(ds))
-	}
-
-	write(t, gen, read(t, gen)+"// edited by hand\n")
-	if out := text(Check(root)); !strings.Contains(out, "blog/models_gen.go: generated file is out of date") {
-		t.Errorf("check after an edit:\n%s", out)
-	}
-	os.Remove(gen)
-	if out := text(Check(root)); !strings.Contains(out, "blog/models_gen.go: generated file is missing") {
-		t.Errorf("check after removing it:\n%s", out)
-	}
-
-	// Once every field is a column, gen removes models_gen.go.
-	Gen(root)
-	models := filepath.Join(root, "blog", "models.go")
-	var kept []string
-	for _, line := range strings.SplitAfter(read(t, models), "\n") {
-		if f := strings.Fields(line); len(f) > 0 && slices.Contains([]string{"Kind", "Count", "cache", "Digest", "Audit"}, f[0]) {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	write(t, models, strings.Join(kept, ""))
-	removed, ds := Gen(root)
-	if len(ds) > 0 || !slices.Equal(removed, []string{"blog/models_gen.go"}) {
-		t.Errorf("removed %v\n%s", removed, text(ds))
-	}
-}
-
 // M1 completion condition 1, through the whole pipeline.
 func TestMaxlen(t *testing.T) {
 	root := example(t)
@@ -129,24 +95,6 @@ func TestStagesStop(t *testing.T) {
 	}
 }
 
-// Each run starts clean: two projects in a row do not mix.
-func TestRunsAreIndependent(t *testing.T) {
-	a, b := example(t), t.TempDir()
-	write(t, filepath.Join(b, "go.mod"), "module example.com/b\n")
-	if _, ds := Gen(a); len(ds) > 0 {
-		t.Fatal(text(ds))
-	}
-	if removed, ds := Gen(b); len(ds) > 0 || len(removed) > 0 {
-		t.Errorf("second project: removed %v\n%s", removed, text(ds))
-	}
-	if _, err := os.Stat(filepath.Join(b, "blog")); err == nil {
-		t.Error("the first project's files leaked into the second")
-	}
-	if ds := Check(a); len(ds) > 0 {
-		t.Errorf("first project after the second:\n%s", text(ds))
-	}
-}
-
 // Outside a module neither command may pass: there is nothing it checked.
 func TestNoModule(t *testing.T) {
 	if _, ds := Gen(t.TempDir()); !strings.Contains(text(ds), "go mod init") {
@@ -171,5 +119,52 @@ func TestNameClash(t *testing.T) {
 	}
 	if after := snapshot(t, root); !maps.Equal(before, after) {
 		t.Errorf("gen wrote files despite an error")
+	}
+}
+
+// This module has no database driver: check reaches the database stage
+// and fails there, as it must when the practice database cannot be
+// reached (D-64), with nothing written.
+func TestCheckWithoutDriver(t *testing.T) {
+	root := example(t)
+	before := snapshot(t, root)
+	ds := Check(root)
+	if out := text(ds); len(ds) != 1 || !strings.HasPrefix(out, `no "sqlite" database driver in this maago build`) || !strings.Contains(out, "fix: ") {
+		t.Errorf("got:\n%s", out)
+	}
+	if _, ds := Gen(root); len(ds) != 1 {
+		t.Errorf("gen: got:\n%s", text(ds))
+	}
+	if after := snapshot(t, root); !maps.Equal(before, after) {
+		t.Errorf("wrote files despite an error")
+	}
+}
+
+// A PostgreSQL project's names are checked for its length limit before
+// any connection.
+func TestPostgresNameLength(t *testing.T) {
+	root := example(t)
+	t.Setenv("MAAGO_DATABASE_URL", "postgres://127.0.0.1:1/nowhere")
+	write(t, filepath.Join(root, "shop", "models.go"), "package shop\n\nimport \"github.com/maago-web/maago\"\n\n"+
+		"type Item struct {\n\tmaago.Model `maago:\"table="+strings.Repeat("x", 64)+"\"`\n\tID int64\n}\n")
+	if ds := Check(root); len(ds) != 2 || strings.Count(text(ds), "is longer than 63 bytes") != 2 { // the table and its key
+		t.Errorf("got:\n%s", text(ds))
+	}
+}
+
+// A bad .env, a tag error and an unfinished migration are independent,
+// so one run shows all three (D-61).
+func TestEnvTagsAndMigrations(t *testing.T) {
+	root := example(t)
+	noEnv(t)
+	write(t, filepath.Join(root, ".env"), "MAAGO_DATABASE_URL=mysql://x\n")
+	models := filepath.Join(root, "blog", "models.go")
+	write(t, models, strings.Replace(read(t, models), "max=200", "maxlen=200", 1))
+	write(t, filepath.Join(root, "migrations", "0001_initial.sql"), "CREATE TABLE t (a TEXT DEFAULT 'x);\n")
+	out := text(Check(root))
+	for _, want := range []string{".env:1:", `unknown tag key "maxlen"`, "migrations/0001_initial.sql:1:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in:\n%s", want, out)
+		}
 	}
 }

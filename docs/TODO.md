@@ -14,6 +14,8 @@
 
 - [ ] 서로 가리키는 두 모델을 한 번에 지우면 `DropTable` 순서로는 PG 초안이 실패한다(FK 고리, M2 6번). 9번이 쓰기 전 다시 적용해 잡는다. 7번이 한 문장 `DROP TABLE a, b`로 풀지 정한다
 
+- [ ] 모델의 테이블 이름이 `maago_`로 시작하면 거부한다. 읽기가 `maago_migrations`를 건너뛰고 초안이 `maago_new_*`를 임시 이름으로 쓴다(M2 8번)
+
 - [ ] SQLite의 FK는 연결마다 `PRAGMA foreign_keys = ON`이 있어야 강제된다. 연습용 DB와 런타임 연결에서 켠다(M1 6번).
 
 ## 모델 태그

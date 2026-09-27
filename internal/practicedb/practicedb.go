@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/dialect"
@@ -133,14 +134,33 @@ func (p *DB) setUp(ctx context.Context) error {
 	return nil
 }
 
-// Exec runs one statement. If it fails, the diagnostic is at pos. In
-// PostgreSQL a failed statement aborts the transaction, so callers stop at
-// the first failure.
+// ErrorPosition returns where in its statement err happened, counting
+// characters from 1, or 0. The root module knows no driver (D-90), so the
+// command that registers them fills it in.
+var ErrorPosition = func(error) int { return 0 }
+
+// Exec runs one statement, written at pos. If it fails, the diagnostic is
+// at pos, or where in the statement the database says. In PostgreSQL a
+// failed statement aborts the transaction, so callers stop at the first
+// failure.
 func (p *DB) Exec(ctx context.Context, pos token.Position, stmt string) []diag.Diagnostic {
-	if _, err := p.conn.ExecContext(ctx, stmt); err != nil {
-		return []diag.Diagnostic{diag.New(pos, diag.OneLine(err.Error()), "fix the SQL statement")}
+	_, err := p.conn.ExecContext(ctx, stmt)
+	if err == nil {
+		return nil
 	}
-	return nil
+	if n := ErrorPosition(err); n > 0 {
+		for _, r := range stmt {
+			if n--; n == 0 {
+				break
+			}
+			if r == '\n' {
+				pos.Line, pos.Column = pos.Line+1, 1
+			} else {
+				pos.Column += utf8.RuneLen(r)
+			}
+		}
+	}
+	return []diag.Diagnostic{diag.New(pos, diag.OneLine(err.Error()), "fix the SQL statement")}
 }
 
 // QueryContext runs a query on the connection, for reading the schema.

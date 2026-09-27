@@ -269,6 +269,15 @@ func Closing(toks []Token, open int) int {
 	return len(toks) - 1
 }
 
+// Name returns the name a Word or Quoted token stands for, without quotes.
+func Name(tok Token) string {
+	if tok.Kind != Quoted {
+		return tok.Text
+	}
+	q := tok.Text[:1]
+	return strings.ReplaceAll(tok.Text[1:len(tok.Text)-1], q+q, q)
+}
+
 // Normalize joins toks with single spaces, upper-casing words, for
 // comparing SQL written differently: a(b) and A ( b ) are the same.
 // Strings and quoted names are kept as written.

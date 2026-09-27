@@ -1,0 +1,28 @@
+-- gap
+migrations/0004_c.sql: migration 0003 is missing before migrations/0004_c.sql
+  fix: number the migrations from 0001 without gaps
+-- not from 1
+migrations/0002_a.sql: migration 0001 is missing before migrations/0002_a.sql
+  fix: number the migrations from 0001 without gaps
+-- same number
+migrations/0003_add_x.sql: migration number 0003 is also used by migrations/0003_add_y.sql
+  fix: renumber the migration merged later to 0004, then run maago check again
+migrations/0003_add_y.sql: migration number 0003 is also used by migrations/0003_add_x.sql
+  fix: renumber the migration merged later to 0004, then run maago check again
+-- same number after a gap
+migrations/0003_a.sql: migration 0002 is missing before migrations/0003_a.sql
+  fix: number the migrations from 0001 without gaps
+migrations/0003_a.sql: migration number 0003 is also used by migrations/0003_b.sql
+  fix: renumber the migration merged later to 0004, then run maago check again
+migrations/0003_b.sql: migration number 0003 is also used by migrations/0003_a.sql
+  fix: renumber the migration merged later to 0004, then run maago check again
+-- bad names
+migrations/0002-dash.sql: migration name "0002-dash.sql" is not like 0001_initial.sql
+  fix: name it with four digits, _, then lower-case letters, digits and _
+migrations/0002_Upper.sql: migration name "0002_Upper.sql" is not like 0001_initial.sql
+  fix: name it with four digits, _, then lower-case letters, digits and _
+migrations/2_short.sql: migration name "2_short.sql" is not like 0001_initial.sql
+  fix: name it with four digits, _, then lower-case letters, digits and _
+-- unterminated string
+migrations/0001_initial.sql:2:8: unterminated string
+  fix: close it with '

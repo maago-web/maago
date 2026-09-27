@@ -147,6 +147,13 @@ func models(t *testing.T, src string) ([]*model.App, *token.FileSet) {
 	if src == "" {
 		return nil, token.NewFileSet()
 	}
+	return modeltest.Example(t, modelProject(t, src))
+}
+
+// modelProject writes a project whose blog app holds src, with ~ for
+// backquotes, and returns its root.
+func modelProject(t *testing.T, src string) string {
+	t.Helper()
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "blog"), 0o755); err != nil {
 		t.Fatal(err)
@@ -157,7 +164,7 @@ func models(t *testing.T, src string) ([]*model.App, *token.FileSet) {
 	if err := os.WriteFile(filepath.Join(root, "blog", "models.go"), []byte(strings.ReplaceAll(src, "~", "`")), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	return modeltest.Example(t, root)
+	return root
 }
 
 func (dd draftDialect) schema(t *testing.T, db *practicedb.DB) *schema.Schema {

@@ -12,11 +12,23 @@ import (
 
 	"github.com/maago-web/maago/internal/build"
 	"github.com/maago-web/maago/internal/diag"
+	"github.com/maago-web/maago/internal/practicedb"
 
 	// The practice database opens drivers by name (D-89, D-90).
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	_ "modernc.org/sqlite"
 )
+
+func init() {
+	practicedb.ErrorPosition = func(err error) int {
+		var pe *pgconn.PgError
+		if errors.As(err, &pe) {
+			return int(pe.Position)
+		}
+		return 0
+	}
+}
 
 type command struct {
 	name, summary string

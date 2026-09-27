@@ -9,7 +9,9 @@ import (
 )
 
 func TestRun(t *testing.T) {
-	// gen and check need a project; an empty module has nothing to do.
+	// gen and check need a project and a database (D-64); an empty
+	// module has nothing to do.
+	t.Setenv("MAAGO_DATABASE_URL", "sqlite:app.db")
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/empty\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -78,10 +80,7 @@ commands:
 // The whole command on the shared example: gen, check, a hand edit, the
 // maxlen mistake (M1 completion condition 1), and a run from a subdirectory.
 func TestGenCheck(t *testing.T) {
-	root := t.TempDir()
-	if err := os.CopyFS(root, os.DirFS("../../internal/testdata/example")); err != nil {
-		t.Fatal(err)
-	}
+	root := exampleProject(t)
 	maago := func(dir string, args ...string) (int, string, string) {
 		t.Chdir(dir)
 		var stdout, stderr bytes.Buffer

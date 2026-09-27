@@ -1,0 +1,92 @@
+migrations/0001_refused.sql:1:1: BEGIN is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:2:1: BEGIN TRANSACTION is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:3:1: START TRANSACTION is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:4:1: COMMIT is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:5:1: COMMIT is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:6:1: END is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:7:1: ROLLBACK is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:8:1: ABORT is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:9:1: SAVEPOINT is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:10:1: RELEASE is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:11:1: PREPARE TRANSACTION is not allowed in a migration
+  fix: remove it; maago runs each migration in one transaction
+migrations/0001_refused.sql:12:1: SET is not allowed in a migration
+  fix: remove it; maago sets up the connection each migration runs on
+migrations/0001_refused.sql:13:1: SET is not allowed in a migration
+  fix: remove it; maago sets up the connection each migration runs on
+migrations/0001_refused.sql:14:1: RESET is not allowed in a migration
+  fix: remove it; maago sets up the connection each migration runs on
+migrations/0001_refused.sql:15:1: PRAGMA is not allowed in a migration
+  fix: remove it; maago sets up the connection each migration runs on
+migrations/0001_refused.sql:16:1: set_config is not allowed in a migration
+  fix: remove it; maago sets up the connection each migration runs on
+migrations/0001_refused.sql:17:1: DO runs code maago cannot check
+  fix: write its statements as plain SQL
+migrations/0001_refused.sql:18:1: ATTACH DATABASE is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:19:1: DETACH DATABASE is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:20:1: CONCURRENTLY cannot run inside a transaction, and maago runs each migration in one
+  fix: remove CONCURRENTLY
+migrations/0001_refused.sql:21:1: CONCURRENTLY cannot run inside a transaction, and maago runs each migration in one
+  fix: remove CONCURRENTLY
+migrations/0001_refused.sql:22:1: CONCURRENTLY cannot run inside a transaction, and maago runs each migration in one
+  fix: remove CONCURRENTLY
+migrations/0001_refused.sql:23:1: extensions are not supported
+  fix: remove it from the migrations
+migrations/0001_refused.sql:24:1: CREATE SCHEMA is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:25:1: a temporary table is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:26:1: a temporary table is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:27:1: views are not supported
+  fix: remove it from the migrations
+migrations/0001_refused.sql:28:1: views are not supported
+  fix: remove it from the migrations
+migrations/0001_refused.sql:29:1: a schema-qualified name is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:30:1: a schema-qualified name is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:31:1: a schema-qualified name is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:32:1: a schema-qualified name is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:33:1: a schema-qualified name is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:34:1: a schema-qualified name is outside the schema maago checks
+  fix: create everything in the default schema
+migrations/0001_refused.sql:35:1: triggers are not supported
+  fix: remove it from the migrations
+migrations/0001_refused.sql:38:1: triggers are not supported
+  fix: remove it from the migrations
+migrations/0001_refused.sql:42:1: triggers are not supported
+  fix: remove it from the migrations
+migrations/0003_drops.sql:1:1: DROP TABLE deletes data
+  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+migrations/0003_drops.sql:2:1: ALTER TABLE … DROP COLUMN deletes data
+  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+migrations/0003_drops.sql:3:1: ALTER TABLE … DROP COLUMN deletes data
+  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+migrations/0003_drops.sql:4:1: ALTER TABLE … DROP COLUMN deletes data
+  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+migrations/0003_drops.sql:5:1: -- maago: allow-drop is not before a DROP TABLE or DROP COLUMN statement
+  fix: remove it, or move it to the line right before the DROP
+migrations/0003_drops.sql:7:1: DROP TABLE deletes data
+  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+migrations/0003_drops.sql:10:1: DROP TABLE deletes data
+  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+migrations/0003_drops.sql:13:1: DROP TABLE deletes data
+  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+migrations/0003_drops.sql:17:1: DROP TABLE deletes data
+  fix: if that is intended, put "-- maago: allow-drop" on the line right before it

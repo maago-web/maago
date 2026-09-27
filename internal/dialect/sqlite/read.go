@@ -185,7 +185,7 @@ func (r *reader) parse(t *schema.Table, text string) (fkNames map[string]string,
 				r.Fail(fmt.Sprintf("table %q has a column name quoted with %s, which maago does not support", t.Name, def[0].Text), `quote the name with "…" instead`)
 				continue
 			}
-			col = name(def[0])
+			col = dialect.Name(def[0])
 		}
 		r.definition(t, col, def, fkNames, collated)
 	}
@@ -205,7 +205,7 @@ func (r *reader) definition(t *schema.Table, col string, def []dialect.Token, fk
 		switch w := word(def[i]); w {
 		case "CONSTRAINT":
 			if i+1 < len(def) {
-				constraint = name(def[i+1])
+				constraint = dialect.Name(def[i+1])
 				i++
 			}
 			continue
@@ -221,7 +221,7 @@ func (r *reader) definition(t *schema.Table, col string, def []dialect.Token, fk
 				end := dialect.Closing(def, i+2)
 				for _, tok := range def[i+3 : end] {
 					if tok.Text != "," {
-						fkCols = append(fkCols, name(tok))
+						fkCols = append(fkCols, dialect.Name(tok))
 					}
 				}
 				i = end
@@ -231,7 +231,7 @@ func (r *reader) definition(t *schema.Table, col string, def []dialect.Token, fk
 				fkCols, fkName = []string{col}, constraint
 			}
 			if i+1 < len(def) {
-				fkNames[fkKey(fkCols, name(def[i+1]))] = fkName
+				fkNames[fkKey(fkCols, dialect.Name(def[i+1]))] = fkName
 			}
 			fkCols = nil
 		case "AUTOINCREMENT":
@@ -298,15 +298,6 @@ func word(tok dialect.Token) string {
 		return ""
 	}
 	return strings.ToUpper(tok.Text)
-}
-
-// name returns the name a Word or Quoted token stands for.
-func name(tok dialect.Token) string {
-	if tok.Kind != dialect.Quoted {
-		return tok.Text
-	}
-	q := tok.Text[:1]
-	return strings.ReplaceAll(tok.Text[1:len(tok.Text)-1], q+q, q)
 }
 
 // splitTop splits toks at commas outside parentheses.
