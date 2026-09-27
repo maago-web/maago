@@ -527,7 +527,7 @@ M2 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 - [x] 1~12 완료 (2026-09-27)
 - [x] 위 M2 완료 조건 세 개를 실제로 돌려 확인: 세 조건 모두 `cmd/maago`의 `TestM2Done`(두 방언). 조건 2의 경우별 표는 `TestCheckEditedDraft`(8번), 조건 3의 경우는 `TestCheckDrops`·`TestCheckRebuild`(8번). PG는 로컬 서버(`MAAGO_TEST_PG_URL`)에서 돌려 확인했다. 로컬에서 URL 없이 건너뛴 실행은 확인이 아니다
 - [x] MILESTONES.md의 M2 체크박스 갱신
-- [ ] push 뒤 GitHub Actions 로그에서 PG 테스트가 실제로 돈 것(건너뜀 0)을 확인(11번)
+- [x] push 뒤 GitHub Actions 로그에서 PG 테스트가 실제로 돈 것(건너뜀 0)을 확인(11번): 실행 36306510573, postgres:18 서비스, 건너뜀 메시지 없음 (2026-09-27)
 - [ ] TASKS-M3 초안(다음 커밋, M1 끝과 같은 순서)
 
 M3로 넘기는 것
