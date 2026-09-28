@@ -1,7 +1,7 @@
 # Maago에서 일하기
 
 - 먼저 [README.md](README.md)의 문서 목록을 읽는다. 일하는 방법은 [docs/WORKFLOW.md](docs/WORKFLOW.md)의 루프를 따른다.
-- **다음 작업**: [docs/MILESTONES.md](docs/MILESTONES.md)에서 진행 중인 마일스톤의 `TASKS-Mn.md`를 연다. 끝난 작업은 `git log`에 `(Mn N번)`으로 커밋되어 있다. 그다음 번호가 다음 작업이다.
+- **다음 작업**: [docs/MILESTONES.md](docs/MILESTONES.md)에서 진행 중인 마일스톤의 `TASKS-Mn.md`를 연다. 끝난 작업은 `git log`에 `(Mn N번)`으로 커밋되어 있다. 그다음 번호가 다음 작업이다. 진행 중인 마일스톤의 `TASKS-Mn.md`가 아직 없으면 다음 작업은 그 초안이다(지난 `TASKS`의 끝 절 마지막 항목, [README.md](README.md)에도 적는다).
 - 리뷰어 부르는 법
   - codex: `codex:codex-rescue` 서브에이전트. "읽기 전용 리뷰, 파일을 고치지 말 것"이라고 명시한다.
   - fable: `general-purpose` 서브에이전트에 `model: fable`.

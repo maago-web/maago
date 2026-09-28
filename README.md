@@ -5,6 +5,8 @@
 
 M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)가 끝났고 다음은 M4(HTTP)다. 문서부터 읽는다.
 
+**다음 작업: TASKS-M4 초안**(`TASKS-M3.md` "M3 끝"의 마지막 항목). MILESTONES의 M4 절과 선행 결정 U-07(서비스 시험 방법)에서 시작한다.
+
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙
 - [DECISIONS.md](docs/DECISIONS.md) — 구체적인 결정

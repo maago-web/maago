@@ -65,12 +65,12 @@ import (
 type Post struct {
 	maago.Model `maago:"table=posts,ordering=-PublishedAt"`
 
-	ID          int64      // 🔮 이름이 ID인 int64 필드가 PK
+	ID          int64      // 이름이 ID인 int64 필드가 PK
 	AuthorID    int64      `maago:"fk=auth.User,label='글쓴이'"`
 	Title       string     `maago:"max=200,label='제목'"`
 	Text        string     `maago:"label='본문'"`
 	Status      string     `maago:"max=20,choices=draft/published,default='draft',label='상태'"`
-	PublishedAt *time.Time `maago:"label='게시일'"` // 🔮 포인터면 NULL 허용
+	PublishedAt *time.Time `maago:"label='게시일'"` // 포인터면 NULL 허용
 }
 ```
 
@@ -423,8 +423,6 @@ maago check
 
 | 어디 | 가정 | 관련 |
 |---|---|---|
-| 3 | PK는 이름이 `ID`인 `int64` 필드 | D-12, D-21 |
-| 3 | NULL 허용은 포인터 타입 | D-43 |
 | 3 | 모델 태그 `ordering=-PublishedAt`의 `-`가 내림차순 | D-13 |
 | 4 | auth 사용자 테이블 이름 `auth_user`, `fk=auth.User` 표기 | U-06 |
 | 5 | `maago.Handler()`로 전체 핸들러를 얻는다 | D-40, D-46 |
