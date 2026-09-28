@@ -859,7 +859,7 @@ TASKS-M3
   4. 생성 코드에 `text/template`도 `reflect`도 없음: 루트의 `TestGeneratedImports`·`TestGeneratedImportsGate`(9번), `TestNoReflect`(M0)
 - [x] MILESTONES.md의 M3 체크박스 갱신
 - [x] push 뒤 GitHub Actions에서 PG 테스트가 실제로 돈 것을 확인: 실행 36433431542(postgres:18 서비스) 통과. Actions는 `CI`를 켜고, `CI`가 있으면 PG 시험은 건너뛰지 않고 실패한다(D-91). 그러니 통과는 PG에서 돈 것이다 (2026-09-28)
-- [ ] TASKS-M4 초안(다음 커밋)
+- [x] TASKS-M4 초안(2026-09-28)
 
 ## 열린 질문 (계획 단계에서 정한다)
 

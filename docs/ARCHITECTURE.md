@@ -33,6 +33,7 @@ github.com/maago-web/maago
 │                          ErrManyRows·ErrEmptySlice(D-111). 생성 코드만 부르는 것: One·Many·Exec,
 │                          Placeholders, SQLiteTime·SQLiteNullTime·ScanSQLiteTime·ScanNullSQLiteTime(D-105).
 │                          런타임이 기대는 내부 패키지는 internal/diag·internal/project뿐(시험이 본다)
+├── maagotest/          시험 전용 도우미 (M4, D-113). 런타임 공개 API가 루트 하나라는 원칙의 유일한 예외
 ├── contrib/
 │   ├── auth/            인증 앱 (M5)             D-50, D-51
 │   └── admin/           admin 런타임 (M6)         D-48, D-49
@@ -214,5 +215,5 @@ MAAGO_DATABASE_URL=sqlite:app.db
 |---|---|---|
 | A-1 | CLI의 DB 드라이버 의존 | `cmd/maago`를 별도 모듈로. 런타임 라이브러리는 의존 0 (D-03) |
 | A-2 | 프로젝트의 DB 선언 위치 | `.env`의 `MAAGO_DATABASE_URL`, 환경 변수가 우선 (D-08) |
-| A-3 | 타입 정보 | M1~M3은 `go/ast`만. M4에서 `golang.org/x/tools/go/packages`를 쓸지 정한다. 쓰면 루트 `go.mod`에 `require`가 생기므로(D-09) 그 코드를 `cmd/maago` 모듈에 둘지도 함께 정한다 |
+| A-3 | 타입 정보 | M1~M3은 `go/ast`만. M4부터 `go/types`와 직접 짠 importer(모듈 밖은 `go list -export`의 export data, 프로젝트 안은 소스와 메모리 생성물). `x/tools` 없음 (D-117) |
 | A-4 | 외부 의존 원칙 | 런타임은 stdlib만. 생성기는 필요한 것을 쓰되 마이그레이션 로직은 자체 구현 (D-09) |

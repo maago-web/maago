@@ -3,9 +3,9 @@
 **에이전트가 웹 애플리케이션을 쓰고, 기계가 그 코드를 실행 전에 검증하는 Go 프레임워크.**
 모델은 Django처럼 struct에 선언하고, SQL은 MyBatis처럼 파일에 손으로 쓴다.
 
-M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)가 끝났고 다음은 M4(HTTP)다. 문서부터 읽는다.
+M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)가 끝났고 M4(HTTP)를 하고 있다. 문서부터 읽는다.
 
-**다음 작업: TASKS-M4 초안**(`TASKS-M3.md` "M3 끝"의 마지막 항목). MILESTONES의 M4 절과 선행 결정 U-07(서비스 시험 방법)에서 시작한다.
+**다음 작업: M4 1번**([TASKS-M4.md](docs/TASKS-M4.md)의 타입 정보).
 
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙
@@ -13,7 +13,7 @@ M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)�
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — 내부 구조
 - [MILESTONES.md](docs/MILESTONES.md) — 만드는 순서
 - [WORKFLOW.md](docs/WORKFLOW.md) — 구현 루프
-- [TASKS-M3.md](docs/TASKS-M3.md) — 마지막으로 끝난 마일스톤의 작업 목록 (지난 것: [M0](docs/TASKS-M0.md), [M1](docs/TASKS-M1.md), [M2](docs/TASKS-M2.md))
+- [TASKS-M4.md](docs/TASKS-M4.md) — 진행 중인 마일스톤의 작업 목록 (지난 것: [M0](docs/TASKS-M0.md), [M1](docs/TASKS-M1.md), [M2](docs/TASKS-M2.md), [M3](docs/TASKS-M3.md))
 - [examples/board](examples/board/README.md) — 게시판 튜토리얼(M8)의 단계들
 - [TODO.md](docs/TODO.md) — 남은 일
 
