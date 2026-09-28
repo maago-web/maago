@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 28 Sep 2026 22:16:09 +0900
+Subject: [PATCH] Try a model result that misses a column
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+일부러 틀려 본다. RecentPosts의 결과를 모델 Post로 두고 body를 빼먹었다.
+
+결과가 모델이면 컬럼이 모델의 필드와 딱 맞아야 한다. 하나라도 빠지면
+Scan할 곳이 비므로 maago gen은 아무것도 쓰지 않고 이렇게 알린다:
+
+    board/queries/recent_posts.sql:4:1: result columns do not match model Post: missing "body"
+      fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
+
+Maago-Expect: board/queries/recent_posts.sql:4:1: result columns do not match model Post: missing "body"
+
+diff --git a/board/queries/recent_posts.sql b/board/queries/recent_posts.sql
+new file mode 100644
+index 0000000..5766e2e
+--- /dev/null
++++ b/board/queries/recent_posts.sql
+@@ -0,0 +1,7 @@
++-- name: RecentPosts :many Post
++-- The newest posts of every board.
++-- param: limit int64
++SELECT id, board_id, title, status, views, created_at, updated_at
++FROM board_post
++ORDER BY created_at DESC, id DESC
++LIMIT :limit

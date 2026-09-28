@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 28 Sep 2026 22:14:48 +0900
+Subject: [PATCH] Add Post.Views
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+필드를 더한다: 글의 조회 수 Views, 기본값 0.
+
+모델을 고치고 maago makemigrations를 돌리면 차이만 담은 0002가 나온다.
+있는 행은 기본값을 받는다. 생성된 NewPostInput에서 Views는 maago.Opt[int64]다:
+주지 않으면 기본값이 들어간다.
+
+diff --git a/board/board_test.go b/board/board_test.go
+index 4cb6206..93d1f97 100644
+--- a/board/board_test.go
++++ b/board/board_test.go
+@@ -42,20 +42,20 @@ func TestPostCRUD(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if p.Status != "draft" {
+-		t.Errorf("status %q, want the default draft", p.Status)
++	if p.Status != "draft" || p.Views != 0 {
++		t.Errorf("status %q, views %d: want the defaults", p.Status, p.Views)
+ 	}
+ 
+ 	got, err := GetPost(ctx, tx, p.ID)
+ 	if err != nil || got.Title != "첫 글" || !got.CreatedAt.Equal(p.CreatedAt) {
+ 		t.Fatalf("got %+v, %v", got, err)
+ 	}
+-	got.Status = "published"
++	got.Status, got.Views = "published", 3
+ 	if err := UpdatePost(ctx, tx, &got); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if again, _ := GetPost(ctx, tx, p.ID); again.Status != "published" {
+-		t.Errorf("status %q after the update", again.Status)
++	if again, _ := GetPost(ctx, tx, p.ID); again.Status != "published" || again.Views != 3 {
++		t.Errorf("status %q, views %d after the update", again.Status, again.Views)
+ 	}
+ 
+ 	if err := DeletePost(ctx, tx, p.ID); err != nil {
+diff --git a/board/models.go b/board/models.go
+index 0b9dfcb..f873463 100644
+--- a/board/models.go
++++ b/board/models.go
+@@ -23,6 +23,7 @@ type Post struct {
+ 	Title     string `maago:"max=200,label='제목'"`
+ 	Body      string
+ 	Status    string    `maago:"choices=draft/published/archived,default='draft'"`
++	Views     int64     `maago:"default=0"`
+ 	CreatedAt time.Time `maago:"auto=create"`
+ 	UpdatedAt time.Time `maago:"auto=update"`
+ }
+diff --git a/migrations/0002_add_board_post_views.sql b/migrations/0002_add_board_post_views.sql
+new file mode 100644
+index 0000000..18919e4
+--- /dev/null
++++ b/migrations/0002_add_board_post_views.sql
+@@ -0,0 +1 @@
++ALTER TABLE "board_post" ADD COLUMN "views" INTEGER NOT NULL DEFAULT 0;

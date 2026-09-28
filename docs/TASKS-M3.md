@@ -54,7 +54,7 @@ M3 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 - **머리**: `-- name: 이름 :종류 [결과]`, `-- param: 이름[?] 타입`, `-- column: 이름[?] 타입`(D-104). 머리는 본문 앞의 주석 줄이다. `--` 뒤가 `단어:` 꼴(`-- name : X`, `-- parm:`)이면 머리 줄로 보고 모르는 키는 did you mean(D-17). 그 밖의 주석은 설명이다(동작을 바꾸지 않는다)
 - **종류**는 닫힌 목록 `:one`·`:many`·`:exec`. `:one`은 행이 없으면 `sql.ErrNoRows`를 그대로(M4가 404로), **두 행 이상이면 오류**(`QueryRowContext`처럼 첫 행을 조용히 쓰지 않는다). `:exec`는 결과 타입이 없고 영향받은 행 수를 돌려준다
 - **파라미터 타입**: D-77의 타입, 그 슬라이스(규칙 2), 선택지(`latest/amount`). `?`는 포인터 필드(없음 = `nil`, D-75와 같은 표기). `bool`에는 `?`를 붙일 수 없다(`{flag}`가 "있음"인지 "참"인지 두 뜻이 된다. 세 값이 필요하면 선택지). 슬라이스에도 `?`를 붙이지 않는다: 슬라이스는 `nil`·빈 것이 "없음"이고 `{ids}`는 원소가 있을 때 참이다. 라벨이 보장하지 않는 자리의 빈 슬라이스는 실행 때 오류(`IN ()`은 SQL이 아니다)
-- **모든 `:이름`은 머리에 선언되어야 하고, 선언한 파라미터는 쓰여야 한다.** 규칙 1의 해석이고 새 규칙이 아니다. 10번에서 DECISIONS에 적어 D-24 "다섯 개"가 지켜진 것이 보이게 한다. DECISIONS의 `SearchOrders` 예제는 `:limit`을 선언하지 않았다 → 예제 원문에 `-- param: limit int64`를 더했다(이 초안 커밋). 3·8번의 픽스처는 그 원문과 글자까지 같다
+- **모든 `:이름`은 머리에 선언되어야 하고, 선언한 파라미터는 쓰여야 한다.** 규칙 1의 해석이고 새 규칙이 아니다. 11번에서 DECISIONS에 적어 D-24 "다섯 개"가 지켜진 것이 보이게 한다. DECISIONS의 `SearchOrders` 예제는 `:limit`을 선언하지 않았다 → 예제 원문에 `-- param: limit int64`를 더했다(이 초안 커밋). 3·8번의 픽스처는 그 원문과 글자까지 같다
 - **Go 쪽 모양**(TUTORIAL-FUTURE §6): `func SearchOrders(ctx context.Context, db maago.DB, p SearchOrdersParams) ([]OrderSummary, error)`. 파라미터가 없으면 `p`도 없다. 선택지는 이름 붙은 문자열 타입과 상수, 모르는 값은 실행 때 오류(조용히 기본값으로 가지 않는다). 쿼리 이름·파라미터 타입·새 결과 타입·CRUD 이름이 같은 패키지의 사용자 식별자(뷰 `PostList` 등)나 서로와 겹치면 생성 오류(M1이 이미 `go/ast`로 패키지를 읽는다)
 - **조합**: 조건 라벨이 가질 수 있는 값(선택 파라미터 있음·없음, bool 참·거짓, 슬라이스 원소 있음·없음, 선택지의 각 값)의 모든 조합을 만들고, 번역한 SQL 글이 같은 것은 하나로 친다. 상한 제안: 원 조합 256개, 글 64개. 넘으면 생성 오류(fix: 쿼리를 나누거나 Go에서 bool로). 근거: M2 12번의 PG `check` 약 105ms, 글 64개의 prepare는 그 안팎(3번에서 잰다, D-65)
 - **번역**: 생성기가 조합마다 고정된 SQL 조각을 Go 코드로 쓴다(D-22). 런타임은 SQL을 해석하지 않는다. PG 자리표시는 스칼라에 `$1…$n`을 생성 때 고정으로 주고, 슬라이스만 실행 때 `$n+1…`로 뒤에 붙인다(런타임이 만드는 글은 슬라이스 자리뿐). SQLite는 `?`. `::`(PG 형 변환), 문자열·주석·달러 인용 안의 `:`·`{`는 파라미터나 조건이 아니다(M2 3번의 토큰화)
@@ -733,6 +733,69 @@ func SearchOrders(ctx context.Context, db maago.DB, p SearchOrdersParams) ([]Ord
 - 단계마다 기대 상태대로(통과 단계는 `maago check`와 테스트가 통과, SQLite. PG로 바꾸는 단계는 M8의 표 자리)
 
 → 확인: 걷는 스크립트가 처음부터 끝까지 기대 상태대로 돈다. 통과 단계의 쿼리 하나를 깨면 그 단계에서 멈추고, 일부러 틀린 단계를 고치면(기대한 오류가 나지 않으면) 그것도 실패한다
+
+### 계획
+
+사람의 결정 (2026-09-28, 계획 리뷰 뒤)
+- 앱 시험의 DB: `go test`는 `board/`에서 돌므로 루트 `.env`를 보지 못한다(`maago.OpenDB`는 작업 디렉터리의 `.env`, D-101). 튜토리얼은 "`go test`는 `MAAGO_DATABASE_URL=sqlite:$PWD/board.db go test ./...`"로 한 줄 적고, 걷기도 똑같이 한다. 제대로 된 서비스 시험 방법은 U-07(M4)에서. 이 문제를 그 입력으로 TODO에(fable 1)
+- 기대 상태는 커밋 메시지의 트레일러 `Maago-Expect:`(아래). 따로 목록 파일은 두지 않는다. 대가: 문구가 바뀌면 패치 머리를 고친다(`git apply`는 머리를 보지 않으므로 손으로 고쳐도 되고, unpack → reword → pack도 된다)
+- Post의 `Status`는 필드만 지금(`choices`, 기본값 `'draft'`: D-106의 `Opt`가 한 번 더 보인다). 전이 규칙은 M4
+
+자리와 모양 (D-103)
+- `examples/board/steps/NNNN-제목.patch`: `git format-patch --root -N --zero-commit --no-signature --no-stat`의 출력 그대로. 파일 이름은 커밋 제목에서 나오고 `format-patch`는 비ASCII를 버리므로(fable 3) **제목은 영어 한 줄, 본문은 한국어**(튜토리얼 글과 짝). `-N`이라 단계를 끼워 넣어도 다른 파일의 Subject가 바뀌지 않는다. 생성물(`*_gen.go`), `.env`, DB 파일, `go.work`는 패치에 없다
+- 트레일러: 커밋 메시지(패치의 머리 줄들 다음, 첫 `---` 줄 앞)의 `Maago-Expect: <진단 첫 줄 전체>`, 기대하는 진단마다 한 줄. 없으면 통과 단계. 메시지 안의 다른 `Maago-` 키는 걷기의 오류(오타가 조용히 "통과 단계"가 되지 않게, codex 4)
+- `examples/board/steps.sh`(POSIX sh): `unpack DIR` = `git init` → `git am steps/*.patch` → `.git/info/exclude`에 `*_gen.go`·`.env`·`*.db`·`go.work*` → 이 저장소를 가리키는 `go.work`(`use .` + `replace`). `pack DIR` = `steps/*.patch`를 지우고 다시 뽑는다. 사람은 그 사이에 `git rebase -i`로 고친다. 고치지 않은 왕복은 같은 바이트다(저자·날짜가 패치에 있고 `am`이 지킨다). 고친 커밋은 날짜가 바뀔 수 있고 그것은 괜찮다(codex 3)
+- `examples/board/README.md`: 쓰는 법 몇 줄. maago는 `go build -o …/maago ./cmd/maago`로 만들어 풀어 둔 디렉터리에서 부른다. 공개 저장소를 만들 때는 커밋마다 `maago gen`을 돌려 생성물도 커밋한다(D-67. 패치가 생성물을 빼는 것은 D-103, fable 5)
+- 튜토리얼 모듈: `module example.com/board`, `require github.com/maago-web/maago v0.0.0-00010101000000-000000000000`과 `modernc.org/sqlite v1.59.0`(cmd/maago와 같은 판), `go.sum` 포함. `replace`는 패치에 없다(릴리스 전에는 태그한 판으로, TODO)
+
+걷기 (`cmd/maago/tutorial_test.go`)
+- `walk(stepsDir string) error`: 임시 디렉터리에서, 먼저 `go.work`(`use .`, `replace github.com/maago-web/maago => <저장소 루트>`)와 `.env`(`MAAGO_DATABASE_URL=sqlite:board.db`, 독자와 같은 상대 경로). 그리고 패치마다
+  1. `git apply`(작업 디렉터리는 git 저장소가 아니어도 된다) → 트레일러 읽기
+  2. `build.Gen` → 진단 첫 줄들이 기대와 **정확히** 같아야 한다(기대마다 같은 줄 하나, 남는 진단 없음, codex 5). 기대가 있는 단계는 여기서 다음 패치로
+  3. 단계의 `.go` 파일이 `gofmt`(`go/format`)된 그대로인지
+  4. `build.Check` 진단 없음 → `build.Migrate`(`.env`의 상대 경로 = 루트 기준 `board.db`. 앞 단계의 마이그레이션은 이미 적용되어 있다: 독자처럼 한 DB를 이어 쓴다)
+  5. `go test ./...`: `MAAGO_DATABASE_URL=sqlite:<임시 절대 경로>/board.db`(위 결정, 같은 파일), `GOPROXY=off`(모듈 캐시만: cmd/maago 모듈을 시험하면 같은 판이 이미 캐시에 있다. 네트워크가 튜토리얼을 흔들지 않는다, codex 1), `GOFLAGS=-mod=readonly`(커밋한 `go.sum`이 낡으면 덮지 않고 실패), 작업 공간은 위 `go.work`(장치 하나, codex 2·fable 4). 실패하면 그 출력
+  - 실패는 `NNNN-제목.patch: …`(어느 단계인지)
+- `TestBoardTutorial`: `walk("../../examples/board/steps")`
+- `TestBoardTutorialCatches`: 스텝을 임시로 복사해 고친 셋, 각각 그 단계 이름으로 실패하는지. (a) 통과 단계의 쿼리 `+` 줄을 없는 컬럼으로(gen 다리), (b) 일부러 틀린 단계의 틀린 줄을 바른 줄로(기대 다리: "expected … got none"), (c) 통과 단계 `board_test.go`의 기대값 한 줄을 뒤집음(`go test` 다리: 그 다리를 지우거나 DB 주소를 넘기지 않는 변이를 잡는다, fable 6)
+- 앱 시험은 생성 함수를 직접 부른다(U-07은 M4). `_ "modernc.org/sqlite"`를 import(D-90: 시험은 `main`을 거치지 않는다, fable 5). 행이 단계마다 쌓이지 않게 시험 하나를 트랜잭션 안에서 돌리고 되돌린다. 이것은 M3 확인을 위한 것이지 튜토리얼이 가르치는 시험 패턴이 아니다(U-07 전, fable 1). 되돌리기를 잊으면 다음 단계의 같은 이름 게시판이 unique 위반으로 실패해 드러난다(codex 7은 따로 시험하지 않는다)
+
+단계 (한 앱 `board`, SQLite. M8의 표에서 M3가 받는 줄)
+1. `Start the project`: `go.mod`·`go.sum`, `main.go`(드라이버 import, `maago.OpenDB`로 열고 `Ping`: D-101을 처음 보여 준다). 모델 없음 → 통과
+2. `Add Board, Post and Comment`: Board(`Name max=100 unique`), Post(`BoardID fk=Board`, `Title max=200`, `Body`, `Status choices=draft/published/archived default='draft'`, `CreatedAt auto=create`, `UpdatedAt auto=update`, 모델 태그 `unique=(board_id,title)`), Comment(`PostID fk=Post`, `Body`, `CreatedAt auto=create`) + `makemigrations`의 `migrations/0001_initial.sql` + `board/board_test.go`(Insert·Get·Update·Delete 왕복, `Status` 기본값, 같은 게시판의 같은 제목은 오류, 없는 게시판 FK는 오류)
+3. `Add Post.Views`: `Views int64 default=0` + `0002`, 시험에 기본값
+4. `Rename Comment.Body to Text`: + `makemigrations --rename board_comment.body:text`의 `0003`
+5. `Add post queries`: `post_list.sql`(게시판의 글 목록, `limit`·`offset` 페이지, 최신 순, 새 타입 `PostSummary`, 댓글 수 `-- column: comments int64`), `post_detail.sql`(`:one`, 게시판 이름을 JOIN한 새 타입), `search_posts.sql`(게시판별, `q?`로 제목 검색: `{q}` 조건 줄) + 시험(페이지 경계, `q` 있음·없음, 없는 글의 `sql.ErrNoRows`)
+6. `Try a model result that misses a column`(일부러 틀림): `recent_posts.sql :many Post`가 `body`를 빼고 고른다 → `Maago-Expect: board/queries/recent_posts.sql:…: result columns do not match model Post: missing "body"`
+7. `Select every column of Post`: 모든 컬럼 + 시험
+
+하지 않기로 한 것
+- `maago` 바이너리를 만들어 CLI로 걷기: 같은 함수를 프로세스 안에서 부른다. CLI 배선은 `TestRun`·`TestGenCheck`가 본다
+- PG로 바꾸는 단계(M8의 표 자리), User·첨부(M5·M7), 뷰·템플릿(M4), `Status` 전이(M4)
+- 패치를 Go로 적용하기: `git`은 CI(checkout)와 개발 환경에 있다. 없으면 `walk`가 그 이유로 실패한다(건너뛰지 않는다)
+- `migrate`와 앱 시험이 같은 파일을 여는지 따로 시험(codex 6): 둘 다 같은 절대 파일을 가리키고, 어긋나면 앱 시험이 빈 DB에서 "no such table"로 실패한다
+
+계획 리뷰 (codex·fable)
+- 받음: 모듈 캐시만으로 `go test`(codex 1), 작업 공간 하나(codex 2, fable 4), 바이트 같음은 고치지 않은 왕복만(codex 3), 엄격한 트레일러(codex 4), 첫 줄 전체 비교(codex 5), `.env`와 시험의 DB(fable 1 → 사람의 결정), 트레일러는 사람에게 보임(fable 2 → 사람의 결정), 영어 제목·`-N`·`--committer-date-is-author-date` 뺌(fable 3), 드라이버 import·`Status`·D-67 한 줄(fable 5), `go test` 다리의 변이와 비교 함수 공유(fable 6)
+- 받지 않음: codex 6(위), codex 7(되돌리기를 잊으면 다음 단계의 unique 위반이 드러낸다)
+- 모양 절의 "10번에서 DECISIONS에"(D-24 해석)는 11번으로 고친다(fable 5). D-103의 `NNN` → `NNNN`과 트레일러는 11번에서 D-103에
+
+단계 (작업)
+1. 스크래치에 튜토리얼 저장소를 만들며 단계 1~7을 커밋(각 단계에서 실제 `maago gen`·`makemigrations`·`check`·`go test`) → `steps.sh pack` → 확인: `unpack` 뒤 `pack`하면 `git diff --exit-code examples/`
+2. `walk`와 두 시험 → 확인: `TestBoardTutorial` 통과, `TestBoardTutorialCatches`의 세 경우가 기대한 단계에서 잡힘. 걷기 시간을 잰다
+3. 두 모듈 `go vet`·`go test`(PG 포함), `gofmt -l .`, `go mod tidy -diff`
+
+구현에서 달라진 것
+- `--no-stat`이면 메시지와 diff 사이에 `---` 줄이 없다. 메시지는 첫 `diff --git ` 줄 앞까지
+- `go.work`의 디렉터리는 실제 경로여야 한다(macOS의 `/var` → `/private/var`): 임시 루트와 저장소 루트 모두 `EvalSymlinks`
+- 첫 줄 비교는 `expect`(앞부분 비교)와 함수를 나누지 않았다. 걷기는 정확히 같아야 하고 오류를 돌려줘야 한다. `diagnostics`만 함께 쓴다
+- 걷기는 약 4초, 망가뜨린 다섯 경우를 합쳐 약 16초(로컬, 캐시가 찬 뒤)
+
+구현 리뷰 (ponytail·codex·fable)
+- 받음: `gofmt -l`을 그대로 부름, 메시지 읽기를 `strings.Cut`으로, `steps.sh`의 usage 하나(ponytail 1·2·5). `pack`은 새 패치를 다 쓴 뒤에 옛것을 지운다, 저장소 경로도 `EvalSymlinks`, `unpack`이 실패하면 반쯤 만든 DIR을 지운다(codex 2·4·6). 망가뜨린 경우에 앞부분만 적은 기대와 gofmt 안 된 파일: fable의 변이 11개 중 살아남은 둘(fable 1·2). `unpack`이 `.env`를 쓴다(fable 3), README의 빌드 명령(fable 4: `cmd/maago`는 따로 모듈), 계획 글의 `expect` 문장(fable 6), 7단계는 `body`를 SELECT 끝에 붙여 "컬럼 순서는 달라도 된다"를 보인다(fable 7), `PostPage` → `PostWithBoard`(fable 8: M4의 `*Page` 뷰 타입과 헷갈린다), 2단계 메시지에 `Opt`(fable 9)
+- 받지 않음: `GOWORK`·`GOFLAGS`를 뺌(ponytail 3·4: 바깥 환경의 값을 이기려는 것, 주석으로), README의 `go test` 줄 뺌(ponytail 6: 독자의 입구), 환경 변수 중복을 지우는 도우미(codex 1: `exec.Cmd`는 같은 키의 마지막 값을 쓴다), 임시 디렉터리 정리(codex 3: `t.TempDir`가 한다), 메시지의 트레일러 블록만 읽기(codex 5: 줄 머리의 `Maago-`만 보고, 본문에 그렇게 시작하는 줄은 쓰지 않는다), 걷기의 `build.Check` 뺌(fable 5: Gen 직후라 중복이지만 D-103이 단계마다 `check`를 적었고 독자가 돌리는 명령이다), 모르는 트레일러의 망가뜨린 경우(fable 11)
+- 가르침 범위 메모(fable 10): 규칙 4의 `WHERE { }`는 이 단계들에 없다. M4 이후 검색 화면을 더할 때
+- codex는 샌드박스가 `/tmp`를 막아 시험을 돌리지 못했다(코드만 읽은 리뷰). fable은 복사본에서 돌렸다
 
 ## 11. 완료 조건 종단 테스트와 문서
 

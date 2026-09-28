@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 28 Sep 2026 22:16:10 +0900
+Subject: [PATCH] Select every column of Post
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+고친다: body도 고른다. 이제 컬럼이 Post의 필드와 딱 맞아 RecentPosts는
+[]Post를 돌려준다. body는 SELECT 끝에 붙였다: 컬럼 순서는 필드 순서와
+달라도 된다. 생성된 Scan이 컬럼 순서를 따른다.
+
+diff --git a/board/queries/recent_posts.sql b/board/queries/recent_posts.sql
+index 5766e2e..82165b7 100644
+--- a/board/queries/recent_posts.sql
++++ b/board/queries/recent_posts.sql
+@@ -1,7 +1,7 @@
+ -- name: RecentPosts :many Post
+ -- The newest posts of every board.
+ -- param: limit int64
+-SELECT id, board_id, title, status, views, created_at, updated_at
++SELECT id, board_id, title, status, views, created_at, updated_at, body
+ FROM board_post
+ ORDER BY created_at DESC, id DESC
+ LIMIT :limit
+diff --git a/board/queries_test.go b/board/queries_test.go
+index 5ba8478..8a8864a 100644
+--- a/board/queries_test.go
++++ b/board/queries_test.go
+@@ -84,3 +84,23 @@ func TestPostQueries(t *testing.T) {
+ 		t.Errorf("a post that does not exist: %v", err)
+ 	}
+ }
++
++func TestRecentPosts(t *testing.T) {
++	ctx, tx := tx(t)
++	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: "최근"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, title := range []string{"오래된 글", "새 글"} {
++		if _, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: title, Body: title + "의 본문"}); err != nil {
++			t.Fatal(err)
++		}
++	}
++	ps, err := RecentPosts(ctx, tx, RecentPostsParams{Limit: 1})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(ps) != 1 || ps[0].Title != "새 글" || ps[0].Body != "새 글의 본문" {
++		t.Errorf("got %+v", ps)
++	}
++}

@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 28 Sep 2026 22:15:09 +0900
+Subject: [PATCH] Rename Comment.Body to Text
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+필드 이름을 바꾼다: Comment.Body → Comment.Text.
+
+그냥 makemigrations를 돌리면 maago는 이름 변경인지 알 수 없어, body를 지우고
+text를 더하는 초안에 ⚠ 설명을 붙인다. 이름 변경이면 그 파일을 지우고
+바꾼 것을 알려 준다:
+
+    maago makemigrations --rename board_comment.body:text
+
+그러면 값을 지키는 RENAME COLUMN 한 줄이 나온다.
+
+diff --git a/board/board_test.go b/board/board_test.go
+index 93d1f97..ab28d57 100644
+--- a/board/board_test.go
++++ b/board/board_test.go
+@@ -87,3 +87,26 @@ func TestPostConstraints(t *testing.T) {
+ 		t.Error("a post on a board that does not exist")
+ 	}
+ }
++
++// A comment keeps its post: the post cannot go while it has comments.
++func TestComment(t *testing.T) {
++	ctx, tx := tx(t)
++	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: "질문"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	p, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: "물어봅니다"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	c, err := InsertComment(ctx, tx, NewCommentInput{PostID: p.ID, Text: "답입니다"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got, err := GetComment(ctx, tx, c.ID); err != nil || got.Text != "답입니다" {
++		t.Errorf("got %+v, %v", got, err)
++	}
++	if err := DeletePost(ctx, tx, p.ID); err == nil {
++		t.Error("deleted a post that has a comment")
++	}
++}
+diff --git a/board/models.go b/board/models.go
+index f873463..b975ced 100644
+--- a/board/models.go
++++ b/board/models.go
+@@ -33,6 +33,6 @@ type Comment struct {
+ 
+ 	ID        int64
+ 	PostID    int64 `maago:"fk=Post"`
+-	Body      string
++	Text      string
+ 	CreatedAt time.Time `maago:"auto=create"`
+ }
+diff --git a/migrations/0003_rename_board_comment_body.sql b/migrations/0003_rename_board_comment_body.sql
+new file mode 100644
+index 0000000..dfc4c65
+--- /dev/null
++++ b/migrations/0003_rename_board_comment_body.sql
+@@ -0,0 +1 @@
++ALTER TABLE "board_comment" RENAME COLUMN "body" TO "text";

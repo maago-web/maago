@@ -1,0 +1,198 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 28 Sep 2026 22:14:38 +0900
+Subject: [PATCH] Add Board, Post and Comment
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+모델 셋. 게시판(Board), 게시판의 글(Post), 글의 댓글(Comment).
+
+- 같은 앱 안의 모델은 fk=모델로 가리킨다(Post.BoardID, Comment.PostID)
+- 한 게시판에서 제목은 한 번만: 모델 태그의 unique=(BoardID,Title)
+- 글의 상태는 choices, 기본값은 'draft'. 기본값이 있는 필드는 생성된 입력 타입
+  NewPostInput에서 maago.Opt[string]이다: 주지 않으면 기본값이 들어간다
+- CreatedAt·UpdatedAt은 auto 태그: 생성된 Insert·Update가 채운다
+
+maago makemigrations가 migrations/0001_initial.sql을 쓰고, maago migrate가
+적용한다. maago gen이 board/models_gen.go에 모델마다 Get·Insert·Update·Delete를
+만든다. 시험은 그 함수를 직접 부른다. go test는 board/에서 돌아 루트의 .env를
+보지 못하므로 주소를 환경 변수로 준다:
+
+    MAAGO_DATABASE_URL=sqlite:$PWD/board.db go test ./...
+
+diff --git a/board/board_test.go b/board/board_test.go
+new file mode 100644
+index 0000000..4cb6206
+--- /dev/null
++++ b/board/board_test.go
+@@ -0,0 +1,89 @@
++package board
++
++import (
++	"context"
++	"database/sql"
++	"errors"
++	"testing"
++
++	"github.com/maago-web/maago"
++
++	_ "modernc.org/sqlite"
++)
++
++// tx opens the database of MAAGO_DATABASE_URL and returns a transaction
++// that is rolled back when the test ends, so the tests leave no rows.
++// go test runs in this directory, where the project's .env is not: run
++//
++//	MAAGO_DATABASE_URL=sqlite:$PWD/board.db go test ./...
++func tx(t *testing.T) (context.Context, *sql.Tx) {
++	t.Helper()
++	ctx := context.Background()
++	db, err := maago.OpenDB(ctx, maago.DBConfig{})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { db.Close() })
++	tx, err := db.BeginTx(ctx, nil)
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() { tx.Rollback() })
++	return ctx, tx
++}
++
++func TestPostCRUD(t *testing.T) {
++	ctx, tx := tx(t)
++	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: "공지"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	p, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: "첫 글", Body: "안녕하세요"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if p.Status != "draft" {
++		t.Errorf("status %q, want the default draft", p.Status)
++	}
++
++	got, err := GetPost(ctx, tx, p.ID)
++	if err != nil || got.Title != "첫 글" || !got.CreatedAt.Equal(p.CreatedAt) {
++		t.Fatalf("got %+v, %v", got, err)
++	}
++	got.Status = "published"
++	if err := UpdatePost(ctx, tx, &got); err != nil {
++		t.Fatal(err)
++	}
++	if again, _ := GetPost(ctx, tx, p.ID); again.Status != "published" {
++		t.Errorf("status %q after the update", again.Status)
++	}
++
++	if err := DeletePost(ctx, tx, p.ID); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := GetPost(ctx, tx, p.ID); !errors.Is(err, sql.ErrNoRows) {
++		t.Errorf("after delete: %v", err)
++	}
++	if err := DeletePost(ctx, tx, p.ID); !errors.Is(err, sql.ErrNoRows) {
++		t.Errorf("deleting it again: %v", err)
++	}
++}
++
++// The database keeps what the tags say: a title once per board, and a
++// post only on a board that exists.
++func TestPostConstraints(t *testing.T) {
++	ctx, tx := tx(t)
++	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: "같은 제목"}); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: "같은 제목"}); err == nil {
++		t.Error("the same title twice on one board")
++	}
++	if _, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID + 1000, Title: "없는 게시판"}); err == nil {
++		t.Error("a post on a board that does not exist")
++	}
++}
+diff --git a/board/models.go b/board/models.go
+new file mode 100644
+index 0000000..0b9dfcb
+--- /dev/null
++++ b/board/models.go
+@@ -0,0 +1,37 @@
++// Package board is the app of the tutorial: boards, their posts, and the
++// comments on a post.
++package board
++
++import (
++	"time"
++
++	"github.com/maago-web/maago"
++)
++
++type Board struct {
++	maago.Model
++
++	ID   int64
++	Name string `maago:"max=100,unique,label='이름'"`
++}
++
++type Post struct {
++	maago.Model `maago:"unique=(BoardID,Title)"`
++
++	ID        int64
++	BoardID   int64  `maago:"fk=Board"`
++	Title     string `maago:"max=200,label='제목'"`
++	Body      string
++	Status    string    `maago:"choices=draft/published/archived,default='draft'"`
++	CreatedAt time.Time `maago:"auto=create"`
++	UpdatedAt time.Time `maago:"auto=update"`
++}
++
++type Comment struct {
++	maago.Model
++
++	ID        int64
++	PostID    int64 `maago:"fk=Post"`
++	Body      string
++	CreatedAt time.Time `maago:"auto=create"`
++}
+diff --git a/migrations/0001_initial.sql b/migrations/0001_initial.sql
+new file mode 100644
+index 0000000..703190e
+--- /dev/null
++++ b/migrations/0001_initial.sql
+@@ -0,0 +1,31 @@
++CREATE TABLE "board_board" (
++    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
++    "name" TEXT NOT NULL CHECK (length("name") <= 100)
++) STRICT;
++
++CREATE UNIQUE INDEX "board_board_name_key" ON "board_board" ("name");
++
++CREATE TABLE "board_comment" (
++    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
++    "post_id" INTEGER NOT NULL,
++    "body" TEXT NOT NULL,
++    "created_at" TEXT NOT NULL,
++    CONSTRAINT "board_comment_post_id_fkey" FOREIGN KEY ("post_id") REFERENCES "board_post" ("id") ON DELETE NO ACTION
++) STRICT;
++
++CREATE INDEX "board_comment_post_id_idx" ON "board_comment" ("post_id");
++
++CREATE TABLE "board_post" (
++    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
++    "board_id" INTEGER NOT NULL,
++    "title" TEXT NOT NULL CHECK (length("title") <= 200),
++    "body" TEXT NOT NULL,
++    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'published', 'archived')),
++    "created_at" TEXT NOT NULL,
++    "updated_at" TEXT NOT NULL,
++    CONSTRAINT "board_post_board_id_fkey" FOREIGN KEY ("board_id") REFERENCES "board_board" ("id") ON DELETE NO ACTION
++) STRICT;
++
++CREATE UNIQUE INDEX "board_post_board_id_title_key" ON "board_post" ("board_id", "title");
++
++CREATE INDEX "board_post_board_id_idx" ON "board_post" ("board_id");
