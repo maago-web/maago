@@ -29,6 +29,10 @@ github.com/maago-web/maago
 ├── maago.go, …          런타임 공개 API (package maago)
 │                          사용자가 쓰는 이름: maago.Model, maago.Form, maago.Routes,
 │                          maago.GET/POST/API, maago.Redirect, maago.Partial, maago.FormErrors …
+│                          M3까지 있는 것: Model, DB·OpenDB·DBConfig(D-101), Opt·Set·Ptr(D-106),
+│                          ErrManyRows·ErrEmptySlice(D-111). 생성 코드만 부르는 것: One·Many·Exec,
+│                          Placeholders, SQLiteTime·SQLiteNullTime·ScanSQLiteTime·ScanNullSQLiteTime(D-105).
+│                          런타임이 기대는 내부 패키지는 internal/diag·internal/project뿐(시험이 본다)
 ├── contrib/
 │   ├── auth/            인증 앱 (M5)             D-50, D-51
 │   └── admin/           admin 런타임 (M6)         D-48, D-49
@@ -52,7 +56,8 @@ github.com/maago-web/maago
     │                      스키마)와 `migrate`의 실제 DB
     ├── migrate/         파일 읽기·문장 검사(allow-drop), 비교, 진단, 초안 이름,    M2
     │                      적용·기록(`maago_migrations`)
-    ├── mapper/          SQL 파일 파서, 커버 조합, Go 번역, PK 기본 CRUD         M3
+    ├── mapper/          SQL 매퍼: 머리·본문 해석, 조합, prepare, 결과 타입, PK CRUD,   M3
+    │                      생성(templates/), 이름 충돌 (D-20~D-24, D-107~D-112)
     ├── web/             라우트 표 읽기, 뷰 어댑터·폼 생성, 템플릿 검사          M4
     └── admingen/        admin 코드 생성                                    M6
 ```
@@ -79,9 +84,9 @@ github.com/maago-web/maago
 | 단계 | 입력 | 출력 | 하는 일 |
 |---|---|---|---|
 | 읽기 | 작업 디렉터리 | 프로젝트 정보 | go.mod, 앱 패키지, 파일 목록 (`project`) |
-| 해석 | 파일들 | 구문 트리 | Go 소스(`go/parser`), 태그, SQL 파일, 템플릿 |
-| 검사 | 구문 트리 | 진단 | DB 없이 할 수 있는 모든 검사: 태그 목록, SQL 규칙 1~4, 라우트 표, 템플릿 필드. 모델 검사·`.env`·마이그레이션 파일 읽기 → 이름·문장 검사 → 방언 DDL의 작은 단계들이다(M2 8번) |
-| DB 검사 | 스키마, 마이그레이션, 쿼리 | 진단 + 읽은 스키마 | 연습용 DB에 마이그레이션 적용 → 읽기 → 모델과 비교, 쿼리 커버 조합 prepare |
+| 해석 | 파일들 | 구문 트리 | Go 소스(`go/parser`), 태그, SQL 파일(머리·본문, 모델 검사·`.env`·마이그레이션 파일과 같은 단계라 서로를 가리지 않는다), 템플릿 |
+| 검사 | 구문 트리 | 진단 | DB 없이 할 수 있는 모든 검사: 태그 목록, SQL 규칙 1~4와 조합(D-109), 생성 이름의 충돌과 쿼리 앱의 package(D-112), 라우트 표, 템플릿 필드. 모델 검사·`.env`·마이그레이션 파일 읽기 → 이름·문장 검사 → 방언 DDL의 작은 단계들이다(M2 8번) |
+| DB 검사 | 스키마, 마이그레이션, 쿼리 | 진단 + 읽은 스키마 | 연습용 DB에 마이그레이션 적용 → 읽기 → 모델과 비교. 같으면 같은 DB에서 쿼리의 모든 조합을 prepare하고(PG는 prepare마다 `SAVEPOINT`, 파라미터 타입도 맞춰 본다. SQLite는 파라미터 타입을 모른다) 결과 타입을 정한다(D-23, D-104, D-110). CRUD의 SQL도 prepare한다(실패는 maago의 버그) |
 | 생성 | 검사를 통과한 모든 것 | 메모리 속 파일들 | `path → []byte` 표. 디스크는 아직 건드리지 않는다 |
 | 쓰기 / 비교 | 메모리 속 파일들 | 디스크 / 진단 | `gen`은 쓰고 옛 생성물을 지운다. `check`는 디스크와 비교만 한다 |
 
@@ -94,7 +99,7 @@ github.com/maago-web/maago
   파일 시스템이 주지 않는다. 이름 바꾸기 중 실패하면 실패한 파일을 알리고 다시 돌리라고 한다.
   디스크와 같은 파일은 건너뛰므로, 다시 돌리면 남은 파일만 쓴다.
 - 검사기는 단계에 붙는 함수다. M1부터는 새 검사기를 붙이기만 하고 파이프라인은 고치지 않는다.
-- 다른 명령은 같은 단계를 쓰고 끝만 바꾼다. `makemigrations`는 DB 검사 자리에서 초안을 쓰고 생성이 없다.
+- 다른 명령은 같은 단계를 쓰고 끝만 바꾼다. `makemigrations`는 DB 검사 자리에서 초안을 쓰고 생성이 없다. 쿼리 파일은 읽지 않는다(D-112).
   `migrate`·`showmigrations`는 모델을 읽지 않는다: `.env`와 마이그레이션 파일을 읽고 문장 검사 뒤 실제 DB에 간다(M2 9·10번).
 
 ---
@@ -114,7 +119,7 @@ func Write(w io.Writer, ds []Diagnostic) error          // 정렬, 중복 제거
 
 ```
 blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
-  fix: did you mean "max"? allowed: max, unique, index, default, choices, fk, label, help
+  fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto
 ```
 
 - 고치는 법이 빈 진단은 만들 수 없게 생성자에서 막는다 (D-62). 필드가 비공개라 다른 패키지는 생성자로만 채울 수 있다.
@@ -156,8 +161,11 @@ myapp/
 - `migrations/`의 파일은 생성 파일이 아니다. 초안은 maago가 쓰지만 주인은 사람이고, 검증은
   "적용 결과가 모델과 같은가"로 한다 (D-32, D-34).
 
+- M3가 쓰는 것: 모델이 있는 앱마다 `models_gen.go`(D-18 주석, 모델마다 입력 타입과 CRUD, D-106·D-111),
+  `queries/`가 있는 앱마다 `queries_gen.go`(쿼리마다 파라미터·결과 타입과 함수). 둘이 선언하는 이름이
+  서로나 그 패키지의 사람이 쓴 이름(같은 패키지의 테스트 파일 포함)과 겹치면 생성 오류다.
+
 생성기는 Go 코드를 `text/template`(`embed.FS`에 내장)로 쓰고 `go/format`으로 정리한다.
-M1의 `models_gen.go`처럼 주석 몇 줄인 파일은 `fmt`로 쓴다. 템플릿은 코드를 만드는 생성기(M3~)부터.
 생성기 안에서 stdlib가 reflect를 쓰는 것은 괜찮다. 생성 시점이기 때문이다.
 
 ---
@@ -192,6 +200,9 @@ MAAGO_DATABASE_URL=sqlite:app.db
 - `testdata/`도 검사한다. 생성 코드의 골든 파일은 `.go` 확장자를 유지하고, 일부러 깨진 Go 입력 픽스처는
   `.go`가 아닌 확장자를 쓴다.
 - `go test ./...`의 테스트 하나로 돌고, CI가 매번 돈다.
+- 둘째 검사(`TestGeneratedImports`, M3): 생성기는 `text/template`을 쓰므로 위 검사로는 막을 수 없다. 첫 줄이
+  생성 표시인 `.go` 파일(생성 골든 포함)의 import는 `mapper.Imports` 허용 목록으로 보고(D-66), 템플릿에
+  `"text/template"`·`"reflect"` 글이 있으면 실패한다.
 
 ---
 

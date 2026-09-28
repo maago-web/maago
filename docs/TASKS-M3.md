@@ -23,7 +23,7 @@
 
 - **PG는 실행 없이 묘사할 수 있다.** pgx v5.11.0의 `pgconn.StatementDescription`이 결과 컬럼마다 `TableOID`·`TableAttributeNumber`·`DataTypeOID`를, 파라미터마다 `ParamOIDs`를 준다. `sql.Conn.Raw` → `*stdlib.Conn` → `Conn()`(`*pgx.Conn`) → `PgConn().Prepare(ctx, "", …)`로 닿는다. 이름이 빈 문장은 서버에 남지 않는다(이름 있는 것은 `Deallocate`가 필요하다. 4번 계획에서 고침)
 - **SQLite는 컬럼의 출처만 안다.** modernc v1.59.0의 `ColumnInfo(query)`(비공개 `*conn`의 메서드라 `Raw`의 driverConn을 `interface{ ColumnInfo(string) ([]sqlite.ColumnInfo, error) }`로 단언해 부른다. modernc 자체 테스트가 그렇게 한다)가 결과 컬럼마다 이름, 선언 타입, 출처 테이블·컬럼을 준다. 식(`count(*)`)은 모두 비어 있고, 파라미터의 타입은 없다
-- **출처로는 NULL 여부를 알 수 없다.** `LEFT JOIN`된 쪽의 `x.id`도 두 드라이버 모두 NOT NULL인 원래 컬럼으로 보고한다. `CASE`·`COALESCE`·집계·스칼라 서브쿼리·`UNION`도 NULL을 낼 수 있고, 이것들은 출처가 없다
+- **출처로는 NULL 여부를 알 수 없다.** `LEFT JOIN`된 쪽의 `x.id`도 두 드라이버 모두 NOT NULL인 원래 컬럼으로 보고한다. `CASE`·`COALESCE`·집계·스칼라 서브쿼리도 NULL을 낼 수 있고, 이것들은 출처가 없다. `UNION`은 SQLite가 첫 `SELECT`의 출처를 주고 PG는 주지 않는다(5번에서 잼, 그래서 D-110은 출처를 모두 버린다)
 - **SQLite의 `time.Time`은 그대로 되지 않는다.** STRICT `TEXT` 컬럼에 `time.Time`을 넘기면 modernc는 Go의 `String()` 모양(`2026-09-27 12:00:00 +0900 KST`)으로 쓰고, 읽기의 자동 변환은 선언 타입이 `DATE`·`DATETIME`·`TIMESTAMP`일 때뿐이라 `*time.Time`으로 읽으면 Scan 오류다. → D-105
 - **`database/sql`의 Scan**: NULL을 `int64`·`string`·`time.Time`에 넣으면 오류, 포인터에 넣으면 `nil`. 선언되지 않은 NULL은 조용히 0이 되지 않는다
 - 드라이버를 부르는 일(묘사, 출처)은 루트 모듈이 할 수 없다(D-90). `practicedb.ErrorPosition`처럼 `cmd/maago`가 함수를 꽂는다
@@ -57,7 +57,7 @@ M3 전체의 뼈대. 작업마다 계획에서 구체화하고, 여기와 달라
 - **모든 `:이름`은 머리에 선언되어야 하고, 선언한 파라미터는 쓰여야 한다.** 규칙 1의 해석이고 새 규칙이 아니다. 11번에서 DECISIONS에 적어 D-24 "다섯 개"가 지켜진 것이 보이게 한다. DECISIONS의 `SearchOrders` 예제는 `:limit`을 선언하지 않았다 → 예제 원문에 `-- param: limit int64`를 더했다(이 초안 커밋). 3·8번의 픽스처는 그 원문과 글자까지 같다
 - **Go 쪽 모양**(TUTORIAL-FUTURE §6): `func SearchOrders(ctx context.Context, db maago.DB, p SearchOrdersParams) ([]OrderSummary, error)`. 파라미터가 없으면 `p`도 없다. 선택지는 이름 붙은 문자열 타입과 상수, 모르는 값은 실행 때 오류(조용히 기본값으로 가지 않는다). 쿼리 이름·파라미터 타입·새 결과 타입·CRUD 이름이 같은 패키지의 사용자 식별자(뷰 `PostList` 등)나 서로와 겹치면 생성 오류(M1이 이미 `go/ast`로 패키지를 읽는다)
 - **조합**: 조건 라벨이 가질 수 있는 값(선택 파라미터 있음·없음, bool 참·거짓, 슬라이스 원소 있음·없음, 선택지의 각 값)의 모든 조합을 만들고, 번역한 SQL 글이 같은 것은 하나로 친다. 상한 제안: 원 조합 256개, 글 64개. 넘으면 생성 오류(fix: 쿼리를 나누거나 Go에서 bool로). 근거: M2 12번의 PG `check` 약 105ms, 글 64개의 prepare는 그 안팎(3번에서 잰다, D-65)
-- **번역**: 생성기가 조합마다 고정된 SQL 조각을 Go 코드로 쓴다(D-22). 런타임은 SQL을 해석하지 않는다. PG 자리표시는 스칼라에 `$1…$n`을 생성 때 고정으로 주고, 슬라이스만 실행 때 `$n+1…`로 뒤에 붙인다(런타임이 만드는 글은 슬라이스 자리뿐). SQLite는 `?`. `::`(PG 형 변환), 문자열·주석·달러 인용 안의 `:`·`{`는 파라미터나 조건이 아니다(M2 3번의 토큰화)
+- **번역**: 생성기가 조합마다 고정된 SQL 조각을 Go 코드로 쓴다(D-22). 런타임은 SQL을 해석하지 않는다. 자리표시는 조합의 글마다 스칼라에 `1…n`을 생성 때 고정으로 주고(PG `$n`, SQLite `?n`), 슬라이스만 실행 때 `n+1…`로 뒤에 붙인다(런타임이 만드는 글은 슬라이스 자리뿐, D-108). `::`(PG 형 변환), 문자열·주석·달러 인용 안의 `:`·`{`는 파라미터나 조건이 아니다(M2 3번의 토큰화)
 - **prepare 자리**: M2의 DB 검사 단계에서 비교가 통과한 뒤, 같은 연습용 DB A의 연결에서. PG는 쿼리마다 `SAVEPOINT s` → prepare·묘사 → 실패면 `ROLLBACK TO SAVEPOINT s` → 어느 쪽이든 `RELEASE SAVEPOINT s`로 실패를 모두 모은다(D-61). 슬라이스는 원소 1개와 2개로 두 번 prepare한다(자리표시 개수·순서)
 - **`makemigrations`는 쿼리 파일을 읽지 않는다**(`migrate`가 모델을 읽지 않는 것과 같다). 잘못된 `.sql` 하나나 아직 없는 컬럼을 쓰는 쿼리가 마이그레이션 초안을 막으면 안 된다
 - **런타임**: 루트 패키지 `maago`에 작은 것만(`DB` 인터페이스, 슬라이스 펼치기, `:one`의 두 행 검사, D-105의 시각 변환, D-101). stdlib만(D-09), reflect 없음(D-66)
@@ -804,19 +804,67 @@ func SearchOrders(ctx context.Context, db maago.DB, p SearchOrdersParams) ([]Ord
 
 → 확인: 두 방언, 두 모듈 `go vet`·`go test`, `gofmt -l`, `go mod tidy -diff`. CI에서 PG가 실제로 돈 것
 
+### 계획
+
+종단 테스트와 결정은 아래 "계획 리뷰"대로 고쳤다: `TestM3Done`은 조건 3만, 새 결정 D-107~D-112와 고침 D-66·D-101~D-104(DECISIONS C·D·G절, 변경 이력)
+
+ARCHITECTURE
+- §2: `mapper/` 줄을 실제 파일로(머리·본문·조합·묘사·결과·CRUD·생성·이름). 런타임 공개 이름(`DB`·`OpenDB`·`DBConfig`·`One`·`Many`·`Exec`·`ErrManyRows`·`ErrEmptySlice`·`Placeholders`·`Opt`·`Set`·`Ptr`·SQLite 시각 도우미)과 런타임이 기대는 내부 패키지는 `internal/diag`·`internal/project`뿐(6번 fable 3b)
+- §3: 표의 해석·검사·DB 검사 줄에 매퍼 단계(D-112), `makemigrations`는 쿼리를 읽지 않음
+- §5: 생성 파일에 `models_gen.go`(D-18 주석 + CRUD, 템플릿)와 `queries_gen.go`. "M1의 `models_gen.go`처럼 주석 몇 줄인 파일은 `fmt`로"를 지운다(8번). "allowed:" 예시에 `auto`
+- §7: 둘째 검사(생성물의 import 허용 목록, `TestGeneratedImports`)
+- §6은 이미 D-101을 적었다(확인만)
+
+TUTORIAL-FUTURE §6
+- 실제 시그니처와 문구로: `SearchOrders(ctx, db, SearchOrdersParams{…}) ([]OrderSummary, error)`, 선택 파라미터는 `maago.Ptr("paid")`, 슬라이스 파라미터 `ids`의 필드는 `Ids`, `:exec`는 영향 행 수(0행도 오류 아님)와 CRUD의 `sql.ErrNoRows`, `InsertX`가 돌려준 모델은 입력의 포인터를 그대로 담음, SQLite는 파라미터 타입을 맞춰 보지 않음, PG는 `time.Time`을 로컬 위치로 돌려주고 SQLite 도우미는 UTC. "일부러 틀려 보기"의 오류 문구를 실제 출력으로(게시판 6단계의 것)
+
+TASKS-M3
+- "먼저 확인한 사실"의 `UNION` 줄(5번), 모양 절의 "SQLite는 `?`"·"스칼라에 `$1…$n` 고정"(3번), 열린 질문 둘에 답(조합 상한 = 그대로 256·64, CRUD 이름·파일 = 7번)
+- "M3 끝" 체크
+
+나머지
+- README: "M3(SQL 매퍼)를 하고 있다" → 끝남, M4 차례. MILESTONES M3 체크 넷
+- TODO: M3 절에서 이미 끝난 것이 있으면 지우고, 남는 것 그대로
+- push 뒤 GitHub Actions 로그에서 PG 시험이 실제로 돈 것(건너뜀 0)을 확인하고 "M3 끝"에 실행 번호
+
+하지 않기로 한 것
+- TASKS-M4 초안: "M3 끝"의 넷째 항목이고 다음 커밋(M2 끝과 같은 순서)
+
+단계
+1. `TestM3Done` → 확인: 두 방언 통과. 조건 3의 세 경우에서 오류 문구 한 글자를 바꾸면 실패(기대가 정확히 비교되는지), 스냅숏 비교를 빼는 대신 한 경우에 파일을 하나 쓰게 한 변이가 잡힘(손으로 한 번)
+2. 문서 → 확인: 새 D-번호가 서로·기존과 겹치지 않음(`grep -o 'D-1[01][0-9]'`), 문서 안의 링크·번호가 가리키는 곳이 있음, TUTORIAL-FUTURE의 시그니처가 gentest 골든의 것과 같음(눈으로, 목록으로 적음)
+3. 두 모듈 `go vet`·`go test`(PG 포함), `gofmt -l .`, `go mod tidy -diff`. push 뒤 CI 로그
+
+계획 리뷰 (codex·fable) — 위 계획을 이렇게 고친다
+- `TestM3Done`은 **조건 3만**(fable 12). 조건 2는 이미 이름 붙은 시험이 끝까지 증명한다: `TestSearchOrdersIsTheDecisionsExample`(픽스처 == DECISIONS 원문), `TestVariants`(조합별 글 골든), `TestGenerated`·`TestQueriesGenCheck`·`TestQueriesPG`(파이프라인이 만든 `queries_gen.go` == 골든), gentest `TestSearchOrders`(16조합 실행). 조건 1·4와 같은 방식
+- 스냅숏이 무는 모양(fable 13): 먼저 `gen`을 성공시켜 생성물을 만든 뒤, **제대로 재생성되면 달라질 변경**(`SearchOrders`의 `LIMIT :limit OFFSET 0`)과 오류 파일을 함께 넣고 `gen` → 트리가 그대로. 실패한 `gen`이 무엇이든 쓰면 드러난다. 비교는 진단 첫 줄 **전체**가 같음(`expect`의 앞부분 비교를 쓰지 않는다, fable 14). 두 방언으로 돌리되 (a)(b)는 DB 앞에서 멈추고 (c)만 DB 단계임을 주석에(fable 15)
+- 결정의 알갱이(fable 6~10, codex): D-107 머리와 바인딩(근거 칸에 네이티브 자리표시 금지의 대가: PG jsonb `?`·`?|`·`?&` → `jsonb_exists*`). D-108 자리표시(규칙 2의 문구). D-109 조합과 구역: 구역은 겹치지 않고 괄호 깊이 0에서만(fable 1), 상한 256·64(근거: 4번이 잰 글 64개 PG 약 40ms, fable 11), 빈 `WHERE { }`는 `SELECT`만, 빈 `SET { }`는 오류(규칙 4·5의 문구). D-110 결과 컬럼: `UNION`류는 출처를 버림, 필드 이름은 컬럼 이름이 출처 컬럼 이름과 같고 출처가 모델 필드일 때만 그 필드의 이름이고 별칭·식이면 거꾸로 snake(codex). D-111 실행 계약: CRUD 넷(`UpdateX`는 `auto=create` 컬럼을 쓰지 않는다, codex), `:one`·`:exec`, 빈 슬라이스와 선택지 밖의 값은 실행 오류(fable 5). D-112는 사용자에게 보이는 둘만: `queries/`만 있는 디렉터리의 package 절, `makemigrations`는 쿼리를 읽지 않음(단계 배치는 ARCHITECTURE §3, fable 9)
+- 고침: D-66(생성물 import 허용 목록, fable 9), D-101(SQLite 파일은 `mode=rw`: 없으면 오류, 파일은 CLI가 만든다, fable 2), D-102(`auto`는 포인터 아닌 `time.Time`만, 대가: 있는 테이블에 `auto` 필드를 더하면 초안이 기본값 없는 NOT NULL 경고를 내고 사람이 손본다, fable 3·7, codex), D-103, D-104(`FROM` 서브쿼리는 여기서만, fable 10). 변경 이력 한 줄에 "규칙 2·4·5의 문구를 고쳤고 개수는 그대로"(fable 6)
+- 문서: "allowed:" 목록은 `internal/model/check.go`의 실제 문구를 ARCHITECTURE와 TUTORIAL-FUTURE 두 곳에(fable 3a). SQLite는 파라미터 타입을 맞춰 보지 않음을 ARCHITECTURE §3에도(fable 4). PHILOSOPHY의 "SQL 규칙은 다섯 개"가 그대로인지 확인(fable D). TODO는 지울 것이 없으면 그대로
+
+구현 리뷰 (ponytail·codex·fable)
+- 받음: 시험 주석의 시험 이름 목록은 "M3 끝"에만, 계획의 뒤집힌 줄들을 한 줄로, import 허용 목록은 D-66에만(ARCHITECTURE §7은 가리키기만), §2 `mapper/`는 책임만, README·MILESTONES의 겹친 문장, TUTORIAL-FUTURE의 `Ids` 근거는 D-110에만(ponytail 1·3~9). PG의 `SAVEPOINT`는 prepare마다, 변경 이력의 순서, D-107의 "빈 슬라이스가 곧 없음"(fable 1~3)
+- 받지 않음: 앞 두 경우를 SQLite만(ponytail 2: 두 방언에서 같은 문구가 나오는 것도 조건이고 PG 준비는 0.1초 안팎), D-103에서 앱 `go test`의 주소를 뺌(ponytail 10: 사람의 결정 2026-09-28을 적은 것)
+- codex는 고칠 것 없음(샌드박스가 임시 디렉터리를 막아 코드만 읽음). fable은 PG까지 돌려 변이 9개: 정확 비교와 스냅숏이 각각 하중을 받는 것(빼면 살아남음)을 보였다. 알려진 천장: `fix:` 줄은 비교하지 않는다(첫 줄 전체만)
+
 ---
 
 ## M3 끝
 
-- [ ] 1~11 완료
-- [ ] 위 M3 완료 조건 네 개를 실제로 돌려 확인(PG는 로컬 서버나 CI. 건너뛴 실행은 확인이 아니다)
-- [ ] MILESTONES.md의 M3 체크박스 갱신
+- [x] 1~11 완료 (2026-09-28)
+- [x] 위 M3 완료 조건 네 개를 실제로 돌려 확인. PG는 로컬 서버(`MAAGO_TEST_PG_URL`)에서 돌렸다. 로컬에서 URL 없이 건너뛴 실행은 확인이 아니다
+  1. 게시판 튜토리얼의 모델·마이그레이션·매퍼 커밋: `cmd/maago`의 `TestBoardTutorial`(패치 7개, 일부러 틀린 단계 하나), 걷기가 망가진 단계를 잡는 것은 `TestBoardTutorialCatches`(10번)
+  2. `SearchOrders`: 픽스처가 DECISIONS 원문과 같음 `TestSearchOrdersIsTheDecisionsExample`, 조합별 글 골든 `TestVariants`(`internal/mapper`, 3번), 파이프라인이 만든 `queries_gen.go`가 골든 `TestQueriesGenCheck`·`TestQueriesPG`(9번)·`TestGenerated`(8번), 16조합 실행 gentest `TestSearchOrders`(두 방언, 8번)
+  3. 빈 WHERE의 DELETE, 라벨이 보장하지 않는 파라미터, 컬럼이 빠진 모델 결과 타입이 각각 생성 오류이고 아무것도 쓰지 않음: `cmd/maago`의 `TestM3Done`(두 방언, 11번). 경우별 표는 `TestVariantErrors`(3번)·`TestModelResult`(5번)
+  4. 생성 코드에 `text/template`도 `reflect`도 없음: 루트의 `TestGeneratedImports`·`TestGeneratedImportsGate`(9번), `TestNoReflect`(M0)
+- [x] MILESTONES.md의 M3 체크박스 갱신
+- [ ] push 뒤 GitHub Actions 로그에서 PG 테스트가 실제로 돈 것(건너뜀 0)을 확인
 - [ ] TASKS-M4 초안(다음 커밋)
 
 ## 열린 질문 (계획 단계에서 정한다)
 
-- 조합 상한의 숫자(모양 절의 제안, 3번에서 재 보고 고친다)
-- CRUD 함수 이름과 파일(7번)
+- ~~조합 상한의 숫자~~ → 제안 그대로 256·64(4번이 잼: 글 64개 PG 약 40ms, D-109)
+- ~~CRUD 함수 이름과 파일~~ → `GetX`·`InsertX`·`UpdateX`·`DeleteX`, `models_gen.go`(7번, D-111)
 
 ## 초안 리뷰 (2026-09-27)
 

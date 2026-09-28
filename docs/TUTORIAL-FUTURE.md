@@ -95,7 +95,7 @@ maago gen
 
 ```
 blog/models.go:15:33: unknown tag key "maxlen" in Post.Title
-  fix: did you mean "max"? allowed: max, min, unique, index, default, choices, fk, label, help
+  fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto
 ```
 
 Maago의 오류는 언제나 이 모양입니다. **위치, 무엇이 틀렸는지, 어떻게 고치는지.** 경고는 없고
@@ -255,13 +255,39 @@ ORDER BY published_at DESC
 - `WHERE { }` 안에서는 맨 앞의 `AND`를 Maago가 정리하고, 다 비면 `WHERE` 자체를 없앱니다.
 
 `maago gen`을 돌리면 Maago는 가능한 조합을 전부 연습용 DB에 prepare해 봅니다. 생성된 함수는
-대략 이렇게 생겼습니다.
+이렇게 생겼습니다.
 
 ```go
-// blog/queries_gen.go (생성됨) 🔮
+// blog/queries_gen.go (생성됨)
+type SearchPostsParams struct {
+	Q      *string
+	Status *string
+}
+
+type PostSummary struct {
+	ID          int64
+	Title       string
+	PublishedAt *time.Time
+}
+
 func PublishedPosts(ctx context.Context, db maago.DB) ([]Post, error)
 func SearchPosts(ctx context.Context, db maago.DB, p SearchPostsParams) ([]PostSummary, error)
 ```
+
+```go
+posts, err := SearchPosts(ctx, db, SearchPostsParams{Q: maago.Ptr("hello")}) // Status는 nil: 없음
+```
+
+- 파라미터가 없으면 `p`도 없습니다. 없어도 되는 파라미터는 포인터이고 `maago.Ptr(값)`으로 채웁니다.
+  파라미터 `ids`의 필드는 `Ids`입니다.
+- `db`는 `*sql.DB`든 `*sql.Tx`든 됩니다. `maago.OpenDB(ctx, maago.DBConfig{})`가 `.env`의 주소로 엽니다.
+- `:one`은 행이 없으면 `sql.ErrNoRows`, 둘 이상이면 오류입니다. `:exec`는 바뀐 행 수를 돌려주고, 0행도
+  오류가 아닙니다.
+- 모델마다 `GetPost`·`InsertPost`·`UpdatePost`·`DeletePost`도 `models_gen.go`에 생깁니다. `InsertPost`는
+  `NewPostInput`을 받아 id까지 채운 `Post`를 돌려주고(입력의 포인터를 그대로 담습니다), `UpdatePost`·
+  `DeletePost`는 그 id의 행이 없으면 `sql.ErrNoRows`입니다.
+- SQLite는 파라미터의 타입을 알려 주지 않아 Maago가 선언과 맞춰 보지 못합니다. PostgreSQL에서는 맞춰 봅니다.
+- 시각은 PostgreSQL에서는 로컬 위치로, SQLite에서는 UTC로 읽힙니다(같은 순간입니다. 프로젝트의 DB는 하나라 섞이지 않습니다).
 
 ## 7. URL과 뷰
 
@@ -403,9 +429,7 @@ maago check
 | 4 | auth 사용자 테이블 이름 `auth_user`, `fk=auth.User` 표기 | U-06 |
 | 5 | `maago.Handler()`로 전체 핸들러를 얻는다 | D-40, D-46 |
 | 5 | `maago createsuperuser` 명령 | D-50 |
-| 6 | 생성된 쿼리 함수의 시그니처, `maago.DB` 타입 | D-20 |
-| 6·7 | 모든 오류 문구 | D-62 |
+| 7 | 모든 오류 문구(3·6의 문구는 실제 출력) | D-62 |
 | 7 | 뷰에서 DB를 얻는 `maago.DBFrom(ctx)` | D-46 |
 | 7 | path 값 바인딩 태그 `maago:"path=id"` | D-41 |
-| 7 | 생성된 PK 조회 함수 이름 `GetPost` | D-21 |
 | 8 | 템플릿 파일 위치와 `{{define "content"}}` 레이아웃 방식 | D-42 |

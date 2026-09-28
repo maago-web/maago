@@ -2,11 +2,13 @@ package main
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/maago-web/maago/internal/build"
 	"github.com/maago-web/maago/internal/migrate"
 	"github.com/maago-web/maago/internal/project"
 )
@@ -121,4 +123,47 @@ func lineOf(t *testing.T, src, prefix string) int {
 	}
 	t.Fatalf("no %q in:\n%s", prefix, src)
 	return 0
+}
+
+// M3's completion condition 3 (MILESTONES): an empty WHERE of a DELETE, a
+// parameter its line's condition does not guarantee, and a model result
+// type missing a column are each an error of maago gen, which then
+// writes nothing (D-60). The first two stop before the database; only
+// the third is found there, so it is the one both dialects really run.
+// The other conditions' tests are named under "M3 끝" in docs/TASKS-M3.md.
+func TestM3Done(t *testing.T) {
+	cases := []struct{ name, file, src, want string }{
+		{"empty WHERE of a DELETE", "purge.sql",
+			"-- name: Purge :exec\n-- param: status? string\nDELETE FROM orders\nWHERE {\n  {status} AND status = :status\n}\n",
+			"queries/purge.sql:4:1: WHERE { } of DELETE is empty when status absent, so it would touch every row"},
+		{"parameter its line does not guarantee", "by_status.sql",
+			"-- name: ByStatus :many Order\n-- param: status? string\nSELECT * FROM orders\nWHERE status = :status\n",
+			"queries/by_status.sql:4:16: optional parameter status is used on a line that does not require {status}"},
+		{"model result missing a column", "amounts.sql",
+			"-- name: Amounts :many Order\nSELECT id, amount FROM orders\n",
+			`queries/amounts.sql:2:1: result columns do not match model Order: missing "customer_id", "status", "priority", "created_at", "updated_at"`},
+	}
+	for _, d := range []project.Dialect{project.SQLite, project.Postgres} {
+		for _, c := range cases {
+			t.Run(string(d)+"/"+c.name, func(t *testing.T) {
+				root := ordersProject(t, d)
+				if _, ds := build.Gen(root); ds != nil {
+					t.Fatal(text(ds))
+				}
+				// A change a successful gen would write, beside the error:
+				// any file the failed gen writes shows in the snapshot.
+				search := filepath.Join(root, "queries", "search_orders.sql")
+				writeFile(t, search, strings.Replace(readFile(t, search), "LIMIT :limit", "LIMIT :limit OFFSET 0", 1))
+				writeFile(t, filepath.Join(root, "queries", c.file), c.src)
+				before := snapshot(t, root)
+				_, ds := build.Gen(root)
+				if got := diagnostics(text(ds)); len(got) != 1 || got[0] != c.want {
+					t.Errorf("gen: %q\nwant %q", got, c.want)
+				}
+				if !maps.Equal(snapshot(t, root), before) {
+					t.Error("the failed gen changed files")
+				}
+			})
+		}
+	}
 }
