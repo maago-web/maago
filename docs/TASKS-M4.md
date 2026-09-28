@@ -13,7 +13,7 @@
 **M3에서 넘어온 것** ([TASKS-M3.md](TASKS-M3.md) 끝, [TODO.md](TODO.md)의 M3 절)
 - 앱의 `go test`는 패키지 디렉터리에서 돌아 루트의 `.env`를 보지 못한다. 게시판 튜토리얼은 절대 경로 환경 변수로 돈다 → D-113, 10번
 - 타입 정보를 `go/ast`만으로 얻을지(ARCHITECTURE A-3) → D-117, 1번
-- 빌드 제약이 붙은 `.go` 파일을 매퍼가 보통 파일처럼 읽는다 → 1번이 `go list`의 파일 선택을 들이면 매퍼도 그것으로(매퍼의 이름 충돌은 테스트 파일을 포함하고 타입 검사는 빼므로 목록은 둘)
+- 빌드 제약이 붙은 `.go` 파일을 매퍼가 보통 파일처럼 읽는다 → TODO에 그대로(1번 계획: 매퍼의 이름 검사는 타입 검사보다 앞 단계이고 테스트 파일까지 본다)
 - 릴리스 전 `replace`·`go.work`, fix 예시 이름은 TODO에 그대로 둔다(M4와 상관없다)
 
 ---
@@ -69,6 +69,50 @@
 - 사용자 코드의 타입 오류는 위치 있는 진단(fix: `go build`로 보라)
 
 → 확인: 표 테스트(앱 간 import, 메모리 생성물이 디스크의 낡은 것을 이김, `//go:build ignore` 파일을 거름, 타입 오류의 위치, `go` 바이너리가 없을 때의 오류). 시간: `net/http`·`html/template`을 import하는 앱 셋의 합성 픽스처에서 SQLite `check` 1초 안(D-65)
+
+### 계획
+
+잰 것(2026-09-28, 합성 프로젝트): `go list -e -json=… ./...` 약 60ms, `go list -deps -export -json=… <바깥 import들>` 약 90~180ms(캐시가 찬 뒤). `importer.ForCompiler(fset, "gc", lookup)`에 `lookup`이 `Export` 파일을 열게 하면 된다(실험: importer 하나로 `net/http`·`html/template`·`maago`를 import하는 패키지 셋을 차례로 검사해 약 4ms). 디스크의 `*_gen.go`가 문법 오류여도 `go list`는 `Error`를 내지 않고 `GoFiles`에 그대로 싣는다(실험).
+
+파일
+- 새 `internal/gotypes/gotypes.go`: `Check(root string, overlay map[string][]byte) (*Result, []diag.Diagnostic)`. `Result`는 디렉터리(루트 기준 슬래시 경로) → `*types.Package`와 그 `FileSet`. `types.Info`는 채우지 않는다: 4·5번이 쓰는 것(뷰 함수·페이지 타입 찾기, 필드·메서드)은 `Package.Scope()`와 `types` API로 된다. 필요해지면 그 작업이 더한다
+- 새 `internal/gotypes/gotypes_test.go`: 임시 모듈(`go.mod`에 `require github.com/maago-web/maago v0.0.0` + 이 저장소로 `replace`. 실험에서 `go.sum` 없이 된다)에 파일을 깔고 `Check`. `go list -export`가 의존을 `GOCACHE`에 컴파일하므로 codex 구현 리뷰에는 쓰기 가능한 `GOCACHE`가 필요하다(fable 14)
+
+모양
+1. `go list -e -json=Dir,ImportPath,GoFiles,CgoFiles,IgnoredGoFiles,Module ./...`(루트에서, 환경은 물려받는다). `go`를 찾지 못하면(`exec.ErrNotFound`) 위치 없는 오류 하나(`maago needs the go command to type-check the project`, fix: Go를 설치하거나 `PATH`에). 종료 코드가 0이 아니면(`go.mod` 문법, 풀리지 않은 모듈 등) stderr 첫 줄을 싣은 위치 없는 오류(fix: `go mod tidy`, fable 2). 패키지의 `Error`는 쓰지 않는다: 파일 선택(`GoFiles`)은 오류가 있어도 채워지고, 실제 문제(문법·타입·순환)는 아래가 위치와 함께 낸다(codex 1·2). 이 목록이 곧 "프로젝트 안의 패키지"다. `Module.GoVersion`은 `types.Config.GoVersion`에(`go build`와 같은 언어 판, codex 7. 처음 계획의 "두지 않음"을 고침)
+2. 패키지마다 파일 = `GoFiles`·`CgoFiles` 중 디스크의 maago 생성물(첫 줄 표시, `pipeline.IsGenerated`)이 아닌 것 + 그 디렉터리의 `overlay` 파일. `overlay`는 maago 생성물만 담는다(빌드 제약·cgo·테스트 파일이 아닌 `.go`, 불변식으로 적는다, codex 3). 디스크 생성물은 `overlay`에 있으면 그것으로 바뀌고, 없으면 `gen`이 지울 파일이다(D-60). 표시 없는 `_gen.go`는 사용자 파일이다(D-67). `project.GoFiles`는 쓰지 않는다(테스트·제약 파일이 섞인다, codex 9). `overlay`의 디렉터리가 목록에 없으면 maago의 버그로 오류(조용히 건너뛰지 않는다, fable 2). 파일 이름은 루트 기준 슬래시 경로로 파싱한다(D-88)
+3. cgo: `types.Config.FakeImportC`로 검사한다. `C.x`는 오류 없이 알 수 없는 타입이 되고, 뷰의 In·P가 그런 타입을 쓰면 4번이 거부한다(fable 3. 처음 계획은 cgo 패키지를 통째로 거부했다). 확인에서 cgo 파일이 오류 없이 통과하는 것을 본다
+4. import는 파싱한 파일에서 모은다(`overlay`의 import가 디스크에 없다). 프로젝트 밖 경로를 모아 `go list -e -deps -export -json=ImportPath,Export,Error …` 한 번. `Error`가 있거나 `Export`가 빈 패키지는 그것을 import한 첫 자리에 `go list`의 메시지로 오류(fable 2·codex 5). fix는 경로가 모듈 경로 아래면 "no such package in this module", 아니면 `go get 경로`(fable 13)
+5. importer 하나(검사는 차례로, 동시에 하지 않는다, codex 6): 프로젝트 패키지는 먼저 검사한 결과를(의존 순서로, 재귀), 그 밖은 `importer.ForCompiler(fset, "gc", lookup)`. 프로젝트 안의 import 순환은 그 import 자리에 오류
+6. 타입 오류는 모두 모은다(D-61, 서로 독립인 패키지의 오류도 모두). 오류가 난 프로젝트 패키지를 import하는 패키지는 검사하지 않는다(연쇄 오류)
+7. 오류 위치가 `overlay` 파일이면: 그 패키지에 `IgnoredGoFiles`(빌드 제약으로 빠진 파일)가 있으면 사용자 오류다. 모델·쿼리 읽기는 빌드 제약을 보지 않으므로 거기 선언된 것을 생성물이 쓰지만 Go는 보지 못한다(fable 1, M3 TODO와 같은 뿌리). fix: `generated code cannot see what files with a build constraint declare (x.go); move the model out of them`. 빠진 파일이 없으면 maago의 버그(`dialect.Bug`의 문구)
+8. 사용자 코드의 오류 fix: `go build reports the same error; fix it there` (작업의 문장대로, fable 11)
+
+결정에 없는 선택 (★)
+- ★ **파이프라인에 잇는 것은 4번**(첫 소비자인 뷰 시그니처 검사와 함께), 그리고 라우트가 있는 프로젝트만 검사한다. 지금 이으면 M1~M3만 쓰는 프로젝트도 `go` 바이너리와 풀린 모듈 그래프를 요구하고(`require` 없는 `go.mod`의 시험 픽스처 여럿이 깨진다), 쓰는 곳 없는 검사가 `gen`마다 0.1~0.3초를 쓴다. 4번이 이을 때 D-117에 "라우트가 있는 프로젝트만"을 적는다(fable 4, codex 8). 라우트가 없는 프로젝트의 생성 코드가 컴파일되는지는 지금처럼 골든과 gentest가 본다
+- ★ 매퍼의 빌드 제약(TODO의 M3 항목)은 고치지 않는다: 매퍼의 이름 검사는 이 단계보다 앞이고 테스트 파일까지 본다. `go list`를 앞 단계로 옮기면 모든 프로젝트에 `go`가 필요해진다. 대신 모양 7이 그 결과(생성물이 못 보는 선언)를 사용자 오류로 낸다
+- 받지 않음: codex 4 vendor의 `ImportMap` — 모듈 모드의 vendor는 `ImportPath`를 바꾸지 않는다(GOPATH의 vendor만 바꾼다). `go list`를 루트에서 부르므로 `-mod=vendor`는 `go`가 스스로 따른다. fable 12 — `go list`의 순환 `Error`를 쓰지 않으므로(모양 1) 순환은 모양 5가 위치와 함께 낸다
+
+하지 않기로 한 것
+- 테스트 파일(`_test.go`) 검사, `types.Info`, 파이프라인 연결(4번), 매퍼 빌드 제약
+
+단계
+1. `go list` 두 번과 파싱·파일 고르기 → 확인: 디스크의 낡은 생성물(표시 있음)이 `Stale`을, `overlay`가 `Fresh`를 선언할 때 사용자 코드의 `Fresh`는 통과·`Stale`은 `undefined`(fable 9). `overlay`에 없는 디스크 생성물도 빠짐, 표시 없는 `x_gen.go`는 남음, `//go:build ignore` 파일(깨진 코드)이 빠짐
+2. importer와 검사 → 확인: 앱 `b`가 앱 `a`의 타입과 runtime `maago`·`net/http`·`html/template`을 쓰고 통과, `b`의 `Scope`에서 `a`의 타입이 든 struct를 찾음, 앱 간 import 순환은 그 import 자리 오류, cgo 파일(`import "C"`, `C.int`)이 오류 없이 통과
+3. 진단 → 확인: 한 파일의 타입 오류 둘이 `a/x.go:줄:칸`으로 모두, 그 `a`의 깨진 이름을 **쓰는** `b`에서 추가 오류 없음(fable 7), 서로 독립인 `a`·`c`의 오류가 둘 다(fable 8), 없는 외부 패키지와 모듈 안의 없는 패키지 import는 그 자리 오류와 다른 fix, 없는 모듈을 require한 `go.mod`에서 `go list` 실패 오류, `PATH=""`에서 `go` 없음 문구(fable 10), `overlay` 파일의 오류는 버그 문구, `//go:build ignore` 파일이 선언한 이름을 `overlay`가 쓰면 사용자 오류 문구(fable 1). `GoVersion`: `go.mod`가 `go 1.21`인 모듈에서 `for range 10`(1.22)이 오류
+4. 시간 → 확인: 합성 픽스처(앱 셋, 각각 `net/http`·`html/template`·`database/sql`·`maago`, 한 앱에 gentest blog의 모델과 쿼리)에서 **같은 픽스처**의 `build.Check`(SQLite) + `gotypes.Check`(캐시가 찬 뒤) < 1초(fable 4). 넘으면 멈추고 묻는다. 값은 이 계획에 적는다
+5. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+잰 값(2026-09-29, 캐시가 찬 뒤): 게시판 튜토리얼 마지막 단계(모델·쿼리) `maago check` 0.01초 + 같은 프로젝트의 `gotypes.Check` 0.106초. `net/http`·`html/template`·`database/sql`·`maago`를 import하는 앱 셋(`TestTime`)의 `Check` 0.106초. 합쳐도 D-65(1초)에 한참 안이다. 계획의 "한 픽스처에 앱 셋과 모델·쿼리"는 두 픽스처로 나눠 쟀다(검사 시간은 바깥 import의 `go list`가 거의 다라 합친 값이 달라지지 않는다). 변이: 실패한 의존을 건너뛰지 않게, 생성물 오류를 늘 사용자 오류로 바꾸면 각각 시험이 실패한다
+
+계획 리뷰 (codex·fable)
+- 받음: codex 1·2(패키지 `Error`를 쓰지 않음), 3(`overlay` 불변식), 5(`Export` 빈 것), 6(importer 하나·차례로), 7(`GoVersion`), 8(D-117에 적음), 9(`go list`의 파일만). fable 1(제약 붙은 파일의 모델), 2(`go list` 실패·`Export` 없음·목록에 없는 `overlay` 디렉터리), 3(`FakeImportC`), 4(같은 픽스처로 시간), 7~11, 13, 14
+- 받지 않음: codex 4(위 ★ 절), fable 6(`GoVersion`은 codex 7을 받았다: 한 줄이고 `go build`와 같아진다), fable 12(위 ★ 절)
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — `exportData`의 두 맵과 "go list did not report it" 갈래를 `cmp.Or`로
+- codex(샌드박스가 `/tmp` 쓰기를 막아 코드만 읽은 리뷰): 받음 — `go list` 실패의 stderr는 마지막 줄(첫 줄이 `go: downloading …`일 수 있다). 받지 않음 — 1 외부 import 진단의 순서: `diag.Write`가 위치로 정렬한다
+- fable(변이로 잼): 받음 — 여러 줄 타입 오류(`have …\n\twant …`)가 `diag.New`에서 panic하던 것을 한 줄로(1), 한 패키지의 문법 오류가 다른 패키지의 타입 오류를 가리던 것: 문법 오류는 그 패키지만 실패시킨다(2), 생성물의 문법 오류는 버그 문구(3), 생성물 자리의 표시 없는 사용자 파일은 `pipeline.Check`와 같은 문구로 그 자리에서(4, 거짓 `undefined`가 먼저 나오던 것), 의존의 의존이 깨진 것은 `DepsErrors`의 이유와 다른 fix(5), 살아남은 변이 여섯(cgo 파일, 사용자 파일 자리, `_test.go` 거르기, `unsafe`, `DepsErrors`, 첫 자리)에 시험, `overlay` 디렉터리 버그 진단에 파일 위치(11), `root`는 절대 경로라는 주석(14). 고친 뒤 여덟 변이를 다시 돌려 모두 잡힌다. 13(`TestTime`은 로그만)은 그대로: 시간 단언은 흔들린다
 
 ## 2. 라우트 표 (`internal/web`, D-115)
 
