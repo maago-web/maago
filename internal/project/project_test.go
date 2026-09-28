@@ -166,3 +166,22 @@ func TestQueryFiles(t *testing.T) {
 		t.Errorf("missing root: want one error, got:\n%s", text(ds))
 	}
 }
+
+func TestModulePath(t *testing.T) {
+	tests := []struct{ mod, want, err string }{
+		{"module example.com/app\n\ngo 1.25\n", "example.com/app", ""},
+		{"// a comment\nmodule \"example.com/q\" // why\n", "example.com/q", ""},
+		{"module (\n\texample.com/b\n)\n", "", "go.mod:1: go.mod has no module path\n  fix: start go.mod with a line such as: module example.com/app\n"},
+		{"go 1.25\n", "", "go.mod: go.mod has no module path\n  fix: start go.mod with a line such as: module example.com/app\n"},
+	}
+	for _, tt := range tests {
+		root := t.TempDir()
+		write(t, filepath.Join(root, "go.mod"), tt.mod)
+		got, ds := ModulePath(root)
+		var b strings.Builder
+		diag.Write(&b, ds)
+		if got != tt.want || b.String() != tt.err {
+			t.Errorf("%q: got %q, %q", tt.mod, got, b.String())
+		}
+	}
+}

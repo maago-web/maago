@@ -1,0 +1,156 @@
+# another name
+board/urls.go:5:13: maago.Routes literal outside var Routes
+  fix: declare the table at the top level as var Routes = maago.Routes{…}
+
+# in a function
+board/urls.go:5:16: maago.Routes literal outside var Routes
+  fix: declare the table at the top level as var Routes = maago.Routes{…}
+
+# typed var
+board/urls.go:5:5: route table declared in another form
+  fix: declare the table at the top level as var Routes = maago.Routes{…}
+
+# two names
+board/urls.go:5:5: route table declared in another form
+  fix: declare the table at the top level as var Routes = maago.Routes{…}
+
+# a variable
+board/urls.go:5:13: maago.Routes literal outside var Routes
+  fix: declare the table at the top level as var Routes = maago.Routes{…}
+board/urls.go:6:5: var Routes is not a maago.Routes literal
+  fix: declare the table at the top level as var Routes = maago.Routes{…}; maago gen reads the table as written
+
+# a call
+board/urls.go:5:5: var Routes is not a maago.Routes literal
+  fix: declare the table at the top level as var Routes = maago.Routes{…}; maago gen reads the table as written
+
+# two tables
+board/urls.go:5:5: second route table in package board
+  fix: keep one var Routes per package
+
+# not a call
+board/urls.go:6:27: route is not written as maago.METHOD("/path", "name", View, options…)
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+
+# too few arguments
+board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+
+# path not a literal
+board/urls.go:7:27: route is not written as maago.METHOD("/path", "name", View, options…)
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+
+# name joined
+board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+
+# view of another package
+board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+
+# view literal
+board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+
+# view nil
+board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+
+# option not maago's
+board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+
+# dot import
+board/urls.go:5:5: route table in a file that dot-imports maago
+  fix: import maago by name: import "github.com/maago-web/maago"
+
+# package main
+main.go:5:5: route table in package main
+  fix: move the routes and their views to an app package, and add its App to maago.Config.Apps in main (D-114)
+
+# unknown method
+board/urls.go:5:27: unknown route method maago.GETT
+  fix: did you mean "GET"? allowed: GET, POST, PUT, PATCH, DELETE
+
+# unknown method and bad pattern
+board/urls.go:6:2: unknown route method maago.GETT
+  fix: did you mean "GET"? allowed: GET, POST, PUT, PATCH, DELETE
+board/urls.go:6:13: route path "/x/{id" is not a valid pattern: at offset 8: bad wildcard segment (must end with '}')
+  fix: see the patterns of net/http's ServeMux, such as /posts/{id}
+
+# a method is no view
+board/urls.go:5:48: no function M in package board
+  fix: declare func M in package board, or name one of its functions
+
+# unknown option
+board/urls.go:5:54: unknown route option maago.Login
+  fix: did you mean "LoginRequired"? allowed: LoginRequired, API
+
+# option twice
+board/urls.go:5:65: route option maago.API given twice
+  fix: remove one
+
+# no view
+board/urls.go:5:48: no function Viw in package board
+  fix: did you mean "View"?
+
+# empty
+board/urls.go:5:5: route table of board is empty
+  fix: add a route, or remove the table
+
+# name capital
+board/urls.go:6:18: route name "Post" is not lower-case words joined by single underscores
+  fix: name it like post_detail
+
+# name double underscore
+board/urls.go:6:18: route name "post__x" is not lower-case words joined by single underscores
+  fix: name it like post_detail
+
+# name trailing underscore
+board/urls.go:6:18: route name "x_" is not lower-case words joined by single underscores
+  fix: name it like post_detail
+
+# name taken by another app
+board/urls.go:6:18: route name "x" is taken by blog/urls.go:5
+  fix: route names are one namespace across the project; rename one
+
+# bad pattern
+board/urls.go:6:12: route path "/x/{id" is not a valid pattern: at offset 7: bad wildcard segment (must end with '}')
+  fix: see the patterns of net/http's ServeMux, such as /posts/{id}
+
+# not from the root
+board/urls.go:6:12: route path "x" does not start with /
+  fix: write the path from the root, such as /posts/{id}
+
+# root subtree
+board/urls.go:6:12: route path "/" ends in /, so it would match every path below it
+  fix: end it in {$} to match that path alone, such as /{$}
+
+# subtree
+board/urls.go:6:12: route path "/posts/" ends in /, so it would match every path below it
+  fix: end it in {$} to match that path alone, such as /posts/{$}
+
+# conflict
+board/urls.go:7:12: route GET /{y}/b conflicts with a (board/urls.go:6): a request could match both
+  fix: make one pattern more specific than the other, or remove one
+
+# same pattern twice
+board/urls.go:7:12: route GET /x conflicts with a (board/urls.go:6): a request could match both
+  fix: make one pattern more specific than the other, or remove one
+
+# unused
+board/urls.go:5:5: app board has routes, but no package uses board.App
+  fix: add board.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
+
+# used by a test only
+board/urls.go:5:5: app board has routes, but no package uses board.App
+  fix: add board.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
+
+# another App used
+board/urls.go:5:5: app board has routes, but no package uses board.App
+  fix: add board.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
+
+# app dot-imported
+main.go:3:8: app board is dot-imported
+  fix: import it by name and use board.App
+

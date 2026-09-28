@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/maago-web/maago/internal/diag"
@@ -100,4 +101,29 @@ func walk(root string, keep func(slashPath string) bool) ([]string, []diag.Diagn
 	})
 	slices.Sort(files) // WalkDir lists "blog/" before "blog.go"
 	return files, ds
+}
+
+// ModulePath is the path the module directive of root's go.mod declares.
+func ModulePath(root string) (string, []diag.Diagnostic) {
+	pos := token.Position{Filename: "go.mod"}
+	src, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return "", []diag.Diagnostic{diag.New(pos, "cannot read go.mod: "+diag.OneLine(err.Error()), "make sure go.mod can be read")}
+	}
+	for i, line := range strings.Split(string(src), "\n") {
+		f := strings.Fields(strings.TrimSpace(strings.SplitN(line, "//", 2)[0]))
+		if len(f) != 2 || f[0] != "module" {
+			continue
+		}
+		p := f[1]
+		if q, err := strconv.Unquote(p); err == nil {
+			p = q
+		}
+		if p == "" || p == "(" { // a module block is not read
+			pos.Line = i + 1
+			break
+		}
+		return p, nil
+	}
+	return "", []diag.Diagnostic{diag.New(pos, "go.mod has no module path", "start go.mod with a line such as: module example.com/app")}
 }

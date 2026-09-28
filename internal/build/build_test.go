@@ -82,6 +82,29 @@ func TestMaxlen(t *testing.T) {
 	}
 }
 
+// Route errors come from one stage, so a taken name and a missing view
+// show together, and nothing is written (D-60, D-61).
+func TestRoutes(t *testing.T) {
+	root := example(t)
+	write(t, filepath.Join(root, "blog", "urls.go"), "package blog\n\nimport \"github.com/maago-web/maago\"\n\nvar Routes = maago.Routes{\n\tmaago.GET(\"/a\", \"x\", A),\n\tmaago.GET(\"/b\", \"x\", B),\n}\n\nfunc A() {}\n")
+	write(t, filepath.Join(root, "main.go"), "package main\n\nimport \"example.com/app/blog\"\n\nvar _ = blog.App\n")
+	before := snapshot(t, root)
+
+	_, ds := Gen(root)
+
+	want := `blog/urls.go:7:18: route name "x" is taken by blog/urls.go:6
+  fix: route names are one namespace across the project; rename one
+blog/urls.go:7:23: no function B in package blog
+  fix: did you mean "A"?
+`
+	if out := text(ds); out != want {
+		t.Errorf("got:\n%s", out)
+	}
+	if after := snapshot(t, root); !maps.Equal(before, after) {
+		t.Errorf("gen wrote files despite an error")
+	}
+}
+
 // A syntax error stops the run at parsing: the tag error in another
 // package, which checking would report, does not appear.
 func TestStagesStop(t *testing.T) {

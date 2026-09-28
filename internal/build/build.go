@@ -20,6 +20,7 @@ import (
 	"github.com/maago-web/maago/internal/practicedb"
 	"github.com/maago-web/maago/internal/project"
 	"github.com/maago-web/maago/internal/schema"
+	"github.com/maago-web/maago/internal/web"
 )
 
 // Gen checks the project holding dir and, if nothing is wrong, writes its
@@ -51,14 +52,22 @@ func Check(dir string) []diag.Diagnostic {
 func checking(root string) [][]pipeline.Step {
 	s := &state{root: root}
 	parse := func() []diag.Diagnostic {
-		files, ds := project.QueryFiles(s.root)
-		if len(ds) > 0 {
-			return ds
+		var ds []diag.Diagnostic
+		if files, qds := project.QueryFiles(s.root); len(qds) > 0 {
+			ds = qds
+		} else {
+			s.queries, ds = mapper.Read(s.root, files)
 		}
-		s.queries, ds = mapper.Read(s.root, files)
-		return ds
+		mod, mds := project.ModulePath(s.root)
+		if len(mds) > 0 {
+			return append(ds, mds...)
+		}
+		apps, wds := web.Read(s.fset, s.root, s.files, mod)
+		s.web = apps
+		return append(ds, wds...)
 	}
 	early := func() (ds []diag.Diagnostic) { // what makemigrations does not need
+		ds = web.Check(s.fset, s.web)
 		s.checked, s.pkgs = map[string][]mapper.Checked{}, map[string]string{}
 		for _, qa := range s.queries {
 			for _, q := range qa.Queries {
@@ -113,6 +122,8 @@ type state struct {
 	queries    []*mapper.App               // nil for makemigrations
 	checked    map[string][]mapper.Checked // each app's queries, by directory
 	pkgs       map[string]string           // the package of each app with queries
+	files      []string                    // the project's Go files
+	web        []*web.App                  // the apps with routes; nil for makemigrations
 }
 
 // app is the app with models at dir, or nil.
@@ -134,7 +145,6 @@ func (s *state) app(dir string) *model.App {
 // database stage.
 func stages(s *state, parse, early, final func() []diag.Diagnostic) [][]pipeline.Step {
 	s.fset = token.NewFileSet()
-	var files []string
 	var pkgs []*model.Package
 	checks := []pipeline.Step{
 		step(func() []diag.Diagnostic { return dialect.CheckNames(s.fset, s.apps, 0) }),
@@ -152,8 +162,8 @@ func stages(s *state, parse, early, final func() []diag.Diagnostic) [][]pipeline
 		parsing = append(parsing, step(parse))
 	}
 	return [][]pipeline.Step{
-		{step(func() (ds []diag.Diagnostic) { files, ds = project.GoFiles(s.root); return })},
-		{step(func() (ds []diag.Diagnostic) { pkgs, ds = model.Read(s.fset, s.root, files); return })},
+		{step(func() (ds []diag.Diagnostic) { s.files, ds = project.GoFiles(s.root); return })},
+		{step(func() (ds []diag.Diagnostic) { pkgs, ds = model.Read(s.fset, s.root, s.files); return })},
 		// .env, the migration files and the query files beside the tags:
 		// none of them needs another, so none hides another.
 		parsing,

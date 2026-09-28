@@ -122,6 +122,48 @@
 
 → 확인: 표 테스트. 다른 앱끼리 겹친 이름, 충돌하는 두 패턴과 충돌하지 않는 `GET /x`·`POST /x`, 모르는 메서드, 없는 뷰(did you mean), 변수로 만든 표, `main`이 빠뜨린 앱 각각 위치와 fix로
 
+### 계획
+
+파일
+- 새 루트 `route.go`(런타임, `package maago`): `type Routes []Route`, `type Route struct{}`, `type RouteOption int`와 `const LoginRequired, API`, `func GET/POST/PUT/PATCH/DELETE(path, name string, view any, opts ...RouteOption) Route`(인자를 버린다). 런타임은 이 값을 쓰지 않는다: 표는 `maago gen`이 `go/ast`로 읽는 선언이고, 요청을 받는 것은 4번이 생성하는 코드다. 사용자 코드가 컴파일되려면 이름만 있으면 된다. 필드는 쓰는 곳이 생기면 더한다(fable 10). `view any`: 뷰의 시그니처가 여럿(D-116, `func(w, r)`)이라 Go 타입으로 묶을 수 없다. 문서 주석에 "`var Routes = maago.Routes{…}` 리터럴 안에서만 뜻이 있고 `maago gen`이 검사한다, 표 밖의 호출은 아무 일도 하지 않는다"고 적는다(codex 6)
+- 새 `internal/web/routes.go`: `Read(fset, root, files, modulePath) ([]*App, []diag.Diagnostic)`는 표의 **모양**만(fable 1), `Check(apps) []diag.Diagnostic`는 **뜻**을 모두 본다. 그래서 겹친 이름과 없는 뷰가 한 단계에서 한 번에 나온다(D-61). `App{Dir, Name, ImportPath, Pos, Routes []Route, Funcs(최상위 함수 이름), Used(다른 패키지가 App을 쓴 곳이 있음)}`, `Route{Method, Path, Name, View string; Pos, PathPos, NamePos, ViewPos token.Pos; Options []Option}`(모르는 메서드·옵션도 글 그대로 담아 `Check`에 넘긴다)
+- 새 `internal/web/routes_test.go`: 글 → `diag.Write` 출력 전체의 표(골든 `testdata/routes.golden`)와 정상 표의 `App` 값 비교
+- `internal/project`: `ModulePath(root)`(`go.mod`의 `module` 줄, 따옴표면 `strconv.Unquote`. `golang.org/x/mod`는 쓰지 않는다)
+- `internal/build/build.go`: 해석 단계에 `web.Read`, DB 없는 검사 단계에 `web.Check`. 라우트 오류는 DB 검사 전에 멈춘다(ARCHITECTURE §3). 파일은 `model.Read`처럼 다시 파싱한다(세 번째 파싱. 4번이 `gotypes`를 이을 때 합칠지 본다, fable 5)
+
+규칙 (결정에 없는 선택은 ★)
+- **읽는 파일**: 테스트 아닌 `.go`, 첫 줄이 생성 표시인 파일은 뺀다(4번의 `urls_gen.go`가 `App`을 선언한다, fable 6)
+- **모양(`Read`)**: 패키지 최상위의 `var Routes = maago.Routes{…}` 하나. `maago`는 그 파일이 maago를 import한 이름(`model.Read`와 같은 규칙), 점 import는 오류. 오류: `maago.Routes{` 리터럴이 다른 자리(다른 이름의 변수, 함수 안, 타입 붙은 `var Routes maago.Routes = …`), 우변이 리터럴이 아님(`var Routes = other`, `= build()`), 한 패키지의 `var Routes` 둘, 원소가 `maago.X(…)` 호출이 아님, 경로·이름이 문자열 리터럴이 아님, 뷰가 식별자가 아님(`other.View`·메서드 값·함수 리터럴·`nil`), 옵션이 `maago.X`가 아님, `package main`의 표
+- **뜻(`Check`)**: 모르는 메서드·옵션(did you mean), 같은 옵션 두 번, 없는 뷰(같은 패키지 최상위 함수 중 did you mean), 빈 표(`maago.Routes{}`, fix: 표를 지우거나 라우트를 더한다, PHILOSOPHY 7), 이름 꼴·겹침, 경로, 충돌, 앱 값의 쓰임
+- **옵션**(열린 질문의 답 ★): 가변 인자 `maago.LoginRequired`·`maago.API`, 닫힌 목록. `Login`은 "로그인 화면 라우트"로 읽혀 `LoginRequired`로(fable 7). 다른 생성자(`maago.APIGET`…)는 메서드 수 × 옵션 수로 는다. 뜻은 7·9번이 채운다. ARCHITECTURE §2의 `maago.GET/POST/API`는 13번에서 고친다
+- **메서드** ★: `GET`·`POST`·`PUT`·`PATCH`·`DELETE`. `HEAD`는 `ServeMux`가 GET으로 받고, `OPTIONS`는 3번이 `ServeMux` 앞에서 답한다
+- **탈출구**(D-41): 같은 생성자로 올린다. `func(w, r)` 뷰인지는 4번이 시그니처로 가른다(`maago.Handle`을 따로 두지 않는다)
+- **이름** ★: `^[a-z][a-z0-9]*(_[a-z0-9]+)*$`(`post__detail`과 `post_detail`이 같은 `PostDetailURL`이 되지 않게). D-115의 `^[a-z][a-z0-9_]*$`보다 좁다 → D-115를 이 커밋에서 고친다(fable 8). 프로젝트 전체에서 하나: 둘째부터 오류, 메시지에 첫 자리. 폼의 GET·POST는 이름이 둘이다
+- **경로**: `/`로 시작(호스트 패턴은 오류). **`{$}` 없이 `/`로 끝나는 패턴은 오류**(사람의 결정 2026-09-29, D-115 고침): `ServeMux`에서 `GET /`는 다른 패턴에 걸리지 않은 모든 경로를 받아 모르는 URL이 404가 되지 않는다(fable 2). fix: `/{$}`는 그 경로만. 하위 트리가 필요해지면(M7 정적 파일) 그때 명시적인 표기를 더한다. 문법은 라우트마다 새 `http.ServeMux`에 `"METHOD 경로"`를 등록해 panic 여부로 가린다. panic 글은 공개 계약이 아니므로 판정에 쓰지 않고, 한 줄이고 `parsing `으로 시작할 때만 그 뒤를 도움말로 싣는다(codex 1). 충돌은 문법이 맞은 라우트끼리 짝으로 새 mux에 등록해 둘째가 panic하면 충돌이다(글을 해석하지 않는다). 메시지는 maago가 짠다: `route conflicts with post_detail (blog/urls.go:6): a request could match both`(`ServeMux`의 여러 줄 글과 생성기 소스 위치가 새지 않는다, fable 9). ponytail: 짝마다 mux라 O(n²), 라우트 수백 개면 수 ms라 둔다
+- 받지 않음: codex 2 `GODEBUG=httpmuxgo121=1` — 사용자가 일부러 옛 `ServeMux`를 고른 것이고, `go.mod`의 `go` 줄은 maago(1.25, D-04)를 require하면 1.22보다 낮을 수 없다(`go mod tidy`가 올린다)
+- **앱 값**(D-114, 열린 질문의 답 ★): 4번이 앱의 `urls_gen.go`에 `var App maago.App`을 생성한다(그 패키지의 사용자 이름과 겹치면 4번의 이름 검사). 라우트가 있는 앱은 다른 패키지의 테스트 아닌 파일이 그 앱을 import한 이름으로 `X.App`을 써야 한다(별칭 import도 셈). 없으면 `Routes` 자리에 오류(`app board has routes, but no package uses board.App`, fix: `add board.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen`, 첫 `gen` 전에는 `App`이 없어 빌드가 깨지는 순서를 말한다, fable 4). `main` 말고 도우미 패키지가 모아도 된다. 시험은 셈하지 않는다. 앱 패키지를 점 import하면 오류(명시적 등록, codex 3). **한계**(fable 4·codex 3·4): `go/ast`만 보므로 "잊음"은 잡고 "잘못 씀"(`_ = board.App`, 지역 변수가 import 이름을 가림, 빌드 제약 파일)은 못 잡는다. 빌드 제약은 M3 TODO와 같은 뿌리. 4번이 타입 정보를 이을 때 다시 본다
+- ★ `package main`의 라우트는 오류(fix: 앱 패키지로 옮기고 `main`이 `board.App`을 쓴다). 앱은 import할 수 있는 패키지라는 제약이고, 13번에서 D-114에 적는다(codex 5)
+- **contrib**: contrib(auth·admin)의 라우트는 M5·M6에 생긴다. 생기면 같은 `Read`로 maago 소스의 표를 읽어 이름·충돌 검사에 더한다. 지금은 없다
+
+하지 않기로 한 것
+- 뷰 시그니처, 경로 와일드카드와 In 필드의 짝, `App`·URL 함수 생성과 이름 충돌(4번), 옵션의 뜻(7·9번)
+
+단계
+1. `route.go`, `project.ModulePath` → 확인: `ModulePath` 표(따옴표, 주석, `module` 줄 없음은 오류)
+2. `web.Read` → 확인: 정상 표 두 앱의 `App` 값(메서드·경로·이름·뷰·옵션·위치), 디스크의 낡은 `urls_gen.go`(표시 있음, 깨진 코드)가 있어도 같음. 모양 오류 표: 변수 이름이 다른 표, 함수 안의 표, 타입 붙은 `var`, 리터럴 아닌 우변 둘, `var Routes` 둘, 원소가 호출이 아님, 경로·이름이 리터럴 아님, 뷰가 `other.View`·함수 리터럴·`nil`, 옵션이 식별자 아님, 점 import, `package main`의 표
+3. `web.Check` → 확인: 모르는 메서드·옵션(did you mean), 옵션 두 번, 없는 뷰(did you mean), 빈 표, 이름 꼴(`Post`, `post__x`, `x_`), 다른 앱끼리 겹친 이름(첫 자리가 메시지에), 문법이 틀린 경로(`/x/{id`), `/`로 시작하지 않는 경로, `/`로 끝나는 `GET /`·`GET /posts/`(fix `/{$}`)와 통과하는 `GET /{$}`, 충돌하는 `GET /a/{x}`·`GET /{y}/b`와 같은 `GET /x` 두 줄(메시지에 `registered at`·maago 소스 경로가 없음), 충돌하지 않는 `GET /x`·`POST /x`·`GET /posts/{id}`·`GET /posts/new`. 앱 값: 아무도 안 씀·시험만 씀·다른 앱 `other.App`만 씀은 오류, 별칭 import `b.App`·도우미 패키지·`package main`이 쓰면 통과, 앱을 점 import하면 오류
+4. 파이프라인 → 확인: `internal/build` 시험 하나: 예제 프로젝트에 겹친 라우트 이름과 없는 뷰를 넣으면 두 오류가 한 번에 나오고(D-61, 둘 다 `Check`) 아무것도 쓰지 않음(D-60)
+5. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)
+- 받음: codex 1(panic 글을 판정에 쓰지 않음), 3(점 import 오류, 한계를 적음), 4(빌드 제약 한계), 5(`package main` 금지를 D-114에), 6(`view any` 주석). fable 1(모양은 `Read`·뜻은 `Check`, 단계 4가 닿게), 2(끝 `/`, 사람이 막기로), 3(리터럴 아닌 우변, `var` 둘, 빈 표, 같은 경로 두 줄), 4(한계와 fix의 순서, 별칭·`other.App`·`main` 확인), 5(세 번째 파싱은 적어 둠), 6(생성물 건너뛰기), 7(`LoginRequired`, §2는 13번), 8(D-115 고침), 9(메시지를 maago가 짬), 10(`Route struct{}`)
+- 받지 않음: codex 2(위 경로 규칙)
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — `pkgFiles` struct를 디렉터리 → 파일 맵으로, `methods`·`options`를 비공개로
+- codex(샌드박스가 `/tmp`를 막아 코드만 읽은 리뷰): 받음 — `go.mod`의 `module (` 블록을 경로 `"("`로 읽던 것(3). 받지 않음 — 1 maago를 import한 파일의 다른 타입 `var Routes`를 표가 아니라고 보는 것: 한 번 넣었다가 fable 3을 따라 뺐다. 같은 자리의 `= other`는 거부하면서 `= []string{…}`만 짐작하게 된다(PHILOSOPHY 6), 이름을 바꾸는 값은 작다. 2 지역 변수가 import 이름을 가리는 것: 계획의 한계 절대로(4번이 타입 정보로 다시 본다)
+- fable(변이 34개): 받음 — D-115 고침이 빠져 있던 것(1), 모르는 메서드면 경로를 건너뛰던 줄: `ServeMux`는 어떤 메서드든 받아 보호가 없고, 틀린 패턴이 충돌 검사에 들어가 거짓 충돌을 냈다(2, 시험 더함), 다른 타입 리터럴 갈래 삭제(3), `importPath`를 `path.Join` 한 줄로(4), 낡은 생성물 픽스처를 컴파일되는 코드로(5, 깨진 코드는 파싱 오류가 대신 걸렀다), 틀린 패턴 뒤 정상 라우트(6), 메서드는 뷰가 아님(7). 받지 않음 — 7의 파이프라인 모양 오류 시험(`Read` 오류는 `TestErrors`가 본다), `maagoNames` 합치기(4번에서 `gotypes`와 함께)
+
 ## 3. 런타임: Handler, Config, 오류와 상태, CSRF·CORS (`maago`)
 
 - 앱 값의 타입(생성 코드가 채운다), `Handler(Config) (http.Handler, error)`, `WithDB`·`DBFrom`, `Result`·`Show`·`SeeOther`, RFC 9457 응답, 오류 → 상태(D-116), `OnError`, CSRF·CORS(모양 절)
@@ -160,7 +202,7 @@
 
 ## 8. 표준 핸들러 탈출구와 스트리밍 (D-41)
 
-- `func(w, r)`을 표에 올린다(이름·URL 함수는 같다, 템플릿 검사 없음). 스트리밍 응답(CSV)이 되는지
+- `func(w, r)` 뷰도 같은 생성자로 표에 올린다(2번. 이름·URL 함수는 같다, 템플릿 검사 없음). 스트리밍 응답(CSV)이 되는지
 
 → 확인: 탈출구 라우트의 URL 함수와 `{{url}}`. 스트리밍은 `httptest.NewServer`로 열고, 핸들러가 둘째 조각을 쓰기 전에 클라이언트가 첫 조각을 읽는다(채널로 맞춘다. `ResponseRecorder`로는 보이지 않는다)
 
