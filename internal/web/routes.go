@@ -32,6 +32,9 @@ type App struct {
 	Routes     []Route
 	Funcs      []string // the package's top-level functions
 	Used       bool     // another package's code uses its App
+
+	funcs map[string]*ast.FuncDecl // the top-level functions, for Views
+	types map[string]*ast.TypeSpec // the top-level types
 }
 
 // Route is one line of a route table, as written: Check judges it.
@@ -39,6 +42,8 @@ type Route struct {
 	Method, Path, Name, View       string
 	Pos, PathPos, NamePos, ViewPos token.Pos
 	Options                        []Option
+
+	view *view // filled by Views
 }
 
 // Option is a route option as written: maago.LoginRequired.
@@ -93,7 +98,8 @@ func importPath(modulePath, dir string) string { return path.Join(modulePath, di
 
 // readApp returns the app of p, or nil if p has no route table.
 func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath string) (*App, []diag.Diagnostic) {
-	app := &App{Dir: dir, Name: files[0].Name.Name, ImportPath: importPath}
+	app := &App{Dir: dir, Name: files[0].Name.Name, ImportPath: importPath,
+		funcs: map[string]*ast.FuncDecl{}, types: map[string]*ast.TypeSpec{}}
 	var ds []diag.Diagnostic
 	errAt := func(pos token.Pos, msg, fix string) { ds = append(ds, diag.New(fset.Position(pos), msg, fix)) }
 	const form = "declare the table at the top level as var Routes = maago.Routes{…}"
@@ -102,8 +108,18 @@ func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath stri
 	for _, f := range files {
 		names, dot := maagoNames(f)
 		for _, d := range f.Decls {
-			if fd, ok := d.(*ast.FuncDecl); ok && fd.Recv == nil {
-				app.Funcs = append(app.Funcs, fd.Name.Name)
+			switch d := d.(type) {
+			case *ast.FuncDecl:
+				if d.Recv == nil {
+					app.Funcs = append(app.Funcs, d.Name.Name)
+					app.funcs[d.Name.Name] = d
+				}
+			case *ast.GenDecl:
+				for _, s := range d.Specs {
+					if ts, ok := s.(*ast.TypeSpec); ok {
+						app.types[ts.Name.Name] = ts
+					}
+				}
 			}
 		}
 		accepted := map[*ast.CompositeLit]bool{}

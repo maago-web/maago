@@ -6,13 +6,16 @@ package build
 import (
 	"context"
 	"go/token"
+	"maps"
 	"os"
 	"path"
+	"slices"
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/dialect"
 	"github.com/maago-web/maago/internal/dialect/postgres"
 	"github.com/maago-web/maago/internal/dialect/sqlite"
+	"github.com/maago-web/maago/internal/gotypes"
 	"github.com/maago-web/maago/internal/mapper"
 	"github.com/maago-web/maago/internal/migrate"
 	"github.com/maago-web/maago/internal/model"
@@ -67,7 +70,7 @@ func checking(root string) [][]pipeline.Step {
 		return append(ds, wds...)
 	}
 	early := func() (ds []diag.Diagnostic) { // what makemigrations does not need
-		ds = web.Check(s.fset, s.web)
+		ds = append(web.Check(s.fset, s.web), web.Views(s.fset, s.web)...)
 		s.checked, s.pkgs = map[string][]mapper.Checked{}, map[string]string{}
 		for _, qa := range s.queries {
 			for _, q := range qa.Queries {
@@ -83,19 +86,21 @@ func checking(root string) [][]pipeline.Step {
 				ds = append(ds, pds...)
 			}
 		}
+		// The names every generator declares in each app, checked together.
+		dirs := map[string]bool{}
+		queries := map[string][]*mapper.Query{}
+		routes := map[string]*mapper.More{}
 		for _, app := range s.apps {
-			var qs []*mapper.Query
-			for _, qa := range s.queries {
-				if qa.Dir == app.Dir {
-					qs = qa.Queries
-				}
-			}
-			ds = append(ds, mapper.Names(s.fset, s.root, app.Dir, app, qs)...)
+			dirs[app.Dir] = true
 		}
 		for _, qa := range s.queries {
-			if s.app(qa.Dir) == nil {
-				ds = append(ds, mapper.Names(s.fset, s.root, qa.Dir, nil, qa.Queries)...)
-			}
+			dirs[qa.Dir], queries[qa.Dir] = true, qa.Queries
+		}
+		for _, app := range s.web {
+			dirs[app.Dir], routes[app.Dir] = true, web.More(s.fset, app)
+		}
+		for _, dir := range slices.Sorted(maps.Keys(dirs)) {
+			ds = append(ds, mapper.Names(s.fset, s.root, dir, s.app(dir), queries[dir], routes[dir])...)
 		}
 		return ds
 	}
@@ -106,6 +111,30 @@ func checking(root string) [][]pipeline.Step {
 			}
 			for dir, qs := range s.checked {
 				r.Files[path.Join(dir, "queries_gen.go")] = mapper.QueriesFile(s.d, s.pkgs[dir], qs)
+			}
+			// The views call the URL functions, and main names each App,
+			// so they exist before the type check; App gets its value after.
+			for _, app := range s.web {
+				r.Files[path.Join(app.Dir, "urls_gen.go")] = web.URLsFile(app, true)
+			}
+			return nil
+		}},
+		// Only a project with routes is type-checked, so only it needs the
+		// go command (D-117).
+		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic {
+			if len(s.web) == 0 {
+				return nil
+			}
+			res, ds := gotypes.Check(s.root, r.Files)
+			if len(ds) > 0 {
+				return ds
+			}
+			return web.Types(s.root, s.fset, res, s.web)
+		}},
+		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic {
+			for _, app := range s.web {
+				r.Files[path.Join(app.Dir, "urls_gen.go")] = web.URLsFile(app, false)
+				r.Files[path.Join(app.Dir, "views_gen.go")] = web.ViewsFile(app)
 			}
 			return nil
 		}})

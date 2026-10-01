@@ -1,0 +1,130 @@
+# three values
+site/urls.go:65:6: view A takes 3 values and returns 2
+  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+
+# In of another package
+site/urls.go:65:32: the In of view A is not struct{} or a struct type named in package site
+  fix: declare type AIn struct{…} in package site with path= and query= fields, or take struct{}
+
+# untagged field
+site/urls.go:65:18: field X says not where its value comes from
+  fix: tag it with one source: maago:"path=name" or maago:"query=name"
+
+# unknown key
+site/urls.go:65:34: unknown key "qery" in the tag of X
+  fix: did you mean "query"? allowed: path, query
+
+# rest of the path
+site/urls.go:11:12: route a reads the rest of the path with {p...}, which v0 does not support
+  fix: split the route, or read the rest of the path with a func(w, r) view
+
+# two fields of one wildcard
+site/urls.go:67:2: two fields of AIn read path value "x"
+  fix: keep one
+
+# wildcard without a field
+site/urls.go:11:12: view A reads no {x} of route a
+  fix: add a field tagged maago:"path=x" to the In of A
+
+# field without a wildcard
+site/urls.go:11:12: route a has no {x}, which AIn.X reads
+  fix: add {x} to the path, or remove the field
+
+# path types
+site/urls.go:68:4: path value X cannot be read into float64
+  fix: use one of string, int64, int32
+site/urls.go:69:4: path value Y cannot be read into ID
+  fix: use one of string, int64, int32
+site/urls.go:70:4: path value Z cannot be read into *int64
+  fix: use one of string, int64, int32
+
+# query types
+site/urls.go:66:4: query value X cannot be read into []string
+  fix: use one of string, int64, int32, bool, float64, or a pointer to one when the value may be missing
+site/urls.go:67:4: query value Y cannot be read into **int64
+  fix: use one of string, int64, int32, bool, float64, or a pointer to one when the value may be missing
+
+# two views wrong, a route name taken
+site/urls.go:11:43: route name "a" is taken by site/urls.go:11
+  fix: route names are one namespace across the project; rename one
+site/urls.go:65:18: field X says not where its value comes from
+  fix: tag it with one source: maago:"path=name" or maago:"query=name"
+
+# names clash
+site/more.go:15:5: strconv is declared at the top level, but maago's generated files in this package may import a package strconv
+  fix: rename it
+site/urls.go:10:5: the routes of app site would declare App, which site/more.go:14 declares already
+  fix: rename what else declares App; maago generates each app's App (D-114)
+site/urls.go:10:5: the templates of app site would declare maagoTemplates, which site/more.go:17 declares already
+  fix: rename what else declares maagoTemplates
+site/urls.go:12:27: route post_detail would declare PostDetailURL, which site/more.go:12 declares already
+  fix: rename the route, or what else declares that name
+
+# In with fields, not named
+site/urls.go:65:32: the In of view A is not struct{} or a struct type named in package site
+  fix: declare type AIn struct{…} in package site with path= and query= fields, or take struct{}
+
+# two sources
+site/urls.go:65:42: field X names more than one source
+  fix: keep one: maago:"path=name" or maago:"query=name"
+
+# embedded field
+site/urls.go:65:18: In of view A embeds a field
+  fix: name each field, tagged maago:"path=…" or maago:"query=…"
+
+# generic view
+site/urls.go:65:6: view A has type parameters
+  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+
+# first not a context
+site/urls.go:65:6: view A takes int first, not a context.Context
+  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+
+# second not an error
+site/urls.go:65:6: view A returns int second, not an error
+  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+
+# page unnamed
+site/urls.go:65:6: view A returns struct{}, which names no template
+  fix: return a struct type declared in package site: its name names the template (PostDetailPage → templates/post_detail_page.html)
+
+# page of another package
+site/urls.go:65:6: view A returns net/http.Request, which names no template
+  fix: return a struct type declared in package site: its name names the template (PostDetailPage → templates/post_detail_page.html)
+
+# generic page
+site/urls.go:67:6: view A returns G[int], which names no template
+  fix: return a struct type declared in package site: its name names the template (PostDetailPage → templates/post_detail_page.html)
+
+# page not a struct
+site/urls.go:67:6: view A returns P, which is not a struct
+  fix: make the page a struct type
+
+# view in a file go build leaves out
+site/urls.go:13:6: view A is in a file go build leaves out
+  fix: remove the file's build constraint, or move the view to a file without one
+
+# a broken file no page uses
+site/templates/base.html:1: bad character U+007D '}'
+  fix: fix the template; it is Go's html/template
+
+# a template name in other letters
+site/urls.go:22:6: page HomePage has no template site/templates/home_page.html
+  fix: create site/templates/home_page.html; a page type's template is its name in snake_case (D-116)
+
+# func(w, r) of other types
+site/urls.go:65:6: view A takes int and string, not an http.ResponseWriter and an *http.Request
+  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+
+# no template
+site/urls.go:22:6: page HomePage has no template site/templates/home_page.html
+  fix: create site/templates/home_page.html; a page type's template is its name in snake_case (D-116)
+
+# template syntax
+site/templates/home_page.html:2: bad character U+007D '}'
+  fix: fix the template; it is Go's html/template
+
+# a type error first
+site/more.go:3:13: cannot use "x" (untyped string constant) as int value in variable declaration
+  fix: go build reports the same error; fix it there
+

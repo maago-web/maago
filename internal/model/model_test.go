@@ -167,8 +167,8 @@ func TestSnake(t *testing.T) {
 		"Field2": "field2", "OAuth2Token": "o_auth2_token", "Already_Snake": "already_snake", "blog": "blog", "URLs": "urls",
 		"IDs": "ids", "UserIDs": "user_ids", "HTTPServer": "http_server", "Class": "class",
 	} {
-		if got := snake(in); got != want {
-			t.Errorf("snake(%q) = %q, want %q", in, got, want)
+		if got := Snake(in); got != want {
+			t.Errorf("Snake(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

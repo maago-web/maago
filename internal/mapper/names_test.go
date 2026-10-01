@@ -53,7 +53,7 @@ func TestNames(t *testing.T) {
 		t.Fatal(ds)
 	}
 	var b strings.Builder
-	diag.Write(&b, Names(fset, root, "orders", apps[0], qapps[0].Queries))
+	diag.Write(&b, Names(fset, root, "orders", apps[0], qapps[0].Queries, nil))
 	golden.Check(t, "testdata/names.golden", []byte(b.String()))
 }
 

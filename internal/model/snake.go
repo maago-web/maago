@@ -5,13 +5,13 @@ import (
 	"unicode"
 )
 
-// snake returns a Go name in snake_case, for table and column names
+// Snake returns a Go name in snake_case, for table and column names
 // (D-76): AuthorID → author_id, HTTPStatus → http_status. A "_" goes
 // before an upper-case letter that follows a lower-case letter or a digit,
 // and before the last letter of an upper-case run that a lower-case letter
 // follows, unless that letter is the s of a plural acronym. Digits never
 // start a word.
-func snake(name string) string {
+func Snake(name string) string {
 	r := []rune(name)
 	var b strings.Builder
 	for i, c := range r {

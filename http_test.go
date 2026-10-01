@@ -71,7 +71,7 @@ func TestHandlerConfig(t *testing.T) {
 		{Config{Apps: []App{app}}, "maago: Config.DB is nil; open it with maago.OpenDB"},
 		{Config{DB: testDB}, "maago: Config.Apps is empty; add each app's App, such as board.App"},
 		{Config{DB: testDB, Apps: []App{app, app}}, "maago: app board is in Config.Apps twice"},
-		{Config{DB: testDB, Apps: []App{{}}}, "maago: Config.Apps holds an App that maago gen did not make; use the generated one, such as board.App"},
+		{Config{DB: testDB, Apps: []App{{}}}, "maago: Config.Apps holds an empty App; use the one maago gen makes, such as board.App, and run maago gen"},
 		{Config{DB: testDB, Apps: []App{NewApp("a", AppRoute{Method: "GET", Path: "/y", Name: "y"})}}, "maago: route y of app a serves nothing; run maago gen"},
 		{Config{DB: testDB, Apps: []App{app}, Origins: []string{"https://a.com/"}}, "maago: Config.Origins: "},
 	} {

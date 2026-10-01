@@ -1,0 +1,66 @@
+{{.Marker}}
+
+package {{.Package}}
+
+import (
+{{range .Imports}}{{if .}}	"{{.}}"{{end}}
+{{end}})
+{{if .HTML}}
+//go:embed templates/*.html
+var maagoTemplateFiles embed.FS
+
+var maagoTemplates = template.Must(template.ParseFS(maagoTemplateFiles, "templates/*.html"))
+{{end}}{{range .Routes}}
+// {{.Serve}} serves route {{.Name}} with view {{.View}}.
+func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
+{{- if .Escape}}
+	{{.View}}(w, r)
+	return nil
+{{- else}}
+{{- if .Query}}
+	q, err := maago.ParseQuery(r)
+	if err != nil {
+		return err
+	}
+{{- else if .Fields}}
+	var err error
+{{- end}}
+	var in {{.In}}
+{{- range .Fields}}
+{{- if eq .Source "path"}}
+	if in.{{.Name}}, err = maago.Path(r, {{printf "%q" .Key}}, maago.Parse{{.Parser}}); err != nil {
+		return err
+	}
+{{- else if .Pointer}}
+	if v, ok, err := maago.Query(q, {{printf "%q" .Key}}, maago.Parse{{.Parser}}, false); err != nil {
+		return err
+	} else if ok {
+		in.{{.Name}} = &v
+	}
+{{- else}}
+	if in.{{.Name}}, _, err = maago.Query(q, {{printf "%q" .Key}}, maago.Parse{{.Parser}}, true); err != nil {
+		return err
+	}
+{{- end}}
+{{- end}}
+	p, err := {{.View}}(r.Context(), in)
+	if err != nil {
+		return err
+	}
+{{- if .Result}}
+	page, to := p.Page()
+	if to != "" {
+		http.Redirect(w, r, to, http.StatusSeeOther)
+		return nil
+	}
+{{- else}}
+	page := p
+{{- end}}
+{{- if .API}}
+	return maago.JSON(w, page)
+{{- else}}
+	return maago.Render(w, maagoTemplates, {{printf "%q" .Template}}, page)
+{{- end}}
+{{- end}}
+}
+{{end}}

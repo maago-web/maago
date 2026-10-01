@@ -42,7 +42,7 @@ func TestGenerated(t *testing.T) {
 				for _, c := range qs {
 					queries = append(queries, c.Query)
 				}
-				if ds := mapper.Names(fset, g.root, g.dir, app, queries); ds != nil {
+				if ds := mapper.Names(fset, g.root, g.dir, app, queries, nil); ds != nil {
 					t.Fatalf("names:\n%s", text(ds))
 				}
 				golden.Check(t, out+"/models_gen.go", mapper.ModelsFile(d, app))

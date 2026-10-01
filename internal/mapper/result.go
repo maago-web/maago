@@ -203,7 +203,7 @@ func (q *Query) newResult(r *Result, cols []practicedb.Column, src func(practice
 	}
 	for _, c := range cols {
 		f := src(c)
-		name := fieldName(c.Name)
+		name := FieldName(c.Name)
 		if f != nil && c.Name == c.Origin {
 			name = f.Name
 		}
@@ -273,10 +273,10 @@ func fieldType(t model.Type, pointer bool) string {
 	return t.String()
 }
 
-// fieldName is a Go field name for a snake_case column name: each word
+// FieldName is a Go field name for a snake_case column name: each word
 // capitalized, and id in capitals, the one initialism D-76 needs undone
 // (board_id → BoardID).
-func fieldName(column string) string {
+func FieldName(column string) string {
 	var b strings.Builder
 	for _, w := range strings.Split(column, "_") {
 		if w == "id" {

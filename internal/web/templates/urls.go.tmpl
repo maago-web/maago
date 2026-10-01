@@ -1,0 +1,21 @@
+{{.Marker}}
+
+package {{.Package}}
+
+import (
+{{range .Imports}}{{if .}}	"{{.}}"{{end}}
+{{end}})
+{{if .Stub}}
+// App is this app's routes, to put in maago.Config.Apps (D-114).
+var App maago.App
+{{else}}
+// App is this app's routes, to put in maago.Config.Apps (D-114).
+var App = maago.NewApp({{printf "%q" .ImportPath}},
+{{range .Routes}}	maago.AppRoute{Method: "{{.Method}}", Path: {{printf "%q" .Path}}, Name: "{{.Name}}"{{if .API}}, API: true{{end}}, Serve: {{.Serve}}},
+{{end}})
+{{end}}{{range .Routes}}
+// {{.URL}} is the path of route {{.Name}}: {{.Method}} {{.Path}}.
+func {{.URL}}({{.Params}}) string {
+	return {{.URLExpr}}
+}
+{{end}}

@@ -26,7 +26,7 @@ var Imports = []string{"context", "database/sql", "fmt", "time", "github.com/maa
 // without models, and qs for one without queries. It needs no database:
 // a query's result is a new type when it names no model of the app, as
 // Results decides.
-func Names(fset *token.FileSet, root, dir string, app *model.App, qs []*Query) []diag.Diagnostic {
+func Names(fset *token.FileSet, root, dir string, app *model.App, qs []*Query, more *More) []diag.Diagnostic {
 	type decl struct {
 		by  string // what generates the name
 		pos token.Position
@@ -74,12 +74,12 @@ func Names(fset *token.FileSet, root, dir string, app *model.App, qs []*Query) [
 			if p.Type.Choices == nil {
 				continue
 			}
-			typ := q.Name + fieldName(p.Name)
+			typ := q.Name + FieldName(p.Name)
 			by := "parameter " + p.Name + " of query " + q.Name
 			fix := "rename the query or the parameter, or what else declares that name"
 			add(typ, by, p.Pos, fix)
 			for _, v := range p.Type.Choices {
-				add(typ+fieldName(v), by, p.Pos, fix)
+				add(typ+FieldName(v), by, p.Pos, fix)
 			}
 		}
 		if q.Kind != Exec && modelNamed(app, q.Result) == nil && !results[q.Result] {
@@ -87,7 +87,16 @@ func Names(fset *token.FileSet, root, dir string, app *model.App, qs []*Query) [
 			add(q.Result, "the result type of query "+q.Name, q.NamePos, "rename the result type, or what else declares that name")
 		}
 	}
-	for _, imp := range Imports {
+	if more != nil {
+		for _, e := range more.Names {
+			add(e.Name, e.By, e.Pos, e.Fix)
+		}
+	}
+	imports := Imports
+	if more != nil {
+		imports = append(slices.Clone(Imports), more.Imports...)
+	}
+	for _, imp := range imports {
 		name := path.Base(imp)
 		if at, ok := user[name]; ok {
 			ds = append(ds, diag.New(at, fmt.Sprintf("%s is declared at the top level, but maago's generated files in this package may import a package %s", name, name),
@@ -95,6 +104,20 @@ func Names(fset *token.FileSet, root, dir string, app *model.App, qs []*Query) [
 		}
 	}
 	return ds
+}
+
+// More is what other generators declare in the same package: names, and
+// the packages their files import.
+type More struct {
+	Names   []Name
+	Imports []string
+}
+
+// Name is a top-level name a generator declares, by what, and where to
+// report a clash, with its fix.
+type Name struct {
+	Name, By, Fix string
+	Pos           token.Position
 }
 
 // PackageName is the package of the app at dir: the package clause of a

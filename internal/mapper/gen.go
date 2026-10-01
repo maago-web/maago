@@ -181,11 +181,11 @@ func (g *gen) query(c Checked, declared map[*Result]bool) queryView {
 	}
 	for _, p := range q.Params {
 		typ := g.paramType(q, p)
-		v.Fields = append(v.Fields, fieldName(p.Name)+" "+typ)
+		v.Fields = append(v.Fields, FieldName(p.Name)+" "+typ)
 		if p.Type.Choices != nil {
 			ch := choiceView{Type: typ, Param: p.Name}
 			for _, val := range p.Type.Choices {
-				ch.Consts = append(ch.Consts, fmt.Sprintf("%s %s = %q", typ+fieldName(val), typ, val))
+				ch.Consts = append(ch.Consts, fmt.Sprintf("%s %s = %q", typ+FieldName(val), typ, val))
 			}
 			v.Choices = append(v.Choices, ch)
 		}
@@ -222,7 +222,7 @@ func (g *gen) query(c Checked, declared map[*Result]bool) queryView {
 func (g *gen) paramType(q *Query, p Param) string {
 	switch {
 	case p.Type.Choices != nil:
-		return q.Name + fieldName(p.Name)
+		return q.Name + FieldName(p.Name)
 	case p.Type.Slice:
 		return "[]" + g.typ(p.Type.Base, false)
 	}
@@ -250,7 +250,7 @@ func (g *gen) body(c Checked, zero string) string {
 		w("key := 0")
 	}
 	for _, p := range q.Params {
-		x := "p." + fieldName(p.Name)
+		x := "p." + FieldName(p.Name)
 		axis := slices.IndexFunc(c.Axes, func(a Axis) bool { return a.Param == p.Name })
 		add := func(k int) {
 			if multi && axis >= 0 && k > 0 {
@@ -262,7 +262,7 @@ func (g *gen) body(c Checked, zero string) string {
 			g.imports["fmt"] = true
 			w("switch %s {", x)
 			for k, val := range p.Type.Choices {
-				w("case %s:", q.Name+fieldName(p.Name)+fieldName(val))
+				w("case %s:", q.Name+FieldName(p.Name)+FieldName(val))
 				add(k)
 			}
 			w("default:")
@@ -320,7 +320,7 @@ func (g *gen) body(c Checked, zero string) string {
 		}
 		for _, s := range v.Slices {
 			g.imports["fmt"] = true
-			w("if len(p.%s) == 0 {", fieldName(s))
+			w("if len(p.%s) == 0 {", FieldName(s))
 			w("return %s, fmt.Errorf(%q, maago.ErrEmptySlice)", zero, q.Name+": "+s+": %w")
 			w("}")
 		}
@@ -329,7 +329,7 @@ func (g *gen) body(c Checked, zero string) string {
 			w("args = []any{%s}", strings.Join(args, ", "))
 		}
 		for _, s := range v.Slices {
-			w("for _, x := range p.%s {", fieldName(s))
+			w("for _, x := range p.%s {", FieldName(s))
 			w("args = append(args, %s)", g.arg("x", q.param(s).Type.Base, false))
 			w("}")
 		}
@@ -359,9 +359,9 @@ func (g *gen) sql(v Variant) string {
 			}
 			first := strconv.Itoa(len(v.Args) + 1)
 			for _, prev := range v.Slices[:slices.Index(v.Slices, p.Slice)] {
-				first += "+len(p." + fieldName(prev) + ")"
+				first += "+len(p." + FieldName(prev) + ")"
 			}
-			parts = append(parts, fmt.Sprintf("maago.Placeholders(%q, %s, len(p.%s))", mark, first, fieldName(p.Slice)))
+			parts = append(parts, fmt.Sprintf("maago.Placeholders(%q, %s, len(p.%s))", mark, first, FieldName(p.Slice)))
 		case p.Arg > 0:
 			s.WriteString(mark + strconv.Itoa(p.Arg))
 		default:
@@ -380,7 +380,7 @@ func (g *gen) scalars(q *Query, v Variant) []string {
 	var out []string
 	for _, name := range v.Args {
 		p := q.param(name)
-		x := "p." + fieldName(name)
+		x := "p." + FieldName(name)
 		switch {
 		case p.Type.Choices != nil:
 			x = "string(" + x + ")"

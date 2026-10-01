@@ -62,7 +62,7 @@ func Handler(cfg Config) (http.Handler, error) {
 	for _, app := range cfg.Apps {
 		switch {
 		case app.name == "":
-			return nil, errors.New("maago: Config.Apps holds an App that maago gen did not make; use the generated one, such as board.App")
+			return nil, errors.New("maago: Config.Apps holds an empty App; use the one maago gen makes, such as board.App, and run maago gen")
 		case seen[app.name]:
 			return nil, fmt.Errorf("maago: app %s is in Config.Apps twice", app.name)
 		}

@@ -254,6 +254,72 @@ func Status(code int, err error) error                       // 생성 코드: S
 
 → 확인: 골든(D-67), 잘못된 시그니처·태그·타입·짝 없는 와일드카드 각각 오류, 생성된 핸들러로 `/post/abc` 404·없는 글 404·`?page=abc` 400·있는 글 200
 
+### 계획
+
+파이프라인 (라우트가 있는 프로젝트만. 없으면 지금과 같다)
+```
+ … DB 검사 → models_gen·queries_gen(메모리)
+   → (1) 뷰의 모양을 ast로: 시그니처의 꼴, In 타입과 그 태그, 와일드카드 짝 → URL 함수와 `var App maago.App`을 담은 urls_gen.go(메모리)
+   → (2) gotypes.Check(루트, 메모리 생성물): 사용자 코드가 PostDetailURL·board.App을 써도 타입 검사가 된다
+   → (3) 타입으로 뷰 검사: 시그니처, In 필드 타입, P, 템플릿 파일
+   → (4) views_gen.go(메모리): 어댑터와 `func init() { App = maago.NewApp(…) }`
+```
+- ★ `App`은 urls_gen.go의 `var App maago.App`로 타입 검사 전에 선언하고, 어댑터를 가리키는 값은 views_gen.go의 `init()`이 채운다. 어댑터는 타입 정보로 만들어지는데 `main`의 `board.App`은 타입 검사 때 이미 있어야 하기 때문이다(한 번만 검사한다). D-114의 명시적 등록은 그대로(`main`이 목록에 넣지 않으면 그 앱은 없다)
+- ★ URL 함수는 타입 검사 전에 ast로 만든다(사용자 뷰가 부른다). 그래서 path 필드의 타입은 ast에서 읽히는 `string`·`int64`·`int32`뿐이다(이름 붙은 타입은 오류). (3)이 같은 것을 타입으로 다시 본다
+- D-117에 "라우트가 있는 프로젝트만 타입 검사한다"를 이 커밋에서 적는다(1번 계획의 약속)
+
+파일
+- 새 `internal/web/views.go`: (1)의 ast 검사와 (3)의 타입 검사. 새 `internal/web/gen.go`와 `templates/urls.go.tmpl`·`views.go.tmpl`(매퍼처럼 `text/template` + `go/format`, 생성기 안이라 괜찮다)
+- `internal/build/build.go`: 생성 단계 뒤에 위 (1)~(4)
+- `internal/mapper/names.go`: `declared`를 `Declared`로 내보내 web의 이름 검사가 쓴다
+- 루트 `noreflect_test.go`: 생성물 import 허용 목록을 `mapper.Imports`와 `web.Imports`의 합으로(D-66 고침). 게이트 시험의 "어디서도 허용되지 않는" 예를 `strconv`에서 `os`로
+- 시험: `internal/web/views_test.go`(오류 표 골든, 생성물 골든 `testdata/*.golden`), 종단은 `cmd/maago/web_test.go`: 픽스처 `cmd/maago/testdata/web/`(go.mod·go.sum은 게시판 튜토리얼과 같은 require, main.go, `site/` 앱: 모델 Post, 마이그레이션, urls.go, views.go, templates, 앱의 `_test.go`)를 임시 디렉터리에 복사 → `build.Gen` → `go test ./...`(튜토리얼 걷기와 같이 `go.work`로 이 저장소). 앱의 시험이 `httptest`로 요청한다(SQLite 메모리. `maagotest`는 10번)
+
+뷰 (D-116)
+- 시그니처: `func(context.Context, In) (P, error)`, `func(context.Context, In) (maago.Result[P], error)`, 탈출구 `func(http.ResponseWriter, *http.Request)`. 그 밖은 오류(fix에 세 모양). 탈출구의 어댑터는 부르고 nil(8번이 스트리밍을 확인한다)
+- In: 같은 패키지의 이름 붙은 struct, 또는 `struct{}`. 필드는 모두 태그가 있다: `maago:"path=이름"`·`maago:"query=이름"`(닫힌 목록, `model.ParseTag`로 읽고 모르는 키는 did you mean). 태그 없는 필드는 오류(값이 어디서 오는지 모른다. 폼 필드는 6번이 `form`을 더한다)
+- path 필드 타입: `string`·`int64`·`int32`. query 필드 타입: `string`·`int64`·`int32`·`bool`·`float64`와 그 포인터. ★ 포인터 아니면 필수: 없으면 400. 포인터면 없을 때 nil. 같은 키 두 번은 400(조용히 첫 값을 쓰지 않는다). 빈 값(`?page=`)은 `string`이면 "", 숫자면 해석 실패 400. `time.Time`은 11번(표시 타임존)과 함께
+- 와일드카드 짝: 경로의 `{x}`마다 `path=x` 필드 하나, `path=` 필드마다 와일드카드. `{x...}`는 오류(v0은 쓰는 곳이 없다, fix: 경로를 나눈다). 한 뷰를 두 라우트가 쓰면 각 라우트가 짝을 맞춰야 한다
+- P: HTML 라우트는 같은 패키지의 이름 붙은 struct(템플릿 이름이 이름에서 나온다, D-116: `PostDetailPage` → `templates/post_detail_page.html`, 이름 변환은 D-76의 snake). 템플릿 파일이 없으면 오류, `html/template`로 파싱이 안 되면 오류(내용 검사는 5번). API 라우트의 P는 아무 타입(`encoding/json`, 요청 본문·problem의 나머지는 7번)
+- ★ 이 작업의 렌더: 앱의 `templates/*.html`을 `//go:embed`로 싣고 시작할 때 `html/template`로 한 번 파싱, 페이지 타입의 파일을 `bytes.Buffer`에 실행한 뒤 쓴다(실패하면 아무것도 쓰지 않고 500, 3번의 `Serve` 계약). 레이아웃(`base.html`)·`{{url}}`·필드 검사·부분 응답은 5번
+- `Result[P]`: `Page()`가 url이면 `http.Redirect(w, r, url, 303)`
+
+생성 이름과 겹침
+- 앱 패키지에 생기는 이름: `App`, 라우트마다 `XxxURL`(이름의 낙타 꼴 + `URL`)과 `serveXxx`, 템플릿이 있으면 `maagoTemplates`. 그 패키지의 사용자 이름(테스트 포함, `mapper.Declared`)과 겹치면 생성 오류. `web.Imports`(`bytes`·`context`·`embed`·`errors`·`fmt`·`html/template`·`encoding/json`·`net/http`·`net/url`·`strconv`, maago)의 이름을 사용자가 최상위에 선언해도 오류(매퍼와 같은 규칙)
+- 하지 않기로 한 것: 매퍼의 생성 이름과 web의 생성 이름 사이의 겹침(`GetPost` 같은 CRUD 이름과 `XxxURL`·`serveXxx`는 꼴이 달라 겹칠 수 없다. 쿼리 이름 `PostDetailURL`은 가능하지만 드물다: 그러면 타입 검사가 overlay 오류로 잡는다)
+
+URL 함수
+- `func PostDetailURL(id int64) string`: 인자는 와일드카드 순서, `int64`·`int32`는 `strconv`, `string`은 `url.PathEscape`. `{$}`는 지운다. 탈출구 뷰의 와일드카드는 `string`
+
+하지 않기로 한 것
+- 템플릿 내용 검사·레이아웃·`{{url}}`(5번), 폼(6번), API 요청 본문과 problem의 `errors`(7번), 인증(9번), `time.Time` query(11번), 2번이 미룬 "board.App 쓰임"을 타입으로 다시 보는 일(지금은 ast 검사로 충분하고, 잘못 씀은 타입 검사가 컴파일 오류로 잡는다)
+
+단계
+1. `mapper.Declared`, 생성물 import 허용 목록 → 확인: 게이트 시험(`os`가 걸림, `strconv`·`net/http`는 통과), 매퍼 시험 그대로
+2. (1) ast 검사와 urls_gen.go → 확인: 오류 표(뷰가 함수가 아님은 2번이 봄; 여기서는 매개변수 수, In이 다른 패키지, 태그 없는 필드, 모르는 태그 키 did you mean, `{x...}`, 짝 없는 와일드카드와 짝 없는 `path=`, path 필드 타입 `float64`·이름 붙은 타입), URL 함수 골든(정수·문자열·`{$}`·탈출구), 생성 이름 겹침(`App`을 사용자가 선언, `PostDetailURL` 선언, 최상위 `url`)
+3. 파이프라인과 타입 검사 → 확인: 라우트 없는 프로젝트는 `go list`를 부르지 않음(`PATH`를 비워도 `gen`이 지나간다), 라우트가 있으면 사용자 코드의 타입 오류가 위치와 함께, `main`의 `board.App`과 뷰의 `PostDetailURL`이 타입 검사를 지남
+4. (3) 타입 검사와 views_gen.go → 확인: 오류 표(반환 둘이 아님, 첫 인자가 `context.Context`가 아님, P가 이름 없는 타입·다른 패키지, 템플릿 파일 없음, 템플릿 문법 오류), 어댑터 골든(path 정수, query 필수·포인터·bool, `Result`, 탈출구, API)
+5. 종단 → 확인: `cmd/maago` 픽스처의 앱 시험이 `/posts/abc` 404, 없는 글 404(`sql.ErrNoRows`), 있는 글 200과 제목, `?page=abc` 400, `?page=` 없음(필수) 400·포인터 필드는 nil, 같은 키 두 번 400, POST 뷰의 `SeeOther` 303과 `Location`, API 라우트의 JSON. `maago check`가 그 뒤 통과(D-60)
+6. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable) — 위 계획을 이렇게 고친다
+- **App은 init이 아니다**(codex 1): 타입 검사의 overlay에는 urls_gen.go가 `var App maago.App`(값 없음)로 들어가고, 검사 뒤 **쓰는** urls_gen.go는 `var App = maago.NewApp(…)`(어댑터는 views_gen.go)로 바꾼다. 같은 패키지의 변수 초기화·`init()`이 빈 `App`을 보는 일이 없다. 타입 검사는 여전히 한 번이다(검사 뒤 만든 두 파일은 골든과 종단 시험이 지킨다). 위의 ★ 첫째를 고친다
+- **(1)의 검사는 DB 앞**(fable 1): 시그니처의 꼴·In 태그·와일드카드 짝·생성 이름 겹침은 `early`(`web.Check`·`mapper.Names` 옆)에서, `web.Read`가 이미 파싱한 ast(`App`에 뷰의 `*ast.FuncDecl`과 그 패키지의 타입 선언을 든다)로. 생성 단계에서는 urls_gen.go를 만들기만 한다. 세 번째 파싱은 늘지 않는다(fable 11, 2번이 미룬 질문). gotypes는 자기 fset을 쓴다
+- **생성 이름 겹침은 `mapper.Names` 하나로**(fable 2·4, codex 4): web의 이름(`App`·`XxxURL`·`serveXxx`·`maagoTemplates`)을 `mapper.Names`의 `seen` 맵에 먹인다(인자 하나). 쿼리 이름 `PostDetailURL`과의 겹침, `post_id`·`post_i_d`가 같은 `PostIDURL`이 되는 것, import 이름(`mapper.Imports`·`web.Imports`의 합)을 한 번에 한 문구로. 사용자가 낸 겹침이 overlay의 "maago 버그"로 보이지 않는다. `mapper.Declared`를 내보낼 필요가 없다. 낙타 꼴은 D-110의 거꾸로 snake(`mapper.fieldName`, `id`만 약어)
+- **query 해석**(codex 3, fable 6): `url.ParseQuery(r.URL.RawQuery)`의 오류는 400(`r.URL.Query()`는 깨진 쌍을 조용히 버린다). 키의 값이 둘 이상이면 400. 없으면 포인터 아닌 필드 400·포인터 nil. 빈 값: `string`은 "", `bool`·숫자는 400. `bool`은 `strconv.ParseBool`, `float64`의 `NaN`·`Inf`는 400. D-116을 이 커밋에서 고친다("해석 실패 400"에 "필수 query가 없음·같은 키 둘"을 더한다). 열린 질문 "In 필드에 슬라이스"는 닫는다: 하지 않는다(쓰는 곳이 없다, 같은 키 둘은 400)(fable 5)
+- **템플릿 싣기**(codex 2): HTML 라우트가 있는 앱만 `//go:embed templates/*.html`과 `maagoTemplates`·`html/template`. API·탈출구만 있는 앱은 만들지 않는다. 하위 디렉터리는 보지 않는다. `html/template` 파싱 오류는 `template: x.html:3: …`를 루트 기준 경로(D-88)의 위치로 바꿔 낸다(fable 11)
+- **URL 함수의 빈 문자열**(codex 5): 빈 `string` 인자는 panic(`/post/`은 `{id}`에 맞지 않는다). 확인에 `/`·`%`·공백·`?`·`#`이 든 값으로 만든 URL이 실제 `ServeMux`에서 같은 값으로 돌아오는 것
+- **종단 시험의 환경**(codex 6): 임시 프로젝트와 저장소 경로를 `EvalSymlinks`한 뒤 `go.work`를 먼저 쓰고, `build.Gen`(안의 `go list`)과 `go test` 모두에 같은 `GOWORK=<임시>/go.work`·`GOPROXY=off`. 튜토리얼 걷기와 같은 모양
+- `Handler`의 "maago gen did not make" 문구에 "or run maago gen"(fable 11)
+- 확인 더함: 렌더 실패(nil 역참조) → 500·본문에 부분 HTML 없음·`OnError` 한 번(fable 7). D-61: 서로 독립인 뷰 오류 둘이 한 번에, `early`에서 겹친 라우트 이름과 태그 없는 In 필드가 함께, 사용자 타입 오류가 있으면 (3)의 오류는 안 나옴(fable 8). query 필드 `[]string`·`time.Time`·`**int64`, path 필드 `*int64`(fable 9). `int32` path의 범위 밖 404, 디스크의 낡은 `views_gen.go`가 지운 뷰를 가리켜도 통과(fable 10). 깨진 query(`%zz`) 400, `?draft` bool 400, `NaN` 400
+- ARCHITECTURE §3 표(생성 뒤에 검사가 오는 모양)는 13번 목록에
+- 받지 않음: 없음
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — `typeText`를 `types.ExprString`으로, `GoName`을 지우고 `mapper.FieldName`(내보냄, fable 4와 같다), `Generated`를 `More`에 넣음, 쓰이지 않던 `App.files`
+- codex(샌드박스가 `/tmp`를 막아 코드만 읽은 리뷰): 받음 — 생성 코드는 `templates/*.html` 전체를 한 세트로 파싱하는데 검사는 페이지 파일만 봐, 쓰이지 않는 파일의 문법 오류가 시작 때 panic이 되던 것
+- fable(변이 39개): 받음 — 템플릿을 런타임과 같은 `ParseFS(…, "*.html")` 한 세트로 파싱하고 페이지는 `Lookup`으로(1, macOS의 대소문자로 다른 이름이 통과하던 것도 닫힘, 7), 빌드 제약으로 빠진 파일의 뷰에서 nil 역참조(2), path 필드 타입 오류 뒤의 "reads no {x}" 연쇄 오류(3), 문구 둘: 필드 있는 익명 In, 소스 둘(8), 생존 변이마다 시험(`more.Imports`, `id`, 제네릭 페이지, struct 아닌 페이지, 익명 In, 소스 둘, 끼워 넣은 필드, 제네릭 뷰, `maagoTemplates`, sniff되지 않는 본문의 Content-Type), 타입 오류가 템플릿 없음을 가리는 것이 시험에 보임(6). 고친 뒤 열 변이를 다시 돌려 모두 잡힌다(남은 하나는 같은 오류를 두 번 내고 `diag.Write`가 지우는 같은 동작). 받지 않음 — 9 In 필드 타입을 타입으로 다시 보기(`type int64 string` 같은 패키지 수준 재선언만 뚫고, 그때는 생성 코드의 컴파일 오류가 overlay 버그 문구로 난다. 하지 않기로 적는다)
+
 ## 5. 템플릿 검사와 렌더 (D-42, D-45)
 
 - 페이지 타입마다 템플릿을 찾고(없으면 오류), `parse` 트리를 걸으며 `.필드` 사슬을 P 타입에 맞춘다: `range`·`with`·변수(`$x`)의 점 바뀜, 인자 없는 메서드, 슬라이스·맵 원소. 타입을 정할 수 없는 식(`index`·`printf`·파이프로 넘긴 값 등)은 검사기가 타입을 정하거나 "cannot check" 오류다. 조용히 통과하는 갈래는 없다(PHILOSOPHY 7)
@@ -335,7 +401,7 @@ M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 
 - 앱 값의 모양과 빠뜨린 앱 검사(D-114) → 2번
 - 라우트 옵션의 모양(`maago.Login` 옵션인지 다른 생성자인지) → 2번
 - 부분 응답을 요청이 고르는지 뷰가 고르는지 → 5번
-- In 필드에 슬라이스(`?tag=a&tag=b`)를 받는지 → 4번
+- ~~In 필드에 슬라이스(`?tag=a&tag=b`)를 받는지~~ → 4번: 받지 않는다
 - ~~뷰가 404·400·500 밖의 상태(403·409)를 내는 법~~ → 3번: `maago.Status(code, err)`
 - 게시판 이름 중복을 unique 위반으로 잡을지 검증 메서드로 잡을지 → 6번
 

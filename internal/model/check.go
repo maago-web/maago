@@ -120,7 +120,7 @@ func (c *checker) errf(pos token.Pos, fix, format string, args ...any) {
 }
 
 func (c *checker) model(app string, rm *RawModel, models []string) *Model {
-	m := &Model{Name: rm.Name, Pos: rm.Pos, Table: snake(app) + "_" + snake(rm.Name)}
+	m := &Model{Name: rm.Name, Pos: rm.Pos, Table: Snake(app) + "_" + Snake(rm.Name)}
 	c.uniq, c.idx = nil, nil
 	hasID := false
 	for _, rf := range rm.Fields {
@@ -144,7 +144,7 @@ func (c *checker) model(app string, rm *RawModel, models []string) *Model {
 			m.Unsupported = append(m.Unsupported, c.unsupported(rf, where, why))
 			continue
 		}
-		f := &Field{Name: rf.Name, Column: snake(rf.Name), Pos: rf.Pos, Type: typ, Pointer: ptr}
+		f := &Field{Name: rf.Name, Column: Snake(rf.Name), Pos: rf.Pos, Type: typ, Pointer: ptr}
 		c.fieldOptions(f, rf.Options, where, models)
 		m.Fields = append(m.Fields, f)
 	}

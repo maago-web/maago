@@ -82,8 +82,8 @@ func TestMaxlen(t *testing.T) {
 	}
 }
 
-// Route errors come from one stage, so a taken name and a missing view
-// show together, and nothing is written (D-60, D-61).
+// Route errors come from one stage, so a taken name, a missing view and
+// a view of the wrong shape show together, and nothing is written (D-60, D-61).
 func TestRoutes(t *testing.T) {
 	root := example(t)
 	write(t, filepath.Join(root, "blog", "urls.go"), "package blog\n\nimport \"github.com/maago-web/maago\"\n\nvar Routes = maago.Routes{\n\tmaago.GET(\"/a\", \"x\", A),\n\tmaago.GET(\"/b\", \"x\", B),\n}\n\nfunc A() {}\n")
@@ -96,6 +96,8 @@ func TestRoutes(t *testing.T) {
   fix: route names are one namespace across the project; rename one
 blog/urls.go:7:23: no function B in package blog
   fix: did you mean "A"?
+blog/urls.go:10:6: view A takes 0 values and returns 0
+  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
 `
 	if out := text(ds); out != want {
 		t.Errorf("got:\n%s", out)

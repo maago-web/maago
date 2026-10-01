@@ -14,6 +14,7 @@ import (
 
 	"github.com/maago-web/maago/internal/mapper"
 	"github.com/maago-web/maago/internal/pipeline"
+	"github.com/maago-web/maago/internal/web"
 )
 
 // TestNoReflect enforces D-66: no non-test Go file in the repository, and no
@@ -89,7 +90,8 @@ func TestGeneratedImportsGate(t *testing.T) {
 		"a/broken_gen.go":   pipeline.Marker + "\n\npackage a\n\nimport (\n",
 		"a/gen.go.tmpl":     "import \"text/template\"\n",
 		"a/generator.go":    "package a\n\nimport _ \"text/template\"\n",
-		"a/strconv_gen.go":  pipeline.Marker + "\n\npackage a\n\nimport _ \"strconv\"\n", // allowed nowhere, not only forbidden
+		"a/os_gen.go":       pipeline.Marker + "\n\npackage a\n\nimport _ \"os\"\n", // allowed nowhere, not only forbidden
+		"a/web_gen.go":      pipeline.Marker + "\n\npackage a\n\nimport (\n\t_ \"net/http\"\n\t_ \"strconv\"\n)\n",
 		"a/ok_gen.go":       pipeline.Marker + "\n\npackage a\n\nimport (\n\t_ \"context\"\n\t_ \"github.com/maago-web/maago\"\n)\n",
 	}
 	for p, src := range files {
@@ -104,7 +106,7 @@ func TestGeneratedImportsGate(t *testing.T) {
 	for _, p := range generatedImports(root) {
 		got = append(got, strings.SplitN(strings.TrimPrefix(p, root+string(filepath.Separator)), ":", 2)[0])
 	}
-	want := []string{"a/broken_gen.go", "a/crlf_gen.go", "a/gen.go.tmpl", "a/reflect_gen.go", "a/strconv_gen.go", "a/template_gen.go"}
+	want := []string{"a/broken_gen.go", "a/crlf_gen.go", "a/gen.go.tmpl", "a/os_gen.go", "a/reflect_gen.go", "a/template_gen.go"}
 	if slices.Sort(got); !slices.Equal(got, want) {
 		t.Errorf("caught %q, want %q", got, want)
 	}
@@ -114,7 +116,7 @@ func TestGeneratedImportsGate(t *testing.T) {
 // file that imports what the generators may not, or cannot be read, and
 // for each generator template that mentions text/template or reflect.
 func generatedImports(root string) []string {
-	const fix = "fix: generated code may import only mapper.Imports; never text/template or reflect (D-66)"
+	const fix = "fix: generated code may import only mapper.Imports and web.Imports; never text/template or reflect (D-66)"
 	var problems []string
 	fset := token.NewFileSet()
 	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -138,7 +140,7 @@ func generatedImports(root string) []string {
 				return nil
 			}
 			for _, imp := range f.Imports {
-				if p, _ := strconv.Unquote(imp.Path.Value); !slices.Contains(mapper.Imports, p) {
+				if p, _ := strconv.Unquote(imp.Path.Value); !slices.Contains(mapper.Imports, p) && !slices.Contains(web.Imports, p) {
 					problems = append(problems, fmt.Sprintf("%s: generated code imports %q\n  %s", fset.Position(imp.Path.Pos()), p, fix))
 				}
 			}
