@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
+	"maps"
+	"slices"
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/gotypes"
@@ -66,6 +68,7 @@ func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) [
 			viewPos[r] = pos
 			pages = append(pages, page{route: r, typ: pkg.Scope().Lookup(r.view.page).Type().(*types.Named), label: r.view.page})
 		}
+		ds = append(ds, validates(res, pkg, app)...)
 		if !failed { // a template is walked with the page types, which must be right
 			ds = append(ds, checkTemplates(fset, root, app.Dir, pkg, pages, routes, viewPos)...)
 		}
@@ -126,4 +129,34 @@ func named(t types.Type, pkg, name string) bool {
 func isPointerTo(t types.Type, pkg, name string) bool {
 	p, ok := t.(*types.Pointer)
 	return ok && named(p.Elem(), pkg, name)
+}
+
+// validates finds each form's Validate: a method of the form's pointer,
+// which takes and returns nothing (D-119).
+func validates(res *gotypes.Result, pkg *types.Package, app *App) []diag.Diagnostic {
+	var ds []diag.Diagnostic
+	for _, name := range slices.Sorted(maps.Keys(app.forms)) {
+		f := app.forms[name]
+		tn, _ := pkg.Scope().Lookup(name).(*types.TypeName)
+		if tn == nil {
+			continue
+		}
+		obj, _, _ := types.LookupFieldOrMethod(types.NewPointer(tn.Type()), true, pkg, "Validate")
+		if obj == nil {
+			continue
+		}
+		_, isFunc := obj.(*types.Func)
+		if sig, _ := obj.Type().(*types.Signature); !isFunc || sig.Params().Len() > 0 || sig.Results().Len() > 0 {
+			ds = append(ds, diag.New(res.Fset.Position(obj.Pos()), fmt.Sprintf("Validate of form %s is not a method func()", name),
+				"declare func (f *"+name+") Validate(): it sets a field's Error or calls f.AddError; a check that needs the database goes in the view (D-119)"))
+			continue
+		}
+		if _, ptr := obj.Type().(*types.Signature).Recv().Type().(*types.Pointer); !ptr {
+			ds = append(ds, diag.New(res.Fset.Position(obj.Pos()), fmt.Sprintf("Validate of form %s has a value receiver: the errors it sets are lost", name),
+				"declare it func (f *"+name+") Validate()"))
+			continue
+		}
+		f.validate = true
+	}
+	return ds
 }

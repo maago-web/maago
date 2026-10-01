@@ -28,8 +28,8 @@ type view struct {
 
 // inField is a field of In and where its value comes from.
 type inField struct {
-	name, source, key string // source is "path" or "query"
-	typ               string // string, int64, int32, bool or float64
+	name, source, key string // source is "path", "query" or "form"
+	typ               string // string, int64, int32, bool or float64; a form's type name
 	pointer           bool   // optional: nil when the query lacks it
 	pos               token.Pos
 }
@@ -39,7 +39,7 @@ type param struct{ name, typ string }
 var (
 	pathTypes  = []string{"string", "int64", "int32"}
 	queryTypes = []string{"string", "int64", "int32", "bool", "float64"}
-	inKeys     = []string{"path", "query"}
+	inKeys     = []string{"path", "query", "form"}
 )
 
 // Views checks the shape of each route's view in the syntax: the forms of
@@ -119,6 +119,9 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 			}
 		}
 	}
+	if forms := slices.DeleteFunc(slices.Clone(v.fields), func(f inField) bool { return f.source != "form" }); len(forms) > 1 {
+		errAt(forms[1].pos, fmt.Sprintf("%s reads a second form, %s", v.in, forms[1].name), "keep one form field in In; a page with two forms posts each to its own route")
+	}
 	paths := map[string]inField{}
 	for _, f := range append(v.fields, bad...) {
 		if f.source != "path" {
@@ -158,12 +161,15 @@ func readField(fset *token.FileSet, f *ast.Field, name *ast.Ident, ds *[]diag.Di
 	}
 	if len(opts) > 1 {
 		errAt(opts[1].KeyPos, "field "+name.Name+" names more than one source",
-			`keep one: maago:"path=name" or maago:"query=name"`)
+			`keep one: maago:"path=name", maago:"query=name" or maago:"form"`)
 		return inField{}, false
+	}
+	if len(opts) == 1 && opts[0].Key == "form" {
+		return readFormField(fset, f, name, opts[0], ds)
 	}
 	if len(opts) != 1 || opts[0].Kind != model.Bare || len(opts[0].Values) != 1 {
 		errAt(name.Pos(), "field "+name.Name+" says not where its value comes from",
-			`tag it with one source: maago:"path=name" or maago:"query=name"`)
+			`tag it with one source: maago:"path=name", maago:"query=name" or maago:"form"`)
 		return inField{}, false
 	}
 	o := opts[0]

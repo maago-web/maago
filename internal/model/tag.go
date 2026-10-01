@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
+	"regexp"
 	"strings"
 
 	"github.com/maago-web/maago/internal/diag"
 )
+
+// optionName is an option's name: lowercase words joined by _ (D-81).
+var optionName = regexp.MustCompile(`^[a-z]+(_[a-z]+)*$`)
 
 // Kind is the shape of an option's value.
 type Kind int
@@ -176,8 +180,8 @@ func (p *tagParser) option() (Option, *parseError) {
 		return Option{}, p.unexpected("an option name", "write options as key or key=value")
 	}
 	key := p.s[start:p.i]
-	if strings.IndexFunc(key, func(r rune) bool { return r < 'a' || r > 'z' }) >= 0 {
-		return Option{}, p.fail(start, fmt.Sprintf("option name %q is not lowercase letters", key), "write the option name in lowercase letters, like max")
+	if !optionName.MatchString(key) {
+		return Option{}, p.fail(start, fmt.Sprintf("option name %q is not lowercase words joined by _", key), "write the option name in lowercase letters, like max or min_value")
 	}
 	opt := Option{Key: key, KeyPos: p.at(start)}
 	if p.i == len(p.s) || p.s[p.i] != '=' {

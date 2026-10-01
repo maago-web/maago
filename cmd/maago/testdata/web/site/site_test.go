@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,5 +90,79 @@ func TestRequests(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest("POST", PostCreateURL(), nil))
 	if w.Code != 303 || !strings.HasPrefix(w.Header().Get("Location"), "/posts/") {
 		t.Errorf("POST: %d, Location %q", w.Code, w.Header().Get("Location"))
+	}
+}
+
+// TestForm posts the form of D-119: each field's three results, the text
+// sent kept and escaped, a form error, a check the view makes with the
+// database, and what is not a form at all.
+func TestForm(t *testing.T) {
+	h, db, _ := handler(t)
+	if _, err := InsertPost(context.Background(), db, NewPostInput{Title: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	send := func(method, ct, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, PostNewURL()+"?title=fromquery", strings.NewReader(body))
+		if ct != "" {
+			r.Header.Set("Content-Type", ct)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	const form = "application/x-www-form-urlencoded"
+	for _, c := range []struct {
+		name, method, ct, body string
+		code                   int
+		has, hasNot            []string
+	}{
+		{"drawn empty", "GET", "", "", 200, []string{`<label for="title">제목</label><input name="title" value="">`}, []string{"error", "fromquery"}},
+		{"count empty", "POST", form, "title=a&count=", 200, []string{`<input name="count" value=""><p class="error">This field is required.</p>`}, nil},
+		{"count not a number", "POST", form, "title=a&count=abc", 200, []string{`<input name="count" value="abc"><p class="error">Enter a number.</p>`}, nil},
+		{"count past int64", "POST", form, "title=a&count=99999999999999999999", 200,
+			[]string{`<input name="count" value="99999999999999999999"><p class="error">Enter 9223372036854775807 or less.</p>`}, nil},
+		{"count past max_value", "POST", form, "title=a&count=101", 200, []string{`<p class="error">Enter 100 or less.</p>`}, nil},
+		{"one field's error keeps the others", "POST", form, "title=" + url.QueryEscape(`<b>&"`) + "&count=abc&agree=on", 200,
+			[]string{`value="&lt;b&gt;&amp;&#34;"`, `<input type="checkbox" name="agree" checked>`}, []string{"<b>"}},
+		{"title too long", "POST", form, "title=" + strings.Repeat("가", 11) + "&count=1", 200, []string{"Enter at most 10 characters."}, nil},
+		{"form error", "POST", form, "title=forbidden&count=1", 200, []string{`<p class="form-error">that title is forbidden</p>`}, nil},
+		{"a field error Validate sets", "POST", form, "title=nope&count=1", 200, []string{`<p class="error">nope is not a title</p>`}, nil},
+		{"no Validate while a field is wrong", "POST", form, "title=forbidden&count=abc", 200, []string{"Enter a number."}, []string{"forbidden</p>"}},
+		{"taken, as the view finds", "POST", form, "title=old&count=1", 200, []string{`value="old"><p class="error">that title is taken</p>`}, nil},
+		{"not a form body", "POST", "text/plain", "title=a&count=1", 400, nil, nil},
+		{"a key twice", "POST", form, "title=a&title=b&count=1", 400, nil, nil},
+		{"saved", "POST", form, "title=new&count=1", 303, nil, nil},
+	} {
+		w := send(c.method, c.ct, c.body)
+		body := w.Body.String()
+		if w.Code != c.code {
+			t.Errorf("%s: %d, want %d: %s", c.name, w.Code, c.code, body)
+		}
+		for _, s := range c.has {
+			if !strings.Contains(body, s) {
+				t.Errorf("%s: no %q in %s", c.name, s, body)
+			}
+		}
+		for _, s := range c.hasNot {
+			if strings.Contains(body, s) {
+				t.Errorf("%s: %q in %s", c.name, s, body)
+			}
+		}
+	}
+}
+
+// Config.Messages replaces what forms say; what it leaves empty stays.
+func TestFormMessages(t *testing.T) {
+	_, db, _ := handler(t)
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Messages: maago.Messages{Required: "필수 항목입니다."}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("POST", PostNewURL(), strings.NewReader("title=&count=x"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if body := w.Body.String(); !strings.Contains(body, "필수 항목입니다.") || !strings.Contains(body, "Enter a number.") {
+		t.Errorf("messages: %s", body)
 	}
 }

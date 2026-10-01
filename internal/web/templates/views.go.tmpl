@@ -36,7 +36,11 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 {{- end}}
 	var in {{.In}}
 {{- range .Fields}}
-{{- if eq .Source "path"}}
+{{- if eq .Source "form"}}
+	if err = bind{{.Form}}(r, &in.{{.Name}}); err != nil {
+		return err
+	}
+{{- else if eq .Source "path"}}
 	if in.{{.Name}}, err = maago.Path(r, {{printf "%q" .Key}}, maago.Parse{{.Parser}}); err != nil {
 		return err
 	}
@@ -71,5 +75,29 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	return maago.Render(w, maagoPages, {{printf "%q" .Template}}, {{printf "%q" .Block}}, page)
 {{- end}}
 {{- end}}
+}
+{{end}}
+{{- range .Forms}}
+// bind{{.Name}} reads form {{.Name}} from the body of r, or for a GET or
+// HEAD only describes its fields, for drawing it empty (D-119).
+func bind{{.Name}}(r *http.Request, f *{{.Name}}) error {
+	vals, err := maago.FormValues(r{{range .Fields}}, {{.Key}}{{end}})
+	if err != nil {
+		return err
+	}
+	ctx := r.Context()
+{{- range .Fields}}
+	maago.{{.Bind}}(ctx, vals, &f.{{.Name}}, {{.Rule}})
+{{- end}}
+	ok := func() bool {
+		return {{range $i, $f := .Fields}}{{if $i}} && {{end}}f.{{$f.Name}}.Error == ""{{else}}true{{end}}
+	}
+{{- if .Validate}}
+	if vals != nil && ok() {
+		f.Validate()
+	}
+{{- end}}
+	maago.FinishForm(&f.Form, vals != nil, ok())
+	return nil
 }
 {{end}}

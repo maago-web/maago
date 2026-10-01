@@ -47,8 +47,8 @@ Q `maago:"max="`
   blog/models.go:20:20: maago tag ends where a value should be
     fix: write a value, or 'text' for text with spaces or commas
 R `maago:"Max=1"`
-  blog/models.go:21:16: option name "Max" is not lowercase letters
-    fix: write the option name in lowercase letters, like max
+  blog/models.go:21:16: option name "Max" is not lowercase words joined by _
+    fix: write the option name in lowercase letters, like max or min_value
 S `maago:"max=1, unique"`
   blog/models.go:22:22: space in maago tag
     fix: remove the space
@@ -75,11 +75,11 @@ Z `maago:""`
   blog/models.go:30:16: maago tag ends where an option name should be
     fix: write options as key or key=value
 AB `maago:"maxLen=1"`
-  blog/models.go:31:17: option name "maxLen" is not lowercase letters
-    fix: write the option name in lowercase letters, like max
+  blog/models.go:31:17: option name "maxLen" is not lowercase words joined by _
+    fix: write the option name in lowercase letters, like max or min_value
 AC `maago:"max1=1"`
-  blog/models.go:32:17: option name "max1" is not lowercase letters
-    fix: write the option name in lowercase letters, like max
+  blog/models.go:32:17: option name "max1" is not lowercase words joined by _
+    fix: write the option name in lowercase letters, like max or min_value
 AD `maago:"default=a=b"`
   blog/models.go:33:26: unexpected '=' in maago tag, want a comma
     fix: write a value holding = or ' as 'text'
@@ -95,3 +95,14 @@ AG `maago:"max=1"foo`
 AA `maago:"max=,,"`
   blog/models.go:37:21: unexpected ',' in maago tag, want a value
     fix: write a value, or 'text' for text with spaces or commas
+AH `maago:"min_value=1"`
+  min_value@38:17 bare "1"@38:27
+AI `maago:"min__value=1"`
+  blog/models.go:39:17: option name "min__value" is not lowercase words joined by _
+    fix: write the option name in lowercase letters, like max or min_value
+AJ `maago:"_min=1"`
+  blog/models.go:40:17: option name "_min" is not lowercase words joined by _
+    fix: write the option name in lowercase letters, like max or min_value
+AK `maago:"min_=1"`
+  blog/models.go:41:17: option name "min_" is not lowercase words joined by _
+    fix: write the option name in lowercase letters, like max or min_value

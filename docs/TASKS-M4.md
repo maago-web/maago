@@ -385,11 +385,65 @@ URL 함수
 ## 6. 폼 (D-43, D-15)
 
 - 모델에서 만드는 폼과 모델 없는 struct 폼. 필드마다 (값, 있음, 오류): 빈 칸, 해석 실패, 범위·길이·선택지 밖을 가른다. 태그는 모델과 같은 목록
-- 폼 전체 검증과 사용자 검증 메서드(D-15), DB를 보는 검증(ctx와 DB를 받는 메서드)
-- unique 위반을 폼 오류로: 런타임은 드라이버를 모르므로(D-90) 방언의 오류 글에서 D-86의 제약 이름을 찾는다. "DB를 보는 검증 메서드"와 장치가 둘이 되지 않게 게시판 이름 중복은 하나만 쓴다(fable 9, 계획에서 고른다)
+- 폼 전체 검증과 사용자 검증 메서드(D-15), ~~DB를 보는 검증(ctx와 DB를 받는 메서드)~~ → 뷰가 쿼리로(D-119)
+- ~~unique 위반을 폼 오류로: 런타임은 드라이버를 모르므로(D-90) 방언의 오류 글에서 D-86의 제약 이름을 찾는다. "DB를 보는 검증 메서드"와 장치가 둘이 되지 않게 게시판 이름 중복은 하나만 쓴다(fable 9, 계획에서 고른다)~~ → 장치를 만들지 않는다: 뷰의 쿼리 하나(D-119, 사람의 결정)
 - 템플릿에서 폼과 오류를 그리는 법, 최종 사용자 문구와 바꾸는 법, 검증 실패는 200으로 다시 그림(D-116)
 
-→ 확인: `int64` 칸에 빈 값·`abc`·범위 밖의 세 결과가 **서로 모두 다름**(값·문구를 쌍으로 비교), 필수 문자열의 빈 값, 선택지 밖, 사용자 메서드의 오류, 게시판 이름 중복이 두 방언에서 그 필드의 오류, 다시 그린 폼이 입력값을 유지
+→ 확인: `int64` 칸에 빈 값·`abc`·범위 밖의 세 결과가 **서로 모두 다름**(값·문구를 쌍으로 비교), 필수 문자열의 빈 값, 선택지 밖, 사용자 메서드의 오류, ~~게시판 이름 중복이 두 방언에서 그 필드의 오류~~ 뷰가 찾은 중복이 그 필드의 오류(두 방언은 12번의 쿼리 파일), 다시 그린 폼이 입력값을 유지
+
+### 계획
+
+모양 (결정에 없는 선택은 ★)
+- ★ **폼 선언**: 폼은 앱 패키지의 struct로, `maago.Form`을 임베드한다(모델이 `maago.Model`을 임베드하듯 `go/ast`로 찾는다). 필드 타입은 런타임 제네릭 `maago.Field[T]`이고 T는 `string`·`int64`·`int32`·`float64`·`bool`(모델 타입에서 `time.Time`·`[]byte`를 뺀 것: 시각은 표시 타임존과 함께 11번, 파일은 M7). 필드 하나가 (값, 있음, 오류)를 다 든다: `Value T`, `Raw string`(받은 글, 다시 그릴 때 쓴다), `Set bool`(빈 칸이 아님), `Error string`, 그리고 그리는 데 쓰는 `Name`(폼 키: 필드 이름의 snake_case)·`Label`·`Help`·`Choices`. 생성되는 폼 타입은 없다: 사용자 타입 하나를 뷰도 템플릿도 본다. 기각: 사용자가 값 struct를 쓰고 생성기가 `XxxFormState`를 만듦(타입 둘, 이름 규칙 하나 더)
+- ★ **모델 폼**(D-11, Django `ModelForm`): `maago.Form`의 태그 `maago:"model=Board"`. 필드는 그 모델의 필드 이름이고 T는 모델 필드 타입과 같아야 한다(nullable 포인터 `*T`는 `Field[T]`와 `optional`). 규칙(`max`·`choices`·`label`·`help`)은 모델에서 오고 폼 필드에는 태그를 쓰지 않는다(쓰면 "모델 Board가 선언한다" 오류: 한 곳). 어떤 필드를 받을지는 폼이 필드를 나열해 보인다(Django `fields =`). 입력 struct로 옮기는 것은 뷰가 쓴다(생성된 `Input()` 없음, 필요해지면 그때)
+- ★ **태그**(D-17 닫힌 목록, 모델과 같은 이름은 같은 뜻): `label`·`help`·`choices`(문자열)·`max`·`min`(문자열은 글자 수, 숫자는 값)·`optional`. 폼 필드는 **기본이 필수**다: 빈 칸은 `Required` 오류, `optional`이면 빈 칸은 `Set=false`의 영값(PHILOSOPHY 7: 조용히 영값을 넣지 않는다). `bool`은 체크박스라 늘 optional(빈 칸 = false, `optional`을 쓰면 오류). 모델의 `max`가 숫자에는 없으므로(문자열 길이) `min`·`max`를 숫자에 쓰는 것은 폼에서 넓힌다
+- **세 결과가 다름**(완료 조건): `int64` 칸의 빈 값 → `Required`("this field is required"), `abc` → `NotNumber`, `99999999999999999999`(`strconv`의 범위 오류)·`min`/`max` 밖 → `OutOfRange`(문구에 범위). `Raw`는 셋 다 받은 글 그대로
+- ★ **In에서 받기**: In 필드 `Form BoardForm `maago:"form"``(4번의 `path=`·`query=`와 같은 줄의 셋째 소스, 키 없음, In에 하나). 요청이 GET·HEAD면 폼은 **묶이지 않는다**: `Name`·`Label`·`Help`·`Choices`만 채우고 검증하지 않는다(빈 폼 화면). 그 밖의 메서드면 `r.ParseForm`의 본문(`application/x-www-form-urlencoded`. multipart는 M7)을 필드마다 해석·검증한다. 같은 In을 GET·POST 두 줄이 같이 쓴다. 본문이 깨졌으면(해석 실패) 400(D-116의 query와 같다), 모르는 키는 무시(D-116)
+- ★ **사용자 검증**(D-15): 폼 타입의 메서드 `func (f *BoardForm) Validate(ctx context.Context) error`가 있으면 어댑터가 부른다. **모든 필드가 통과했을 때만**(Django `clean()`은 늘 부르지만 그러면 사용자가 필드마다 유효한지 다시 봐야 한다). 검증 실패는 필드의 `Error`를 쓰거나 폼 전체 오류 `f.AddError(msg)`(임베드한 `maago.Form`의 메서드)로 알리고, 돌려준 `error`는 검증이 아닌 실패(DB 오류 → 500). DB를 보는 검증은 같은 메서드가 `maago.DBFrom(ctx)`로(ctx에 DB가 있다, D-114). 시그니처가 다르면 생성 오류(go/types, 4번처럼)
+- **뷰**: `in.Form.Valid()`(묶였고 오류가 없음). 실패면 뷰가 `maago.Show(page)`로 다시 그린다(200, D-116). 생성기는 흐름을 강제하지 않는다
+- ★ **unique 위반 → 폼 오류**(열린 질문의 답 제안): 장치는 **위반 잡기 하나**. 검사 후 삽입은 경쟁에서 지고 쿼리가 하나 더다. 모델의 `unique`·복합 unique마다 `models_gen.go`에 값 `var BoardNameKey = maago.Unique{Table: "board", Columns: []string{"name"}}`(이름은 D-86 제약 이름의 CamelCase)이 생기고 `BoardNameKey.Violated(err) bool`. 런타임은 드라이버를 모르므로(D-90) 오류 글로 본다: PG `violates unique constraint "board_name_key"`, SQLite `UNIQUE constraint failed: board.name`(SQLite 글에는 제약 이름이 없어 테이블.컬럼들). 게시판 이름 중복은 뷰가 `InsertBoard`의 오류를 `BoardNameKey.Violated(err)`로 보고 `in.Form.Name.Error`를 쓴다. 대가: 검사가 뷰 코드에 있고(폼 정의가 아니라), 오류 글 형식에 기대므로 두 드라이버(modernc sqlite, pgx)를 `cmd/maago` 시험이 고정한다
+- ★ **최종 사용자 문구**: 런타임 `maago.Messages` struct(필드마다 `Required`·`NotNumber`·`OutOfRange`·`TooLong`·`TooShort`·`NotChoice`·`BadBool`, `fmt` 자리 있는 영어 기본값). `Config.Messages`로 통째로 바꾸고 빈 필드는 기본값(한 언어, i18n은 D-72 밖). 어댑터는 `Handler`가 ctx에 넣은 표를 쓴다. 기각: `map[string]string`(키 오타를 컴파일러가 못 잡는다)
+- **템플릿**: 생성되는 HTML 조각 없음(사용자가 그린다, 5번의 걷기가 `.Form.Name.Raw` 같은 접근을 검사한다: 제네릭 인스턴스의 필드도 `LookupFieldOrMethod`로 된다). 문서 예: `{{with .Form.Name}}<label for="{{.Name}}">{{.Label}}</label><input name="{{.Name}}" value="{{.Raw}}">{{if .Error}}<p>{{.Error}}</p>{{end}}{{end}}`, 폼 전체 오류는 `{{range .Form.Errors}}`
+
+파일
+- 루트 `form.go`(새): `Form`(`Errors`, `AddError`, `Valid`, 묶임 표시), `Field[T]`, `Messages`와 기본값, 필드 해석 도우미(`FormString`·`FormInt64`…: 생성 코드가 부른다, reflect 없음 D-66), `Unique`·`Violated`. `http.go`: `Config.Messages`를 ctx로
+- `internal/web/forms.go`(새): 폼 struct 찾기·태그 검사(모델 폼은 `internal/model`의 필드 정보로), In의 `form` 소스. `views.go`: 셋째 소스. `typecheck.go`: `Validate` 시그니처. 생성 틀 `views.go.tmpl`: 폼 묶기와 검증(폼마다 `bindBoardForm(r, &f) error`를 한 번)
+- 모델 생성(`internal/mapper` 또는 모델 생성 자리): `XxxKey` 값
+- 시험: `internal/web/forms_test.go`(오류 표 골든), 루트 `form_test.go`(해석 도우미의 세 결과, 문구 바꾸기), `cmd/maago/testdata/web`에 폼 페이지와 unique 모델(두 방언에서 `Violated`)
+
+하지 않기로 한 것
+- `time.Time` 칸(11번: 표시 타임존과 함께 `datetime-local`), 파일 칸·multipart(M7), 폼 HTML 생성, 폼에서 입력 struct로 옮기는 생성 메서드, API 폼(7번이 JSON 본문으로, 422의 `errors`)
+
+단계
+1. 런타임 `Field`·`Form`·도우미·`Messages` → 확인: `int64` 빈 값·`abc`·범위 밖의 (값, 있음, 오류)가 셋 다 다름(쌍 비교), 문자열 필수·길이·선택지, `bool` 체크박스, 문구 바꾸기
+2. 폼 struct 읽기와 태그 검사(모델 폼 포함) → 확인: 모르는 태그(did you mean), 지원하지 않는 T, 모델에 없는 필드·타입 다름·모델 폼 필드의 태그, `bool`에 `optional`, 숫자 아닌 칸의 `min`
+3. In의 `form` 소스와 어댑터 → 확인: GET은 묶지 않음, POST는 묶고 검증, 깨진 본문 400, `Validate` 시그니처 오류, 필드가 하나라도 틀리면 `Validate`를 부르지 않음
+4. `XxxKey`와 `Violated` → 확인: 두 방언에서 실제 위반을 잡고 다른 제약·다른 오류는 아님(PG는 `MAAGO_TEST_PG_URL`)
+5. 종단(`cmd/maago/testdata/web`) → 확인: 다시 그린 폼이 입력값을 유지, 사용자 메서드의 오류, 이름 중복이 그 필드의 오류, 200
+6. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)와 사람의 결정 — 위 계획을 이렇게 고친다
+- **DB를 보는 검증은 뷰가 쿼리로**(사람의 결정 2026-10-01, fable 1·2): `in.Form.Valid()` 뒤 뷰가 SQL 쿼리(M3 쿼리 파일)로 보고 `Field.Error`·`AddError`를 쓴다. 게시판 이름 중복도, 공지 기간 겹침도(DB 제약이 없다), 글 고치기에서 자기 ID를 빼는 것도(path 값은 뷰만 안다) 같은 장치다. 경쟁에서 지면 unique 제약이 막아 500. `maago.Unique`·`Violated`·`XxxKey`는 만들지 않는다(드라이버 오류 글을 읽지 않는다, D-90). 12번의 "게시판 이름 중복(DB를 보는 검증)"과 그대로 맞는다
+- **`Validate`는 순수**(fable 2): `func (f *BoardForm) Validate()`, 반환 없음. DB를 보지 않는 폼 전체 검증(시작 < 끝, 과거 시각 막기)만. 필드가 모두 통과했을 때만 부르고, 필드의 `Error`나 `AddError`로 알린다. 메서드는 `*BoardForm`의 메서드 집합에서 찾는다(codex 7). 시그니처가 다르면 생성 오류
+- **폼 모양은 `Field[T]`**(사람의 결정, fable 7). TUTORIAL-FUTURE §9는 13번이 고친다
+- **모델 폼은 `optional`만**(사람의 결정, fable 4·5): 모델 폼 필드의 태그는 `optional` 하나(폼의 관심사), 나머지 규칙은 모델에서. 모델 수준 검증 메서드(D-15)는 admin이 필요한 M6에서 정한다. 모델 폼에 `ID`·`auto=` 필드는 오류(D-102). `default`가 있는 필드도 폼에서는 기본이 필수다(빈 칸 = 기본값으로 하려면 `optional`을 쓰고 뷰가 `Opt`로 옮긴다)
+- **숫자 범위는 `min_value`·`max_value`**(사람의 결정, fable 6, PHILOSOPHY 4): `min`·`max`는 문자열 글자 수만(모델의 `max`와 같은 뜻). 숫자의 `OutOfRange`는 타입 범위(`strconv`)와 `min_value`·`max_value` 둘 다
+- **시각 칸은 6번에서**(fable 3): `Field[time.Time]`은 `datetime-local`(`2006-01-02T15:04`)을 `Config.TimeZone`(기본 UTC, ctx로)에서 `time.ParseInLocation`. 표시 함수는 11번 그대로
+- **`Set` → `Given`**(fable 10: `maago.Set`과 헷갈림)
+- **값 표**(codex 3): 키 없음과 빈 값(`x=`)은 같다: `Raw ""`, `Given false`, 필수면 `Required`, optional이면 영값·오류 없음. 해석 실패: `Raw`는 받은 글, `Given true`, `Value` 영값, 오류. 공백은 다듬지 않는다
+- **체크박스**(codex 2): `bool`은 없음·빈 값·`false`·`off`·`0` → false, `on`·`true`·`1` → true, 그 밖은 `BadBool`. `optional`을 쓰면 오류
+- **본문만**(codex 1, fable 8): 묶을 때 `r.PostForm`만 본다(query는 섞지 않는다). `Content-Type`이 `application/x-www-form-urlencoded`가 아니면 400(multipart는 M7이 연다), 깨진 본문 400, 같은 키 둘 400(D-116의 query와 같다). GET·HEAD는 묶지 않는다: `?name=x`가 와도 `Given false`, 오류 없음, `Valid()` false
+- **순서**(codex 5·7): 폼 struct·태그 검사는 `go/ast` 단계(뷰 In처럼, `maago.Field[X]`의 X는 닫힌 목록), `Validate`는 `go/types` 단계, 묶는 코드는 타입 검사 뒤 `views_gen.go`. 생성 코드는 필드를 묶고 → 필드 오류가 없으면 `Validate` → `maago.FinishForm`이 유효 여부를 고정한다(`Valid()`는 그것과 폼 오류를 본다)
+- **문구·시간대는 ctx로**(codex 13, fable 9): `Handler`가 `Config.Messages`(빈 필드는 기본값으로 채운다)와 `TimeZone`을 ctx에 넣고, 없으면(`WithDB`만 쓴 시험) 영어 기본값과 UTC. panic하지 않는다
+- 확인 더함: 세 결과를 **HTTP POST로도**(종단), 틀린 `Content-Type`·같은 키 둘 400, GET `?name=x`, 한 필드의 오류에도 다른 필드의 `Raw` 유지, `AddError`가 `.Form.Errors`로 그려짐, `Raw`의 `<`·`"`·`&`가 이스케이프됨, In에 `form` 둘, 다른 패키지의 폼 타입, 모델 폼의 `ID`·`auto`·타입 다름·태그, 두 폼의 오류가 한 번에(D-61), `Validate`가 필드 오류가 있으면 불리지 않음, `optional` 숫자의 빈 칸, `min_value`·`max_value`
+- 받지 않음: codex 9·10·11·fable 8의 unique 쪽(장치를 만들지 않는다), codex 8(`Validate`가 DB를 보지 않아 사라짐), codex 12의 textarea·select 종단(그리는 것은 사용자 HTML이고 5번의 걷기가 본다. 이스케이프 하나만 둔다), fable 10의 `Fill`(12번이 필요하면)
+
+구현 리뷰 (ponytail·codex·fable)
+- 만들며 고친 것: D-81이 옵션 이름에 `_`를 막아 `min_value`가 부딪혔다 → 사람의 결정으로 D-81을 넓힘(소문자 단어를 `_`로, `min__value`·`_min`·`min_`은 오류). `{{if .Form.Valid}}`가 포인터 리시버라 5번의 걷기가 막았다 → `Valid`·`Bound`는 값 리시버. 변이 일곱(GET도 묶음, query 섞기, `Content-Type` 검사 없음, 늘 묶임, 정수 범위, `Validate`를 부르지 않음, 필드 오류 무시)이 모두 잡힌다
+- ponytail(스스로): 받음 — 문구 기본값을 `cmp.Or`로, 한 번 쓰는 `fieldsOf` 인라인, `Forms`의 겹친 조건
+- codex(샌드박스가 쓰기를 막아 코드만 읽음): 받지 않음 — 1 `Validate` 뒤 `ok()`를 다시 보지 않는다(클로저라 `FinishForm`에서 다시 부른다. 대신 `Validate`가 필드 오류를 쓰는 종단 경우를 더했고, 미리 계산하는 변이가 잡힌다), 2 nullable 모델 필드를 자동 optional로(NULL 가능한 컬럼도 폼에서는 필수일 수 있다. Django의 `null`·`blank`처럼 폼이 `optional`로 정한다)
+- fable: 받음 — `maago.Form` 태그에서 `model=` 앞의 다른 키로 gen이 panic(1), 값 리시버 `Validate`는 사본에 오류를 써 조용히 통과(2: 생성 오류), 폼이 읽지 않는 키의 중복도 400이던 것(3: `FormValues(r, 키들…)`이 폼의 키만 본다, D-116), DELETE 라우트의 폼은 Go가 본문을 읽지 않아 모두 Required(4: 생성 오류), 계획 리뷰 절이 4번 아래에 들어가 있던 것과 낡은 6번 머리(5: 옮기고 지움), 문구 셋(7: "is not written as the key takes it", 모델 폼 체크박스의 `optional`, 포인터 폼 필드), 시험 더함(8: 모델 폼의 `ID`, optional 숫자의 빈 값, 폼 밖 키의 중복, 값 리시버, `model=` 앞의 오타), `Config.Messages`의 verb가 맞지 않으면 `Handler` 오류(10). 12번에 넘김 — 6 픽스처의 날 SQL(`?`는 SQLite만): 튜토리얼은 쿼리 파일로, 9 고치기 폼을 채우는 `Fill`(시각 칸의 `Raw`는 `Config.TimeZone`의 `2006-01-02T15:04`)
+
 
 ## 7. API 라우트 (D-44)
 
@@ -457,7 +511,7 @@ M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 
 - ~~부분 응답을 요청이 고르는지 뷰가 고르는지~~ → 5번: 라우트 표의 `maago.Block("x")`(사람의 결정)
 - ~~In 필드에 슬라이스(`?tag=a&tag=b`)를 받는지~~ → 4번: 받지 않는다
 - ~~뷰가 404·400·500 밖의 상태(403·409)를 내는 법~~ → 3번: `maago.Status(code, err)`
-- 게시판 이름 중복을 unique 위반으로 잡을지 검증 메서드로 잡을지 → 6번
+- ~~게시판 이름 중복을 unique 위반으로 잡을지 검증 메서드로 잡을지~~ → 6번: 뷰가 쿼리로(사람의 결정, unique 위반을 읽는 장치는 없다)
 
 ## 초안 리뷰 (2026-09-28)
 

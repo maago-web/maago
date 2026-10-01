@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"go/format"
 	"go/token"
+	"maps"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 
 	"github.com/maago-web/maago/internal/mapper"
+	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/pipeline"
 )
 
@@ -87,7 +90,7 @@ func ViewsFile(app *App, apps []*App) []byte {
 		for _, f := range v.fields {
 			query = query || f.source == "query"
 			fields = append(fields, map[string]any{"Name": f.name, "Source": f.source, "Key": f.key, "Pointer": f.pointer,
-				"Parser": strings.ToUpper(f.typ[:1]) + f.typ[1:]})
+				"Parser": strings.ToUpper(f.typ[:1]) + f.typ[1:], "Form": f.typ})
 		}
 		api := hasOption(r.Options, "API")
 		html = html || !v.escape && !api
@@ -110,7 +113,7 @@ func ViewsFile(app *App, apps []*App) []byte {
 		}
 	}
 	slices.SortFunc(all, func(a, b map[string]string) int { return strings.Compare(a["Name"], b["Name"]) })
-	return execute("views.go.tmpl", imports, map[string]any{"Package": app.Name, "HTML": html, "Routes": rs, "Pages": pages, "AllRoutes": all})
+	return execute("views.go.tmpl", imports, map[string]any{"Package": app.Name, "HTML": html, "Routes": rs, "Pages": pages, "AllRoutes": all, "Forms": formsData(app)})
 }
 
 // execute writes the file name. imports are the standard packages it uses;
@@ -159,10 +162,72 @@ func More(fset *token.FileSet, app *App) *mapper.More {
 			m.Names = append(m.Names, mapper.Name{Name: n, By: by, Pos: pos, Fix: fix})
 		}
 	}
+	binds := map[string]bool{}
+	for _, r := range app.Routes {
+		if r.view == nil {
+			continue
+		}
+		for _, f := range r.view.fields {
+			if f.source == "form" && !binds[f.typ] {
+				binds[f.typ] = true
+				m.Names = append(m.Names, mapper.Name{Name: "bind" + f.typ, By: "form " + f.typ, Pos: fset.Position(f.pos), Fix: "rename what else declares bind" + f.typ})
+			}
+		}
+	}
 	if html {
 		for _, n := range []string{"maagoTemplateFiles", "maagoRoutes", "maagoPages"} {
 			m.Names = append(m.Names, mapper.Name{Name: n, By: "the templates of app " + app.Name, Pos: at, Fix: "rename what else declares " + n})
 		}
 	}
 	return m
+}
+
+// formsData is what views.go.tmpl needs of the forms an In reads: each
+// field's Bind function and Rule (D-119).
+func formsData(app *App) []map[string]any {
+	binds := map[string]string{"string": "BindString", "int64": "BindInt64", "int32": "BindInt32", "float64": "BindFloat64", "bool": "BindBool", "time.Time": "BindTime"}
+	var fs []map[string]any
+	for _, name := range slices.Sorted(maps.Keys(app.forms)) {
+		f := app.forms[name]
+		if !f.used {
+			continue
+		}
+		var fields []map[string]string
+		for _, ff := range f.fields {
+			fields = append(fields, map[string]string{"Name": ff.name, "Bind": binds[ff.typ], "Rule": ruleLit(ff), "Key": strconv.Quote(model.Snake(ff.name))})
+		}
+		fs = append(fs, map[string]any{"Name": name, "Validate": f.validate, "Fields": fields})
+	}
+	return fs
+}
+
+// ruleLit is ff's maago.Rule as Go: only the parts it has.
+func ruleLit(ff formField) string {
+	parts := []string{"Name: " + strconv.Quote(model.Snake(ff.name)), "Label: " + strconv.Quote(ff.label)}
+	if ff.help != "" {
+		parts = append(parts, "Help: "+strconv.Quote(ff.help))
+	}
+	if ff.choices != nil {
+		var qs []string
+		for _, c := range ff.choices {
+			qs = append(qs, strconv.Quote(c))
+		}
+		parts = append(parts, "Choices: []string{"+strings.Join(qs, ", ")+"}")
+	}
+	if ff.optional {
+		parts = append(parts, "Optional: true")
+	}
+	if ff.min > 0 {
+		parts = append(parts, "Min: "+strconv.Itoa(ff.min))
+	}
+	if ff.max > 0 {
+		parts = append(parts, "Max: "+strconv.Itoa(ff.max))
+	}
+	if ff.minValue != "" {
+		parts = append(parts, "MinValue: "+strconv.Quote(ff.minValue))
+	}
+	if ff.maxValue != "" {
+		parts = append(parts, "MaxValue: "+strconv.Quote(ff.maxValue))
+	}
+	return "maago.Rule{" + strings.Join(parts, ", ") + "}"
 }

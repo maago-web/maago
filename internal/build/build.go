@@ -71,6 +71,7 @@ func checking(root string) [][]pipeline.Step {
 	}
 	early := func() (ds []diag.Diagnostic) { // what makemigrations does not need
 		ds = append(web.Check(s.fset, s.web), web.Views(s.fset, s.web)...)
+		ds = append(ds, web.Forms(s.fset, s.web, s.app)...)
 		s.checked, s.pkgs = map[string][]mapper.Checked{}, map[string]string{}
 		for _, qa := range s.queries {
 			for _, q := range qa.Queries {

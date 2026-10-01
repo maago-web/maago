@@ -35,6 +35,8 @@ type App struct {
 
 	funcs map[string]*ast.FuncDecl // the top-level functions, for Views
 	types map[string]*ast.TypeSpec // the top-level types
+	maago map[string][]string      // each type's file's names for maago
+	forms map[string]*form         // the form structs, by name: Forms fills it
 }
 
 // Route is one line of a route table, as written: Check judges it.
@@ -100,7 +102,7 @@ func importPath(modulePath, dir string) string { return path.Join(modulePath, di
 // readApp returns the app of p, or nil if p has no route table.
 func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath string) (*App, []diag.Diagnostic) {
 	app := &App{Dir: dir, Name: files[0].Name.Name, ImportPath: importPath,
-		funcs: map[string]*ast.FuncDecl{}, types: map[string]*ast.TypeSpec{}}
+		funcs: map[string]*ast.FuncDecl{}, types: map[string]*ast.TypeSpec{}, maago: map[string][]string{}}
 	var ds []diag.Diagnostic
 	errAt := func(pos token.Pos, msg, fix string) { ds = append(ds, diag.New(fset.Position(pos), msg, fix)) }
 	const form = "declare the table at the top level as var Routes = maago.Routes{…}"
@@ -118,7 +120,7 @@ func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath stri
 			case *ast.GenDecl:
 				for _, s := range d.Specs {
 					if ts, ok := s.(*ast.TypeSpec); ok {
-						app.types[ts.Name.Name] = ts
+						app.types[ts.Name.Name], app.maago[ts.Name.Name] = ts, names
 					}
 				}
 			}

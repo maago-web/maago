@@ -1,0 +1,108 @@
+# unknown tag
+board/urls.go:33:40: unknown key "mim" in the tag of form field Title
+  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, optional
+
+# not a Field
+board/urls.go:35:9: form field Rate is float64, not maago.Field[T]
+  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time; a file field comes with M7
+
+# a type forms do not read
+board/urls.go:35:9: form field Rate is maago.Field[uint8], not maago.Field[T]
+  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time; a file field comes with M7
+
+# unexported
+board/urls.go:35:2: form field rate is not exported
+  fix: export it: templates draw the form's fields
+
+# min on a number
+board/urls.go:34:40: min applies to strings, but form field Days is int32
+  fix: use min_value=…: min and max count the characters of a string
+
+# min_value on a string
+board/urls.go:33:40: min_value applies to numbers, but form field Title is string
+  fix: remove it; min and max bound a string's length
+
+# a value past the type
+board/urls.go:34:62: max_value of form field Days is "3000000000", not a int32
+  fix: write a number of the field's type
+
+# min above max
+board/urls.go:33:2: form field Title has min=300 above max=200
+  fix: swap them
+
+# optional checkbox
+board/urls.go:36:35: form field Pinned is a checkbox, which is never required
+  fix: remove optional
+
+# choices on a number
+board/urls.go:34:40: choices apply to strings, but form field Days is int32
+  fix: remove choices, or make the field a string
+
+# no such model
+board/urls.go:26:27: form BoardForm names model Bord, which this package does not declare
+  fix: did you mean "Board"?
+
+# no such model field
+board/urls.go:27:2: model Board has no field Nam
+  fix: did you mean "Name"?
+
+# a model form's own rule
+board/urls.go:28:41: form field Kind takes its rules from model Board
+  fix: remove max; a model form's field may only add optional, and model Board declares the rest
+
+# model type differs
+board/urls.go:27:13: form field Name is maago.Field[int64], but model Board has it as string
+  fix: make it maago.Field[string]
+
+# auto in a model form
+board/urls.go:28:2: field Created of model Board is not for a form to set
+  fix: remove it; the database or the generated code sets it
+
+# two forms in an In
+board/urls.go:44:2: BoardIn reads a second form, More
+  fix: keep one form field in In; a page with two forms posts each to its own route
+
+# not a form
+board/urls.go:51:2: NoticeIn.Form reads form NoticePage, which does not embed maago.Form
+  fix: embed maago.Form in NoticePage, and make its fields maago.Field[T]
+
+# another package's form
+board/urls.go:51:7: form Form is not of a type of this package: time.Time
+  fix: declare the form struct in this package, embedding maago.Form
+
+# form with a value
+board/urls.go:51:26: maago:"form" takes no value
+  fix: write maago:"form"; the form's keys are its fields' names
+
+# a typo before model
+board/urls.go:26:21: unknown key "foo" in the tag of maago.Form
+  fix: the form's own tag takes model=X: maago:"model=Board"
+board/urls.go:26:31: form BoardForm names model Bord, which this package does not declare
+  fix: did you mean "Board"?
+
+# ID in a model form
+board/urls.go:28:2: field ID of model Board is not for a form to set
+  fix: remove it; the database or the generated code sets it
+
+# a form on DELETE
+board/urls.go:51:2: NoticeIn.Form reads a form, but route notice_create is a DELETE, whose body Go does not parse as a form
+  fix: send the form with POST; DELETE takes its values from the path
+
+# a pointer form
+board/urls.go:51:7: form Form is a pointer
+  fix: declare it as NoticeForm; the adapter fills it in place
+
+# Validate on the value
+board/urls.go:40:21: Validate of form NoticeForm has a value receiver: the errors it sets are lost
+  fix: declare it func (f *NoticeForm) Validate()
+
+# two forms at once
+board/urls.go:26:27: form BoardForm names model Bord, which this package does not declare
+  fix: did you mean "Board"?
+board/urls.go:33:40: unknown key "mim" in the tag of form field Title
+  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, optional
+
+# Validate's signature
+board/urls.go:40:22: Validate of form NoticeForm is not a method func()
+  fix: declare func (f *NoticeForm) Validate(): it sets a field's Error or calls f.AddError; a check that needs the database goes in the view (D-119)
+

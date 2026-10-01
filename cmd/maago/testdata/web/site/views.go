@@ -64,3 +64,52 @@ type BrokenPage struct {
 }
 
 func Broken(ctx context.Context, in struct{}) (BrokenPage, error) { return BrokenPage{}, nil }
+
+// NewPostForm is a plain form: an int64 for the three results of a
+// number, a checkbox, and a check of the form as a whole (D-119).
+type NewPostForm struct {
+	maago.Form
+	Title maago.Field[string] `maago:"max=10,label='제목'"`
+	Count maago.Field[int64]  `maago:"max_value=100"`
+	Agree maago.Field[bool]
+}
+
+func (f *NewPostForm) Validate() {
+	if f.Title.Value == "forbidden" {
+		f.AddError("that title is forbidden")
+	}
+	if f.Title.Value == "nope" {
+		f.Title.Error = "nope is not a title"
+	}
+}
+
+type PostFormIn struct {
+	Form NewPostForm `maago:"form"`
+}
+
+type PostFormPage struct {
+	Form NewPostForm
+}
+
+// PostForm draws the form on GET and saves it on POST. A taken title is
+// a check that needs the database, so the view makes it (D-119).
+func PostForm(ctx context.Context, in PostFormIn) (maago.Result[PostFormPage], error) {
+	f := in.Form
+	if !f.Valid() {
+		return maago.Show(PostFormPage{f}), nil
+	}
+	db := maago.DBFrom(ctx)
+	var taken bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM site_post WHERE title = ?)`, f.Title.Value).Scan(&taken); err != nil {
+		return maago.Result[PostFormPage]{}, err
+	}
+	if taken {
+		f.Title.Error = "that title is taken"
+		return maago.Show(PostFormPage{f}), nil
+	}
+	p, err := InsertPost(ctx, db, NewPostInput{Title: f.Title.Value})
+	if err != nil {
+		return maago.Result[PostFormPage]{}, err
+	}
+	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
+}

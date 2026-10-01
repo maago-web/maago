@@ -8,11 +8,11 @@ site/urls.go:65:32: the In of view A is not struct{} or a struct type named in p
 
 # untagged field
 site/urls.go:65:18: field X says not where its value comes from
-  fix: tag it with one source: maago:"path=name" or maago:"query=name"
+  fix: tag it with one source: maago:"path=name", maago:"query=name" or maago:"form"
 
 # unknown key
 site/urls.go:65:34: unknown key "qery" in the tag of X
-  fix: did you mean "query"? allowed: path, query
+  fix: did you mean "query"? allowed: path, query, form
 
 # rest of the path
 site/urls.go:11:12: route a reads the rest of the path with {p...}, which v0 does not support
@@ -48,7 +48,7 @@ site/urls.go:67:4: query value Y cannot be read into **int64
 site/urls.go:11:43: route name "a" is taken by site/urls.go:11
   fix: route names are one namespace across the project; rename one
 site/urls.go:65:18: field X says not where its value comes from
-  fix: tag it with one source: maago:"path=name" or maago:"query=name"
+  fix: tag it with one source: maago:"path=name", maago:"query=name" or maago:"form"
 
 # names clash
 site/more.go:15:5: strconv is declared at the top level, but maago's generated files in this package may import a package strconv
@@ -66,7 +66,7 @@ site/urls.go:65:32: the In of view A is not struct{} or a struct type named in p
 
 # two sources
 site/urls.go:65:42: field X names more than one source
-  fix: keep one: maago:"path=name" or maago:"query=name"
+  fix: keep one: maago:"path=name", maago:"query=name" or maago:"form"
 
 # embedded field
 site/urls.go:65:18: In of view A embeds a field

@@ -14,6 +14,7 @@ import (
 	"github.com/maago-web/maago/internal/golden"
 	"github.com/maago-web/maago/internal/gotypes"
 	"github.com/maago-web/maago/internal/mapper"
+	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/project"
 )
 
@@ -45,6 +46,16 @@ func generate(t *testing.T, files map[string]string) (string, map[string][]byte)
 	apps, ds := Read(fset, root, gofiles, mod)
 	if ds == nil {
 		ds = append(Check(fset, apps), Views(fset, apps)...)
+		pkgs, mds := model.Read(fset, root, gofiles)
+		mapps, cds := model.Check(fset, pkgs)
+		ds = append(append(append(ds, mds...), cds...), Forms(fset, apps, func(dir string) *model.App {
+			for _, a := range mapps {
+				if a.Dir == dir {
+					return a
+				}
+			}
+			return nil
+		})...)
 	}
 	for _, app := range apps {
 		ds = append(ds, mapper.Names(fset, root, app.Dir, nil, nil, More(fset, app))...)

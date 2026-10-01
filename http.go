@@ -11,6 +11,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Config is how main puts the apps together into one handler (D-114).
@@ -26,6 +27,13 @@ type Config struct {
 
 	// OnError hears of every 5xx: a view's error or a panic. Nil logs.
 	OnError func(ctx context.Context, r *http.Request, err error)
+
+	// Messages are the errors forms show; an empty one keeps the English
+	// default (D-119).
+	Messages Messages
+
+	// TimeZone is where the times people enter and see are; nil is UTC.
+	TimeZone *time.Location
 }
 
 // App is an app's routes, as maago gen generates them into the app's App
@@ -57,7 +65,10 @@ func Handler(cfg Config) (http.Handler, error) {
 	if len(cfg.Apps) == 0 {
 		return nil, errors.New("maago: Config.Apps is empty; add each app's App, such as board.App")
 	}
-	h := &handler{cfg: cfg, mux: http.NewServeMux(), routes: map[string]*AppRoute{}}
+	h := &handler{cfg: cfg, mux: http.NewServeMux(), routes: map[string]*AppRoute{}, forms: newFormSettings(cfg.Messages, cfg.TimeZone)}
+	if err := h.forms.msgs.check(); err != nil {
+		return nil, err
+	}
 	seen := map[string]bool{}
 	for _, app := range cfg.Apps {
 		switch {
@@ -94,7 +105,8 @@ type handler struct {
 	cfg    Config
 	mux    *http.ServeMux
 	routes map[string]*AppRoute // by pattern
-	next   http.Handler         // CSRF, then the routes
+	forms  *formSettings
+	next   http.Handler // CSRF, then the routes
 }
 
 // ServeHTTP answers CORS first, since a preflight never reaches a route,
@@ -153,7 +165,7 @@ func (h *handler) route(r *http.Request) *AppRoute {
 // error or panic into the response.
 func (h *handler) serve(route *AppRoute) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.WithContext(WithDB(r.Context(), h.cfg.DB))
+		r = r.WithContext(context.WithValue(WithDB(r.Context(), h.cfg.DB), formKey{}, h.forms))
 		ww := &written{ResponseWriter: w}
 		defer func() {
 			p := recover()

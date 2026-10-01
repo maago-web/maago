@@ -1,0 +1,6 @@
+{{define "content"}}<form method="post">
+{{range .Form.Errors}}<p class="form-error">{{.}}</p>{{end}}
+{{with .Form.Title}}<label for="{{.Name}}">{{.Label}}</label><input name="{{.Name}}" value="{{.Raw}}">{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+{{with .Form.Count}}<input name="{{.Name}}" value="{{.Raw}}">{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+{{with .Form.Agree}}<input type="checkbox" name="{{.Name}}"{{if .Value}} checked{{end}}>{{end}}
+</form>{{end}}

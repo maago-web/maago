@@ -51,6 +51,11 @@ const src = "package blog\n\ntype T struct {\n" +
 	"	AG int `maago:\"max=1\"foo`\n" +
 	// Two errors in one tag: only the first is reported.
 	"	AA int `maago:\"max=,,\"`\n" +
+	// Option names are lowercase words joined by _ (D-81).
+	"	AH int `maago:\"min_value=1\"`\n" +
+	"	AI int `maago:\"min__value=1\"`\n" +
+	"	AJ int `maago:\"_min=1\"`\n" +
+	"	AK int `maago:\"min_=1\"`\n" +
 	"}\n"
 
 func TestParseTag(t *testing.T) {
@@ -83,8 +88,8 @@ func TestParseTag(t *testing.T) {
 	}
 	golden.Check(t, "testdata/tag.golden", []byte(out.String()))
 
-	if len(all) != 22 {
-		t.Errorf("want 22 diagnostics, one per invalid field (L to AG), got %d", len(all))
+	if len(all) != 25 {
+		t.Errorf("want 25 diagnostics, one per invalid field (L to AG, AI to AK), got %d", len(all))
 	}
 }
 

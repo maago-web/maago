@@ -8,6 +8,8 @@ var Routes = maago.Routes{
 	maago.GET("/list", "post_list", PostList),
 	maago.GET("/list/rows", "post_rows", PostList, maago.Block("rows")),
 	maago.POST("/posts", "post_create", PostCreate),
+	maago.GET("/posts/new", "post_new", PostForm),
+	maago.POST("/posts/new", "post_new_save", PostForm),
 	maago.GET("/api/posts/{id}", "api_post", APIPost, maago.API),
 	maago.GET("/broken", "broken", Broken),
 }
