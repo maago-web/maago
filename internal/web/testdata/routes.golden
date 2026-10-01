@@ -30,35 +30,35 @@ board/urls.go:5:5: second route table in package board
 
 # not a call
 board/urls.go:6:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block("name")
 
 # too few arguments
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block("name")
 
 # path not a literal
 board/urls.go:7:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block("name")
 
 # name joined
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block("name")
 
 # view of another package
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block("name")
 
 # view literal
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block("name")
 
 # view nil
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block("name")
 
 # option not maago's
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block("name")
 
 # dot import
 board/urls.go:5:5: route table in a file that dot-imports maago
@@ -84,11 +84,31 @@ board/urls.go:5:48: no function M in package board
 
 # unknown option
 board/urls.go:5:54: unknown route option maago.Login
-  fix: did you mean "LoginRequired"? allowed: LoginRequired, API
+  fix: did you mean "LoginRequired"? allowed: LoginRequired, API, Block
 
 # option twice
 board/urls.go:5:65: route option maago.API given twice
   fix: remove one
+
+# block and API
+board/urls.go:5:65: route x renders a block, but its API option answers JSON
+  fix: remove maago.Block or maago.API
+
+# empty block
+board/urls.go:5:54: maago.Block takes the name of a block as one string literal
+  fix: write the name of a {{block}} or {{define}} of the page, such as maago.Block("rows")
+
+# block without a name
+board/urls.go:5:54: maago.Block takes the name of a block as one string literal
+  fix: write the name of a {{block}} or {{define}} of the page, such as maago.Block("rows")
+
+# block twice
+board/urls.go:5:72: route option maago.Block given twice
+  fix: remove one
+
+# block not a literal
+board/urls.go:5:54: maago.Block takes the name of a block as one string literal
+  fix: write the name of a {{block}} or {{define}} of the page, such as maago.Block("rows")
 
 # no view
 board/urls.go:5:48: no function Viw in package board

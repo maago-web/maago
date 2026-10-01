@@ -55,8 +55,8 @@ site/more.go:15:5: strconv is declared at the top level, but maago's generated f
   fix: rename it
 site/urls.go:10:5: the routes of app site would declare App, which site/more.go:14 declares already
   fix: rename what else declares App; maago generates each app's App (D-114)
-site/urls.go:10:5: the templates of app site would declare maagoTemplates, which site/more.go:17 declares already
-  fix: rename what else declares maagoTemplates
+site/urls.go:10:5: the templates of app site would declare maagoPages, which site/more.go:17 declares already
+  fix: rename what else declares maagoPages
 site/urls.go:12:27: route post_detail would declare PostDetailURL, which site/more.go:12 declares already
   fix: rename the route, or what else declares that name
 
@@ -109,8 +109,10 @@ site/templates/base.html:1: bad character U+007D '}'
   fix: fix the template; it is Go's html/template
 
 # a template name in other letters
+site/templates/Home_Page.html: template Home_Page.html is no page's and not base.html
+  fix: name it after a page type (PostPage → post_page.html), or move what it holds into a {{define}} of base.html
 site/urls.go:22:6: page HomePage has no template site/templates/home_page.html
-  fix: create site/templates/home_page.html; a page type's template is its name in snake_case (D-116)
+  fix: create it; a page type's template is its name in snake_case (D-116)
 
 # func(w, r) of other types
 site/urls.go:65:6: view A takes int and string, not an http.ResponseWriter and an *http.Request
@@ -118,7 +120,7 @@ site/urls.go:65:6: view A takes int and string, not an http.ResponseWriter and a
 
 # no template
 site/urls.go:22:6: page HomePage has no template site/templates/home_page.html
-  fix: create site/templates/home_page.html; a page type's template is its name in snake_case (D-116)
+  fix: create it; a page type's template is its name in snake_case (D-116)
 
 # template syntax
 site/templates/home_page.html:2: bad character U+007D '}'

@@ -48,15 +48,16 @@ type Route struct {
 
 // Option is a route option as written: maago.LoginRequired.
 type Option struct {
-	Name string
-	Pos  token.Pos
+	Name  string
+	Pos   token.Pos
+	Block string // the argument of maago.Block("name")
 }
 
 // methods are the route constructors of the runtime, and options its
 // route options.
 var (
 	methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
-	options = []string{"LoginRequired", "API"}
+	options = []string{"LoginRequired", "API", "Block"}
 )
 
 // Read finds the route tables of the project and checks their shape: a
@@ -175,7 +176,7 @@ func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath stri
 		r, ok := readRoute(e, tableNames)
 		if !ok {
 			errAt(e.Pos(), "route is not written as maago.METHOD(\"/path\", \"name\", View, options…)",
-				"write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired or maago.API")
+				"write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block(\"name\")")
 			continue
 		}
 		app.Routes = append(app.Routes, r)
@@ -204,10 +205,20 @@ func readRoute(e ast.Expr, names []string) (Route, bool) {
 	}
 	r.View, r.ViewPos = view.Name, view.Pos()
 	for _, o := range call.Args[3:] {
+		if c, ok := o.(*ast.CallExpr); ok && isMaago(c.Fun, "Block", names) {
+			block := "" // not one string literal: Check reports it
+			if len(c.Args) == 1 {
+				if lit, ok := c.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					block, _ = strconv.Unquote(lit.Value)
+				}
+			}
+			r.Options = append(r.Options, Option{"Block", o.Pos(), block})
+			continue
+		}
 		if !isMaago(o, "", names) {
 			return Route{}, false
 		}
-		r.Options = append(r.Options, Option{o.(*ast.SelectorExpr).Sel.Name, o.Pos()})
+		r.Options = append(r.Options, Option{Name: o.(*ast.SelectorExpr).Sel.Name, Pos: o.Pos()})
 	}
 	return r, true
 }
@@ -320,6 +331,10 @@ func Check(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 					errAt(o.Pos, "unknown route option maago."+o.Name, didYouMean(o.Name, options))
 				case slices.ContainsFunc(r.Options[:j], func(p Option) bool { return p.Name == o.Name }):
 					errAt(o.Pos, "route option maago."+o.Name+" given twice", "remove one")
+				case o.Name == "Block" && hasOption(r.Options, "API"):
+					errAt(o.Pos, "route "+r.Name+" renders a block, but its API option answers JSON", "remove maago.Block or maago.API")
+				case o.Name == "Block" && o.Block == "":
+					errAt(o.Pos, "maago.Block takes the name of a block as one string literal", "write the name of a {{block}} or {{define}} of the page, such as maago.Block(\"rows\")")
 				}
 			}
 			if !slices.Contains(app.Funcs, r.View) {

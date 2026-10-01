@@ -1,4 +1,4 @@
-package maago
+package maago_test
 
 import (
 	"fmt"

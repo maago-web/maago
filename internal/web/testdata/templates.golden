@@ -1,0 +1,198 @@
+# field
+blog/templates/detail_page.html:1:13: DetailPage.Post has no field or method "Titel"
+  fix: did you mean "Title"?
+
+# in range
+blog/templates/list_page.html:1:20: an element of ListPage.Posts has no field or method "Titel"
+  fix: did you mean "Title"?
+
+# $ is the page
+blog/templates/list_page.html:1:21: ListPage has no field or method "Cont"
+  fix: did you mean "Count"?
+
+# variable
+blog/templates/list_page.html:1:44: an element of ListPage.Posts has no field or method "Titel"
+  fix: did you mean "Title"?
+
+# map element
+blog/templates/detail_page.html:1:16: DetailPage.Post.Meta.k has no field or method "X"
+  fix: check the name
+
+# pointer field
+blog/templates/detail_page.html:1:16: DetailPage.Post.Author has no field or method "Nme"
+  fix: did you mean "Name"?
+
+# pointer receiver
+blog/templates/detail_page.html:1:9: method PtrMethod of DetailPage.Post has a pointer receiver, which templates cannot call here: the value is the page, a map element or a result, not addressable
+  fix: give PtrMethod a value receiver
+
+# method with arguments
+blog/templates/detail_page.html:1:3: method called with arguments, which maago cannot check
+  fix: compute the value into a field of the page struct, or into a method without arguments
+
+# piped into a method
+blog/templates/detail_page.html:1:17: method called with arguments, which maago cannot check
+  fix: compute the value into a field of the page struct, or into a method without arguments
+
+# assigned
+blog/templates/list_page.html:1:69: an element of ListPage.Posts has no field or method "Titel"
+  fix: did you mean "Title"?
+
+# unexported
+blog/templates/detail_page.html:1:9: DetailPage.Post.secret is not exported, so templates cannot read it
+  fix: export it: Secret
+
+# with
+blog/templates/list_page.html:1:19: ListPage.Posts has no field or method "Count"
+  fix: check the name
+
+# template with a value
+blog/templates/list_page.html:1:18: ListPage.Count has no field or method "X"
+  fix: check the name
+
+# template without a value
+blog/templates/list_page.html:1:18: cannot read .Count: {{template}} called this template without a value, so its dot is nil
+  fix: pass the value: {{template "name" .}}
+
+# after index
+blog/templates/list_page.html:1:20: cannot check .Title: the result of index has no type maago can know
+  fix: compute the value into a field of the page struct
+
+# an interface
+blog/templates/list_page.html:1:8: cannot check .X: ListPage.Any is an interface, whose value has no type maago can know
+  fix: give the page a field of a concrete type
+
+# an argument
+blog/templates/list_page.html:1:16: ListPage has no field or method "Cont"
+  fix: did you mean "Count"?
+blog/templates/list_page.html:1:28: ListPage has no field or method "Nme"
+  fix: did you mean "Name"?
+
+# range over an int
+blog/templates/list_page.html:1:20: an element of ListPage.Count has no field or method "X"
+  fix: check the name
+
+# range over a map
+blog/templates/list_page.html:1:33: an element of ListPage.ByName has no field or method "Titel"
+  fix: did you mean "Title"?
+
+# range over an iterator
+blog/templates/list_page.html:1:30: an element of ListPage.All has no field or method "Titel"
+  fix: did you mean "Title"?
+
+# iterator of two, one variable
+blog/templates/list_page.html:1:26: an element of ListPage.All has no field or method "Title"
+  fix: check the name
+blog/templates/list_page.html:1:36: an element of ListPage.All has no field or method "Title"
+  fix: check the name
+
+# int with two variables
+blog/templates/list_page.html:1:9: cannot range over ListPage.Count of type int, with two variables
+  fix: range over it with one variable
+
+# named map key
+blog/templates/detail_page.html:1:10: cannot read .x of DetailPage.ByKey: its keys are Key, not string
+  fix: give the map string keys
+
+# method past two pointers
+blog/templates/detail_page.html:1:7: DetailPage.PP has no field or method "Excerpt"
+  fix: check the name
+
+# range over a string
+blog/templates/list_page.html:1:9: cannot range over ListPage.Name of type string
+  fix: range over a slice, an array, a map, a channel, an int or an iterator
+
+# no template
+blog/templates/list_page.html:1:12: no template "nope"
+  fix: define it with {{define "nope"}}, or name one the set has
+
+# unknown function
+blog/templates/list_page.html:1: function "date" not defined
+  fix: fix the template; it is Go's html/template
+
+# url name
+blog/templates/list_page.html:1:7: unknown route name "post_detial"
+  fix: did you mean "post_detail"? routes are declared in the apps' var Routes
+
+# url values
+blog/templates/list_page.html:1:3: route post_detail has 1 wildcards, but url got 0 values
+  fix: give one value for each {wildcard} of its path, in order
+blog/templates/list_page.html:1:42: {id} of route post_detail is int64, not a string constant
+  fix: pass a value of type int64
+blog/templates/list_page.html:1:53: cannot check url: the route name is not a string literal
+  fix: write the name in quotes: {{url "post_detail" .ID}}
+
+# no block
+blog/urls.go:12:40: template blog/templates/list_page.html has no block "rows"
+  fix: name a {{block}} or {{define}} of the page or of base.html
+
+# block of a handler
+blog/urls.go:14:2: route feed renders a block, but its view returns no page
+  fix: remove maago.Block
+
+# escaping
+blog/templates/detail_page.html: ends in a non-text context
+  fix: see html/template's escaping rules: an action cannot sit where the HTML cannot hold it
+
+# walked before executed
+blog/templates/detail_page.html:1:18: DetailPage.Post has no field or method "Titel"
+  fix: did you mean "Title"?
+
+# a block that does not escape alone
+blog/templates/list_page.html: block rows, sent alone, ends in a non-text context
+  fix: see html/template's escaping rules: an action cannot sit where the HTML cannot hold it
+
+# outside define with a layout
+blog/templates/list_page.html:1:1: content outside {{define}} is never rendered: pages render through base.html
+  fix: put it in a {{define}} of a block that base.html renders, such as {{define "content"}}
+
+# only defines without a layout
+blog/templates/detail_page.html: page renders nothing: without base.html the file itself is the page
+  fix: write the page outside the {{define}}s, or add templates/base.html
+
+# escaping in a page under a layout
+blog/templates/list_page.html:2:6: {{if}} branches end in different contexts
+  fix: see html/template's escaping rules: an action cannot sit where the HTML cannot hold it
+
+# a block with the page as its dot
+blog/templates/list_page.html:1:52: cannot range over ListPage of type ListPage
+  fix: range over a slice, an array, a map, a channel, an int or an iterator
+
+# a block only a route renders
+blog/templates/list_page.html:1:31: ListPage has no field or method "Nope"
+  fix: did you mean "Name"?
+
+# a directory
+blog/templates/sub: directory in templates/
+  fix: keep the templates in templates/ itself
+
+# an app without pages
+blog/templates/detail_page.html: template of an app without HTML pages
+  fix: remove it; only a view that returns a page renders a template
+blog/templates/list_page.html: template of an app without HTML pages
+  fix: remove it; only a view that returns a page renders a template
+
+# range over an interface
+blog/templates/list_page.html:1:9: cannot check what range ranges over: ListPage.Any is an interface, whose value has no type maago can know
+  fix: give the page a field of a concrete type
+
+# a name of no case
+blog/templates/detail_page.html:1:9: DetailPage.Post.제목 is not exported, so templates cannot read it
+  fix: rename it to start with an upper-case letter
+
+# a file of no page and a field
+blog/templates/detail_page.html:1:9: DetailPage.Post has no field or method "Titel"
+  fix: did you mean "Title"?
+blog/templates/extra.html: template extra.html is no page's and not base.html
+  fix: name it after a page type (PostPage → post_page.html), or move what it holds into a {{define}} of base.html
+
+# a file of no page
+blog/templates/extra.html: template extra.html is no page's and not base.html
+  fix: name it after a page type (PostPage → post_page.html), or move what it holds into a {{define}} of base.html
+
+# two files, two errors
+blog/templates/detail_page.html:1:13: DetailPage.Post has no field or method "Titel"
+  fix: did you mean "Title"?
+blog/templates/list_page.html:1:7: unknown route name "post_detial"
+  fix: did you mean "post_detail"? routes are declared in the apps' var Routes
+

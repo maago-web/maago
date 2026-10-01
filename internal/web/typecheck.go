@@ -4,13 +4,6 @@ import (
 	"fmt"
 	"go/token"
 	"go/types"
-	"html/template"
-	"io/fs"
-	"os"
-	"path"
-	"path/filepath"
-	"regexp"
-	"strconv"
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/gotypes"
@@ -18,16 +11,26 @@ import (
 )
 
 // Types checks each view against the types: the signature D-116 allows,
-// the page type, and the page's template. It fills what the adapters
+// the page type, and the page's templates. It fills what the adapters
 // need. Views ran before, and the routes it rejected have no view.
 func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) []diag.Diagnostic {
+	routes := map[string][]param{} // every route of the project, for {{url}}
+	for _, app := range apps {
+		for _, r := range app.Routes {
+			if r.view != nil {
+				routes[r.Name] = r.view.wildcards
+			}
+		}
+	}
 	var ds []diag.Diagnostic
 	for _, app := range apps {
 		pkg := res.Packages[app.Dir]
 		if pkg == nil {
 			continue
 		}
-		var set *template.Template // the app's templates, parsed as at run time
+		var pages []page
+		viewPos := map[*Route]token.Position{}
+		failed := false
 		for i := range app.Routes {
 			r := &app.Routes[i]
 			if r.view == nil {
@@ -37,35 +40,34 @@ func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) [
 			if obj == nil { // the syntax has it, the build does not
 				ds = append(ds, diag.New(fset.Position(app.funcs[r.View].Name.Pos()), "view "+r.View+" is in a file go build leaves out",
 					"remove the file's build constraint, or move the view to a file without one"))
+				failed = true
 				continue
 			}
 			pos := res.Fset.Position(obj.Pos())
 			fn, _ := obj.(*types.Func)
 			if fn == nil {
 				ds = append(ds, diag.New(pos, r.View+" is not a function", "name a function of package "+app.Name))
+				failed = true
 				continue
 			}
 			msg, fix := r.view.signature(fn.Type().(*types.Signature), pkg, hasOption(r.Options, "API"))
 			if msg != "" {
 				ds = append(ds, diag.New(pos, fmt.Sprintf("view %s %s", r.View, msg), fix))
+				failed = true
 				continue
 			}
 			if r.view.escape || hasOption(r.Options, "API") {
+				if r.view.escape && hasOption(r.Options, "Block") { // with API, Check said it
+					ds = append(ds, diag.New(fset.Position(r.Pos), "route "+r.Name+" renders a block, but its view returns no page", "remove maago.Block"))
+				}
 				continue
 			}
-			if set == nil {
-				var tds []diag.Diagnostic
-				if set, tds = parseTemplates(root, app.Dir); tds != nil {
-					ds = append(ds, tds...)
-					break // the set does not parse: no page can be looked up in it
-				}
-			}
 			r.view.template = model.Snake(r.view.page) + ".html"
-			if set.Lookup(r.view.template) == nil {
-				rel := path.Join(app.Dir, "templates", r.view.template)
-				ds = append(ds, diag.New(pos, fmt.Sprintf("page %s has no template %s", r.view.page, rel),
-					"create "+rel+"; a page type's template is its name in snake_case (D-116)"))
-			}
+			viewPos[r] = pos
+			pages = append(pages, page{route: r, typ: pkg.Scope().Lookup(r.view.page).Type().(*types.Named), label: r.view.page})
+		}
+		if !failed { // a template is walked with the page types, which must be right
+			ds = append(ds, checkTemplates(fset, root, app.Dir, pkg, pages, routes, viewPos)...)
 		}
 	}
 	return ds
@@ -124,31 +126,4 @@ func named(t types.Type, pkg, name string) bool {
 func isPointerTo(t types.Type, pkg, name string) bool {
 	p, ok := t.(*types.Pointer)
 	return ok && named(p.Elem(), pkg, name)
-}
-
-// templateError is html/template's "template: NAME:LINE: message".
-var templateError = regexp.MustCompile(`^template: ([^:]+):(\d+): (.*)$`)
-
-// parseTemplates parses the app's templates/*.html as one set, the way
-// the generated code does when the app starts: a file that does not parse
-// would stop the app, whether a page uses it or not. A missing directory
-// is an empty set. Names are looked up as written, on any file system.
-func parseTemplates(root, dir string) (*template.Template, []diag.Diagnostic) {
-	set := template.New("")
-	fsys := os.DirFS(filepath.Join(root, filepath.FromSlash(dir), "templates"))
-	files, _ := fs.Glob(fsys, "*.html")
-	if len(files) == 0 {
-		return set, nil
-	}
-	if _, err := set.ParseFS(fsys, "*.html"); err != nil {
-		pos := token.Position{Filename: path.Join(dir, "templates")}
-		msg := err.Error()
-		if m := templateError.FindStringSubmatch(msg); m != nil {
-			pos.Filename = path.Join(dir, "templates", m[1])
-			pos.Line, _ = strconv.Atoi(m[2])
-			msg = m[3]
-		}
-		return nil, []diag.Diagnostic{diag.New(pos, diag.OneLine(msg), "fix the template; it is Go's html/template")}
-	}
-	return set, nil
 }

@@ -71,10 +71,11 @@ func (v *view) param(name string) param {
 // ViewsFile is the views_gen.go of app: an adapter for each route, which
 // reads the request into the view's In, calls the view, and writes its
 // page (D-116).
-func ViewsFile(app *App) []byte {
+func ViewsFile(app *App, apps []*App) []byte {
 	imports := map[string]bool{"net/http": true}
 	html := false
 	var rs []map[string]any
+	var pages []string
 	for _, r := range app.Routes {
 		v := r.view
 		in := v.in
@@ -92,14 +93,24 @@ func ViewsFile(app *App) []byte {
 		html = html || !v.escape && !api
 		rs = append(rs, map[string]any{
 			"Name": r.Name, "View": r.View, "Serve": "serve" + mapper.FieldName(r.Name), "Escape": v.escape,
-			"In": in, "Fields": fields, "Query": query, "Result": v.result, "API": api, "Template": v.template,
+			"In": in, "Fields": fields, "Query": query, "Result": v.result, "API": api, "Template": v.template, "Block": blockOf(&r),
 		})
+		if v.template != "" && !slices.Contains(pages, v.template) {
+			pages = append(pages, v.template)
+		}
 	}
 	if html {
 		imports["embed"], imports["html/template"] = true, true
 	}
 	imports["maago"] = slices.ContainsFunc(app.Routes, func(r Route) bool { return !r.view.escape })
-	return execute("views.go.tmpl", imports, map[string]any{"Package": app.Name, "HTML": html, "Routes": rs})
+	var all []map[string]string
+	for _, a := range apps {
+		for _, r := range a.Routes {
+			all = append(all, map[string]string{"Name": r.Name, "Path": r.Path})
+		}
+	}
+	slices.SortFunc(all, func(a, b map[string]string) int { return strings.Compare(a["Name"], b["Name"]) })
+	return execute("views.go.tmpl", imports, map[string]any{"Package": app.Name, "HTML": html, "Routes": rs, "Pages": pages, "AllRoutes": all})
 }
 
 // execute writes the file name. imports are the standard packages it uses;
@@ -149,7 +160,7 @@ func More(fset *token.FileSet, app *App) *mapper.More {
 		}
 	}
 	if html {
-		for _, n := range []string{"maagoTemplateFiles", "maagoTemplates"} {
+		for _, n := range []string{"maagoTemplateFiles", "maagoRoutes", "maagoPages"} {
 			m.Names = append(m.Names, mapper.Name{Name: n, By: "the templates of app " + app.Name, Pos: at, Fix: "rename what else declares " + n})
 		}
 	}

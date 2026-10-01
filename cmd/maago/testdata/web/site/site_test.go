@@ -62,14 +62,20 @@ func TestRequests(t *testing.T) {
 		{"GET", "/list?page=1&draft", 400, "Bad Request"},  // a bool needs a value
 		{"GET", "/list?page=1&x=%zz", 400, "Bad Request"},  // malformed
 		{"GET", "/list?page=1&other=1", 200, "page 1"},     // keys of no field are ignored
+		{"GET", "/list/rows?page=3", 200, "page 3"},
 		{"GET", ApiPostURL(p.ID), 200, `"Title":"hello \u003cb\u003e"`},
 		{"GET", ApiPostURL(p.ID + 1), 404, `"status":404`},
 		{"GET", "/broken", 500, "Internal Server Error"},
+		{"GET", PageURL(7), 200, strings.Join([]string{PostDetailURL(7), PageURL(7), PostListURL(), PostRowsURL(), PostCreateURL(), ApiPostURL(7), BrokenURL()}, " ")}, // {{url}} is XxxURL
+		{"GET", PostDetailURL(p.ID), 200, "<!doctype html>"}, // through base.html
 	} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest(c.method, c.path, nil))
 		if w.Code != c.code || !strings.Contains(w.Body.String(), c.body) {
 			t.Errorf("%s %s: got %d %q, want %d with %q", c.method, c.path, w.Code, w.Body, c.code, c.body)
+		}
+		if c.path == "/list/rows?page=3" && w.Body.String() != "<p>page 3, draft unset</p>" {
+			t.Errorf("a block route sent more than the block: %q", w.Body)
 		}
 		if c.path == "/broken" && strings.Contains(w.Body.String(), "before") {
 			t.Errorf("a failed render wrote part of the page: %q", w.Body)

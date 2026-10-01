@@ -65,7 +65,7 @@ func generate(t *testing.T, files map[string]string) (string, map[string][]byte)
 	}
 	for _, app := range apps {
 		out[path.Join(app.Dir, "urls_gen.go")] = URLsFile(app, false)
-		out[path.Join(app.Dir, "views_gen.go")] = ViewsFile(app)
+		out[path.Join(app.Dir, "views_gen.go")] = ViewsFile(app, apps)
 	}
 	// The final files are generated after the type check: they must pass it too.
 	if _, ds := gotypes.Check(root, out); ds != nil {
@@ -218,9 +218,9 @@ func TestViewErrors(t *testing.T) {
 		{"two views wrong, a route name taken", routes(`maago.GET("/a", "a", A), maago.GET("/b", "a", B),`,
 			"\ntype AIn struct{ X int64 }\n\nfunc A(ctx context.Context, in AIn) (HomePage, error) { return HomePage{}, nil }\n\nfunc B(ctx context.Context, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
 			[]string{"site/urls.go:11:43: route name \"a\" is taken by site/urls.go:11", "site/urls.go:65:18: field X says not where its value comes from"}},
-		{"names clash", view("func PostDetailURL() {}\n\nvar App int\nvar strconv int\n\nvar maagoTemplates int\n"),
+		{"names clash", view("func PostDetailURL() {}\n\nvar App int\nvar strconv int\n\nvar maagoPages int\n"),
 			[]string{"site/more.go:15:5: strconv is declared at the top level", "site/urls.go:10:5: the routes of app site would declare App, which site/more.go:14 declares already",
-				"site/urls.go:10:5: the templates of app site would declare maagoTemplates", "site/urls.go:12:27: route post_detail would declare PostDetailURL, which site/more.go:12 declares already"}},
+				"site/urls.go:10:5: the templates of app site would declare maagoPages", "site/urls.go:12:27: route post_detail would declare PostDetailURL, which site/more.go:12 declares already"}},
 
 		{"In with fields, not named", routes(`maago.GET("/a", "a", A),`, "\nfunc A(ctx context.Context, in struct{ X int64 `maago:\"query=x\"` }) (HomePage, error) { return HomePage{}, nil }\n"),
 			[]string{"site/urls.go:65:32: the In of view A is not struct{} or a struct type named in package site"}},
@@ -252,7 +252,7 @@ func TestViewErrors(t *testing.T) {
 		{"a broken file no page uses", siteFiles("site/templates/base.html", "{{define \"x\"}}{{.N}\n"),
 			[]string{"site/templates/base.html:1: bad character U+007D"}},
 		{"a template name in other letters", siteFiles("site/templates/home_page.html", "", "site/templates/Home_Page.html", "<p></p>\n"),
-			[]string{"site/urls.go:22:6: page HomePage has no template site/templates/home_page.html"}},
+			[]string{"site/templates/Home_Page.html: template Home_Page.html is no page's and not base.html", "site/urls.go:22:6: page HomePage has no template site/templates/home_page.html"}},
 		{"func(w, r) of other types", routes(`maago.GET("/a", "a", A),`, "\nfunc A(w int, r string) {}\n"),
 			[]string{"site/urls.go:65:6: view A takes int and string, not an http.ResponseWriter and an *http.Request"}},
 		{"no template", siteFiles("site/templates/home_page.html", ""),

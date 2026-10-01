@@ -9,15 +9,21 @@ type Routes []Route
 // nothing.
 type Route struct{}
 
-// RouteOption is what a route may add after its view: LoginRequired, API.
-type RouteOption int
+// RouteOption is what a route may add after its view: LoginRequired, API,
+// Block("name").
+type RouteOption struct{ name, block string }
 
-const (
+var (
 	// LoginRequired lets only a signed-in user reach the route.
-	LoginRequired RouteOption = iota + 1
+	LoginRequired = RouteOption{name: "LoginRequired"}
 	// API makes the route answer JSON, and its errors RFC 9457 problems.
-	API
+	API = RouteOption{name: "API"}
 )
+
+// Block makes the route render only the block name of its view's page:
+// a partial response, for HTMX (D-45). maago gen checks that the page's
+// template has it.
+func Block(name string) RouteOption { return RouteOption{"Block", name} }
 
 // GET is a route for GET (and HEAD) requests to path, named name, served
 // by view: a function of the app's package whose signature maago gen

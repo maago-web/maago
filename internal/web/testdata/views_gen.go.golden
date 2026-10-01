@@ -13,7 +13,23 @@ import (
 //go:embed templates/*.html
 var maagoTemplateFiles embed.FS
 
-var maagoTemplates = template.Must(template.ParseFS(maagoTemplateFiles, "templates/*.html"))
+// maagoRoutes are the paths of every route of the project, for {{url}}.
+var maagoRoutes = map[string]string{
+	"api_post":    "/api/posts/{id}",
+	"by_post_id":  "/by/{post_id}",
+	"feed":        "/feed.csv",
+	"home":        "/{$}",
+	"post_detail": "/posts/{id}",
+	"post_update": "/posts/{id}",
+	"tag_page":    "/tags/{tag}/{n}",
+}
+
+// maagoPages are the template sets of the pages: base.html, if there is
+// one, and the page.
+var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes)},
+	"home_page.html",
+	"post_page.html",
+)
 
 // serveHome serves route home with view Home.
 func serveHome(w http.ResponseWriter, r *http.Request) error {
@@ -23,7 +39,7 @@ func serveHome(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoTemplates, "home_page.html", page)
+	return maago.Render(w, maagoPages, "home_page.html", "", page)
 }
 
 // servePostDetail serves route post_detail with view PostDetail.
@@ -57,7 +73,7 @@ func servePostDetail(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoTemplates, "post_page.html", page)
+	return maago.Render(w, maagoPages, "post_page.html", "", page)
 }
 
 // serveTagPage serves route tag_page with view TagPage.
@@ -75,7 +91,7 @@ func serveTagPage(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoTemplates, "post_page.html", page)
+	return maago.Render(w, maagoPages, "post_page.html", "", page)
 }
 
 // servePostUpdate serves route post_update with view PostUpdate.
@@ -94,7 +110,7 @@ func servePostUpdate(w http.ResponseWriter, r *http.Request) error {
 		http.Redirect(w, r, to, http.StatusSeeOther)
 		return nil
 	}
-	return maago.Render(w, maagoTemplates, "post_page.html", page)
+	return maago.Render(w, maagoPages, "post_page.html", "", page)
 }
 
 // serveApiPost serves route api_post with view APIPost.
@@ -130,5 +146,5 @@ func serveByPostID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoTemplates, "post_page.html", page)
+	return maago.Render(w, maagoPages, "post_page.html", "", page)
 }

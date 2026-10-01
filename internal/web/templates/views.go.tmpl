@@ -9,7 +9,16 @@ import (
 //go:embed templates/*.html
 var maagoTemplateFiles embed.FS
 
-var maagoTemplates = template.Must(template.ParseFS(maagoTemplateFiles, "templates/*.html"))
+// maagoRoutes are the paths of every route of the project, for {{"{{"}}url{{"}}"}}.
+var maagoRoutes = map[string]string{
+{{range .AllRoutes}}	{{printf "%q" .Name}}: {{printf "%q" .Path}},
+{{end}}}
+
+// maagoPages are the template sets of the pages: base.html, if there is
+// one, and the page.
+var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes)},
+{{range .Pages}}	{{printf "%q" .}},
+{{end}})
 {{end}}{{range .Routes}}
 // {{.Serve}} serves route {{.Name}} with view {{.View}}.
 func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
@@ -59,7 +68,7 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 {{- if .API}}
 	return maago.JSON(w, page)
 {{- else}}
-	return maago.Render(w, maagoTemplates, {{printf "%q" .Template}}, page)
+	return maago.Render(w, maagoPages, {{printf "%q" .Template}}, {{printf "%q" .Block}}, page)
 {{- end}}
 {{- end}}
 }

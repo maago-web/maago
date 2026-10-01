@@ -6,10 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
+	"io/fs"
 	"math"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 )
 
 // The functions of this file are what the generated adapters call to read
@@ -93,9 +97,56 @@ func PathSegment(s string) string {
 	return url.PathEscape(s)
 }
 
-// Render executes the template name of t with data, and writes it only if
-// that worked: a failure is a 500 with nothing written (see AppRoute).
-func Render(w http.ResponseWriter, t *template.Template, name string, data any) error {
+// ParsePages parses each page's template set: templates/base.html, if fsys
+// has it, and templates/PAGE. A set of its own for each page lets every
+// page fill the same blocks of the layout. maago gen parses with it too.
+func ParsePages(fsys fs.FS, funcs template.FuncMap, pages ...string) (map[string]*template.Template, error) {
+	files := []string{}
+	if _, err := fs.Stat(fsys, "templates/base.html"); err == nil {
+		files = append(files, "templates/base.html")
+	}
+	sets := map[string]*template.Template{}
+	for _, p := range pages {
+		t, err := template.New(p).Funcs(funcs).ParseFS(fsys, append(slices.Clone(files), "templates/"+p)...)
+		if err != nil {
+			return nil, err
+		}
+		sets[p] = t
+	}
+	return sets, nil
+}
+
+// Pages is ParsePages for the generated code, which knows the files parse.
+// It escapes each page once, as maago gen checked it: html/template
+// escapes a template in place when first executed, so a block route
+// served first would leave the block escaped for its own context only.
+func Pages(fsys fs.FS, funcs template.FuncMap, pages ...string) map[string]*template.Template {
+	sets, err := ParsePages(fsys, funcs, pages...)
+	if err != nil {
+		panic(err)
+	}
+	for page, t := range sets {
+		t.ExecuteTemplate(io.Discard, entry(t, page), nil) // escaping ends before data is read: the error is nil data's
+	}
+	return sets
+}
+
+// entry is the template a page starts at: base.html if the set has it.
+func entry(t *template.Template, page string) string {
+	if t.Lookup("base.html") != nil {
+		return "base.html"
+	}
+	return page
+}
+
+// Render executes page's set with data: the block if block is not "",
+// else base.html if the set has it, else the page. It writes only if that
+// worked: a failure is a 500 with nothing written (see AppRoute).
+func Render(w http.ResponseWriter, pages map[string]*template.Template, page, block string, data any) error {
+	t, name := pages[page], block
+	if name == "" {
+		name = entry(t, page)
+	}
 	var b bytes.Buffer
 	if err := t.ExecuteTemplate(&b, name, data); err != nil {
 		return err
@@ -103,6 +154,48 @@ func Render(w http.ResponseWriter, t *template.Template, name string, data any) 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_, err := w.Write(b.Bytes())
 	return err
+}
+
+// URLFunc is the url function of templates: {{url "post_detail" .ID}} is
+// the path of the route named post_detail. routes maps each route name of
+// the project to its pattern. maago gen has checked the names and the
+// arguments; a wrong one is an error here too.
+func URLFunc(routes map[string]string) func(name string, args ...any) (string, error) {
+	return func(name string, args ...any) (string, error) {
+		pattern, ok := routes[name]
+		if !ok {
+			return "", fmt.Errorf("no route named %q", name)
+		}
+		var b strings.Builder
+		n := 0
+		for _, seg := range strings.Split(pattern, "/")[1:] {
+			b.WriteByte('/')
+			switch {
+			case seg == "{$}":
+			case strings.HasPrefix(seg, "{"):
+				if n++; n > len(args) {
+					continue // counted, for the error below
+				}
+				switch v := args[n-1].(type) {
+				case string:
+					if v == "" {
+						return "", fmt.Errorf("route %s: empty value for %s", name, seg)
+					}
+					b.WriteString(url.PathEscape(v))
+				case int, int32, int64:
+					fmt.Fprint(&b, v)
+				default:
+					return "", fmt.Errorf("route %s: %s cannot be %T", name, seg, v)
+				}
+			default:
+				b.WriteString(url.PathEscape(seg))
+			}
+		}
+		if n != len(args) {
+			return "", fmt.Errorf("route %s takes %d values, not %d", name, n, len(args))
+		}
+		return b.String(), nil
+	}
 }
 
 // JSON writes v as the JSON answer of an API route (D-44), or fails with

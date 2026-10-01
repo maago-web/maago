@@ -328,6 +328,60 @@ URL 함수
 
 → 확인: `{{.Post.Titel}}` → `…:줄:칸: PostDetailPage.Post has no field "Titel"` + did you mean(칸 값을 박는다, 1 기준), `post_detial` → did you mean. `range` 안의 점, `$` 변수, 인자 수가 틀린 `url`, 없는 블록, "cannot check" 한 경우 각각. 렌더 골든
 
+### 계획
+
+모양 (결정에 없는 선택은 ★)
+- ★ **템플릿 파일**: 앱의 `templates/`에는 페이지 템플릿(페이지 타입의 snake 이름, D-116)과 레이아웃 `base.html`(있으면)뿐이다. 그 밖의 `.html`은 오류(닫힌 목록, PHILOSOPHY 6: fix는 "페이지 타입을 만들거나, 공유할 것은 base.html의 `{{define}}`으로"). 4번의 "디렉터리 전체를 한 세트로"는 바꾼다: 페이지마다 세트 하나 = `base.html` + 그 페이지 파일. 한 세트에 페이지 여럿을 넣으면 모두 `{{define "content"}}`를 쓸 때 마지막 파일이 이긴다(`text/template`의 재정의 규칙)
+- ★ **렌더**: `base.html`이 있으면 모든 페이지는 `base.html`로 시작하고(페이지는 `{{define "content"}}` 같은 블록을 채운다), 없으면 페이지 파일로 시작한다. 런타임 도우미 `maago.Pages(fsys, funcs, pages...)`가 시작할 때 세트를 만들고 `maago.Render`가 고른 세트를 실행한다
+- ★ **부분 응답(D-45, 열린 질문의 답)**: 요청도 뷰도 아니고 **라우트 표**가 고른다. 옵션 `maago.Block("rows")`: 같은 뷰·같은 페이지 타입으로 그 블록만 그린다(`maago.GET("/posts/rows", "post_rows", PostList, maago.Block("rows"))`). 표 한 줄에 보이고(PHILOSOPHY 5), 블록 이름이 리터럴이라 생성 때 그 페이지 세트에 있는지 검사한다. 기각: 요청 헤더(`HX-Request`·`HX-Target`은 블록 이름이 아니다, 같은 URL이 헤더로 다른 것을 낸다), 뷰가 고름(`Show(p).Block(x)`: 이름이 식이면 검사할 수 없다). `RouteOption`은 `int` 상수에서 비교할 수 있는 struct 값으로 바뀐다(`maago.LoginRequired`·`maago.API`는 그대로 쓴다). `Block`과 `API`는 함께 쓸 수 없다
+- **`{{url "이름" 인자…}}`**: 이름은 문자열 리터럴(아니면 "cannot check"), 프로젝트의 라우트 이름(did you mean), 인자 수는 와일드카드 수, 인자 타입은 URL 함수의 매개변수 타입(`int64`·`int32`·`string`, 상수는 맞으면 된다). 런타임: 앱마다 생성된 `maagoRoutes`(프로젝트 모든 라우트의 이름 → 경로 패턴 글. 다른 앱 패키지를 import하지 않아 순환이 없다)와 `maago.URLFunc(maagoRoutes)`가 패턴의 와일드카드를 채운다(정수는 10진, 글은 `PathSegment`)
+- **함수는 닫힌 목록**: `text/template`의 내장 함수와 `url`. 생성 때도 같은 `FuncMap` 이름으로 파싱하므로 모르는 함수는 `html/template`의 "function not defined"가 위치와 함께 잡는다. `time`(11번)·폼 함수(6번)는 그 작업이 더한다
+- **필드 검사**: 페이지 세트마다 시작 템플릿(base 또는 페이지)을 페이지 타입을 점으로 걷는다. 노드: 출력·`if`·`range`(슬라이스·배열·맵·채널 아님: 원소 타입, `$i, $v` 변수)·`with`·`{{template "x" .}}`·`{{block}}`(그 정의를 그 점 타입으로 걷는다, (이름, 타입)으로 한 번만)·변수(`$` = 페이지, `$x := …`). 필드 사슬: struct 필드(포인터는 따라간다)·인자 없는 메서드(값 하나 또는 값과 `error`)·문자열 키 맵의 원소. 타입: `eq`·`ne`·`lt`…·`not`·`and`·`or`의 결과는 조건으로만 쓰이면 상관없다. 결과 타입을 정할 수 없는 식(`index`·`slice`·`call`·`and`·`or`·`interface` 값·`printf` 결과의 필드 등) 뒤에 필드 접근·`range`·`with`의 점 사용이 오면 그 자리에 "cannot check"(fix: 페이지 struct에 그 값을 필드로 계산해 넣는다). 정할 수 없는 값을 그대로 출력하는 것은 된다(무엇이든 출력된다)
+- **이스케이프 문맥**: `html/template`의 문맥 오류(`{{.X}}`가 속성 이름 자리 등)는 실행 때 처음 나므로, 생성 때 세트마다 영값 데이터로 `io.Discard`에 실행해 `*template.Error`(이스케이프 오류)만 위치와 함께 낸다. 실행 오류(영값의 nil 등)는 버린다(필드 검사가 따로 본다)
+- **위치**: `parse.Node.Position()`의 바이트 오프셋을 파일 글에서 1 기준 줄·칸으로(D-62, D-88). 메시지는 `PostPage.Post has no field "Titel"` + did you mean(필드·메서드 이름 중)
+
+파일
+- `internal/web/templates.go`(새): 세트 만들기, 걷기, `url` 검사. `typecheck.go`의 `parseTemplates`를 대신한다
+- 루트 `route.go`(`RouteOption` struct, `Block`), `view.go`(`Pages`, `URLFunc`, `Render`의 시작 이름), `internal/web/routes.go`(`maago.Block("x")` 읽기, `Block`+`API` 오류, 블록 라우트도 페이지 타입이 필요), 생성 틀(`maagoRoutes`, `maago.Pages`)
+- 시험: `internal/web/templates_test.go`(오류 표 골든, 렌더 골든은 생성된 코드를 종단으로), `cmd/maago/testdata/web`에 `base.html`·블록 라우트·`url` 링크를 더해 종단
+
+하지 않기로 한 것
+- `time`·폼 함수(11·6번), 템플릿 오버라이드(v1, D-42), 생성 때 실제 데이터로 실행하는 것
+
+단계
+1. 런타임: `RouteOption` struct·`Block`, `Pages`, `URLFunc`, `Render` → 확인: 레이아웃 있음·없음의 렌더, 블록만 렌더, `URLFunc`의 정수·글·없는 이름 오류·인자 수 오류
+2. 라우트 표의 `Block` → 확인: 읽기, 리터럴 아님·`API`와 함께·같은 옵션 두 번 오류
+3. 세트와 파일 목록, 이스케이프 문맥 → 확인: 페이지 아닌 파일 오류, 레이아웃 있음·없음, 문맥 오류 위치
+4. 걷기 → 확인(작업의 확인 그대로): `{{.Post.Titel}}`이 `…:줄:칸: PostPage.Post has no field "Titel"` + did you mean(칸 값을 박는다), `range` 안의 점, `$`·`$x` 변수, 맵 원소, 포인터 필드, 메서드, `with`, `{{template}}`·`{{block}}`, 없는 블록(`maago.Block`), "cannot check"(`index` 뒤의 필드), 오류 둘이 한 번에
+5. `url` → 확인: `post_detial` did you mean, 인자 수, 인자 타입(`"x"`를 `int64` 자리에), 이름이 리터럴 아님
+6. 종단 → 확인: 픽스처의 레이아웃과 블록 라우트와 `url` 링크가 생성된 코드로 렌더(본문 비교), `maago check`가 그 뒤 통과
+7. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)와 사람의 결정 — 위 계획을 이렇게 고친다
+- **부분 응답은 `maago.Block("rows")`**: 사람의 결정(2026-10-01, fable 1이 묻게 함). 대가: 부분 응답마다 URL·이름이 하나 더 생기고, 뷰는 페이지 전체를 계산한 뒤 한 블록만 그린다. D-45를 이 커밋에서 고친다
+- **`RouteOption`**(codex 7): 불투명한 struct. `maago.LoginRequired`·`maago.API`는 값(변수), `maago.Block(name)`은 생성자. 표에서: 같은 옵션 두 번, `Block` 둘, `Block`과 `API` 함께는 오류
+- **페이지 세트의 순서**(codex 1·6, fable 4·5·6): 런타임과 생성기가 같은 알고리즘: 페이지마다 새 `html/template`에 `base.html`(있으면)과 페이지 파일을 `ParseFS(fsys, "templates/base.html", "templates/page.html")`로(`Clone`을 쓰지 않는다). 시작 이름은 `base.html`이 있으면 그것, 없으면 페이지 파일. 생성기는 **먼저 트리를 걷고, 그다음** `Execute(io.Discard, nil)`로 이스케이프만 본다(실행은 트리를 제자리에서 고친다. 영값이 아니라 nil: 생성기에는 P의 값이 없고, 이스케이프는 데이터를 보기 전에 끝난다, 사용자 메서드도 돌지 않는다). `errors.As(err, *template.Error)`만 진단하고 위치는 `Error.Node.Position()`과 그 트리의 `ParseName`(define 이름이 아니라 파일)
+- **블록 라우트의 블록은 단독으로도 실행해 본다**(fable 7): 열린 태그로 끝나는 조각은 단독에서만 `ErrEndContext`
+- **파일 규칙**(fable 2·3): `base.html`이 있으면 페이지 파일의 최상위(`{{define}}` 밖)는 공백만(아니면 "never rendered" 오류), 없으면 최상위에 글이 있어야 한다(`{{define}}`만이면 빈 화면이라 오류). HTML 라우트가 없는 앱의 `templates/*.html`과 `templates/`의 하위 디렉터리도 오류. 대가: 레이아웃을 건너뛰는 페이지는 없다(맨 조각은 `Block` 라우트로)
+- **걷기 규칙**(codex 3·4·5, fable 8~11):
+  - `$`는 그 템플릿 호출의 인자(페이지가 아니다). `{{template "x" .Post}}` 안에서 `$`·`.`은 `Post`. `{{template "x"}}`(인자 없음)의 점은 nil이라 안의 필드 접근은 오류. (이름, 타입)마다 한 번, 재귀는 멈춘다
+  - 변수는 `if`·`with`·`range`의 끝까지(스코프를 쌓고 뺀다), `else if`는 중첩, `break`·`continue`는 가장 안쪽 `range`
+  - `range`: 슬라이스·배열(원소), 맵(`$k, $v`), 채널(원소), 정수(`range N`, 원소 int), 함수 반복자 `iter.Seq[T]`(T)·`iter.Seq2[K,V]`(변수 하나면 K). 그 밖은 오류
+  - 필드 사슬: 내보낸 struct 필드(포인터는 따라간다, 비공개 필드는 오류), 메서드는 **주소를 취할 수 없는 값의 메서드 집합**으로 찾는다(`LookupFieldOrMethod(…, addressable=false)`: 어댑터는 페이지를 값으로 넘겨 포인터 리시버 메서드는 실행 때 오류다), 인자 없고 값 하나 또는 (값, `error`). 인자 있는 메서드 호출은 오류(닫힌 목록). 문자열 키 맵의 원소
+  - 함수의 **인자는 늘 걷는다**: `{{printf "%s" .Post.Titel}}`·`{{if .Post.Titel}}`의 오타도 잡힌다. 결과 타입을 정할 수 없는 값(`index`·`slice`·`call`·`and`·`or`·`printf`의 결과, `interface` 값)에 필드 접근·`range`·`with`의 점 사용이 이어지면 "cannot check"
+  - 칸(fable 13): 틀린 이름 자체(`.Post.Titel`이면 `Titel`의 칸). 13번이 TUTORIAL-FUTURE §8의 칸을 맞춘다
+- **`url`**(codex 2, fable 12): 런타임 `maago.URLFunc(map[이름]패턴)`은 `func(name string, args ...any) (string, error)`이고 인자의 실제 타입(`int`·`int64`·`int32`·`string`)으로 채운다. 생성 때 검사가 막는 것의 두 번째 방어선이다. 생성된 `XxxURL`과 같은 일을 두 번 하므로 종단 확인에 "픽스처의 모든 라우트에서 `{{url}}` == `XxxURL()`"을 넣는다. 대가: 앱 B의 라우트가 바뀌면 앱 A의 `views_gen.go`도 바뀐다(`check`가 A를 낡았다고 본다)
+- **D-61의 확인**(fable 14): 한 파일의 `{{.Post.Titel}}`과 다른 파일의 `post_detial`이 한 번에(완료 조건 2의 모양, 13번 `TestM4Done`도)
+- 확인 더함: 위 규칙마다 한 경우(하위 템플릿의 `$`, 인자 없는 `template`, 포인터 리시버 메서드, 비공개 필드, 인자 있는 메서드, 인자 속 오타, `range` 정수·맵·`iter.Seq2`, `break`), 파일 규칙 넷, 이스케이프 오류의 위치, 블록 단독의 `ErrEndContext`, 걷기와 실행의 순서를 바꾸면 깨지는 시험
+- 받지 않음: 없음
+
+구현 리뷰 (ponytail·codex·fable)
+- 시험을 쓰며 잡은 것: 필드가 둘 이상인 노드의 위치는 `text/template`이 둘째 필드에 둔다(칸이 틀렸음), 이스케이프에 실패하면 트리가 지워져 파일 이름이 빠짐, 페이지 실행이 블록을 이미 이스케이프해 "블록 단독" 검사가 돌지 않음(새 세트에서 실행), 루트 `noreflect_test.go`는 `internal/web`이 루트를 import해 순환이라 `maago_test`로. 변이: 걷기와 실행의 순서, 필드 위치, `$`, `with`, `nil` 점, 포인터 리시버, 비공개, 파이프, `=` 대입, `iter.Seq2`, 맵 키·원소, 정수 range, 블록 단독, 파일 규칙 둘이 모두 잡힌다
+- ponytail: 받음 — `isPointer` 인라인, `exported`를 rune으로(fable 6과 같다), `URLFunc`의 인자 수 세기를 끝의 한 곳으로. 받지 않음 — `orLabel` 인라인, 맵 둘 합치기(고친 뒤 하나가 됨)
+- codex: 받음 — `iter.Seq2`를 변수 하나로 돌면 변수와 점이 키(1), 정수·`iter.Seq`에 변수 둘은 오류(2), 이름 붙은 키 타입의 맵은 `.x`로도 `index`로도 못 읽어 오류(3), 포인터의 포인터는 필드까지 따라간다(메서드는 값 자신에서만, 4). 받지 않음 — 5 `Render`에 없는 페이지(생성 코드만 부르고 이름은 생성기가 안다)
+- fable: 받음 — 이스케이프 오류의 `Name`은 실행한 템플릿이라 레이아웃 아래 페이지의 노드를 base.html의 오프셋으로 잘라 panic(1: 실행 전에 노드 (종류, 위치) → 파일 표, 두 파일이면 파일 없이), 블록 라우트의 블록을 페이지를 점으로 걷지 않았음(2: 걷기에 더하고 "없는 블록"도 같은 곳에서), 런타임은 한 세트를 공유해 블록 라우트가 먼저 오면 페이지의 URL 문맥이 이중 이스케이프(4: `Pages`가 시작 때 페이지마다 한 번 실행해 생성기가 검사한 순서로 이스케이프), 인터페이스 range는 "cannot check"(5), 이스케이프 문구에서 문맥 덤프를 뺌(7), 파일 오류가 다른 페이지의 걷기를 가리지 않음(8, D-61), `maago.Block(b)`·`Block()`에 전용 오류(9), 시험 더함(10: 레이아웃 아래 노드 있는 이스케이프 오류, 블록 걷기, `Block` 둘, 하위 디렉터리, 페이지 없는 앱의 템플릿, 채널 range, 블록 먼저인 런타임 렌더). **계획 고침(3)**: 포인터 리시버 메서드는 "주소를 취할 수 없는 값"에서만 오류다. `text/template`은 주소를 취할 수 있는 값이면 `Addr()`로 부른다: 슬라이스 원소, 포인터 너머, 그 struct 필드. 페이지 자신·맵 원소·결과·채널·반복자 원소는 아니다. 걷기가 값마다 이를 들고 다닌다. 받지 않음 — 닿지 않는 `{{define}}` 금지(base.html의 정의는 어떤 페이지에서는 쓰이지 않는 것이 정상이다)
+
+
 ## 6. 폼 (D-43, D-15)
 
 - 모델에서 만드는 폼과 모델 없는 struct 폼. 필드마다 (값, 있음, 오류): 빈 칸, 해석 실패, 범위·길이·선택지 밖을 가른다. 태그는 모델과 같은 목록
@@ -400,7 +454,7 @@ M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 
 
 - 앱 값의 모양과 빠뜨린 앱 검사(D-114) → 2번
 - 라우트 옵션의 모양(`maago.Login` 옵션인지 다른 생성자인지) → 2번
-- 부분 응답을 요청이 고르는지 뷰가 고르는지 → 5번
+- ~~부분 응답을 요청이 고르는지 뷰가 고르는지~~ → 5번: 라우트 표의 `maago.Block("x")`(사람의 결정)
 - ~~In 필드에 슬라이스(`?tag=a&tag=b`)를 받는지~~ → 4번: 받지 않는다
 - ~~뷰가 404·400·500 밖의 상태(403·409)를 내는 법~~ → 3번: `maago.Status(code, err)`
 - 게시판 이름 중복을 unique 위반으로 잡을지 검증 메서드로 잡을지 → 6번

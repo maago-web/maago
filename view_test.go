@@ -1,10 +1,10 @@
 package maago
 
 import (
-	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"testing/fstest"
 )
 
 // code is the status err answers with, as Handler decides it.
@@ -77,17 +77,60 @@ func TestPath(t *testing.T) {
 }
 
 func TestRender(t *testing.T) {
-	tmpl := template.Must(template.New("p.html").Parse(`<b>{{.Title}}</b>{{.Missing.X}}`))
-	w := httptest.NewRecorder()
-	if err := Render(w, tmpl, "p.html", struct{ Title string }{"t"}); err == nil || w.Body.Len() > 0 {
-		t.Errorf("failed render: %v, wrote %q", err, w.Body)
+	type page struct {
+		Title string
+		Post  *struct{ X int }
 	}
+	render := func(fsys fstest.MapFS, block string, data page) (string, string, error) {
+		sets, err := ParsePages(fsys, nil, "p.html")
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := httptest.NewRecorder()
+		err = Render(w, sets, "p.html", block, data)
+		return w.Body.String(), w.Header().Get("Content-Type"), err
+	}
+	alone := fstest.MapFS{"templates/p.html": {Data: []byte(`{{.Title}}`)}}
 	// No tag in the page: Content-Type must be set, not sniffed.
-	plain := template.Must(template.New("p.html").Parse(`{{.Title}}`))
-	w = httptest.NewRecorder()
-	if err := Render(w, plain, "p.html", struct{ Title string }{"<t>"}); err != nil || w.Body.String() != "&lt;t&gt;" || w.Header().Get("Content-Type") != "text/html; charset=utf-8" {
-		t.Errorf("render: %v %q", err, w.Body)
+	if body, ct, err := render(alone, "", page{Title: "<t>"}); err != nil || body != "&lt;t&gt;" || ct != "text/html; charset=utf-8" {
+		t.Errorf("page alone: %v %q %q", err, body, ct)
 	}
+	layout := fstest.MapFS{
+		"templates/base.html": {Data: []byte(`<main>{{block "content" .}}{{end}}</main>`)},
+		"templates/p.html":    {Data: []byte(`{{define "content"}}<p>{{.Title}}</p>{{block "rows" .}}<i>{{.Title}}</i>{{end}}{{end}}`)},
+		"templates/q.html":    {Data: []byte(`{{define "content"}}q{{end}}`)}, // another page fills the same block
+	}
+	if body, _, err := render(layout, "", page{Title: "t"}); err != nil || body != "<main><p>t</p><i>t</i></main>" {
+		t.Errorf("layout: %v %q", err, body)
+	}
+	if body, _, err := render(layout, "rows", page{Title: "t"}); err != nil || body != "<i>t</i>" {
+		t.Errorf("block: %v %q", err, body)
+	}
+	sets, err := ParsePages(layout, nil, "p.html", "q.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	if err := Render(w, sets, "q.html", "", page{}); err != nil || w.Body.String() != "<main>q</main>" {
+		t.Errorf("second page: %v %q", err, w.Body)
+	}
+	// A block route served before its page still renders the page right.
+	url := fstest.MapFS{
+		"templates/base.html": {Data: []byte(`<a href="/q?v={{template "rows" .}}">{{template "rows" .}}</a>`)},
+		"templates/p.html":    {Data: []byte(`{{define "rows"}}{{.Title}}{{end}}`)},
+	}
+	pages := Pages(url, nil, "p.html")
+	for _, c := range []struct{ block, want string }{{"rows", "x&amp;y"}, {"", `<a href="/q?v=x%26y">x&amp;y</a>`}} {
+		w := httptest.NewRecorder()
+		if err := Render(w, pages, "p.html", c.block, page{Title: "x&y"}); err != nil || w.Body.String() != c.want {
+			t.Errorf("block %q first: %v %q, want %q", c.block, err, w.Body, c.want)
+		}
+	}
+	broken := fstest.MapFS{"templates/p.html": {Data: []byte(`<b>{{.Title}}</b>{{.Post.X}}`)}}
+	if body, _, err := render(broken, "", page{Title: "t"}); err == nil || body != "" {
+		t.Errorf("failed render: %v, wrote %q", err, body)
+	}
+
 	w = httptest.NewRecorder()
 	if err := JSON(w, map[string]int{"n": 1}); err != nil || w.Body.String() != "{\"n\":1}\n" || w.Header().Get("Content-Type") != "application/json" {
 		t.Errorf("JSON: %v %q", err, w.Body)
@@ -95,5 +138,30 @@ func TestRender(t *testing.T) {
 	w = httptest.NewRecorder()
 	if err := JSON(w, func() {}); err == nil || w.Body.Len() > 0 {
 		t.Errorf("JSON of a func: %v %q", err, w.Body)
+	}
+}
+
+func TestURLFunc(t *testing.T) {
+	url := URLFunc(map[string]string{"post": "/posts/{id}", "tag": "/t/{tag}/{n}/{$}", "home": "/{$}"})
+	for _, c := range []struct {
+		name string
+		args []any
+		want string
+		err  bool
+	}{
+		{"post", []any{int64(7)}, "/posts/7", false},
+		{"post", []any{7}, "/posts/7", false},
+		{"tag", []any{"a/b ?", int32(2)}, "/t/a%2Fb%20%3F/2/", false},
+		{"home", nil, "/", false},
+		{"nope", nil, "", true},
+		{"post", nil, "", true},
+		{"post", []any{1, 2}, "", true},
+		{"post", []any{1.5}, "", true},
+		{"tag", []any{"", 1}, "", true},
+	} {
+		got, err := url(c.name, c.args...)
+		if got != c.want || (err != nil) != c.err {
+			t.Errorf("url %s %v: %q %v", c.name, c.args, got, err)
+		}
 	}
 }

@@ -134,7 +134,7 @@ func checking(root string) [][]pipeline.Step {
 		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic {
 			for _, app := range s.web {
 				r.Files[path.Join(app.Dir, "urls_gen.go")] = web.URLsFile(app, false)
-				r.Files[path.Join(app.Dir, "views_gen.go")] = web.ViewsFile(app)
+				r.Files[path.Join(app.Dir, "views_gen.go")] = web.ViewsFile(app, s.web)
 			}
 			return nil
 		}})
