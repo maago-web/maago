@@ -6,9 +6,9 @@ import (
 	"go/types"
 	"html/template"
 	"slices"
+	"text/template/parse"
 	"unicode"
 	"unicode/utf8"
-	"text/template/parse"
 
 	"github.com/maago-web/maago/internal/diag"
 )
@@ -344,7 +344,7 @@ func (w *walker) field(base val, name string) (val, string, string) {
 			"give the page a field of a concrete type"
 	}
 	obj, _, _ := types.LookupFieldOrMethod(t, base.addr, w.pkg, name) // the adapter passes the page by value: not addressable
-	if obj == nil {                                               // past pointers to pointers, text/template finds fields only
+	if obj == nil {                                                   // past pointers to pointers, text/template finds fields only
 		if f, _, _ := types.LookupFieldOrMethod(deref(t), false, w.pkg, name); f != nil {
 			if _, isVar := f.(*types.Var); isVar {
 				obj = f
