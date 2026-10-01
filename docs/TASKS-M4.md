@@ -56,7 +56,7 @@
 - **패키지**: 생성기는 `internal/web`, 타입 정보는 `internal/gotypes`
 - **어댑터**: 요청 → In(path·query·폼) → 뷰 → P → 템플릿 실행(`html/template`, D-42) 또는 JSON. 해석은 생성 코드가 필드마다 `strconv`로(reflect 없음, D-66). 생성물 import 허용 목록(D-66)을 넓힌다: `embed`·`errors`·`net/http`·`net/url`·`strconv`·`html/template`·`encoding/json`
 - **템플릿 싣기**: 생성 코드가 `//go:embed templates`로 싣고 시작할 때 한 번 `html/template`로 파싱한다. 검사도 같은 `html/template` 파싱과 같은 함수 표를 거친 뒤 그 `parse` 트리를 걷는다(codex 14: 검사와 실행이 같은 파서를 본다). 개발 중 다시 읽기는 없다(`maago gen` 뒤 다시 빌드). 오버라이드는 v1(D-42)
-- **CSRF와 CORS는 한 목록**: `Config.Origins []string`. 이 목록의 출처는 "우리 앱처럼 믿는 출처"다: `AddTrustedOrigin`으로 CSRF 검사를 통과하고, CORS 응답(`Access-Control-Allow-Origin`은 그 출처 그대로, `*`는 받지 않는다)을 받는다. 메서드·헤더·자격 증명은 따로 필드(기본: 라우트의 메서드, `Content-Type`, 자격 증명 켬). 둘로 나누면 MILESTONES가 말한 "허용한 출처의 POST가 403"이 생긴다. preflight(OPTIONS)는 `ServeMux`보다 앞에서 답한다(메서드 패턴은 405를 낸다). admin은 스스로 건다(D-47, M6)
+- **CSRF와 CORS는 한 목록**: `Config.Origins []string`. 이 목록의 출처는 "우리 앱처럼 믿는 출처"다: `AddTrustedOrigin`으로 CSRF 검사를 통과하고, CORS 응답(`Access-Control-Allow-Origin`은 그 출처 그대로, `*`는 받지 않는다)을 받는다. 메서드·헤더·자격 증명은 기본값(라우트의 메서드, `Content-Type`, 자격 증명 켬)으로 시작하고 필드는 첫 소비자인 12번이 더한다. 둘로 나누면 MILESTONES가 말한 "허용한 출처의 POST가 403"이 생긴다. preflight(OPTIONS)는 `ServeMux`보다 앞에서 답한다(메서드 패턴은 405를 낸다). admin은 스스로 건다(D-47, M6)
 - **오류 보고는 훅 하나**: `Config.OnError(ctx, r, err)`가 뷰의 500 오류와 recover한 panic을 함께 받는다(미들웨어는 error 값을 볼 수 없다, fable 10). `http.ErrAbortHandler`는 다시 panic
 - **타임존**: 저장은 UTC(D-105)·`TIMESTAMPTZ`. 표시는 `Config.TimeZone`(기본 UTC: `time.Local`은 서버 환경에 숨은 동작, PHILOSOPHY 5)과 템플릿 함수 하나, 폼의 시각 입력은 그 타임존으로 해석
 - **최종 사용자 문구**(폼 오류, 404·403 화면): 기본 영어, 프로젝트가 문구 표를 통째로 바꿀 수 있게(한 언어, i18n은 D-72 밖). 모양은 6번
@@ -170,6 +170,83 @@
 
 → 확인: `httptest`로 `Sec-Fetch-Site: cross-site` POST 403, 헤더 없이 `Origin` 불일치 POST 403, 신뢰 출처 POST 통과(정확히 같을 때만: 포트가 다르면 403), 헤더 없는 POST 통과, 신뢰 출처의 OPTIONS preflight에 `Access-Control-Allow-*`·비신뢰 출처에는 없음, `sql.ErrNoRows`를 감싼 오류 404, panic이 500과 `OnError`로, `http.ErrAbortHandler`는 다시 panic
 
+### 계획
+
+먼저 확인한 것: D-116의 `return maago.SeeOther(url), nil`은 컴파일되지 않는다(Go는 호출 결과의 타입 인자를 반환 자리에서 추론하지 않는다, 실험). 사람의 결정(2026-10-01): 타입 인자를 쓴다, `maago.SeeOther[PostFormPage](url)`. `Show(p)`는 추론된다. 기각: P를 쓰지 않는 인터페이스(`SeeOther(url)`이 되지만 다른 페이지의 `Show`도 컴파일되어 실행 때 500, PHILOSOPHY 1). D-116을 이 커밋에서 고친다
+
+파일
+- 새 루트 `http.go`(런타임): 아래 API. stdlib만
+- 새 루트 `http_test.go`: `httptest`로. DB는 드라이버 없는 가짜 `driver.Connector`의 `sql.OpenDB`(루트 모듈에 드라이버가 없다, D-90)
+
+API
+```go
+type Config struct {
+	DB      *sql.DB
+	Apps    []App
+	Origins []string                                         // 믿는 출처: CSRF 통과 + CORS
+	OnError func(ctx context.Context, r *http.Request, err error) // nil이면 log.Printf
+}
+func Handler(Config) (http.Handler, error)
+
+type App struct{ name string; routes []AppRoute }            // 생성 코드가 NewApp으로
+type AppRoute struct {                                       // 생성 코드만 쓴다
+	Method, Path, Name string
+	API   bool
+	Serve func(w http.ResponseWriter, r *http.Request) error
+}
+func NewApp(name string, routes ...AppRoute) App
+
+func WithDB(ctx, *sql.DB) context.Context
+func DBFrom(ctx) *sql.DB                                     // 없으면 WithDB를 가리키는 panic
+
+type Result[P any] struct{ page P; to string }
+func Show[P any](p P) Result[P]
+func SeeOther[P any](url string) Result[P]
+func (r Result[P]) Page() (P, string)                        // 생성된 어댑터가 읽는다: 이동이면 url != ""
+
+func Status(code int, err error) error                       // 생성 코드: Status(404, 해석 오류), Status(400, …)
+```
+- `Config`의 `Auth`(9번)·`TimeZone`·`Prefix`(11번)·CORS 메서드·헤더 필드는 그 작업이 더한다(쓰는 곳이 없으면 두지 않는다). 지금 CORS는 모양 절의 기본값만: 요청한 메서드에 맞는 라우트가 있으면 그 메서드, 헤더 `Content-Type`, 자격 증명 켬
+- ★ `Status`는 생성 코드가 해석 실패를 404·400으로 알리는 자리다. 뷰가 403·409를 내는 법(4번 열린 질문)에도 쓸 수 있지만 그것은 4번이 정한다
+- ★ `OnError`가 nil이면 `log.Printf`(조용히 버리지 않는다, PHILOSOPHY 7)
+
+동작
+- `Handler`: `Config.DB`가 nil, `Apps`가 비었음, 같은 앱 두 번(`ServeMux`의 panic을 잡아 오류로), `Origins`의 잘못된 값(`AddTrustedOrigin`의 오류, 끝 `/`·경로 있음)은 오류. 라우트마다 `mux.Handle(Method+" "+Path, …)`
+- 감싸는 순서(바깥부터): CORS preflight → `CrossOriginProtection` → `ServeMux` → 라우트마다 recover·오류 처리
+- CORS: `Origin`이 `Origins`에 정확히 있을 때만. preflight(`OPTIONS` + `Access-Control-Request-Method`)는 그 메서드로 `mux.Handler`를 물어 라우트가 있으면 204와 `Access-Control-Allow-Origin`(그 출처 그대로)·`-Methods`·`-Headers: Content-Type`·`-Credentials: true`·`Vary: Origin`, 없으면 다음으로(→ 405). 실제 요청에는 `-Allow-Origin`·`-Credentials`·`Vary`
+- 오류 → 상태(D-116): `Status`로 감싼 것은 그 코드, `errors.Is(err, sql.ErrNoRows)`는 404, 그 밖은 500과 `OnError`. 4xx는 `OnError`로 보내지 않는다(사용자의 잘못된 요청이지 서버 오류가 아니다)
+- 응답: API 라우트는 RFC 9457(`Content-Type: application/problem+json`, `{"type":"about:blank","title":상태 글,"status":코드}`, 4xx면 `detail`에 오류 글. 500은 `detail` 없음: 내부를 새지 않는다). HTML 라우트는 `http.Error(상태 글)`(최종 사용자 문구와 바꾸는 법은 6번)
+- panic: recover해서 `http.ErrAbortHandler`는 다시 panic, 그 밖은 `OnError`(panic 값과 `debug.Stack()`)와 500
+
+하지 않기로 한 것
+- 생성된 어댑터(4번), 템플릿 렌더(5번), JSON 응답 본문(7번), 인증(9번), 하위 경로·타임존(11번), CORS 설정 필드
+
+단계
+1. `Config`·`App`·`Handler`와 라우팅, `WithDB`·`DBFrom` → 확인: 두 앱의 라우트로 요청이 가고 ctx에서 DB가 나옴, `DBFrom`의 panic 글, `Handler`의 설정 오류 넷(DB 없음, 앱 없음, 같은 앱 두 번, `Origins`의 `https://a.com/`)
+2. 오류·panic → 확인: `fmt.Errorf("…: %w", sql.ErrNoRows)` 404, `Status(400, …)` 400, 그 밖 500과 `OnError` 한 번(4xx는 부르지 않음), API 라우트의 problem JSON(4xx의 `detail`, 500의 `detail` 없음), panic이 500과 `OnError`(글에 panic 값), `http.ErrAbortHandler`는 `Serve` 밖으로 다시 panic, `OnError`가 nil이면 로그
+3. CSRF·CORS → 확인: `Sec-Fetch-Site: cross-site` POST 403, 헤더 없이 `Origin` 불일치 POST 403, 신뢰 출처 POST 통과(포트가 다르면 403), 헤더 없는 POST 통과, 신뢰 출처 preflight에 `Access-Control-Allow-*`와 204·비신뢰 출처와 라우트 없는 메서드에는 없음, 신뢰 출처의 실제 GET에 `Allow-Origin`
+4. `Result`·`Show`·`SeeOther` → 확인: `Page()`가 페이지와 빈 url, 이동이면 url
+5. 두 모듈 `go vet`·`go test`, `gofmt -l .`. 런타임 import 게이트(`TestNoReflect`, 런타임이 기대는 내부 패키지 시험)가 통과
+
+계획 리뷰 (codex·fable) — 위 계획을 이렇게 고친다
+- `Status(code, err)`(fable 1): 3번에서 정한다. 생성 코드와 **뷰가 함께 쓰는** 4xx·5xx의 유일한 통로다(`return Page{}, maago.Status(http.StatusForbidden, err)`). 403·404·409는 정말 오류라 D-116의 "이동을 error 값으로" 기각(이동은 오류가 아니다)과 부딪히지 않는다. 400~599 밖이면 panic(프로그램 오류, codex 4). `%w`로 감싸도 그 코드(`errors.As`). 열린 질문 "뷰가 다른 상태를 내는 법 → 4번"을 닫는다. D-116을 이 커밋에서 고친다
+- 상태 정하는 순서(codex 4): `Status`가 먼저, 다음 `sql.ErrNoRows` 404, 그 밖 500. 최종 500이면(`Status(500, …)` 포함) 원래 오류를 `OnError`에 정확히 한 번
+- `Serve`의 계약(fable 6, codex 5): 오류를 돌려줄 때는 아직 쓰지 않았어야 한다. 런타임은 `ResponseWriter`를 감싸 썼는지 보고, 이미 썼으면 상태를 덮지 않고 `OnError`만(500 갈래일 때). panic도 같다. 8번(스트리밍)이 이 계약을 이어받는다. 문서 주석에 적는다
+- panic → 오류(codex 6): `error` panic은 `%w`로 감싸고, 그 밖은 `%v`. 글에 `debug.Stack()`. `http.ErrAbortHandler`는 `p == http.ErrAbortHandler`일 때만 다시 panic
+- 앱 검사(codex 7·fable 5): 이름을 맵으로 직접 검사해 같은 앱 두 번을 maago의 글로, 빈 이름(`App{}`)·nil `Serve`도 오류. `ServeMux`의 panic은 쓰지 않는다
+- `SeeOther("")`는 panic(codex 8, 빈 url이 "그린다"로 읽히지 않게)
+- CORS(codex 1·2·3): `Origin`이 있는 모든 응답에 `Vary: Origin`. preflight는 출처·요청 메서드(`mux.Handler`의 pattern이 비지 않아야 한다: 다른 메서드만 있으면 405로 빈 pattern)·요청 헤더(`content-type`만)를 모두 보고, 하나라도 아니면 CORS 헤더 없이 다음으로. preflight 응답의 `Vary`는 `Origin, Access-Control-Request-Method, Access-Control-Request-Headers`
+- CSRF 403은 API 라우트면 RFC 9457(fable 2): `SetDenyHandler`에서 같은 `mux.Handler` 조회로 `API`를 본다
+- CORS 메서드·헤더·자격 증명 필드: 첫 소비자인 12번(다른 출처의 API 호출)이 더한다. `Authorization`은 9번·M5. 모양 절을 고친다(fable 4)
+- 13번 문서 항목: D-47 "admin은 스스로 건다"는 `Handler`의 전역 CSRF로 낡는다. M6에서 정리(fable 8)
+- 확인 더함(fable 3·7): `Origins`가 비었을 때 같은 출처 POST(`Sec-Fetch-Site: same-origin`, 헤더 없이 `Origin` 호스트 == `Host`) 통과, API 라우트의 교차 출처 POST는 403 problem, HTML 500 본문에 오류 글이 없음, 비신뢰 출처의 실제 요청에 `Allow-Origin` 없음·`Vary: Origin`은 있음, `%w`로 감싼 `Status`, 다른 메서드만 있는 경로의 preflight, 허용되지 않은 요청 헤더의 preflight, 쓴 뒤의 오류·panic은 상태를 덮지 않음, 빈 이름·nil `Serve`·같은 이름 두 앱
+- 받지 않음: 없음. 파일 절의 import 목록은 뺀다(fable 9)
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail: 받음 — `csrf`를 `handler` 필드에서 지역 변수로, panic 글의 `debug.Stack()`을 한 번만
+- codex(샌드박스가 `/tmp`를 막아 코드만 읽은 리뷰): 받음 — `written`에 `Flush`(8번의 스트리밍 뷰가 `w.(http.Flusher)`로 쓴다, 1), 1xx `WriteHeader`는 응답을 쓴 것이 아니다(2). 받지 않음 — `Hijack`·`ReadFrom`: `Unwrap`으로 `http.ResponseController`가 닿고, `io.Copy`는 `Write`로 된다
+- fable(변이 36개): 받음 — `Status(503, …)`이 `OnError`에 가지 않던 것: 보고는 5xx 모두로(1), 라우트 없는 경로의 교차 출처 POST(2), 요청 헤더 없는 DELETE preflight(3), `WriteHeader`만 쓴 뒤의 오류(4), preflight 헤더를 단 POST(5), `Status`의 범위 끝(6), `Status(code, nil)`은 panic(7, 빈 글이 생겼다), `Origins`는 브라우저가 보내는 그대로라는 주석(10). 고친 뒤 여섯 변이를 다시 돌려 모두 잡힌다. 9(쓴 뒤의 4xx는 아무 일도 없음)는 `Serve`의 계약대로 둔다
+
 ## 4. 뷰 시그니처와 어댑터 생성 (`urls_gen.go`, `views_gen.go`)
 
 - 뷰 시그니처(D-116의 두 모양), In의 태그(`path=`·`query=`, 닫힌 목록 D-17), 필드 타입(D-77 기본 타입과 포인터), 경로 와일드카드와 path 필드의 짝
@@ -259,7 +336,7 @@ M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 
 - 라우트 옵션의 모양(`maago.Login` 옵션인지 다른 생성자인지) → 2번
 - 부분 응답을 요청이 고르는지 뷰가 고르는지 → 5번
 - In 필드에 슬라이스(`?tag=a&tag=b`)를 받는지 → 4번
-- 뷰가 404·400·500 밖의 상태(403·409)를 내는 법 → 4번
+- ~~뷰가 404·400·500 밖의 상태(403·409)를 내는 법~~ → 3번: `maago.Status(code, err)`
 - 게시판 이름 중복을 unique 위반으로 잡을지 검증 메서드로 잡을지 → 6번
 
 ## 초안 리뷰 (2026-09-28)
