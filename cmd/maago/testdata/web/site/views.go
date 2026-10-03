@@ -113,3 +113,23 @@ func PostForm(ctx context.Context, in PostFormIn) (maago.Result[PostFormPage], e
 	}
 	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
 }
+
+// apiCalls counts the calls of APIPostCreate: an invalid form must not
+// reach it (D-120).
+var apiCalls int
+
+// APIPostCreate takes the same form as JSON. What only the database can
+// say comes back as maago.Invalid, a 422.
+func APIPostCreate(ctx context.Context, in PostFormIn) (Post, error) {
+	apiCalls++
+	f := in.Form
+	db := maago.DBFrom(ctx)
+	var taken bool
+	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM site_post WHERE title = ?)`, f.Title.Value).Scan(&taken); err != nil {
+		return Post{}, err
+	}
+	if taken {
+		return Post{}, maago.Invalid(&f.Title, "that title is taken")
+	}
+	return InsertPost(ctx, db, NewPostInput{Title: f.Title.Value})
+}

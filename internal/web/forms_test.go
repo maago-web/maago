@@ -22,6 +22,7 @@ var Routes = maago.Routes{
 	maago.GET("/boards/new", "board_new", BoardNew),
 	maago.POST("/boards/new", "board_create", BoardNew),
 	maago.POST("/notices", "notice_create", NoticeCreate),
+	maago.POST("/api/notices", "api_notice_create", APINotice, maago.API),
 }
 
 type Board struct {
@@ -67,6 +68,8 @@ type NoticePage struct{ Form NoticeForm }
 func NoticeCreate(ctx context.Context, in NoticeIn) (maago.Result[NoticePage], error) {
 	return maago.Show(NoticePage{in.Form}), nil
 }
+
+func APINotice(ctx context.Context, in NoticeIn) (NoticePage, error) { return NoticePage{in.Form}, nil }
 `
 
 func boardFiles(old, new string) map[string]string {
@@ -99,39 +102,41 @@ func TestFormErrors(t *testing.T) {
 		old, new string
 		want     []string
 	}{
-		{"unknown tag", "`maago:\"min=2,", "`maago:\"mim=2,", []string{`board/urls.go:33:40: unknown key "mim" in the tag of form field Title`}},
-		{"not a Field", "Rate   maago.Field[float64]", "Rate   float64            ", []string{`board/urls.go:35:9: form field Rate is float64, not maago.Field[T]`}},
-		{"a type forms do not read", "Rate   maago.Field[float64]", "Rate   maago.Field[uint8]  ", []string{`board/urls.go:35:9: form field Rate is maago.Field[uint8], not maago.Field[T]`}},
-		{"unexported", "Rate   maago.Field[float64]", "rate   maago.Field[float64]", []string{`board/urls.go:35:2: form field rate is not exported`}},
-		{"min on a number", "`maago:\"min_value=1,max_value=30\"`", "`maago:\"min=1\"`", []string{`board/urls.go:34:40: min applies to strings, but form field Days is int32`}},
-		{"min_value on a string", "`maago:\"min=2,max=200,", "`maago:\"min_value=2,max=200,", []string{`board/urls.go:33:40: min_value applies to numbers, but form field Title is string`}},
-		{"a value past the type", "max_value=30", "max_value=3000000000", []string{`board/urls.go:34:62: max_value of form field Days is "3000000000", not a int32`}},
-		{"min above max", "min=2,max=200", "min=300,max=200", []string{`board/urls.go:33:2: form field Title has min=300 above max=200`}},
-		{"optional checkbox", "Pinned maago.Field[bool]", "Pinned maago.Field[bool] `maago:\"optional\"`", []string{`board/urls.go:36:35: form field Pinned is a checkbox, which is never required`}},
-		{"choices on a number", "`maago:\"min_value=1,max_value=30\"`", "`maago:\"choices=1/2\"`", []string{`board/urls.go:34:40: choices apply to strings, but form field Days is int32`}},
-		{"no such model", "`maago:\"model=Board\"`", "`maago:\"model=Bord\"`", []string{`board/urls.go:26:27: form BoardForm names model Bord, which this package does not declare`}},
-		{"no such model field", "\tName       maago.Field[string]\n", "\tNam        maago.Field[string]\n", []string{`board/urls.go:27:2: model Board has no field Nam`}},
-		{"a model form's own rule", "Kind       maago.Field[string] `maago:\"optional\"`", "Kind       maago.Field[string] `maago:\"max=3\"`", []string{`board/urls.go:28:41: form field Kind takes its rules from model Board`}},
-		{"model type differs", "\tName       maago.Field[string]\n", "\tName       maago.Field[int64]\n", []string{`board/urls.go:27:13: form field Name is maago.Field[int64], but model Board has it as string`}},
-		{"auto in a model form", "\tName       maago.Field[string]\n", "\tName       maago.Field[string]\n\tCreated    maago.Field[time.Time]\n", []string{`board/urls.go:28:2: field Created of model Board is not for a form to set`}},
-		{"two forms in an In", "\tForm BoardForm `maago:\"form\"`\n}", "\tForm BoardForm `maago:\"form\"`\n\tMore BoardForm `maago:\"form\"`\n}", []string{`board/urls.go:44:2: BoardIn reads a second form, More`}},
-		{"not a form", "\tForm NoticeForm `maago:\"form\"`", "\tForm NoticePage `maago:\"form\"`", []string{`board/urls.go:51:2: NoticeIn.Form reads form NoticePage, which does not embed maago.Form`}},
-		{"another package's form", "\tForm NoticeForm `maago:\"form\"`", "\tForm time.Time `maago:\"form\"`", []string{`board/urls.go:51:7: form Form is not of a type of this package: time.Time`}},
-		{"form with a value", "\tForm NoticeForm `maago:\"form\"`", "\tForm NoticeForm `maago:\"form=x\"`", []string{`board/urls.go:51:26: maago:"form" takes no value`}},
-		{"a typo before model", "`maago:\"model=Board\"`", "`maago:\"foo,model=Bord\"`", []string{`board/urls.go:26:21: unknown key "foo" in the tag of maago.Form`, `board/urls.go:26:31: form BoardForm names model Bord`}},
-		{"ID in a model form", "\tName       maago.Field[string]\n", "\tName       maago.Field[string]\n\tID         maago.Field[int64]\n", []string{`board/urls.go:28:2: field ID of model Board is not for a form to set`}},
-		{"a form on DELETE", `maago.POST("/notices"`, `maago.DELETE("/notices"`, []string{`board/urls.go:51:2: NoticeIn.Form reads a form, but route notice_create is a DELETE`}},
-		{"a pointer form", "\tForm NoticeForm `maago:\"form\"`", "\tForm *NoticeForm `maago:\"form\"`", []string{`board/urls.go:51:7: form Form is a pointer`}},
-		{"Validate on the value", "func (f *NoticeForm) Validate() {}", "func (f NoticeForm) Validate() {}", []string{`board/urls.go:40:21: Validate of form NoticeForm has a value receiver`}},
+		{"unknown tag", "`maago:\"min=2,", "`maago:\"mim=2,", []string{`board/urls.go:34:40: unknown key "mim" in the tag of form field Title`}},
+		{"not a Field", "Rate   maago.Field[float64]", "Rate   float64            ", []string{`board/urls.go:36:9: form field Rate is float64, not maago.Field[T]`}},
+		{"a type forms do not read", "Rate   maago.Field[float64]", "Rate   maago.Field[uint8]  ", []string{`board/urls.go:36:9: form field Rate is maago.Field[uint8], not maago.Field[T]`}},
+		{"unexported", "Rate   maago.Field[float64]", "rate   maago.Field[float64]", []string{`board/urls.go:36:2: form field rate is not exported`}},
+		{"min on a number", "`maago:\"min_value=1,max_value=30\"`", "`maago:\"min=1\"`", []string{`board/urls.go:35:40: min applies to strings, but form field Days is int32`}},
+		{"min_value on a string", "`maago:\"min=2,max=200,", "`maago:\"min_value=2,max=200,", []string{`board/urls.go:34:40: min_value applies to numbers, but form field Title is string`}},
+		{"a value past the type", "max_value=30", "max_value=3000000000", []string{`board/urls.go:35:62: max_value of form field Days is "3000000000", not a int32`}},
+		{"min above max", "min=2,max=200", "min=300,max=200", []string{`board/urls.go:34:2: form field Title has min=300 above max=200`}},
+		{"optional checkbox", "Pinned maago.Field[bool]", "Pinned maago.Field[bool] `maago:\"optional\"`", []string{`board/urls.go:37:35: form field Pinned is a checkbox, which is never required`}},
+		{"choices on a number", "`maago:\"min_value=1,max_value=30\"`", "`maago:\"choices=1/2\"`", []string{`board/urls.go:35:40: choices apply to strings, but form field Days is int32`}},
+		{"no such model", "`maago:\"model=Board\"`", "`maago:\"model=Bord\"`", []string{`board/urls.go:27:27: form BoardForm names model Bord, which this package does not declare`}},
+		{"no such model field", "\tName       maago.Field[string]\n", "\tNam        maago.Field[string]\n", []string{`board/urls.go:28:2: model Board has no field Nam`}},
+		{"a model form's own rule", "Kind       maago.Field[string] `maago:\"optional\"`", "Kind       maago.Field[string] `maago:\"max=3\"`", []string{`board/urls.go:29:41: form field Kind takes its rules from model Board`}},
+		{"model type differs", "\tName       maago.Field[string]\n", "\tName       maago.Field[int64]\n", []string{`board/urls.go:28:13: form field Name is maago.Field[int64], but model Board has it as string`}},
+		{"auto in a model form", "\tName       maago.Field[string]\n", "\tName       maago.Field[string]\n\tCreated    maago.Field[time.Time]\n", []string{`board/urls.go:29:2: field Created of model Board is not for a form to set`}},
+		{"two forms in an In", "\tForm BoardForm `maago:\"form\"`\n}", "\tForm BoardForm `maago:\"form\"`\n\tMore BoardForm `maago:\"form\"`\n}", []string{`board/urls.go:45:2: BoardIn reads a second form, More`}},
+		{"not a form", "\tForm NoticeForm `maago:\"form\"`", "\tForm NoticePage `maago:\"form\"`", []string{`board/urls.go:52:2: NoticeIn.Form reads form NoticePage, which does not embed maago.Form`}},
+		{"another package's form", "\tForm NoticeForm `maago:\"form\"`", "\tForm time.Time `maago:\"form\"`", []string{`board/urls.go:52:7: form Form is not of a type of this package: time.Time`}},
+		{"form with a value", "\tForm NoticeForm `maago:\"form\"`", "\tForm NoticeForm `maago:\"form=x\"`", []string{`board/urls.go:52:26: maago:"form" takes no value`}},
+		{"a typo before model", "`maago:\"model=Board\"`", "`maago:\"foo,model=Bord\"`", []string{`board/urls.go:27:21: unknown key "foo" in the tag of maago.Form`, `board/urls.go:27:31: form BoardForm names model Bord`}},
+		{"ID in a model form", "\tName       maago.Field[string]\n", "\tName       maago.Field[string]\n\tID         maago.Field[int64]\n", []string{`board/urls.go:29:2: field ID of model Board is not for a form to set`}},
+		{"a form on DELETE", `maago.POST("/notices"`, `maago.DELETE("/notices"`, []string{`board/urls.go:52:2: NoticeIn.Form reads a form, but route notice_create is a DELETE`}},
+		{"a form on a GET API route", `maago.POST("/api/notices"`, `maago.GET("/api/notices"`, []string{`board/urls.go:52:2: NoticeIn.Form reads a form, but API route api_notice_create is a GET`}},
+		{"a generated name taken", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() {}\n\nfunc invalidNoticeForm() {}", []string{`board/urls.go:54:2: form NoticeForm would declare invalidNoticeForm`}},
+		{"a pointer form", "\tForm NoticeForm `maago:\"form\"`", "\tForm *NoticeForm `maago:\"form\"`", []string{`board/urls.go:52:7: form Form is a pointer`}},
+		{"Validate on the value", "func (f *NoticeForm) Validate() {}", "func (f NoticeForm) Validate() {}", []string{`board/urls.go:41:21: Validate of form NoticeForm has a value receiver`}},
 		{"two forms at once", "`maago:\"min=2,", "`maago:\"mim=2,", nil}, // with the next edit too: see below
-		{"Validate's signature", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() error { return nil }", []string{`board/urls.go:40:22: Validate of form NoticeForm is not a method func()`}},
+		{"Validate's signature", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() error { return nil }", []string{`board/urls.go:41:22: Validate of form NoticeForm is not a method func()`}},
 	}
 	var all strings.Builder
 	for _, c := range cases {
 		files := boardFiles(c.old, c.new)
 		if c.name == "two forms at once" { // D-61: both forms' errors in one run
 			files["board/urls.go"] = strings.Replace(files["board/urls.go"], "`maago:\"model=Board\"`", "`maago:\"model=Bord\"`", 1)
-			c.want = []string{`board/urls.go:26:27: form BoardForm names model Bord`, `board/urls.go:33:40: unknown key "mim"`}
+			c.want = []string{`board/urls.go:27:27: form BoardForm names model Bord`, `board/urls.go:34:40: unknown key "mim"`}
 		}
 		out, _ := generate(t, files)
 		lines := slices.DeleteFunc(strings.Split(out, "\n"), func(l string) bool { return l == "" || strings.HasPrefix(l, "  fix:") })

@@ -6,6 +6,7 @@ import (
 	"embed"
 	"html/template"
 	"net/http"
+	"net/url"
 
 	"github.com/maago-web/maago"
 )
@@ -15,9 +16,10 @@ var maagoTemplateFiles embed.FS
 
 // maagoRoutes are the paths of every route of the project, for {{url}}.
 var maagoRoutes = map[string]string{
-	"board_create":  "/boards/new",
-	"board_new":     "/boards/new",
-	"notice_create": "/notices",
+	"api_notice_create": "/api/notices",
+	"board_create":      "/boards/new",
+	"board_new":         "/boards/new",
+	"notice_create":     "/notices",
 }
 
 // maagoPages are the template sets of the pages: base.html, if there is
@@ -31,9 +33,11 @@ var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.U
 func serveBoardNew(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in BoardIn
-	if err = bindBoardForm(r, &in.Form); err != nil {
+	vals, err := maago.FormValues(r, "name", "kind")
+	if err != nil {
 		return err
 	}
+	bindBoardForm(r, vals, &in.Form)
 	p, err := BoardNew(r.Context(), in)
 	if err != nil {
 		return err
@@ -46,9 +50,11 @@ func serveBoardNew(w http.ResponseWriter, r *http.Request) error {
 func serveBoardCreate(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in BoardIn
-	if err = bindBoardForm(r, &in.Form); err != nil {
+	vals, err := maago.FormValues(r, "name", "kind")
+	if err != nil {
 		return err
 	}
+	bindBoardForm(r, vals, &in.Form)
 	p, err := BoardNew(r.Context(), in)
 	if err != nil {
 		return err
@@ -61,9 +67,11 @@ func serveBoardCreate(w http.ResponseWriter, r *http.Request) error {
 func serveNoticeCreate(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in NoticeIn
-	if err = bindNoticeForm(r, &in.Form); err != nil {
+	vals, err := maago.FormValues(r, "title", "days", "rate", "pinned", "start")
+	if err != nil {
 		return err
 	}
+	bindNoticeForm(r, vals, &in.Form)
 	p, err := NoticeCreate(r.Context(), in)
 	if err != nil {
 		return err
@@ -76,13 +84,30 @@ func serveNoticeCreate(w http.ResponseWriter, r *http.Request) error {
 	return maago.Render(w, maagoPages, "notice_page.html", "", page)
 }
 
-// bindBoardForm reads form BoardForm from the body of r, or for a GET or
-// HEAD only describes its fields, for drawing it empty (D-119).
-func bindBoardForm(r *http.Request, f *BoardForm) error {
-	vals, err := maago.FormValues(r, "name", "kind")
+// serveApiNoticeCreate serves route api_notice_create with view APINotice.
+func serveApiNoticeCreate(w http.ResponseWriter, r *http.Request) error {
+	var err error
+	var in NoticeIn
+	vals, err := maago.JSONValues(r, "title", "days", "rate", "pinned", "start")
 	if err != nil {
 		return err
 	}
+	bindNoticeForm(r, vals, &in.Form)
+	if !in.Form.Valid() { // an API form is never a GET's: Forms rejects it
+		return invalidNoticeForm(&in.Form)
+	}
+	p, err := APINotice(r.Context(), in)
+	if err != nil {
+		return err
+	}
+	page := p
+	return maago.JSON(w, page)
+}
+
+// bindBoardForm reads form BoardForm from the values the request sent, or
+// for a GET or HEAD, which sends none, only describes its fields, for
+// drawing it empty (D-119).
+func bindBoardForm(r *http.Request, vals url.Values, f *BoardForm) {
 	ctx := r.Context()
 	maago.BindString(ctx, vals, &f.Name, maago.Rule{Name: "name", Label: "이름", Max: 50})
 	maago.BindString(ctx, vals, &f.Kind, maago.Rule{Name: "kind", Label: "Kind", Choices: []string{"free", "notice"}, Optional: true})
@@ -90,16 +115,12 @@ func bindBoardForm(r *http.Request, f *BoardForm) error {
 		return f.Name.Error == "" && f.Kind.Error == ""
 	}
 	maago.FinishForm(&f.Form, vals != nil, ok())
-	return nil
 }
 
-// bindNoticeForm reads form NoticeForm from the body of r, or for a GET or
-// HEAD only describes its fields, for drawing it empty (D-119).
-func bindNoticeForm(r *http.Request, f *NoticeForm) error {
-	vals, err := maago.FormValues(r, "title", "days", "rate", "pinned", "start")
-	if err != nil {
-		return err
-	}
+// bindNoticeForm reads form NoticeForm from the values the request sent, or
+// for a GET or HEAD, which sends none, only describes its fields, for
+// drawing it empty (D-119).
+func bindNoticeForm(r *http.Request, vals url.Values, f *NoticeForm) {
 	ctx := r.Context()
 	maago.BindString(ctx, vals, &f.Title, maago.Rule{Name: "title", Label: "제목", Help: "짧게", Min: 2, Max: 200})
 	maago.BindInt32(ctx, vals, &f.Days, maago.Rule{Name: "days", Label: "Days", MinValue: "1", MaxValue: "30"})
@@ -113,5 +134,15 @@ func bindNoticeForm(r *http.Request, f *NoticeForm) error {
 		f.Validate()
 	}
 	maago.FinishForm(&f.Form, vals != nil, ok())
-	return nil
+}
+
+// invalidNoticeForm is the 422 of form NoticeForm on an API route (D-120).
+func invalidNoticeForm(f *NoticeForm) error {
+	return maago.Unprocessable([]maago.FieldError{
+		{Field: f.Title.Name, Detail: f.Title.Error},
+		{Field: f.Days.Name, Detail: f.Days.Error},
+		{Field: f.Rate.Name, Detail: f.Rate.Error},
+		{Field: f.Pinned.Name, Detail: f.Pinned.Error},
+		{Field: f.Start.Name, Detail: f.Start.Error},
+	}, f.Errors)
 }

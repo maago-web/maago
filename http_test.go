@@ -115,6 +115,15 @@ func TestErrorStatus(t *testing.T) {
 			`{"type":"about:blank","title":"Bad Request","status":400,"detail":"bad page"}` + "\n", ""},
 		{"api 500", true, func(http.ResponseWriter, *http.Request) error { return errors.New("secret detail") }, 500,
 			`{"type":"about:blank","title":"Internal Server Error","status":500}` + "\n", "secret detail"},
+		{"api 422 of a form", true, func(http.ResponseWriter, *http.Request) error {
+			return Unprocessable([]FieldError{{"title", ""}, {"count", "Enter a number."}, {"days", "Enter 30 or less."}}, []string{"overlaps"})
+		}, 422, `{"type":"about:blank","title":"Unprocessable Entity","status":422,"errors":[{"field":"count","detail":"Enter a number."},{"field":"days","detail":"Enter 30 or less."},{"detail":"overlaps"}]}` + "\n", ""},
+		{"api 422 joined", true, func(http.ResponseWriter, *http.Request) error {
+			return fmt.Errorf("save: %w", errors.Join(Invalid(&Field[string]{Name: "title"}, "taken"), InvalidForm("closed")))
+		}, 422, `{"type":"about:blank","title":"Unprocessable Entity","status":422,"errors":[{"field":"title","detail":"taken"},{"detail":"closed"}]}` + "\n", ""},
+		{"api 422 without a form", true, func(http.ResponseWriter, *http.Request) error { return Status(422, errors.New("cannot")) }, 422,
+			`{"type":"about:blank","title":"Unprocessable Entity","status":422,"detail":"cannot"}` + "\n", ""},
+		{"html 422", false, func(http.ResponseWriter, *http.Request) error { return InvalidForm("closed") }, 422, "Unprocessable Entity\n", ""},
 		{"panic", false, func(http.ResponseWriter, *http.Request) error { panic("boom") }, 500, "Internal Server Error\n", "panic: boom\n"},
 		{"panic with an error", false, func(http.ResponseWriter, *http.Request) error { panic(sql.ErrConnDone) }, 500, "Internal Server Error\n", "panic: sql: connection is already closed\n"},
 		{"status 503", false, func(http.ResponseWriter, *http.Request) error { return Status(503, errors.New("db down")) }, 503, "Service Unavailable\n", "db down"},

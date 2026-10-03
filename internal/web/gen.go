@@ -25,7 +25,7 @@ var templates = template.Must(template.ParseFS(templateFiles, "templates/*.go.tm
 
 // Imports are the packages the files web generates may import, beside
 // maago (D-66).
-var Imports = []string{"embed", "html/template", "net/http", "strconv"}
+var Imports = []string{"embed", "html/template", "net/http", "net/url", "strconv"}
 
 // URLsFile is the urls_gen.go of app: its URL functions, and its App.
 // Before the views are checked, stub declares App without a value, so
@@ -90,7 +90,7 @@ func ViewsFile(app *App, apps []*App) []byte {
 		for _, f := range v.fields {
 			query = query || f.source == "query"
 			fields = append(fields, map[string]any{"Name": f.name, "Source": f.source, "Key": f.key, "Pointer": f.pointer,
-				"Parser": strings.ToUpper(f.typ[:1]) + f.typ[1:], "Form": f.typ})
+				"Parser": strings.ToUpper(f.typ[:1]) + f.typ[1:], "Form": f.typ, "Keys": keysOf(app.forms[f.typ])})
 		}
 		api := hasOption(r.Options, "API")
 		html = html || !v.escape && !api
@@ -106,6 +106,10 @@ func ViewsFile(app *App, apps []*App) []byte {
 		imports["embed"], imports["html/template"] = true, true
 	}
 	imports["maago"] = slices.ContainsFunc(app.Routes, func(r Route) bool { return !r.view.escape })
+	forms := formsData(app)
+	if len(forms) > 0 {
+		imports["net/url"] = true // bindXxx takes url.Values
+	}
 	var all []map[string]string
 	for _, a := range apps {
 		for _, r := range a.Routes {
@@ -113,7 +117,7 @@ func ViewsFile(app *App, apps []*App) []byte {
 		}
 	}
 	slices.SortFunc(all, func(a, b map[string]string) int { return strings.Compare(a["Name"], b["Name"]) })
-	return execute("views.go.tmpl", imports, map[string]any{"Package": app.Name, "HTML": html, "Routes": rs, "Pages": pages, "AllRoutes": all, "Forms": formsData(app)})
+	return execute("views.go.tmpl", imports, map[string]any{"Package": app.Name, "HTML": html, "Routes": rs, "Pages": pages, "AllRoutes": all, "Forms": forms})
 }
 
 // execute writes the file name. imports are the standard packages it uses;
@@ -168,9 +172,18 @@ func More(fset *token.FileSet, app *App) *mapper.More {
 			continue
 		}
 		for _, f := range r.view.fields {
-			if f.source == "form" && !binds[f.typ] {
-				binds[f.typ] = true
-				m.Names = append(m.Names, mapper.Name{Name: "bind" + f.typ, By: "form " + f.typ, Pos: fset.Position(f.pos), Fix: "rename what else declares bind" + f.typ})
+			if f.source != "form" {
+				continue
+			}
+			names := []string{"bind" + f.typ}
+			if hasOption(r.Options, "API") {
+				names = append(names, "invalid"+f.typ)
+			}
+			for _, n := range names {
+				if !binds[n] {
+					binds[n] = true
+					m.Names = append(m.Names, mapper.Name{Name: n, By: "form " + f.typ, Pos: fset.Position(f.pos), Fix: "rename what else declares " + n})
+				}
 			}
 		}
 	}
@@ -196,7 +209,7 @@ func formsData(app *App) []map[string]any {
 		for _, ff := range f.fields {
 			fields = append(fields, map[string]string{"Name": ff.name, "Bind": binds[ff.typ], "Rule": ruleLit(ff), "Key": strconv.Quote(model.Snake(ff.name))})
 		}
-		fs = append(fs, map[string]any{"Name": name, "Validate": f.validate, "Fields": fields})
+		fs = append(fs, map[string]any{"Name": name, "Validate": f.validate, "Fields": fields, "API": f.api})
 	}
 	return fs
 }
@@ -230,4 +243,15 @@ func ruleLit(ff formField) string {
 		parts = append(parts, "MaxValue: "+strconv.Quote(ff.maxValue))
 	}
 	return "maago.Rule{" + strings.Join(parts, ", ") + "}"
+}
+
+// keysOf are the keys of f's fields, quoted for Go.
+func keysOf(f *form) []string {
+	var keys []string
+	if f != nil {
+		for _, ff := range f.fields {
+			keys = append(keys, strconv.Quote(model.Snake(ff.name)))
+		}
+	}
+	return keys
 }

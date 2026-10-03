@@ -19,7 +19,7 @@ var maagoRoutes = map[string]string{
 var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes)},
 {{range .Pages}}	{{printf "%q" .}},
 {{end}})
-{{end}}{{range .Routes}}
+{{end}}{{range $route := .Routes}}
 // {{.Serve}} serves route {{.Name}} with view {{.View}}.
 func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 {{- if .Escape}}
@@ -37,9 +37,16 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	var in {{.In}}
 {{- range .Fields}}
 {{- if eq .Source "form"}}
-	if err = bind{{.Form}}(r, &in.{{.Name}}); err != nil {
+	vals, err := maago.{{if $route.API}}JSONValues{{else}}FormValues{{end}}(r{{range .Keys}}, {{.}}{{end}})
+	if err != nil {
 		return err
 	}
+	bind{{.Form}}(r, vals, &in.{{.Name}})
+{{- if $route.API}}
+	if !in.{{.Name}}.Valid() { // an API form is never a GET's: Forms rejects it
+		return invalid{{.Form}}(&in.{{.Name}})
+	}
+{{- end}}
 {{- else if eq .Source "path"}}
 	if in.{{.Name}}, err = maago.Path(r, {{printf "%q" .Key}}, maago.Parse{{.Parser}}); err != nil {
 		return err
@@ -78,13 +85,10 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 }
 {{end}}
 {{- range .Forms}}
-// bind{{.Name}} reads form {{.Name}} from the body of r, or for a GET or
-// HEAD only describes its fields, for drawing it empty (D-119).
-func bind{{.Name}}(r *http.Request, f *{{.Name}}) error {
-	vals, err := maago.FormValues(r{{range .Fields}}, {{.Key}}{{end}})
-	if err != nil {
-		return err
-	}
+// bind{{.Name}} reads form {{.Name}} from the values the request sent, or
+// for a GET or HEAD, which sends none, only describes its fields, for
+// drawing it empty (D-119).
+func bind{{.Name}}(r *http.Request, vals url.Values, f *{{.Name}}) {
 	ctx := r.Context()
 {{- range .Fields}}
 	maago.{{.Bind}}(ctx, vals, &f.{{.Name}}, {{.Rule}})
@@ -98,6 +102,16 @@ func bind{{.Name}}(r *http.Request, f *{{.Name}}) error {
 	}
 {{- end}}
 	maago.FinishForm(&f.Form, vals != nil, ok())
-	return nil
 }
+{{- if .API}}
+
+// invalid{{.Name}} is the 422 of form {{.Name}} on an API route (D-120).
+func invalid{{.Name}}(f *{{.Name}}) error {
+	return maago.Unprocessable([]maago.FieldError{
+{{- range .Fields}}
+		{Field: f.{{.Name}}.Name, Detail: f.{{.Name}}.Error},
+{{- end}}
+	}, f.Errors)
+}
+{{- end}}
 {{end}}

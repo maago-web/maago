@@ -203,3 +203,73 @@ func TestMessagesCheck(t *testing.T) {
 		}
 	}
 }
+
+func TestJSONValues(t *testing.T) {
+	keys := []string{"title", "count", "agree", "note"}
+	read := func(ct, body string) (url.Values, error) {
+		r := httptest.NewRequest("POST", "/x?title=fromquery", strings.NewReader(body))
+		r.Header.Set("Content-Type", ct)
+		return JSONValues(r, keys...)
+	}
+	const js = "application/json"
+	v, err := read(js+"; charset=utf-8", `{"title":"a \"q\" é","count":9223372036854775807,"agree":true,"note":null,"other":[1,{"x":2}],"other":3}`)
+	want := url.Values{"title": {`a "q" é`}, "count": {"9223372036854775807"}, "agree": {"true"}}
+	if err != nil || fmt.Sprint(v) != fmt.Sprint(want) {
+		t.Errorf("values: %v %v, want %v", v, err, want)
+	}
+	v, _ = read(js, `{"count":0}`)
+	var zero Field[int64]
+	BindInt64(context.Background(), v, &zero, Rule{Name: "count"})
+	if !zero.Given || zero.Error != "" || zero.Value != 0 {
+		t.Errorf("0 is given: %+v", zero)
+	}
+	for _, body := range []string{`{"count":12}`, `{"count":"12"}`} {
+		v, _ := read(js, body)
+		var f Field[int64]
+		BindInt64(context.Background(), v, &f, Rule{Name: "count"})
+		if f.Value != 12 || f.Error != "" {
+			t.Errorf("%s: %+v", body, f)
+		}
+	}
+	v, _ = read(js, `{"count":1e3,"title":""}`)
+	var n Field[int64]
+	BindInt64(context.Background(), v, &n, Rule{Name: "count"})
+	var s Field[string]
+	BindString(context.Background(), v, &s, Rule{Name: "title"})
+	if n.Error != "Enter a number." || n.Raw != "1e3" || s.Error != "This field is required." {
+		t.Errorf("1e3 is no int64, \"\" is not given: %+v %+v", n, s)
+	}
+	if v, err := JSONValues(httptest.NewRequest("GET", "/x", nil), keys...); v != nil || err != nil {
+		t.Errorf("GET: %v %v", v, err)
+	}
+	for name, c := range map[string][2]string{
+		"empty":            {js, ""},
+		"spaces":           {js, "  "},
+		"null":             {js, "null"},
+		"array":            {js, "[]"},
+		"string":           {js, `"x"`},
+		"number":           {js, "1"},
+		"broken":           {js, `{"title":`},
+		"after the object": {js, `{}{}`},
+		"words after":      {js, `{} x`},
+		"array value":      {js, `{"title":["a"]}`},
+		"object value":     {js, `{"title":{}}`},
+		"a form key twice": {js, `{"title":"a","title":"b"}`},
+		"form urlencoded":  {"application/x-www-form-urlencoded", "title=a"},
+		"no Content-Type":  {"", `{}`},
+		"past the limit":   {js, `{"title":"` + strings.Repeat("a", maxBody) + `"}`},
+	} {
+		var se *statusError
+		if _, err := read(c[0], c[1]); !errors.As(err, &se) || se.code != 400 {
+			t.Errorf("%s: %v, want a 400", name, err)
+		}
+	}
+}
+
+func TestBindTimeRFC3339(t *testing.T) {
+	var f Field[time.Time]
+	BindTime(context.Background(), url.Values{"t": {"2026-10-01T09:30:00.123+09:00"}}, &f, Rule{Name: "t"})
+	if f.Error != "" || !f.Value.Equal(time.Date(2026, 10, 1, 0, 30, 0, 123e6, time.UTC)) {
+		t.Errorf("RFC 3339 with an offset: %+v", f)
+	}
+}

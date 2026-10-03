@@ -3,7 +3,9 @@ package maago
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"mime"
 	"net/http"
@@ -262,7 +264,7 @@ func BindBool(ctx context.Context, vals url.Values, f *Field[bool], rule Rule) {
 }
 
 // BindTime reads a time field as an <input type="datetime-local"> sends
-// it, 2006-01-02T15:04 or with seconds, in Config.TimeZone.
+// it, 2006-01-02T15:04 or with seconds, in Config.TimeZone, or as RFC 3339 with its offset.
 func BindTime(ctx context.Context, vals url.Values, f *Field[time.Time], rule Rule) {
 	if !bind(ctx, vals, f, rule) {
 		return
@@ -273,6 +275,10 @@ func BindTime(ctx context.Context, vals url.Values, f *Field[time.Time], rule Ru
 			f.Value = t
 			return
 		}
+	}
+	if t, err := time.Parse(time.RFC3339Nano, f.Raw); err == nil { // what an API sends: its offset says where
+		f.Value = t
+		return
 	}
 	f.Error = s.msgs.BadTime
 }
@@ -292,6 +298,135 @@ func (m Messages) check() error {
 		if strings.Contains(fmt.Sprintf(c.msg, c.args...), "%!") {
 			return fmt.Errorf("maago: Config.Messages.%s %q does not fit its value: use the verbs of DefaultMessages.%s", c.name, c.msg, c.name)
 		}
+	}
+	return nil
+}
+
+// maxBody is the most a form body may hold, as http.Request.ParseForm
+// allows for one.
+const maxBody = 10 << 20
+
+// JSONValues is the form an API route's request sent (D-120): one JSON
+// object, read as the text of each value. A string is its text, a number
+// its digits as written, true and false themselves, null not given. A GET
+// or HEAD sends none: nil. The body must be application/json: one object
+// and nothing after it, at most 10MB; a 400 otherwise. Of keys, the
+// form's, none may come twice or hold an array or object; other keys are
+// ignored (D-116).
+func JSONValues(r *http.Request, keys ...string) (url.Values, error) {
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return nil, nil
+	}
+	bad := func(format string, args ...any) error {
+		return Status(http.StatusBadRequest, fmt.Errorf("json body: "+format, args...))
+	}
+	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
+		return nil, bad("Content-Type %q, not application/json", r.Header.Get("Content-Type"))
+	}
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxBody))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, bad("not a JSON object")
+	}
+	vals := url.Values{}
+	seen := map[string]bool{}
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return nil, bad("%v", err)
+		}
+		key := t.(string) // a key, once the object is open
+		var raw json.RawMessage
+		if err := dec.Decode(&raw); err != nil {
+			return nil, bad("%v", err)
+		}
+		if !slices.Contains(keys, key) {
+			continue
+		}
+		if seen[key] {
+			return nil, bad("key %q is given twice", key)
+		}
+		seen[key] = true
+		switch raw[0] {
+		case '{', '[':
+			return nil, bad("key %q holds an array or object, not a value", key)
+		case 'n': // null: not given
+		case '"':
+			var s string
+			json.Unmarshal(raw, &s)
+			vals.Set(key, s)
+		default: // a number as written, or true or false
+			vals.Set(key, string(raw))
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return nil, bad("%v", err)
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return nil, bad("more after the object")
+	}
+	return vals, nil
+}
+
+// FieldError is one error of a 422 problem's errors member (D-120). Field
+// is the form key, "" for the form as a whole.
+type FieldError struct {
+	Field  string `json:"field,omitempty"`
+	Detail string `json:"detail"`
+}
+
+// invalidError is the errors of a form a 422 answers with.
+type invalidError struct{ errs []FieldError }
+
+func (e *invalidError) Error() string {
+	var b strings.Builder
+	for i, fe := range e.errs {
+		if i > 0 {
+			b.WriteString("; ")
+		}
+		if fe.Field != "" {
+			b.WriteString(fe.Field + ": ")
+		}
+		b.WriteString(fe.Detail)
+	}
+	return b.String()
+}
+
+// Invalid is the error an API view returns for what it finds wrong with
+// a field, such as a title the database already has: a 422 whose errors
+// name the field (D-120). Join several with errors.Join.
+func Invalid[T any](f *Field[T], msg string) error {
+	return Status(http.StatusUnprocessableEntity, &invalidError{[]FieldError{{f.Name, msg}}})
+}
+
+// InvalidForm is Invalid for the form as a whole.
+func InvalidForm(msg string) error {
+	return Status(http.StatusUnprocessableEntity, &invalidError{[]FieldError{{"", msg}}})
+}
+
+// Unprocessable is the 422 of a form that did not pass: its fields'
+// errors in order, the form's own after them. Only generated code calls
+// it.
+func Unprocessable(fields []FieldError, form []string) error {
+	errs := slices.DeleteFunc(fields, func(e FieldError) bool { return e.Detail == "" })
+	for _, msg := range form {
+		errs = append(errs, FieldError{Detail: msg})
+	}
+	return Status(http.StatusUnprocessableEntity, &invalidError{errs})
+}
+
+// fieldErrors are all the form errors in err's tree, in order.
+func fieldErrors(err error) []FieldError {
+	switch e := err.(type) {
+	case *invalidError:
+		return e.errs
+	case interface{ Unwrap() []error }:
+		var errs []FieldError
+		for _, x := range e.Unwrap() {
+			errs = append(errs, fieldErrors(x)...)
+		}
+		return errs
+	case interface{ Unwrap() error }:
+		return fieldErrors(e.Unwrap())
 	}
 	return nil
 }

@@ -451,6 +451,51 @@ URL 함수
 
 → 확인: 골든, 잘못된 JSON 400 problem, 없는 글 404 problem, 검증 실패 422 problem
 
+### 계획
+
+있는 것(3·4번): API 라우트(`maago.API`)의 뷰는 `func(ctx, In) (P, error)`이고 P를 `maago.JSON`으로 쓴다. 오류는 RFC 9457(`type`·`title`·`status`, 4xx면 `detail`). 이 작업은 요청 본문과 422를 더한다.
+
+모양 (결정에 없는 선택은 ★)
+- ★ **본문은 폼으로**: API 라우트의 In도 `maago:"form"` 필드(D-119)로 본문을 받는다. 다른 것은 읽는 글뿐이다: `Content-Type: application/json`의 JSON 객체 하나, 값은 문자열·숫자·`true`/`false`·`null`(키 없음과 같다). 그 글을 `Raw`로 삼아 HTML 폼과 같은 `Bind*`가 해석·검증한다(숫자 `1e3`·문자열 `"12"`도 `Raw`가 같으면 같은 결과, 검증 규칙과 문구가 한 벌). 시각은 RFC 3339(오프셋 있음)도 받는다. 깨진 JSON·객체가 아님·값이 배열이나 객체·틀린 `Content-Type`·같은 키 둘은 400 problem(D-116). 모르는 키는 무시. 기각: 아무 struct를 `encoding/json`으로 받는 `maago:"json"`(검증이 따로 생기고, `int64` 칸의 빈 값·`null`·`"abc"`가 `encoding/json` 오류 하나로 뭉친다: 완료 조건이 가르는 것을 API에서 잃는다). 중첩·배열 본문은 필요해지면 그때(탈출구 D-41로는 지금도 된다)
+- ★ **422는 생성 코드가**: API 라우트에서 묶인 폼이 유효하지 않으면(필드·`Validate`) 어댑터가 뷰를 부르지 않고 422 problem을 쓴다. HTML은 뷰가 200으로 다시 그려야 해서 뷰를 부르지만, API에는 다시 그릴 것이 없다. 뷰가 DB를 보고 찾은 오류(D-119, 중복)는 `return P{}, maago.Invalid(in.Form.Title.Name, "that title is taken")`(필드 이름 `""`는 폼 전체)로 돌려준다: `Status`처럼 오류 값이고 422가 된다
+- ★ **problem의 `errors`**: `{"type":"about:blank","title":"Unprocessable Entity","status":422,"errors":[{"field":"count","detail":"Enter a number."},{"detail":"that period overlaps"}]}`. 필드 순서는 폼의 선언 순서, 폼 전체 오류는 뒤에, 문구는 `Config.Messages`(D-119). RFC 9457의 확장 멤버
+- GET API 라우트의 폼은 HTML처럼 묶지 않는다(빈 폼, 뷰를 부른다)
+
+파일
+- 루트 `form.go`: JSON 본문을 `url.Values`로(`FormValues`가 라우트의 API 여부로 고른다: 생성 코드가 `maago.APIFormValues`를 부른다), `Invalid`, 필드 오류 목록 도우미. `http.go`의 `fail`: `errors` 멤버. `BindTime`: RFC 3339
+- `internal/web/templates/views.go.tmpl`: API 라우트의 폼은 JSON으로 묶고, 유효하지 않으면 `maago.Invalid…`로 422
+- 시험: 루트(JSON 해석의 400들, `null`, 숫자·문자열, `Invalid`의 problem), `cmd/maago/testdata/web`에 API 폼 라우트(골든과 종단)
+
+하지 않기로 한 것
+- 아무 struct의 JSON 본문, 중첩·배열, multipart(M7), OpenAPI 문서
+
+단계
+1. 런타임: JSON 본문 → 값, `Invalid`, problem의 `errors` → 확인: 잘못된 JSON·배열 값·틀린 Content-Type·같은 키 둘 400, `null`은 없음, `Invalid`가 422와 `errors`
+2. 생성: API 폼의 어댑터 → 확인: 골든, 유효하지 않으면 뷰를 부르지 않음
+3. 종단 → 확인: 잘못된 JSON 400 problem, 없는 글 404 problem, 검증 실패 422 problem(`int64` 칸의 세 결과가 `errors`에서도 다름), 뷰의 `Invalid` 422, 성공 JSON
+4. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)와 사람의 결정 — 위 계획을 이렇게 고친다
+- **사람의 결정(2026-10-01)**: API 본문은 폼으로만, 본문 형식은 라우트가 정함(HTML은 urlencoded, API는 JSON, 다른 것은 400), 유효하지 않은 API 폼은 생성 코드가 뷰를 부르지 않고 422, 뷰가 찾은 오류는 `maago.Invalid`, `errors`는 `field`·`detail` 배열. D-120
+- **묶기를 둘로 가른다**(fable 1): 생성된 `bindXxx(r, vals, f)`는 값을 받아 필드만 채운다. 값은 어댑터가 라우트마다 `maago.FormValues`(HTML) 또는 `maago.JSONValues`(API)로 읽는다. 같은 폼을 HTML POST와 API POST가 함께 쓸 수 있다
+- **JSON 읽기**(codex 1~7, fable 2·3): `json.Decoder`의 `Token`으로 객체를 열고 키마다 값을 `json.RawMessage`로 받는다. `Raw`는 쓴 그대로: 문자열은 풀린 글, 숫자는 리터럴 글(`1e3`은 `int64` 칸에 `NotNumber`, `float64`는 받는다. 큰 정수가 `float64`를 거치지 않는다), `true`/`false`, 멤버 `null`은 키 없음. 400: 빈 본문, 객체가 아님(`[]`·`"x"`·`1`·`null`), 폼의 키 값이 배열·객체, 폼의 키 둘, 객체 뒤의 글(`{}{}`), 깨진 JSON, `Content-Type`이 `application/json`(매개변수 허용)이 아님, 10MB 넘음(`ParseForm`과 같은 한도). 모르는 키는 값이 무엇이든 무시(D-116)
+- **시각**(codex 8): `BindTime`은 `datetime-local` 둘에 RFC 3339(오프셋 있음)를 더한다. HTML 폼에도 같다
+- **422**(codex 9·10, fable 5): `maago.Invalid(&in.Form.Title, msg)`(필드를 넘겨 이름 오타가 없다)과 `maago.InvalidForm(msg)`는 422 `Status`이고, 여럿은 `errors.Join`. `fail`이 오류 나무를 걸어 모두 모은다. 422의 `detail`은 없고 `errors`만. HTML 라우트에서 돌려주면 글 422(문서에 적는다). 대가: DB 검증의 장치가 HTML(`Field.Error`)과 API(`Invalid`) 둘이다: 뷰는 `in.Form`을 값으로 받아 어댑터가 뷰의 쓰기를 보지 못한다
+- **생성 코드의 422**(fable 5): 폼마다 `invalidXxx(f) error`가 `maago.Unprocessable([]maago.FieldError{{Field: f.Title.Name, Detail: f.Title.Error}, …}, f.Errors)`(선언 순서, 빈 것은 뺀다, 폼 전체는 끝에 `field` 없이). reflect 없음(D-66)
+- **GET·HEAD API 라우트의 폼은 생성 오류**(fable 4): 본문이 없다. DELETE 검사는 API에도 그대로("DELETE는 path로")
+- 확인 더함: 위 400들 하나씩, `12`와 `"12"`가 같은 결과, `charset` 매개변수, 422의 `Content-Type: application/problem+json`, `errors` 순서와 폼 전체가 끝, 바꾼 `Config.Messages`가 `errors`에, `Validate`가 API에서도 돈다, 뷰를 부른 횟수(유효하지 않으면 0), `errors.Join`의 두 `Invalid`, 400·404·500에는 `errors`가 없음
+- 12번에 넘김(fable 8): API로 만든 것은 200과 그 객체(201·`Location`은 지금 모양으로 못 한다), PATCH식 부분 수정은 `optional`이나 PUT
+- 받지 않음: 없음
+
+구현 리뷰 (ponytail·codex·fable)
+- 만들며 확인한 것: 변이 넷(422를 건너뜀, 숫자를 `float64`로, 폼 키 둘 허용, 객체 뒤 글 허용)이 모두 잡힌다. 첫 리뷰 둘은 주간 사용 한도로 끊겨 다시 돌렸다
+- ponytail(스스로): 지울 것 없음. 알고 둔 것: 뷰가 `Invalid`와 DB 오류를 `errors.Join`하면 422가 된다(`status`가 첫 `Status`를 본다). 뷰가 그렇게 묶을 까닭이 없어 그대로
+- codex(샌드박스가 쓰기를 막아 코드만 읽음): 받지 않음 — 1 `1e-999`가 `ErrRange`와 0이라 조용히 받는다: Go의 `ParseFloat`는 언더플로에 오류를 내지 않는다(돌려 봄). `0.1`처럼 반올림이고 숨는 실패가 아니다
+- fable(변이 16개 중 14 잡힘): 받음 — HTML 라우트의 `Invalid`는 글 422임을 D-120에(1), `invalidXxx` 이름 겹침 시험(2: 사용자가 `invalidNoticeForm`을 선언하면 생성 오류), API 분기의 죽은 `vals != nil`(3), DELETE 문구를 방법 기준으로(4), `JSONValues` 주석(5), `{"count":0}`이 주어진 0(관찰). 12번에 넘김: 체크박스 문구가 API problem에도 나옴, API 클라이언트는 정수를 정수로(`1.0`·`1e3`은 `NotNumber`), 폼이 있는 라우트에 본문 없이 POST하면 400(`Content-Type ""`), JSON을 HTML 폼 라우트에 보내면 글 400
+
+
+
+
 ## 8. 표준 핸들러 탈출구와 스트리밍 (D-41)
 
 - `func(w, r)` 뷰도 같은 생성자로 표에 올린다(2번. 이름·URL 함수는 같다, 템플릿 검사 없음). 스트리밍 응답(CSV)이 되는지

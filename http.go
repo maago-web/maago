@@ -225,12 +225,16 @@ func (h *handler) fail(w http.ResponseWriter, route *AppRoute, code int, err err
 		return
 	}
 	p := struct {
-		Type   string `json:"type"`
-		Title  string `json:"title"`
-		Status int    `json:"status"`
-		Detail string `json:"detail,omitempty"`
-	}{"about:blank", http.StatusText(code), code, ""}
-	if code < 500 {
+		Type   string       `json:"type"`
+		Title  string       `json:"title"`
+		Status int          `json:"status"`
+		Detail string       `json:"detail,omitempty"`
+		Errors []FieldError `json:"errors,omitempty"` // a form's, for a 422 (D-120)
+	}{"about:blank", http.StatusText(code), code, "", nil}
+	if code == http.StatusUnprocessableEntity {
+		p.Errors = fieldErrors(err)
+	}
+	if code < 500 && p.Errors == nil {
 		p.Detail = err.Error()
 	}
 	w.Header().Set("Content-Type", "application/problem+json")

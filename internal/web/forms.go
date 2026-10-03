@@ -22,6 +22,7 @@ type form struct {
 	pos      token.Pos
 	validate bool // has the method Validate; Types fills it
 	used     bool // an In reads it
+	api      bool // an API route's In reads it: invalidXxx is generated
 }
 
 // formField is one field of a form and its rules, from its tags or its
@@ -89,11 +90,16 @@ func Forms(fset *token.FileSet, apps []*App, models func(dir string) *model.App)
 					continue
 				}
 				if r.Method == "DELETE" {
-					ds = append(ds, diag.New(fset.Position(in.pos), fmt.Sprintf("%s.%s reads a form, but route %s is a DELETE, whose body Go does not parse as a form", r.view.in, in.name, r.Name),
+					ds = append(ds, diag.New(fset.Position(in.pos), fmt.Sprintf("%s.%s reads a form, but route %s is a DELETE, which names what it removes in its path", r.view.in, in.name, r.Name),
 						"send the form with POST; DELETE takes its values from the path"))
+				}
+				if api := hasOption(r.Options, "API"); api && (r.Method == "GET" || r.Method == "HEAD") {
+					ds = append(ds, diag.New(fset.Position(in.pos), fmt.Sprintf("%s.%s reads a form, but API route %s is a %s, which sends no body", r.view.in, in.name, r.Name, r.Method),
+						"read the values with query= fields, or make the route a POST"))
 				}
 				if f := app.forms[in.typ]; f != nil {
 					f.used = true
+					f.api = f.api || hasOption(r.Options, "API")
 				} else if _, declared := app.types[in.typ]; declared {
 					ds = append(ds, diag.New(fset.Position(in.pos), fmt.Sprintf("%s.%s reads form %s, which does not embed maago.Form", r.view.in, in.name, in.typ),
 						"embed maago.Form in "+in.typ+", and make its fields maago.Field[T]"))

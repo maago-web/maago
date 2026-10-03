@@ -165,4 +165,48 @@ func TestFormMessages(t *testing.T) {
 	if body := w.Body.String(); !strings.Contains(body, "필수 항목입니다.") || !strings.Contains(body, "Enter a number.") {
 		t.Errorf("messages: %s", body)
 	}
+	r = httptest.NewRequest("POST", ApiPostCreateURL(), strings.NewReader(`{"count":1}`))
+	r.Header.Set("Content-Type", "application/json")
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if body := w.Body.String(); !strings.Contains(body, `"detail":"필수 항목입니다."`) {
+		t.Errorf("messages in a 422: %s", body)
+	}
+}
+
+// TestAPIForm posts the form as JSON (D-120): a 422 with the errors in
+// order and the view not called, 400 for what is no JSON object, a 422
+// the view returns, and the created post.
+func TestAPIForm(t *testing.T) {
+	h, db, _ := handler(t)
+	if _, err := InsertPost(context.Background(), db, NewPostInput{Title: "old"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, body string
+		code       int
+		answer     string // what the answer holds
+		calls      int    // of the view
+	}{
+		{"count empty", `{"title":"a","count":null}`, 422, `"errors":[{"field":"count","detail":"This field is required."}]`, 0},
+		{"count not a number", `{"title":"a","count":"abc"}`, 422, `"errors":[{"field":"count","detail":"Enter a number."}]`, 0},
+		{"count past int64", `{"title":"a","count":99999999999999999999}`, 422, `"errors":[{"field":"count","detail":"Enter 9223372036854775807 or less."}]`, 0},
+		{"two fields, in order", `{"count":"x"}`, 422, `"errors":[{"field":"title","detail":"This field is required."},{"field":"count","detail":"Enter a number."}]`, 0},
+		{"Validate", `{"title":"forbidden","count":1}`, 422, `"errors":[{"detail":"that title is forbidden"}]`, 0},
+		{"broken JSON", `{"title":`, 400, `"status":400`, 0},
+		{"taken, as the view finds", `{"title":"old","count":1}`, 422, `"errors":[{"field":"title","detail":"that title is taken"}]`, 1},
+		{"created", `{"title":"new","count":"1","agree":true}`, 200, `"Title":"new"`, 1},
+	} {
+		before := apiCalls
+		r := httptest.NewRequest("POST", ApiPostCreateURL(), strings.NewReader(c.body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != c.code || !strings.Contains(w.Body.String(), c.answer) || apiCalls-before != c.calls {
+			t.Errorf("%s: %d %s, view called %d times; want %d with %s, %d calls", c.name, w.Code, w.Body, apiCalls-before, c.code, c.answer, c.calls)
+		}
+		if c.code >= 400 && w.Header().Get("Content-Type") != "application/problem+json" {
+			t.Errorf("%s: Content-Type %q", c.name, w.Header().Get("Content-Type"))
+		}
+	}
 }
