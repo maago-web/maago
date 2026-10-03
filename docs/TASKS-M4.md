@@ -502,6 +502,41 @@ URL 함수
 
 → 확인: 탈출구 라우트의 URL 함수와 `{{url}}`. 스트리밍은 `httptest.NewServer`로 열고, 핸들러가 둘째 조각을 쓰기 전에 클라이언트가 첫 조각을 읽는다(채널로 맞춘다. `ResponseRecorder`로는 보이지 않는다)
 
+### 계획
+
+있는 것: 2번이 `func(w, r)` 뷰를 같은 생성자로 받고, 4번이 그 어댑터(`View(w, r); return nil`)와 URL 함수(와일드카드는 `string`, In이 없다)를 만들고, 3번의 `written`이 `http.Flusher`다(`ResponseController`도 `Unwrap`으로 닿는다). 이 작업은 새 코드가 아니라 **되는지 보이는 시험**이다.
+
+파일
+- `cmd/maago/testdata/web`: 탈출구 라우트 `maago.GET("/export/{format}", "post_export", PostExport)`. `PostExport`는 CSV 머리 줄을 쓰고 `Flush`, 시험이 준 문(패키지 변수 채널, 운영에서는 nil이라 기다리지 않는다)을 기다린 뒤 둘째 줄을 쓴다. `number_page.html`의 `{{url}}` 목록에 `{{url "post_export" "csv"}}`
+- `site_test.go`: `httptest.NewServer`로 열어 GET, 첫 줄을 읽은 **뒤에** 문을 연다(둘째 조각 전에 첫 조각이 왔음), 끝까지 읽어 두 줄. `{{url}}` == `PostExportURL("csv")`
+
+하지 않기로 한 것
+- 런타임·생성기 변경(필요하면 그때 계획을 고친다), 탈출구 뷰의 CSRF·오류 보고 시험(3번에 있다)
+
+단계
+1. 픽스처 라우트와 시험 → 확인: 위 순서가 지켜지지 않으면(예: `Flush`를 지우면) 시험이 시간 안에 끝나지 않고 실패한다(변이로 본다. 읽기에 마감을 둔다)
+2. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+구현 리뷰 생략: 런타임·생성기에 분기가 생기지 않고 시험 픽스처만 바뀐다(WORKFLOW 6의 작은 작업). 계획 리뷰와 ponytail은 한다
+
+계획 리뷰 (codex·fable) — 위 계획을 이렇게 고친다
+- **nil 채널은 영원히 기다린다**(fable 1): 뷰는 `if exportGate != nil`일 때만 기다리고, 그때도 `r.Context().Done()`과 함께(codex 2)
+- **실패해도 멈추지 않게**(codex 1·2·3, fable 2): 요청 전체에 마감(`NewRequestWithContext`, 헤더를 기다리는 동안도), 문은 모든 출구에서 연다(`sync.OnceFunc`, `t.Cleanup`이 `Server.Close`보다 먼저), 시험이 끝나면 훅을 nil로
+- **문은 첫 줄을 읽은 뒤에만 연다**(codex 6): `ReadString('\n')`이 돌아온 뒤. 헤더가 왔다는 것만으로는 열지 않는다
+- **런타임을 잡는 변이**(fable 3, codex 4): 뷰는 `w.(http.Flusher).Flush()`를 부른다(`ResponseController`는 `Unwrap`으로 안쪽 writer에 닿아 `written.Flush`를 지워도 지나간다). 변이 둘: 뷰의 `Flush`를 지움, `http.go`의 `written.Flush`를 지움 → 둘 다 실패해야 한다. 결과는 아래 구현 리뷰 자리에 적는다(생략한 구현 리뷰를 대신한다). "`ResponseController`도 `Unwrap`으로 닿는다"는 틀린 이유였다: `written`의 `Flush`가 먼저 잡힌다
+- **첫 조각 뒤의 panic**(codex 5): 상태 200 그대로, 본문은 첫 줄만, `OnError`가 한 번 듣는다
+- **DB와 머리**(fable 6): 뷰가 `maago.DBFrom(r.Context())`로 행 수를 읽고, `Content-Type: text/csv`·`Content-Disposition`을 첫 `Write` 전에 정한다. `TestRequests`의 `{{url}}` 목록에 `PostExportURL("csv")`
+- 12번에 넘김(fable 5): 탈출구 뷰는 오류를 돌려줄 수 없어, 중간 오류(`rows.Err()`)에 좋은 길이 없다: panic은 `OnError`가 듣지만 잘린 CSV가 정상 끝처럼 닫히고, `panic(http.ErrAbortHandler)`는 연결을 끊지만 `OnError`가 듣지 못한다. 12번이 정한다(예: 보고한 뒤 끊기, 작은 `maago.Report`). `csv.Writer.Flush`와 `http.Flusher.Flush`는 다르다
+- 받지 않음: 없음
+
+구현 리뷰 (생략, 위 사유) — 대신 변이 기록
+- 뷰의 `w.(http.Flusher).Flush()`를 지움 → `TestExportStreams`가 5초 마감에 실패(멈추지 않음)
+- `http.go`의 `written.Flush`가 안쪽 writer를 flush하지 않게 함 → 같은 실패. 런타임의 `Flush`를 이 시험이 지킨다
+- ponytail(스스로): 런타임·생성기 변경 없음, 픽스처 뷰 하나와 시험 하나
+
+
+
+
 ## 9. 현재 사용자와 인증 인터페이스
 
 - `Config.Auth`(인터페이스 하나: 요청 → 사용자 또는 없음), 뷰가 `maago.UserFrom(ctx)`로 얻음, 라우트 표에서 로그인 필수 선언(D-115), 실패 응답: HTML은 `Config`의 로그인 URL로 `next`와 함께 303, API는 401 problem. 세션·토큰은 M5. M5에 넘길 것: `next`를 쓸 때 같은 출처의 경로인지 검증(열린 이동 막기)

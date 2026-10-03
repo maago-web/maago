@@ -2,6 +2,8 @@ package site
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 
 	"github.com/maago-web/maago"
 )
@@ -132,4 +134,33 @@ func APIPostCreate(ctx context.Context, in PostFormIn) (Post, error) {
 		return Post{}, maago.Invalid(&f.Title, "that title is taken")
 	}
 	return InsertPost(ctx, db, NewPostInput{Title: f.Title.Value})
+}
+
+// exportGate, when a test sets it, holds PostExport between its two rows,
+// so the test sees the first arrive alone. Nil, it holds nothing.
+var exportGate chan struct{}
+
+// PostExport is an escape view (D-41) that streams a CSV: the first row,
+// flushed, then the rest. Format "panic" fails after the first row.
+func PostExport(w http.ResponseWriter, r *http.Request) {
+	var n int
+	if err := maago.DBFrom(r.Context()).QueryRowContext(r.Context(), `SELECT count(*) FROM site_post`).Scan(&n); err != nil {
+		http.Error(w, "export failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", `attachment; filename="posts.csv"`)
+	fmt.Fprintf(w, "format,%s\n", r.PathValue("format"))
+	w.(http.Flusher).Flush()
+	if r.PathValue("format") == "panic" {
+		panic("export failed")
+	}
+	if exportGate != nil {
+		select {
+		case <-exportGate:
+		case <-r.Context().Done():
+			return
+		}
+	}
+	fmt.Fprintf(w, "posts,%d\n", n)
 }

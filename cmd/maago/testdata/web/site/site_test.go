@@ -1,15 +1,19 @@
 package site
 
 import (
+	"bufio"
 	"context"
 	"database/sql"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/maago-web/maago"
 	_ "modernc.org/sqlite"
@@ -67,7 +71,7 @@ func TestRequests(t *testing.T) {
 		{"GET", ApiPostURL(p.ID), 200, `"Title":"hello \u003cb\u003e"`},
 		{"GET", ApiPostURL(p.ID + 1), 404, `"status":404`},
 		{"GET", "/broken", 500, "Internal Server Error"},
-		{"GET", PageURL(7), 200, strings.Join([]string{PostDetailURL(7), PageURL(7), PostListURL(), PostRowsURL(), PostCreateURL(), ApiPostURL(7), BrokenURL()}, " ")}, // {{url}} is XxxURL
+		{"GET", PageURL(7), 200, strings.Join([]string{PostDetailURL(7), PageURL(7), PostListURL(), PostRowsURL(), PostCreateURL(), ApiPostURL(7), BrokenURL(), PostExportURL("csv")}, " ")}, // {{url}} is XxxURL
 		{"GET", PostDetailURL(p.ID), 200, "<!doctype html>"}, // through base.html
 	} {
 		w := httptest.NewRecorder()
@@ -208,5 +212,56 @@ func TestAPIForm(t *testing.T) {
 		if c.code >= 400 && w.Header().Get("Content-Type") != "application/problem+json" {
 			t.Errorf("%s: Content-Type %q", c.name, w.Header().Get("Content-Type"))
 		}
+	}
+}
+
+// TestExportStreams shows an escape view streams (D-41): through a real
+// server, the first row arrives while the view still holds the second.
+// Everything is bounded, so a broken stream fails rather than hangs.
+func TestExportStreams(t *testing.T) {
+	h, _, reported := handler(t)
+	srv := httptest.NewServer(h)
+	gate := make(chan struct{})
+	exportGate = gate
+	open := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(func() { open(); srv.Close(); exportGate = nil }) // the gate first: Close waits for the view
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	get := func(path string) (*http.Response, *bufio.Reader) {
+		req, err := http.NewRequestWithContext(ctx, "GET", srv.URL+path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		t.Cleanup(func() { resp.Body.Close() })
+		return resp, bufio.NewReader(resp.Body)
+	}
+
+	resp, body := get(PostExportURL("csv"))
+	first, err := body.ReadString('\n')
+	if err != nil || first != "format,csv\n" {
+		t.Fatalf("first row before the second is written: %q %v", first, err)
+	}
+	open() // only now may the view write the second row
+	rest, err := io.ReadAll(body)
+	if err != nil || string(rest) != "posts,0\n" {
+		t.Errorf("rest: %q %v", rest, err)
+	}
+	if ct, cd := resp.Header.Get("Content-Type"), resp.Header.Get("Content-Disposition"); ct != "text/csv" || cd != `attachment; filename="posts.csv"` {
+		t.Errorf("headers: %q %q", ct, cd)
+	}
+
+	// A panic after the first row: the status stays, nothing is added, and
+	// OnError hears it.
+	resp, body = get(PostExportURL("panic"))
+	all, _ := io.ReadAll(body)
+	if resp.StatusCode != 200 || string(all) != "format,panic\n" {
+		t.Errorf("panic after a row: %d %q", resp.StatusCode, all)
+	}
+	if len(*reported) != 1 || !strings.HasPrefix((*reported)[0].Error(), "panic: export failed") {
+		t.Errorf("OnError heard %v", *reported)
 	}
 }
