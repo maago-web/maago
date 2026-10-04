@@ -647,6 +647,52 @@ D-113이 모양을 정했다. 이 계획은 그것을 코드와 시험으로 옮
 
 → 확인: `/app` 아래에서 `{{url}}`·`SeeOther`·로그인 이동이 접두어를 가짐, 시각 표시가 `Config.TimeZone`을 따름, `OnError`가 뷰 오류와 panic을 받음
 
+### 계획
+
+넷 중 둘(오류 보고 훅의 예시, D-118 문서)은 문서다. 하위 경로와 표시 타임존은 같은 물음을 공유한다: 생성된 `XxxURL`과 템플릿의 `FuncMap`은 패키지 수준의 값이라 요청 ctx가 닿지 않는다.
+
+모양 (결정에 없는 선택은 ★)
+- ★ **하위 경로의 뜻**: 앞단 프록시가 `/app`을 **떼고** 넘긴다(Django `FORCE_SCRIPT_NAME`, WSGI `SCRIPT_NAME`과 같다). 라우트는 그대로 `/posts/{id}`에 등록되고, 바깥으로 나가는 URL(`XxxURL`, `{{url}}`, `SeeOther`, 로그인 이동, `next`)에만 `Config.Prefix`가 붙는다. 기각 후보: 앱이 `/app/…`을 받는다(프록시가 떼지 않음): 라우트 등록과 URL이 모두 바뀌고, 앞단이 떼는 배치와 둘 다 지원하면 설정이 둘이 된다
+- ★ **설정이 닿는 법**: `Handler`가 `Config.Prefix`와 `TimeZone`을 프로세스의 값으로 둔다(런타임 패키지 변수, `Handler`가 한 번 쓴다). `XxxURL()`은 `maago.Prefix() + "/posts/…"`. 대가: 한 프로세스에 설정이 다른 `Handler` 둘을 두면 `Handler`가 오류("Prefix가 다른 Handler가 이미 있다"), `Handler` 없이 부른 `XxxURL`(시험)은 접두어 없이. 기각 후보: 요청 ctx로 넘기기(`XxxURL(ctx, id)`: 모든 호출에 ctx, 템플릿 함수는 실행마다 다시 묶어야 한다)
+- `Prefix`의 꼴: 비었거나 `/`로 시작하고 `/`로 끝나지 않는다(`/app`). 아니면 `Handler` 오류
+- **표시 타임존**: 템플릿 함수 `{{date .CreatedAt "2006-01-02 15:04"}}`(값을 `Config.TimeZone`으로 옮겨 그 형식의 글로). 결과가 글이라 5번의 걷기가 타입을 안다(`date` 둘째 인자는 리터럴만, 첫째는 `time.Time`). `TimeZone`은 6번의 폼 시각 해석과 같은 값
+- **오류 보고 훅의 예시**: `Config.OnError` 문서에 Sentry 같은 것을 붙이는 짧은 예(stdlib만, 외부 패키지 이름 없이), D-46 미들웨어로 요청을 감싸는 법 한 줄
+- **응답 뒤 작업(D-118)**: `doc.go`에 `go f(context.WithoutCancel(ctx))`의 예와 대가(서버가 꺼질 때 기다리지 않음, panic은 앱이 받는다)
+
+파일
+- 루트 `http.go`(`Config.Prefix`, 프로세스 값, `loginURL`·`SeeOther`의 접두어), `view.go`(`URLFunc`의 접두어, `date` 함수), `doc.go`
+- 생성 틀 `urls.go.tmpl`(`maago.Prefix() + …`), `views.go.tmpl`(`FuncMap`에 `date`), `internal/web/templates.go`·`walk.go`(`date`의 검사)
+- 시험: 루트(접두어의 각 출구, 잘못된 접두어, 다른 접두어의 두 번째 `Handler`, `date`), `cmd/maago/testdata/web`(`/app`에서 `{{url}}`·`XxxURL`·`SeeOther`·로그인 이동, `date`)
+
+하지 않기로 한 것
+- 정적 파일 URL(M7), 프록시가 떼지 않는 배치, 요청마다 다른 타임존(사용자별)
+
+단계
+1. 접두어 → 확인: `/app`에서 `XxxURL`·`{{url}}`·`SeeOther`의 `Location`·로그인 이동과 `next`가 `/app/…`, 라우트는 `/posts/1`로 들어온다, 잘못된 꼴과 다른 접두어의 두 번째 `Handler`는 오류
+2. `date` → 확인: `Config.TimeZone`(Asia/Seoul)으로 표시, 걷기가 `date`의 인자(시각 아님, 형식이 리터럴 아님)를 잡음
+3. 문서 → 확인: `go doc`으로 보이는 예, `OnError`가 뷰 오류와 panic을 받는 시험(3번에 있다: 이름을 적는다)
+4. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)와 사람의 결정 — 위 계획을 이렇게 고친다
+- **사람의 결정(2026-10-05)**: 접두어와 표시 타임존은 `Handler`가 정하는 프로세스 값(`atomic`, 마지막 `Handler`가 이긴다, `Handler` 없이 부른 `XxxURL`은 접두어 없음·UTC). 시각 함수는 `{{date "형식" .T}}`(파이프 `{{.T | date "형식"}}`). D-122
+- **접두어는 경로를 만드는 자리에서 정확히 한 번**(fable 2, codex 1·3·9): `XxxURL`, `{{url}}`(부르는 때 읽는다, init에 잡지 않는다), 요청에서 만드는 `next`. `SeeOther`·`http.Redirect`·`Config.LoginURL`은 손대지 않는다(이미 바깥에서 보이는 URL: `SeeOther[P](PostDetailURL(id))`, `LoginURL: "/app/login"`). 그래서 `/app/app/…`이 생길 자리가 없다. 확인은 `Location`을 정확한 값으로 비교한다
+- **"두 번째 Handler 오류"는 버린다**(fable 1, D-114): 한 시험 프로세스가 `Handler`를 여럿 만든다. 마지막 것이 이긴다고 문서에 적는다
+- **프록시가 떼지 않는 배치**(fable 3): `main`에서 `http.StripPrefix(cfg.Prefix, h)` 한 줄로 된다: `Prefix` 문서에 적는다. 교차 출처 검사는 브라우저의 `Origin`과 요청의 `Host`를 비교하므로 프록시는 바깥 `Host`를 넘겨야 한다(codex 4): 같은 문서에
+- **`date`**(fable 5, codex 6·7): `date(형식 string, t)`, 형식은 문자열 리터럴(걷기가 검사, Go가 형식 글 자체는 검증하지 않음), t는 `time.Time` 또는 `*time.Time`(nil과 영값은 빈 글). 걷기의 `funcNames`·생성 `FuncMap`에 더한다. 폼의 `Field[time.Time]`을 다시 그릴 때도 `date "2006-01-02T15:04" .Form.Start.Value`
+- **`OnError` 예시**(codex 8): 5xx(뷰의 오류와 panic)만 듣는다, CSRF 403·로그인 401은 아니다, 요청마다 동시에 불린다
+- 확인 고침: 같은 시험 프로세스에서 접두어 없는 `Handler`와 `/app` `Handler`(마지막이 이김), `Location`·`next`의 정확한 값, `XxxURL`과 `{{url}}`이 `/app`에서도 같음(5번의 비교에 접두어). `OnError` 시험은 `TestErrorStatus`·`TestPanicIsAnError`·`TestOnErrorNilLogs`(3번)
+- M7에 넘김(fable 7): `{{static}}`은 같은 `maago.Prefix()`를 부르는 때 읽고, 정적 라우트는 접두어 없이 등록
+- 받지 않음: codex 5의 "init 전에 설정을 넣기"(생성 코드가 부르는 때 읽어 init 순서와 상관없다), codex 2의 프록시 통합 시험(`StripPrefix` 한 줄은 stdlib의 일)
+
+구현 리뷰 (ponytail·codex·fable)
+- 만들며 확인한 것: 변이 넷(`URLFunc`·`next`·생성된 `XxxURL`에서 접두어를 뺌, `date`가 타임존을 무시)이 모두 잡힌다
+- ponytail(스스로): 지울 것 없음. `process`는 값 둘과 `atomic.Pointer` 하나
+- codex(샌드박스가 빌드를 막아 코드만 읽음): 받음 — `Prefix`의 각 조각은 비어 있지 않고 `url.PathEscape`가 바꾸지 않아야 한다(1: `/a b`·`/%2F`·`/a?b`·`/a//b`는 오류, `/app/sub`은 됨). 받지 않음 — 2 `type MyTime time.Time`(이름 붙은 다른 시각 타입)을 `date`가 받는 것: reflect가 필요하다(D-66). 거절하고 걷기가 생성 때 알린다. 4 `RequestURI`가 빈 손수 만든 요청: 서버가 준 요청은 늘 있다. 5 병렬 시험의 전역: D-122의 대가로 적혀 있다
+- fable(변이 다섯 모두 잡힘): 받음 — 픽스처의 `/app` 시험을 `http.StripPrefix`로 감싸 `XxxURL`로 요청하고 `SeeOther`의 `Location`을 따라가 200(겹친 접두어면 404, 1), 숨은 상태를 사용자가 읽는 자리에(`DateFunc`의 "Handler 전에는 UTC", `Config.Prefix`의 "마지막 Handler", 2), `OnError` 문구(3), 폼 필드의 `date`(4: `{{date "2006-01-02T15:04" .Form.Start.Value}}`), M7 넘김을 MILESTONES M7에(6). 5(두 접두어 읽는 자리)는 관찰, 고칠 것 없음
+
+
+
+
 ## 12. 게시판 튜토리얼의 M4 단계 (D-103)
 
 M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 함께. 상태가 걸린 단계(상태 전이)는 4번의 열린 질문을 기다린다.

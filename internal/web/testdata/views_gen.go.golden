@@ -26,7 +26,7 @@ var maagoRoutes = map[string]string{
 
 // maagoPages are the template sets of the pages: base.html, if there is
 // one, and the page.
-var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes)},
+var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes), "date": maago.DateFunc},
 	"home_page.html",
 	"post_page.html",
 )

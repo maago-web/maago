@@ -16,6 +16,6 @@ var App = maago.NewApp({{printf "%q" .ImportPath}},
 {{end}}{{range .Routes}}
 // {{.URL}} is the path of route {{.Name}}: {{.Method}} {{.Path}}.
 func {{.URL}}({{.Params}}) string {
-	return {{.URLExpr}}
+	return maago.Prefix() + {{.URLExpr}}
 }
 {{end}}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/maago-web/maago"
 )
@@ -26,10 +27,13 @@ type PageIn struct {
 }
 
 type NumberPage struct {
-	N int32
+	N  int32
+	At time.Time // shown in Config.TimeZone
 }
 
-func Page(ctx context.Context, in PageIn) (NumberPage, error) { return NumberPage{in.N}, nil }
+func Page(ctx context.Context, in PageIn) (NumberPage, error) {
+	return NumberPage{N: in.N, At: time.Date(2026, 10, 1, 0, 30, 0, 0, time.UTC)}, nil
+}
 
 type ListIn struct {
 	Page  int32 `maago:"query=page"`

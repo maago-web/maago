@@ -84,7 +84,7 @@ func boardFiles(old, new string) map[string]string {
 		"main.go":                          "package main\n\nimport \"example.com/app/board\"\n\nvar _ = board.App\n\nfunc main() {}\n",
 		"board/urls.go":                    src,
 		"board/templates/board_page.html":  "{{with .Form.Name}}<label>{{.Label}}</label><input name=\"{{.Name}}\" value=\"{{.Raw}}\">{{.Error}}{{end}}{{range .Form.Errors}}{{.}}{{end}}\n",
-		"board/templates/notice_page.html": "{{.Form.Title.Raw}}{{.Form.Days.Value}}{{.Form.Pinned.Value}}{{.Form.Start.Value.Year}}{{if .Form.Valid}}ok{{end}}\n",
+		"board/templates/notice_page.html": "{{.Form.Title.Raw}}{{.Form.Days.Value}}{{.Form.Pinned.Value}}{{.Form.Start.Value.Year}}{{date \"2006-01-02T15:04\" .Form.Start.Value}}{{if .Form.Valid}}ok{{end}}\n",
 	}
 }
 

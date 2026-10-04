@@ -437,6 +437,9 @@ func (w *walker) call(id *parse.IdentifierNode, args []parse.Node, dot val, sc *
 	case "url":
 		w.url(id, args, vs)
 		return val{t: types.Typ[types.String]}
+	case "date":
+		w.date(id, args, vs)
+		return val{t: types.Typ[types.String]}
 	}
 	return val{label: "the result of " + id.Ident} // index, slice, call, and, or: no type known
 }
@@ -510,4 +513,29 @@ func kindOf(v val) string {
 		return "a " + v.konst + " constant"
 	}
 	return types.TypeString(v.t, nil)
+}
+
+// date checks {{date "layout" .T}} and {{.T | date "layout"}}: a string
+// literal for the layout, a time.Time or *time.Time to show (D-122). Go
+// does not check the layout itself.
+func (w *walker) date(id *parse.IdentifierNode, args []parse.Node, vs []val) {
+	if len(vs) != 2 {
+		w.errAt(id, 0, fmt.Sprintf("date takes a layout and a time, not %d values", len(vs)), `write {{date "2006-01-02 15:04" .CreatedAt}}`)
+		return
+	}
+	if _, ok := args[0].(*parse.StringNode); !ok {
+		w.errAt(args[0], 0, "the layout of date is not a string literal", `write it in quotes: {{date "2006-01-02" .CreatedAt}}`)
+		return
+	}
+	var at parse.Node = id // the time came through the pipe
+	if len(args) > 1 {
+		at = args[1]
+	}
+	switch t := vs[1]; {
+	case t.bad:
+	case t.t == nil:
+		w.errAt(at, 0, "cannot check the time of date: its type is not known here", "pass a field of the page struct")
+	case types.TypeString(t.t, nil) != "time.Time" && types.TypeString(t.t, nil) != "*time.Time":
+		w.errAt(at, 0, fmt.Sprintf("date shows a time.Time, not %s", kindOf(t)), "pass a time.Time or *time.Time")
+	}
 }

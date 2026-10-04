@@ -27,6 +27,18 @@ type Config struct {
 	Origins []string
 
 	// OnError hears of every 5xx: a view's error or a panic. Nil logs.
+	// A 4xx is not an error to report: a bad path, a form, the cross-origin
+	// check, a login. Every request that fails with a 5xx calls it, at the same time as others, so it
+	// must be safe for that. To
+	// send errors to a service such as Sentry, report from here:
+	//
+	//	OnError: func(ctx context.Context, r *http.Request, err error) {
+	//		log.Printf("%s %s: %v", r.Method, r.URL.Path, err)
+	//		reporter.Capture(ctx, err) // the service's client
+	//	},
+	//
+	// What must see every request, such as timing, wraps the Handler as
+	// middleware (D-46).
 	OnError func(ctx context.Context, r *http.Request, err error)
 
 	// Messages are the errors forms show; an empty one keeps the English
@@ -45,6 +57,17 @@ type Config struct {
 	// send a page to the login page). The database is in r's context:
 	// DBFrom(r.Context()).
 	Auth func(r *http.Request) (any, error)
+
+	// Prefix is the path the site is under, such as "/app", or "" (D-122).
+	// The proxy in front takes it off before passing a request on, so routes
+	// stay as the table says; if it does not, main wraps the handler in
+	// http.StripPrefix(cfg.Prefix, h). It goes before the paths the
+	// generated URL functions, {{url}} and the login page's next make. The
+	// proxy must pass on the Host the browser asked for: the cross-origin
+	// check compares it with Origin. URLs given as such (LoginURL, the URL of
+	// SeeOther) are left as they are. It holds for the process: the last
+	// Handler made sets it, with TimeZone, for the URL and template functions.
+	Prefix string
 
 	// LoginURL is where an HTML route that requires login sends a GET or
 	// HEAD without a user, with the request's path and query in next.
@@ -113,6 +136,9 @@ func Handler(cfg Config) (http.Handler, error) {
 	case htmlLogin && cfg.LoginURL == "":
 		return nil, errors.New("maago: HTML routes require login, but Config.LoginURL is empty; set it to the login page")
 	}
+	if cfg.Prefix != "" && (!strings.HasPrefix(cfg.Prefix, "/") || slices.ContainsFunc(strings.Split(cfg.Prefix, "/")[1:], func(seg string) bool { return seg == "" || url.PathEscape(seg) != seg })) {
+		return nil, fmt.Errorf("maago: Config.Prefix %q is not a path such as /app: start it with /, end it without, and use no character a URL path escapes", cfg.Prefix)
+	}
 	if u, err := url.Parse(cfg.LoginURL); err != nil {
 		return nil, fmt.Errorf("maago: Config.LoginURL: %w", err)
 	} else if cfg.LoginURL != "" && !u.IsAbs() && !strings.HasPrefix(u.Path, "/") {
@@ -128,6 +154,11 @@ func Handler(cfg Config) (http.Handler, error) {
 		h.fail(w, h.route(r), http.StatusForbidden, errors.New("cross-origin request from an origin not in Config.Origins"))
 	}))
 	h.next = csrf.Handler(h.mux)
+	tz := cfg.TimeZone
+	if tz == nil {
+		tz = time.UTC
+	}
+	current.Store(&process{cfg.Prefix, tz}) // the last Handler wins (D-122)
 	return h, nil
 }
 
@@ -377,7 +408,7 @@ func (r Result[P]) Page() (P, string) { return r.page, r.to }
 func (h *handler) loginURL(r *http.Request) string {
 	u, _ := url.Parse(h.cfg.LoginURL) // Handler parsed it
 	q := u.Query()
-	q.Set("next", r.URL.RequestURI())
+	q.Set("next", h.cfg.Prefix+r.URL.RequestURI()) // the path the browser asked for
 	u.RawQuery = q.Encode()
 	return u.String()
 }

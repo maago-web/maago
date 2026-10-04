@@ -21,35 +21,35 @@ var App = maago.NewApp("example.com/app/site",
 
 // HomeURL is the path of route home: GET /{$}.
 func HomeURL() string {
-	return "/"
+	return maago.Prefix() + "/"
 }
 
 // PostDetailURL is the path of route post_detail: GET /posts/{id}.
 func PostDetailURL(id int64) string {
-	return "/posts/" + strconv.FormatInt(id, 10)
+	return maago.Prefix() + "/posts/" + strconv.FormatInt(id, 10)
 }
 
 // TagPageURL is the path of route tag_page: GET /tags/{tag}/{n}.
 func TagPageURL(tag string, n int32) string {
-	return "/tags/" + maago.PathSegment(tag) + "/" + strconv.FormatInt(int64(n), 10)
+	return maago.Prefix() + "/tags/" + maago.PathSegment(tag) + "/" + strconv.FormatInt(int64(n), 10)
 }
 
 // PostUpdateURL is the path of route post_update: POST /posts/{id}.
 func PostUpdateURL(id int64) string {
-	return "/posts/" + strconv.FormatInt(id, 10)
+	return maago.Prefix() + "/posts/" + strconv.FormatInt(id, 10)
 }
 
 // ApiPostURL is the path of route api_post: GET /api/posts/{id}.
 func ApiPostURL(id int64) string {
-	return "/api/posts/" + strconv.FormatInt(id, 10)
+	return maago.Prefix() + "/api/posts/" + strconv.FormatInt(id, 10)
 }
 
 // FeedURL is the path of route feed: GET /feed.csv.
 func FeedURL() string {
-	return "/feed.csv"
+	return maago.Prefix() + "/feed.csv"
 }
 
 // ByPostIDURL is the path of route by_post_id: GET /by/{post_id}.
 func ByPostIDURL(post_id int64) string {
-	return "/by/" + strconv.FormatInt(post_id, 10)
+	return maago.Prefix() + "/by/" + strconv.FormatInt(post_id, 10)
 }

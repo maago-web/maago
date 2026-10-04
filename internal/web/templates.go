@@ -23,7 +23,10 @@ import (
 
 // funcNames are the functions templates may call beside text/template's
 // own: a closed list, enforced by parsing with only these.
-var funcNames = template.FuncMap{"url": func(string, ...any) (string, error) { return "", nil }}
+var funcNames = template.FuncMap{
+	"url":  func(string, ...any) (string, error) { return "", nil },
+	"date": func(string, any) (string, error) { return "", nil },
+}
 
 // page is an HTML route's page, as checkTemplates sees it.
 type page struct {

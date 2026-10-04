@@ -56,9 +56,9 @@ func TestRequests(t *testing.T) {
 	}{
 		{"GET", PostDetailURL(p.ID), 200, "<h1>hello &lt;b&gt;</h1>"},
 		{"GET", "/posts/abc", 404, "Not Found"},
-		{"GET", PostDetailURL(p.ID + 1), 404, "Not Found"}, // sql.ErrNoRows
-		{"GET", PageURL(7), 200, "<p>7</p>"},
-		{"GET", "/pages/99999999999", 404, "Not Found"}, // past int32
+		{"GET", PostDetailURL(p.ID + 1), 404, "Not Found"},       // sql.ErrNoRows
+		{"GET", PageURL(7), 200, "<p>7 at 2026-10-01 00:30</p>"}, // UTC: no Config.TimeZone
+		{"GET", "/pages/99999999999", 404, "Not Found"},          // past int32
 		{"GET", "/list?page=2", 200, "page 2, draft unset"},
 		{"GET", "/list?page=2&draft=true", 200, "page 2, draft yes"},
 		{"GET", "/list?page=abc", 400, "Bad Request"},
@@ -289,5 +289,50 @@ func TestLogin(t *testing.T) {
 		if w.Code != c.code || !strings.Contains(w.Body.String(), c.has) || w.Header().Get("Location") != c.location {
 			t.Errorf("%s: %d %q Location %q", c.name, w.Code, w.Body, w.Header().Get("Location"))
 		}
+	}
+}
+
+// TestPrefix serves the app under /app (D-122) behind http.StripPrefix, as
+// a proxy that keeps /app needs: every path the app makes has /app once,
+// and requests to those paths reach their routes.
+func TestPrefix(t *testing.T) {
+	_, db, _ := handler(t)
+	seoul, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, LoginURL: "/app/login", Prefix: "/app", TimeZone: seoul})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := PostDetailURL(7); got != "/app/posts/7" {
+		t.Errorf("PostDetailURL: %q", got)
+	}
+	sh := http.StripPrefix("/app", h) // what main does when the proxy keeps /app
+	do := func(method, path, ct, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		if ct != "" {
+			r.Header.Set("Content-Type", ct)
+		}
+		w := httptest.NewRecorder()
+		sh.ServeHTTP(w, r)
+		return w
+	}
+	page := do("GET", PageURL(7), "", "").Body.String()
+	for _, s := range []string{"<p>7 at 2026-10-01 09:30</p>", "/app/posts/7 /app/pages/7 /app/list /app/list/rows /app/posts /app/api/posts/7 /app/broken /app/export/csv"} {
+		if !strings.Contains(page, s) {
+			t.Errorf("no %q in %s", s, page)
+		}
+	}
+	if loc := do("GET", SecretURL(), "", "").Header().Get("Location"); loc != "/app/login?next=%2Fapp%2Fsecret" {
+		t.Errorf("login: %q", loc)
+	}
+	w := do("POST", PostNewSaveURL(), "application/x-www-form-urlencoded", "title=prefixed&count=1")
+	loc := w.Header().Get("Location")
+	if w.Code != 303 || !strings.HasPrefix(loc, "/app/posts/") {
+		t.Fatalf("SeeOther: %d %q", w.Code, loc)
+	}
+	if got := do("GET", loc, "", ""); got.Code != 200 || !strings.Contains(got.Body.String(), "prefixed") { // a doubled prefix would be a 404
+		t.Errorf("following SeeOther: %d %s", got.Code, got.Body)
 	}
 }

@@ -14,6 +14,7 @@ const blog = `package blog
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/maago-web/maago"
 )
@@ -48,6 +49,8 @@ type ListPage struct {
 	Any    any
 	Name   string
 	Ch     chan Post
+	At     time.Time
+	AtP    *time.Time
 }
 
 func List(ctx context.Context, in struct{}) (ListPage, error) { return ListPage{}, nil }
@@ -91,7 +94,7 @@ func blogFiles(templates ...string) map[string]string {
 
 func TestTemplatesPass(t *testing.T) {
 	list := `{{$p := .Posts}}{{range $i, $e := $p}}{{$e.Title}}{{$i}}{{$.Count}}{{.Excerpt}}{{.Meta.k}}{{.Author.Name}}{{break}}{{end}}` +
-		`{{range .Count}}{{.}}{{end}}{{range $k, $v := .ByName}}{{$k}}{{$v.ID}}{{end}}{{range $i, $p := .All}}{{$p.Title}}{{end}}{{range $i := .All}}{{$i}}{{.}}{{end}}{{range .Ch}}{{.Title}}{{end}}{{range .Posts}}{{.PtrMethod}}{{end}}` +
+		`{{range .Count}}{{.}}{{end}}{{range $k, $v := .ByName}}{{$k}}{{$v.ID}}{{end}}{{range $i, $p := .All}}{{$p.Title}}{{end}}{{range $i := .All}}{{$i}}{{.}}{{end}}{{range .Ch}}{{.Title}}{{end}}{{range .Posts}}{{.PtrMethod}}{{end}}{{date "2006-01-02" .At}}{{.At | date "2006"}}{{date "15:04" .AtP}}` +
 		`{{with .Posts}}{{len .}}{{else}}none{{end}}{{if .Count}}{{.Name}}{{else if .Name}}x{{end}}{{printf "%d" .Count}}` +
 		`<a href="{{url "post_detail" 3}}">{{url "post_list"}}</a>{{range .Posts}}<a href="{{url "post_detail" .ID}}"></a>{{end}}` +
 		`{{index .Posts 0}}{{.Any}}{{block "rows" .}}<p>{{.Count}}</p>{{end}}{{define "row"}}{{.Title}}{{$.ID}}{{end}}{{range .Posts}}{{template "row" .}}{{end}}`
@@ -167,8 +170,10 @@ func TestTemplateErrors(t *testing.T) {
 			[]string{`blog/templates/list_page.html:1:9: cannot range over ListPage.Name`}},
 		{"no template", blogFiles("list_page.html", "{{template \"nope\" .}}{{block \"rows\" .}}{{end}}\n"),
 			[]string{`blog/templates/list_page.html:1:12: no template "nope"`}},
-		{"unknown function", blogFiles("list_page.html", "{{date .Count}}{{block \"rows\" .}}{{end}}\n"),
-			[]string{`blog/templates/list_page.html:1: function "date" not defined`}},
+		{"date", blogFiles("list_page.html", "{{date .Name .At}}{{date \"2006\" .Count}}{{date \"2006\"}}{{block \"rows\" .}}{{end}}\n"),
+			[]string{`blog/templates/list_page.html:1:8: the layout of date is not a string literal`, `blog/templates/list_page.html:1:33: date shows a time.Time, not int`, `blog/templates/list_page.html:1:43: date takes a layout and a time, not 1 values`}},
+		{"unknown function", blogFiles("list_page.html", "{{nope .Count}}{{block \"rows\" .}}{{end}}\n"),
+			[]string{`blog/templates/list_page.html:1: function "nope" not defined`}},
 
 		// {{url}}.
 		{"url name", blogFiles("list_page.html", "{{url \"post_detial\" 1}}{{block \"rows\" .}}{{end}}\n"),
@@ -180,12 +185,12 @@ func TestTemplateErrors(t *testing.T) {
 
 		// Blocks and files.
 		{"no block", blogFiles("list_page.html", "{{.Count}}\n"),
-			[]string{`blog/urls.go:12:40: template blog/templates/list_page.html has no block "rows"`}},
+			[]string{`blog/urls.go:13:40: template blog/templates/list_page.html has no block "rows"`}},
 		{"block of a handler", func() map[string]string {
 			f := blogFiles()
 			f["blog/urls.go"] = strings.Replace(blog, `"feed", Feed)`, `"feed", Feed, maago.Block("rows"))`, 1)
 			return f
-		}(), []string{`blog/urls.go:14:2: route feed renders a block, but its view returns no page`}},
+		}(), []string{`blog/urls.go:15:2: route feed renders a block, but its view returns no page`}},
 		{"escaping", blogFiles("detail_page.html", "<a href=\"{{.Post.Title}}\n"),
 			[]string{`blog/templates/detail_page.html: ends in a non-text context`}},
 		{"walked before executed", blogFiles("detail_page.html", "<a href=\"{{.Post.Titel}}\n"),

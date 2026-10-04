@@ -106,8 +106,16 @@ blog/templates/list_page.html:1:9: cannot range over ListPage.Name of type strin
 blog/templates/list_page.html:1:12: no template "nope"
   fix: define it with {{define "nope"}}, or name one the set has
 
+# date
+blog/templates/list_page.html:1:8: the layout of date is not a string literal
+  fix: write it in quotes: {{date "2006-01-02" .CreatedAt}}
+blog/templates/list_page.html:1:33: date shows a time.Time, not int
+  fix: pass a time.Time or *time.Time
+blog/templates/list_page.html:1:43: date takes a layout and a time, not 1 values
+  fix: write {{date "2006-01-02 15:04" .CreatedAt}}
+
 # unknown function
-blog/templates/list_page.html:1: function "date" not defined
+blog/templates/list_page.html:1: function "nope" not defined
   fix: fix the template; it is Go's html/template
 
 # url name
@@ -123,11 +131,11 @@ blog/templates/list_page.html:1:53: cannot check url: the route name is not a st
   fix: write the name in quotes: {{url "post_detail" .ID}}
 
 # no block
-blog/urls.go:12:40: template blog/templates/list_page.html has no block "rows"
+blog/urls.go:13:40: template blog/templates/list_page.html has no block "rows"
   fix: name a {{block}} or {{define}} of the page or of base.html
 
 # block of a handler
-blog/urls.go:14:2: route feed renders a block, but its view returns no page
+blog/urls.go:15:2: route feed renders a block, but its view returns no page
   fix: remove maago.Block
 
 # escaping
