@@ -179,22 +179,37 @@ maago makemigrations --rename posts.text:body
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 
 	"github.com/maago-web/maago"
-	_ "github.com/maago-web/maago/contrib/admin"
-	_ "github.com/maago-web/maago/contrib/auth"
+	"github.com/maago-web/maago/contrib/admin"
+	"github.com/maago-web/maago/contrib/auth"
+	_ "modernc.org/sqlite" // DB 드라이버는 앱이 import한다
 
-	_ "example.com/myblog/blog"
+	"example.com/myblog/blog"
 )
 
 func main() {
-	log.Fatal(http.ListenAndServe(":8000", maago.Handler())) // 🔮
+	db, err := maago.OpenDB(context.Background(), maago.DBConfig{}) // 주소는 .env의 MAAGO_DATABASE_URL
+	if err != nil {
+		log.Fatal(err)
+	}
+	h, err := maago.Handler(maago.Config{
+		DB:   db,
+		Apps: []maago.App{blog.App, auth.App, admin.App}, // 🔮 auth·admin
+		Auth: auth.FromSession,                           // 🔮 요청의 세션에서 사용자를 찾는 함수
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Fatal(http.ListenAndServe(":8000", h))
 }
 ```
 
-앱은 blank import로 등록합니다. 관리자 계정을 만들고 서버를 켭니다.
+앱은 `main`이 `Config.Apps`에 적습니다. `blog.App`은 `maago gen`이 만든 값이고, 앱을 빠뜨리면
+`maago gen`이 알려 줍니다. 관리자 계정을 만들고 서버를 켭니다.
 
 ```sh
 maago createsuperuser   # 🔮
@@ -300,7 +315,7 @@ package blog
 import "github.com/maago-web/maago"
 
 var Routes = maago.Routes{
-	maago.GET("/", "post_list", PostList),
+	maago.GET("/{$}", "post_list", PostList), // {$}: "/" 하나만. /로 끝나는 경로는 {$}를 붙여야 한다
 	maago.GET("/post/{id}", "post_detail", PostDetail),
 }
 ```
@@ -323,12 +338,12 @@ type PostListPage struct {
 }
 
 func PostList(ctx context.Context, in struct{}) (PostListPage, error) {
-	posts, err := PublishedPosts(ctx, maago.DBFrom(ctx)) // 🔮
+	posts, err := PublishedPosts(ctx, maago.DBFrom(ctx))
 	return PostListPage{Posts: posts}, err
 }
 
 type PostDetailIn struct {
-	ID int64 `maago:"path=id"` // 🔮
+	ID int64 `maago:"path=id"` // 경로의 {id}
 }
 
 type PostDetailPage struct {
@@ -342,25 +357,28 @@ func PostDetail(ctx context.Context, in PostDetailIn) (PostDetailPage, error) {
 ```
 
 `/post/abc`처럼 해석할 수 없는 값이나, 글이 없어서 나온 `sql.ErrNoRows`는 404가 됩니다.
+In에 query 필드가 있으면(``Page int64 `maago:"query=page"` ``), `?page=abc`처럼 읽을 수 없는 값은 400입니다. 그 밖의 오류는 500이고 `Config.OnError`가 듣습니다.
 
 ## 8. 템플릿
 
-템플릿은 Go 표준 `html/template`입니다. 뷰가 돌려주는 타입이 템플릿의 데이터 타입입니다.
+템플릿은 Go 표준 `html/template`입니다. 뷰가 돌려주는 타입이 템플릿을 정합니다: `PostListPage`는
+`templates/post_list_page.html`입니다. 틀은 앱의 `templates/base.html`이고, 페이지는 `{{define "content"}}`를
+채웁니다.
 
 ```html
-<!-- blog/templates/post_list.html -->
+<!-- blog/templates/post_list_page.html -->
 {{define "content"}}
   {{range .Posts}}
     <article>
       <h2><a href="{{url "post_detail" .ID}}">{{.Title}}</a></h2>
-      <p>{{.PublishedAt}}</p>
+      <p>{{date "2006-01-02" .PublishedAt}}</p>
     </article>
   {{end}}
 {{end}}
 ```
 
 ```html
-<!-- blog/templates/post_detail.html -->
+<!-- blog/templates/post_detail_page.html -->
 {{define "content"}}
   <h1>{{.Post.Title}}</h1>
   <div>{{.Post.Text}}</div>
@@ -372,29 +390,34 @@ func PostDetail(ctx context.Context, in PostDetailIn) (PostDetailPage, error) {
 `{{.Post.Title}}`을 `{{.Post.Titel}}`로, `post_detail`을 `post_detial`로 바꾸고 `maago gen`을 돌리면:
 
 ```
-blog/templates/post_detail.html:3:7: PostDetailPage.Post has no field "Titel"
+blog/templates/post_detail_page.html:2:15: PostDetailPage.Post has no field or method "Titel"
   fix: did you mean "Title"?
-blog/templates/post_list.html:5:22: unknown route name "post_detial"
-  fix: did you mean "post_detail"? routes are declared in blog/urls.go
+blog/templates/post_list_page.html:4:26: unknown route name "post_detial"
+  fix: did you mean "post_detail"? routes are declared in the apps' var Routes
 ```
 
 두 오류가 **한 번에** 나옵니다. 하나 고치고 다시 돌리고, 또 하나 고치고 다시 돌릴 필요가 없습니다.
-브라우저를 열기 전에 잡힙니다.
+브라우저를 열기 전에 잡힙니다. 그리고 `maago gen`은 아무 파일도 쓰지 않습니다.
 
 ## 9. 폼 (맛보기)
 
-글쓰기 폼도 태그에서 만들어집니다.
+글쓰기 폼은 모델에서 규칙을 받습니다.
 
 ```go
 // blog/forms.go
 type PostForm struct {
-	Title string `maago:"max=200,label='제목'"`
-	Text  string `maago:"label='본문'"`
+	maago.Form `maago:"model=Post"` // 필수, max=200, 라벨 '제목'은 모델의 태그에서
+	Title      maago.Field[string]
+	Text       maago.Field[string]
 }
 ```
 
-생성된 코드는 칸이 비어 있는 것, 숫자로 읽을 수 없는 것, 범위를 벗어난 것을 서로 다르게 알려 줍니다.
-값을 조용히 버리지 않습니다.
+뷰는 In의 ``Form PostForm `maago:"form"` ``으로 폼을 받습니다. GET이면 빈 폼을 그리고, POST면 생성된
+코드가 칸마다 읽고 검사합니다. `f.Valid()`가 참이면 저장하고 `maago.SeeOther`로 보냅니다(303). 아니면
+같은 화면을 다시 그립니다(200). 칸마다 `.Error`에 문구가, `.Raw`에 보낸 글이 남습니다.
+
+숫자 칸이라면 비어 있는 것, 숫자로 읽을 수 없는 것, 범위를 벗어난 것을 서로 다른 문구로 알려 줍니다.
+값을 조용히 버리지 않습니다. 같은 폼을 API 라우트에서는 JSON으로 받고, 틀리면 422로 답합니다.
 
 ## 10. 커밋하기 전에
 
@@ -425,9 +448,6 @@ maago check
 |---|---|---|
 | 3 | 모델 태그 `ordering=-PublishedAt`의 `-`가 내림차순 | D-13 |
 | 4 | auth 사용자 테이블 이름 `auth_user`, `fk=auth.User` 표기 | U-06 |
-| 5 | `maago.Handler()`로 전체 핸들러를 얻는다 | D-40, D-46 |
+| 5 | auth·admin의 `App` 값, `Config.Auth`에 넘길 함수 `auth.FromSession` | D-50, D-121 |
 | 5 | `maago createsuperuser` 명령 | D-50 |
-| 7 | 모든 오류 문구(3·6의 문구는 실제 출력) | D-62 |
-| 7 | 뷰에서 DB를 얻는 `maago.DBFrom(ctx)` | D-46 |
-| 7 | path 값 바인딩 태그 `maago:"path=id"` | D-41 |
-| 8 | 템플릿 파일 위치와 `{{define "content"}}` 레이아웃 방식 | D-42 |
+| 7 | 모든 오류 문구(3·6·8의 문구는 실제 출력) | D-62 |

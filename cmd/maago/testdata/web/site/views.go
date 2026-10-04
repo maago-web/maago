@@ -105,11 +105,11 @@ func PostForm(ctx context.Context, in PostFormIn) (maago.Result[PostFormPage], e
 		return maago.Show(PostFormPage{f}), nil
 	}
 	db := maago.DBFrom(ctx)
-	var taken bool
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM site_post WHERE title = ?)`, f.Title.Value).Scan(&taken); err != nil {
+	taken, err := TitleTaken(ctx, db, TitleTakenParams{Title: f.Title.Value})
+	if err != nil {
 		return maago.Result[PostFormPage]{}, err
 	}
-	if taken {
+	if taken.Taken {
 		f.Title.Error = "that title is taken"
 		return maago.Show(PostFormPage{f}), nil
 	}
@@ -130,11 +130,11 @@ func APIPostCreate(ctx context.Context, in PostFormIn) (Post, error) {
 	apiCalls++
 	f := in.Form
 	db := maago.DBFrom(ctx)
-	var taken bool
-	if err := db.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM site_post WHERE title = ?)`, f.Title.Value).Scan(&taken); err != nil {
+	taken, err := TitleTaken(ctx, db, TitleTakenParams{Title: f.Title.Value})
+	if err != nil {
 		return Post{}, err
 	}
-	if taken {
+	if taken.Taken {
 		return Post{}, maago.Invalid(&f.Title, "that title is taken")
 	}
 	return InsertPost(ctx, db, NewPostInput{Title: f.Title.Value})

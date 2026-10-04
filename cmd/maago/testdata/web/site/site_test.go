@@ -8,34 +8,29 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/maagotest"
 	_ "modernc.org/sqlite"
 )
 
-// handler serves the app on a new database with the project's migration.
+// trusted is the other origin the Config trusts (D-47).
+const trusted = "https://trusted.example"
+
+// handler serves the app on a new database with the project's
+// migrations, in the dialect of MAAGO_DATABASE_URL (D-113): cmd/maago's
+// TestWeb runs these tests on SQLite, TestM4Done on PostgreSQL. They are
+// not parallel: apiCalls and exportGate are package variables.
 func handler(t *testing.T) (http.Handler, *sql.DB, *[]error) {
 	t.Helper()
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "app.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { db.Close() })
-	ddl, err := os.ReadFile("../migrations/0001_initial.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(string(ddl)); err != nil {
-		t.Fatal(err)
-	}
+	db := maagotest.DB(t)
 	var reported []error
-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, LoginURL: "/login",
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, LoginURL: "/login", Origins: []string{trusted},
 		OnError: func(_ context.Context, _ *http.Request, err error) { reported = append(reported, err) }})
 	if err != nil {
 		t.Fatal(err)
@@ -94,6 +89,22 @@ func TestRequests(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest("POST", PostCreateURL(), nil))
 	if w.Code != 303 || !strings.HasPrefix(w.Header().Get("Location"), "/posts/") {
 		t.Errorf("POST: %d, Location %q", w.Code, w.Header().Get("Location"))
+	}
+
+	// A POST from another site is refused; one from the origin the Config
+	// trusts passes (D-47).
+	for _, c := range []struct {
+		origin string
+		code   int
+	}{{"https://evil.example", 403}, {trusted, 303}} {
+		r := httptest.NewRequest("POST", PostCreateURL(), nil)
+		r.Header.Set("Origin", c.origin)
+		r.Header.Set("Sec-Fetch-Site", "cross-site")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != c.code {
+			t.Errorf("POST from %s: %d, want %d", c.origin, w.Code, c.code)
+		}
 	}
 }
 
@@ -288,6 +299,9 @@ func TestLogin(t *testing.T) {
 		h.ServeHTTP(w, r)
 		if w.Code != c.code || !strings.Contains(w.Body.String(), c.has) || w.Header().Get("Location") != c.location {
 			t.Errorf("%s: %d %q Location %q", c.name, w.Code, w.Body, w.Header().Get("Location"))
+		}
+		if c.code == 401 && w.Header().Get("Content-Type") != "application/problem+json" {
+			t.Errorf("%s: Content-Type %q, want RFC 9457's", c.name, w.Header().Get("Content-Type"))
 		}
 	}
 }

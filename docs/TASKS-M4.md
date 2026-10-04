@@ -769,12 +769,69 @@ M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 
 
 → 확인: 완료 조건마다 시험 이름, CI에서 PG가 돈 실행
 
+### 계획
+
+완료 조건과 지금 있는 시험
+1. 튜토리얼의 M4 커밋이 모두 통과: `TestBoardTutorial`(0001~0018)·`TestBoardTutorialCatches`(12번). SQLite. 그대로
+2. `{{.Post.Titel}}`과 없는 URL 이름이 생성 오류: 경우별 표는 `internal/web`의 `TestTemplateErrors`(5번), 파이프라인은 튜토리얼 0009(SQLite)뿐 → **`TestM4Done`이 두 방언에서**: 픽스처를 복사해 두 파일에 오타 하나씩, `build.Gen`이 정확히 두 줄(한 번에, D-61)을 내고 파일 스냅숏이 그대로(D-60). `TestM3Done`의 꼴
+3·4·5. 404·403·허용 출처, 로그인의 303·401, 폼의 세 결과: 픽스처의 `TestRequests`·`TestLogin`·`TestForm`·`TestAPIForm`(3·4·6·7·9번). 지금은 SQLite만 → **픽스처를 두 방언으로**
+   - 픽스처 시험의 DB를 손으로 연 SQLite에서 `maagotest.DB(t)`로(D-113, 방언은 주소가 정한다). 드라이버 둘을 `_` import(픽스처 `go.mod`에 pgx, 버전은 `cmd/maago`의 것)
+   - 뷰의 손 SQL(`SELECT EXISTS … WHERE title = ?`, 두 곳)을 쿼리 파일(`queries/title_taken.sql`)로. `?`는 PG에서 돌지 않는다. `SELECT count(*)`는 자리표시가 없어 그대로
+   - `TestM4Done`이 방언마다: 복사본의 `migrations/`를 지우고 그 방언으로 `makemigrations`(`ordersProject`처럼), `gen`, 조건 2, 그다음 픽스처의 `go test`(PG는 `MAAGO_DATABASE_URL`을 PG 주소로). `TestWeb`은 SQLite 그대로 둔다(빠른 기본 경로)
+- D-65 다시 재기: 튜토리얼 끝 단계(0018)의 `maago gen`과 `check` 시간을 SQLite·PG에서 재어 이 절에 적는다(시험으로 걸지 않는다: 기계마다 다르다. M3도 숫자를 적었다)
+
+문서
+- DECISIONS: M4 계획에서 정한 것은 이미 D-113~D-122와 고침으로 들어갔다. 빠진 것을 훑어 더한다(예: 0012의 모델 폼 `*time.Time`은 `Field[time.Time]` + `optional`이고 nullable을 틀이 지키지 않는다 → D-119에 한 줄. 뷰는 생성된 `bindXxx`·`invalidXxx`를 부를 수 없다 → D-120에 한 줄)
+- D-103 문구: 튜토리얼 단계의 앱 시험은 `maagotest.DB(t)`와 `maago.Handler` + `httptest`(10·12번에서 바뀐 것)
+- TUTORIAL-FUTURE: §5 `maago.Handler(maago.Config{DB, Apps})`와 명시적 앱(D-114, blank import 아님), §7 `/{$}`(D-115), §8 템플릿 이름은 페이지 타입(`post_list_page.html`, D-116)과 실제 오류 문구(0009의 출력), §9 폼은 `maago.Form` 임베드와 `Field[T]`(D-119). 가정 목록에서 결정이 생긴 줄을 지우거나 고친다
+- ARCHITECTURE: A-3은 이미 답이 있다. §2 루트의 공개 이름 목록을 M4의 실제 이름으로(`Handler`·`Config`·`Routes`·`GET`…·`Block`·`Result`·`Show`·`SeeOther`·`Status`·`Form`·`Field`·`Invalid`·`UserFrom`·`Prefix`, 초안의 `Redirect`·`Partial`·`FormErrors`는 지운다), `internal/gotypes`를 목록에. §5 앱 찾기에 `main`의 `Config.Apps`(D-114), 생성 파일에서 `forms_gen.go`를 지움(폼은 `views_gen.go`), §6 `maagotest`가 루트의 `.env`를 찾음
+- ~~12번이 넘긴 것: 탈출구 뷰의 경로 값 정수~~ → M8(사람의 결정, 아래)
+
+하지 않기로 한 것
+- 튜토리얼을 PG로(M8), CI 설정 바꾸기(이미 PG 서비스가 있다)
+
+단계
+1. 픽스처를 두 방언으로(`maagotest.DB`, 쿼리 파일, pgx) → 확인: `TestWeb`(SQLite) 그대로 통과
+2. `TestM4Done` → 확인: 두 방언 통과, 변이(오타 하나만, gen이 파일을 씀, 픽스처의 404를 200으로)가 잡힘
+3. ~~탈출구 경로 값 정수~~ → M8
+4. 문서 → 확인: 링크·이름이 실제 코드와 같음(`git grep`으로 옛 이름이 없음)
+5. 두 모듈 확인 명령, D-65 측정을 적음
+
+계획 리뷰 (codex·fable)와 사람의 결정 — 위 계획을 이렇게 고친다
+- **사람의 결정(2026-10-05)**: 탈출구 뷰의 경로 값 정수(12번이 넘긴 것)는 M8로. 튜토리얼을 PG로 다시 묶을 때 검사기를 고치고 0016의 `(print …)`도 지운다. 지금은 TODO에 한 줄. 위의 "12번이 넘긴 것" 줄과 단계 3은 지운다(codex 6은 여기서, fable 14는 사람에게)
+- **조건 3**(codex 1, fable 1·15): 픽스처의 `handler`에 `Origins: []string{"https://trusted.example"}`, `TestRequests`에 다른 사이트의 POST 403과 믿는 출처의 POST 통과를 더한다. 런타임의 경우별 표는 루트의 `TestCrossOrigin`. CSRF는 DB를 보지 않는다
+- **조건 2**(fable 2·3): 오타를 글 그대로 — `post_page.html`의 `{{.Post.Titel}}`과 `number_page.html`의 `{{url "post_detial" …}}`, 진단은 정확히 둘. 좋은 gen과 오타 gen 사이에 `queries/title_taken.sql`을 고쳐(`queries_gen.go`가 바뀌는 변화) "아무것도 쓰지 않음"이 이빨을 갖게(`TestM3Done`의 `OFFSET 0`)
+- **조건 4**(fable 4): `TestLogin`의 "API, nobody"에 `Content-Type: application/problem+json`
+- **PG 마이그레이션**(codex 3): `makemigrations`가 쓴 이름(`0001_initial.sql`)과 `build.Check` 통과를 확인한다. 적용은 픽스처 시험의 `maagotest.DB`가 한다
+- **두 번 돌기**(fable 8, 17): SQLite의 런타임은 `TestWeb`이 맡고, `TestM4Done`의 SQLite 쪽은 조건 2만, PG 쪽은 조건 2와 픽스처 시험
+- **pgx**(codex 2, fable 7): 픽스처 `go.mod`에 `github.com/jackc/pgx/v5 v5.11.0`, `go.sum`은 `cmd/maago`의 줄들. `GOPROXY=off`는 모듈 캐시를 쓴다: `cmd/maago`가 pgx를 require하니 `go test`가 시험을 돌기 전에 받아 둔다(CI도 같다)
+- **쿼리 파일**(fable 7): `queries/title_taken.sql`은 `-- column: taken bool`. 시각·스트리밍은 방언과 상관없다(상수 시각, `count(*)`), `Asia/Seoul`은 Go가 시스템 tz를 읽고 CI 이미지에 있다(codex 4)
+- **전역**(codex 5): 픽스처의 `apiCalls`·`exportGate`는 시험이 병렬이 아니어서 된다. 픽스처에 그 말을 한 줄
+- **D-65**(fable 6, 16): PG는 두 방언 픽스처에서 잰다(튜토리얼의 마이그레이션은 SQLite 꼴). 처음(`go list -export`가 빈 캐시)과 다시를 따로
+- **문서 더함**(fable 9~12, codex 7): README의 "다음 작업", MILESTONES M4 할일 절을 한 줄로(M3처럼 D-번호), D-47에 "CSRF와 CORS는 한 목록 `Config.Origins`", ARCHITECTURE §2의 이름에 `Origins`·`OnError`·`TimeZone`·`Messages`·`DBFrom`·`WithDB`·`LoginRequired`·`API`·`App`. 옛 이름을 찾는 목록: `maago.Handler()`, blank import 등록, `forms_gen.go`, `Redirect`·`Partial`·`FormErrors`, `post_list.html`·`post_detail.html`, 폼의 `Title string` 꼴
+
+만들며 확인한 것
+- D-65 다시 잼(Apple M3 Pro, 2026-10-05): 튜토리얼 끝 단계(0018, SQLite) `gen`·`check` 0.25~0.37초. 두 방언 픽스처: SQLite `gen` 0.19초, PG `gen`·`check` 0.19~0.20초. 빈 빌드 캐시의 첫 PG `gen`은 7.4초(`go list -export`가 표준 라이브러리의 export data를 처음 만든다. 기계마다 한 번, D-65의 "캐시는 넘길 때")
+- 변이: 오타를 빼면 "the failed gen changed files"(`title_taken.sql`의 변화), PG에서 픽스처의 404를 200으로 바꾸면 `TestM4Done/postgres` 실패
+- TUTORIAL-FUTURE §8의 오류 두 줄은 작은 블로그 프로젝트에 실제로 돌린 출력이다
+
+구현 리뷰 (ponytail·codex·fable)
+- ponytail(스스로): 지울 것 없음. `TestM4Done`은 `webProject`·`makeMigrations`·`snapshot`·`diagnostics`를 그대로 쓴다
+- 스스로 고침: §5의 `Auth: auth.User`는 타입처럼 읽혀 함수 `auth.FromSession`(🔮)으로(`Config.Auth`는 `func(*http.Request) (any, error)`)
+- codex(실행 없이 읽음): 받음 — PG 쪽이 정말 PG인지 시험이 말하게(1의 뜻: 마이그레이션이 PG DDL인지 단언 한 줄. 지적 자체는 틀렸다: `webProject` 뒤에 `t.Setenv`라 PG로 돈다, 로그로 확인). 받지 않음 — 2 완료 표기: MILESTONES 체크는 "M4 끝"에서 CI 뒤(M3와 같은 순서), 3 빈 캐시의 `GOPROXY=off`: `cmd/maago`가 pgx를 import해 시험 바이너리를 만들 때 캐시에 든다, 4 §8은 게시판이 아니라 블로그 예이고 실제로 돌린 출력
+- fable(변이로 확인, 막는 것 없음): 받음 — D-119에 `Config.Messages`(1), ARCHITECTURE §2의 생성 코드만 부르는 이름 보강·`DateFunc`를 그쪽으로(2), §7의 400 문장은 query 필드가 있을 때(3), D-42 `파일:줄:칸`·D-43이 D-119를 가리키게(4), D-47에 믿지 않는 출처의 preflight 405(5). 사람에게 넘긴 MILESTONES 체크 순서는 "M4 끝" 목록이 이미 정했다(CI 뒤)
+
 ---
 
 ## M4 끝
 
-- [ ] 1~13 완료
-- [ ] 위 M4 완료 조건 다섯 개를 실제로 돌려 확인(PG는 `MAAGO_TEST_PG_URL`로)
+- [x] 1~13 완료 (2026-10-05)
+- [x] 위 M4 완료 조건 다섯 개를 실제로 돌려 확인. PG는 로컬 서버(`MAAGO_TEST_PG_URL`)에서 돌렸다
+  1. 튜토리얼의 M4 커밋(0008~0018): `cmd/maago`의 `TestBoardTutorial`, 망가진 단계를 잡는 것은 `TestBoardTutorialCatches`(웹 단계의 경우 "템플릿 오류 둘 중 하나만 기대"). SQLite
+  2. `{{.Post.Titel}}`과 없는 URL 이름이 한 번에 생성 오류이고 아무것도 쓰지 않음: `TestM4Done`(두 방언). 경우별 표는 `internal/web`의 `TestTemplateErrors`(5번)
+  3. path 값·`sql.ErrNoRows`의 404, 다른 사이트의 POST 403과 믿는 출처의 통과: 픽스처의 `TestRequests`(SQLite는 `TestWeb`, PG는 `TestM4Done`), 런타임의 경우별 표는 루트의 `TestCrossOrigin`
+  4. 로그인 필수의 HTML 303과 API 401(`application/problem+json`): 픽스처의 `TestLogin`(두 방언), 루트의 `auth_test.go`
+  5. 폼의 빈 칸·읽을 수 없는 값·범위 밖이 서로 다른 결과: 픽스처의 `TestForm`·`TestAPIForm`(두 방언), 루트의 `form_test.go`
 - [ ] MILESTONES.md의 M4 체크박스 갱신
 - [ ] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인
 - [ ] TASKS-M5 초안(U-06, `fk=` 다른 앱이 선행 결정)
