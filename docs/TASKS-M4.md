@@ -832,8 +832,8 @@ M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 
   3. path 값·`sql.ErrNoRows`의 404, 다른 사이트의 POST 403과 믿는 출처의 통과: 픽스처의 `TestRequests`(SQLite는 `TestWeb`, PG는 `TestM4Done`), 런타임의 경우별 표는 루트의 `TestCrossOrigin`
   4. 로그인 필수의 HTML 303과 API 401(`application/problem+json`): 픽스처의 `TestLogin`(두 방언), 루트의 `auth_test.go`
   5. 폼의 빈 칸·읽을 수 없는 값·범위 밖이 서로 다른 결과: 픽스처의 `TestForm`·`TestAPIForm`(두 방언), 루트의 `form_test.go`
-- [ ] MILESTONES.md의 M4 체크박스 갱신
-- [ ] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인
+- [x] MILESTONES.md의 M4 체크박스 갱신
+- [x] push 뒤 GitHub Actions에서 PG 시험이 실제로 돈 것을 확인: 실행 37230201393(postgres:18 서비스) 통과. Actions는 `CI`를 켜고, `CI`가 있으면 PG 시험은 건너뛰지 않고 실패한다(D-91). 그러니 통과는 PG에서 돈 것이다 (2026-10-05)
 - [ ] TASKS-M5 초안(U-06, `fk=` 다른 앱이 선행 결정)
 
 ## 열린 질문 (계획 단계에서 정한다)

@@ -3,9 +3,9 @@
 **에이전트가 웹 애플리케이션을 쓰고, 기계가 그 코드를 실행 전에 검증하는 Go 프레임워크.**
 모델은 Django처럼 struct에 선언하고, SQL은 MyBatis처럼 파일에 손으로 쓴다.
 
-M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)가 끝났고 M4(HTTP)는 작업 1~13을 마쳤다. 문서부터 읽는다.
+M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·M4(HTTP)가 끝났다. 문서부터 읽는다.
 
-**다음 작업: M4 끝**([TASKS-M4.md](docs/TASKS-M4.md)의 끝 절: push 뒤 CI에서 PG가 돈 것을 확인), 그다음 TASKS-M5 초안.
+**다음 작업: TASKS-M5 초안**(U-06과 다른 앱의 `fk=`가 선행 결정).
 
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙
