@@ -16,58 +16,40 @@ Content-Transfer-Encoding: 8bit
 
 maago makemigrations가 migrations/0001_initial.sql을 쓰고, maago migrate가
 적용한다. maago gen이 board/models_gen.go에 모델마다 Get·Insert·Update·Delete를
-만든다. 시험은 그 함수를 직접 부른다. go test는 board/에서 돌아 루트의 .env를
-보지 못하므로 주소를 환경 변수로 준다:
+만든다. 시험은 그 함수를 직접 부른다. maagotest.DB(t)가 시험마다 새 DB를 준다: 루트의
+.env에서 방언을 읽고, 마이그레이션을 적용하고, 시험이 끝나면 지운다. 그래서 시험은
+서로의 행을 보지 않고, maago migrate가 쓰는 board.db도 건드리지 않는다. 시험은
+main을 거치지 않으므로 드라이버를 스스로 import한다.
 
-    MAAGO_DATABASE_URL=sqlite:$PWD/board.db go test ./...
+    go test ./...
 
 diff --git a/board/board_test.go b/board/board_test.go
 new file mode 100644
-index 0000000..4cb6206
+index 0000000..5897aa6
 --- /dev/null
 +++ b/board/board_test.go
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,70 @@
 +package board
 +
 +import (
-+	"context"
 +	"database/sql"
 +	"errors"
 +	"testing"
 +
-+	"github.com/maago-web/maago"
++	"github.com/maago-web/maago/maagotest"
 +
++	// A test does not go through main, so it imports the driver itself.
 +	_ "modernc.org/sqlite"
 +)
 +
-+// tx opens the database of MAAGO_DATABASE_URL and returns a transaction
-+// that is rolled back when the test ends, so the tests leave no rows.
-+// go test runs in this directory, where the project's .env is not: run
-+//
-+//	MAAGO_DATABASE_URL=sqlite:$PWD/board.db go test ./...
-+func tx(t *testing.T) (context.Context, *sql.Tx) {
-+	t.Helper()
-+	ctx := context.Background()
-+	db, err := maago.OpenDB(ctx, maago.DBConfig{})
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	t.Cleanup(func() { db.Close() })
-+	tx, err := db.BeginTx(ctx, nil)
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	t.Cleanup(func() { tx.Rollback() })
-+	return ctx, tx
-+}
-+
 +func TestPostCRUD(t *testing.T) {
-+	ctx, tx := tx(t)
-+	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: "공지"})
++	db := maagotest.DB(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "공지"})
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	p, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: "첫 글", Body: "안녕하세요"})
++	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "첫 글", Body: "안녕하세요"})
 +	if err != nil {
 +		t.Fatal(err)
 +	}
@@ -75,25 +57,25 @@ index 0000000..4cb6206
 +		t.Errorf("status %q, want the default draft", p.Status)
 +	}
 +
-+	got, err := GetPost(ctx, tx, p.ID)
++	got, err := GetPost(ctx, db, p.ID)
 +	if err != nil || got.Title != "첫 글" || !got.CreatedAt.Equal(p.CreatedAt) {
 +		t.Fatalf("got %+v, %v", got, err)
 +	}
 +	got.Status = "published"
-+	if err := UpdatePost(ctx, tx, &got); err != nil {
++	if err := UpdatePost(ctx, db, &got); err != nil {
 +		t.Fatal(err)
 +	}
-+	if again, _ := GetPost(ctx, tx, p.ID); again.Status != "published" {
++	if again, _ := GetPost(ctx, db, p.ID); again.Status != "published" {
 +		t.Errorf("status %q after the update", again.Status)
 +	}
 +
-+	if err := DeletePost(ctx, tx, p.ID); err != nil {
++	if err := DeletePost(ctx, db, p.ID); err != nil {
 +		t.Fatal(err)
 +	}
-+	if _, err := GetPost(ctx, tx, p.ID); !errors.Is(err, sql.ErrNoRows) {
++	if _, err := GetPost(ctx, db, p.ID); !errors.Is(err, sql.ErrNoRows) {
 +		t.Errorf("after delete: %v", err)
 +	}
-+	if err := DeletePost(ctx, tx, p.ID); !errors.Is(err, sql.ErrNoRows) {
++	if err := DeletePost(ctx, db, p.ID); !errors.Is(err, sql.ErrNoRows) {
 +		t.Errorf("deleting it again: %v", err)
 +	}
 +}
@@ -101,18 +83,19 @@ index 0000000..4cb6206
 +// The database keeps what the tags say: a title once per board, and a
 +// post only on a board that exists.
 +func TestPostConstraints(t *testing.T) {
-+	ctx, tx := tx(t)
-+	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: "자유"})
++	db := maagotest.DB(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	if _, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: "같은 제목"}); err != nil {
++	if _, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "같은 제목"}); err != nil {
 +		t.Fatal(err)
 +	}
-+	if _, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: "같은 제목"}); err == nil {
++	if _, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "같은 제목"}); err == nil {
 +		t.Error("the same title twice on one board")
 +	}
-+	if _, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID + 1000, Title: "없는 게시판"}); err == nil {
++	if _, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID + 1000, Title: "없는 게시판"}); err == nil {
 +		t.Error("a post on a board that does not exist")
 +	}
 +}

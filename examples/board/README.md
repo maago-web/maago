@@ -9,4 +9,4 @@ Maago로 게시판을 만드는 긴 튜토리얼([MILESTONES.md](../../docs/MILE
   `./steps.sh pack DIR`로 다시 패치를 뽑는다. 풀어 둔 곳(`.env`와 이 저장소를 가리키는 `go.work`가 있다)에서 maago는
   이 저장소 루트에서 `go build -C cmd/maago -o "$PWD/DIR/.git/maago" .`로 만들어 부른다
 - 패치에는 생성물(`*_gen.go`), `.env`, DB 파일이 없다. 공개할 저장소를 만들 때는 커밋마다 `maago gen`을 돌려 생성물도 커밋한다(D-67)
-- `go test`는 `board/`에서 돌아 루트의 `.env`를 보지 못한다: `MAAGO_DATABASE_URL=sqlite:$PWD/board.db go test ./...`
+- 앱의 시험은 `maagotest.DB(t)`로 시험마다 새 DB를 얻는다(D-113): `board/`에서 돌아도 루트의 `.env`를 찾고, `maago migrate`의 `board.db`는 건드리지 않는다. 그냥 `go test ./...`

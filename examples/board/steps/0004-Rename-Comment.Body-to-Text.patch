@@ -17,33 +17,34 @@ text를 더하는 초안에 ⚠ 설명을 붙인다. 이름 변경이면 그 파
 그러면 값을 지키는 RENAME COLUMN 한 줄이 나온다.
 
 diff --git a/board/board_test.go b/board/board_test.go
-index 93d1f97..ab28d57 100644
+index c6ad329..153dcfb 100644
 --- a/board/board_test.go
 +++ b/board/board_test.go
-@@ -87,3 +87,26 @@ func TestPostConstraints(t *testing.T) {
+@@ -68,3 +68,27 @@ func TestPostConstraints(t *testing.T) {
  		t.Error("a post on a board that does not exist")
  	}
  }
 +
 +// A comment keeps its post: the post cannot go while it has comments.
 +func TestComment(t *testing.T) {
-+	ctx, tx := tx(t)
-+	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: "질문"})
++	db := maagotest.DB(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "질문"})
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	p, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: "물어봅니다"})
++	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "물어봅니다"})
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	c, err := InsertComment(ctx, tx, NewCommentInput{PostID: p.ID, Text: "답입니다"})
++	c, err := InsertComment(ctx, db, NewCommentInput{PostID: p.ID, Text: "답입니다"})
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	if got, err := GetComment(ctx, tx, c.ID); err != nil || got.Text != "답입니다" {
++	if got, err := GetComment(ctx, db, c.ID); err != nil || got.Text != "답입니다" {
 +		t.Errorf("got %+v, %v", got, err)
 +	}
-+	if err := DeletePost(ctx, tx, p.ID); err == nil {
++	if err := DeletePost(ctx, db, p.ID); err == nil {
 +		t.Error("deleted a post that has a comment")
 +	}
 +}

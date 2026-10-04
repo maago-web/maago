@@ -33,7 +33,7 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"short expectation", "0006-Try-a-model-result-that-misses-a-column.patch",
 			`Maago-Expect: board/queries/recent_posts.sql:4:1: result columns do not match model Post: missing "body"`,
 			`Maago-Expect: board/queries/recent_posts.sql:4:1: result columns do not match model Post`, "maago gen: expected\n"},
-		{"gofmt", "0002-Add-Board-Post-and-Comment.patch", "+\tt.Helper()", "+    t.Helper()", "gofmt -l: "},
+		{"gofmt", "0002-Add-Board-Post-and-Comment.patch", "+\tdb := maagotest.DB(t)", "+    db := maagotest.DB(t)", "gofmt -l: "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -57,7 +57,8 @@ func TestBoardTutorialCatches(t *testing.T) {
 // of the tutorial would make them, and checks each step. A step whose
 // commit message has Maago-Expect: lines must fail maago gen with exactly
 // those diagnostics; any other step must pass gen, check and migrate, and
-// the app's tests. The steps share one database, as a reader's would.
+// the app's tests. The steps share the database maago migrate makes, as a
+// reader's would; the app's tests get their own from maagotest (D-113).
 func walk(t *testing.T, dir string) error {
 	t.Helper()
 	noEnv(t) // maago reads .env, as for the reader
@@ -127,12 +128,11 @@ func walkStep(root, patch string) error {
 	if _, ds := build.Migrate(root); ds != nil {
 		return fmt.Errorf("maago migrate:\n%s", text(ds))
 	}
-	// go test runs in the package's directory, away from .env: the reader
-	// gives the address of the same file (D-101).
+	// The app's tests find the root's .env from their package's directory,
+	// as a reader's do (D-113): no address is given them.
 	test := osexec.Command("go", "test", "./...")
 	test.Dir = root
 	test.Env = append(os.Environ(),
-		"MAAGO_DATABASE_URL=sqlite:"+filepath.Join(root, "board.db"),
 		// These win over the environment's own: exec.Cmd uses the last
 		// value of a key.
 		"GOWORK="+filepath.Join(root, "go.work"),

@@ -595,6 +595,52 @@ URL 함수
 
 → 확인: 패키지 디렉터리에서 돌린 시험이 루트의 `.env`를 찾음, 시험마다 새 DB(한 시험의 쓰기가 다른 시험에 안 보임), PG 풀의 연결 여럿이 모두 그 스키마를 봄, 끝나면 스키마가 없음, 남은 스키마를 다음 실행이 지움, 마이그레이션이 적용됨
 
+### 계획
+
+D-113이 모양을 정했다. 이 계획은 그것을 코드와 시험으로 옮긴다.
+
+모양 (결정에 없는 선택은 ★)
+- **패키지** `github.com/maago-web/maago/maagotest`(루트 모듈, `testing`을 import하는 유일한 비시험 패키지). `func DB(t testing.TB) *sql.DB`. 드라이버는 앱의 시험 파일이 import한다(D-90, `OpenDB`와 같은 오류 문구)
+- **주소**: 작업 디렉터리에서 `go.mod`까지 올라간 루트(`project.Root`), `MAAGO_DATABASE_URL`이 이기고 없으면 루트의 `.env`(`project.Database`, D-97의 규칙과 문구). 주소에서는 방언과 서버만 쓴다
+- **SQLite**: `t.TempDir()`에 빈 파일을 만들고(D-101 `mode=rw`) `maago.OpenDB(DBConfig{URL: "sqlite:" + 그 경로})`
+- ★ **PG 스키마 이름**: `maagotest_` + `sha256(작업 디렉터리 + "\x00" + t.Name())`의 앞 16 hex(소문자, 63바이트 한도 안). 관리 연결 하나로 `DROP SCHEMA IF EXISTS … CASCADE; CREATE SCHEMA …`, 풀은 주소에 `search_path=<스키마>`를 더해 연다(pgx가 시작 매개변수로 보내 풀의 연결마다 같다). `t.Cleanup`이 풀을 닫고 스키마를 지운다
+- **마이그레이션**: 루트의 `migrations/`를 `migrate.ReadFiles` → `practicedb.OpenDatabase`(같은 주소) → `migrate.Run`. 오류는 진단 그대로 `t.Fatal`
+- **오류는 `t.Fatal`**(돌려주는 값 없음): 시험 도구라 호출 자리가 줄어든다
+
+파일
+- 새 `maagotest/maagotest.go`
+- 자체 시험은 드라이버가 필요해 `cmd/maago/maagotest_test.go`(D-90): 임시 프로젝트(`go.mod`, `.env`, `migrations/0001_initial.sql`, 하위 패키지 디렉터리)에서 `t.Chdir`로 하위 디렉터리에 들어가 `DB(t)`. PG는 `MAAGO_TEST_PG_URL`(D-91)
+- `noreflect_test.go`의 허용: `maagotest`도 reflect를 쓰지 않는다(바꿀 것 없음, 확인만)
+- 게시판 튜토리얼: `steps.sh unpack`으로 풀어 0002의 `tx(t)`를 `maagotest.DB(t)` 위의 트랜잭션 없는 도우미로 바꾸고(시험마다 새 DB라 롤백이 필요 없다) 뒤 단계의 충돌을 고쳐 `pack`. 0002 커밋 글의 `MAAGO_DATABASE_URL=sqlite:$PWD/board.db go test` 문단을 "그냥 `go test ./...`"로, `README.md`의 같은 줄, `cmd/maago/tutorial_test.go`의 절대 경로 환경 변수를 지운다. `TestBoardTutorialCatches`의 "gofmt" 경우가 가리키는 글(`+\tt.Helper()`)이 남는지 본다
+
+하지 않기로 한 것
+- 메일 확인(M5), 트랜잭션 롤백 방식(D-113 기각), D-103의 문구(13번)
+
+단계
+1. `maagotest` → 확인(작업 그대로): 패키지 디렉터리에서 돈 시험이 루트의 `.env`를 찾음, 시험마다 새 DB(두 하위 시험 중 하나의 쓰기가 다른 쪽에 안 보임), PG 풀의 연결 여럿(동시에 잡아 둔 연결 넷)이 모두 그 스키마를 봄(`current_schema()`), 끝나면 스키마가 없음, 같은 이름으로 남겨 둔 스키마를 다음 `DB`가 지움, 마이그레이션이 적용됨, `MAAGO_DATABASE_URL`이 `.env`를 이김, 드라이버 없음·`.env` 없음의 오류
+2. 튜토리얼 → 확인: `TestBoardTutorial`·`TestBoardTutorialCatches`가 절대 경로 없이 통과
+3. 두 모듈 `go vet`·`go test`(PG는 `MAAGO_TEST_PG_URL`로 한 번), `gofmt -l .`
+
+계획 리뷰 (codex·fable) — 위 계획을 이렇게 고친다
+- **스키마 이름**(codex 3, fable 2·10·13): D-113의 "패키지 경로"대로 `sha256(모듈 경로 + "/" + 루트에서 작업 디렉터리까지 + "\x00" + t.Name() + "\x00" + 이 시험에서 몇 번째 DB(t)인지)`의 앞 16 hex. 작업 디렉터리의 절대 경로는 실행마다 달라(임시 디렉터리) 남은 스키마를 이름으로 지우지 못하고, 부른 함수의 패키지는 사용자가 `DB`를 도우미 패키지에서 감싸면 모두 같아진다. 한 시험에서 두 번 부르면 서로 다른 DB(번호가 다르다)
+- **PG 주소**(codex 1): 주소의 query를 해석해 `search_path`를 더한다(이미 있는 매개변수를 지킨다). 마이그레이션도 그 주소로(fable 1: 날 주소면 `public`에 들어간다)
+- **정리**(codex 2, fable 11): 마이그레이션 연결은 쓰자마자 닫고, `t.Cleanup`은 풀을 닫은 뒤 30초 마감과 `lock_timeout`으로 스키마를 지운다. 시험이 트랜잭션·rows를 열어 두어 못 지우면 `t.Error`("the test left a transaction or rows open")로 알리고 멈추지 않는다
+- **SQLite 두 연결**(codex 5): 마이그레이션(`practicedb`)과 풀(`OpenDB`, WAL·`busy_timeout`)이 같은 파일을 다른 설정으로 연다. 마이그레이션은 풀을 열기 전에 끝나고 닫히므로 겹치지 않는다(주석에 적는다)
+- **자체 시험의 자리**(fable 3·14): 오류 길(드라이버 없음, `.env` 없음)은 루트 `maagotest/maagotest_test.go`(드라이버가 없는 모듈, `testing.TB`를 감싸 `Fatal`을 잡는다). 나머지는 `cmd/maago`. `t.Chdir`을 쓰는 시험은 병렬로 하지 않는다(codex 4, Go가 막는다)
+- **확인을 고침**(fable 7·8·9): 새 DB는 부모의 `DB(t)`가 살아 있는 동안 하위 시험의 `DB(t)`가 비어 있고, 하위 시험이 끝난 뒤에도 부모의 행이 남아 있음. 남은 스키마는 시험이 같은 공식으로 이름을 계산해 표를 하나 둔 스키마를 먼저 만들고, 그 이름의 하위 시험에서 `DB(t)`가 빈 스키마를 줌. "환경 변수가 이김"의 `.env`는 형식이 맞되 다른 곳을 가리킴. 한 시험의 두 `DB(t)`가 다름
+- **튜토리얼**(fable 12·15·16·17, codex 6): 0002의 `tx(t)` 도우미를 지우고 시험마다 `db := maagotest.DB(t)`와 `ctx := t.Context()`를 바로 쓴다(D-113의 API를 가르치는 자리). 0003~0007의 `tx` 호출도 고친다. `TestBoardTutorialCatches`의 "gofmt" 닻은 `+\tdb := maagotest.DB(t)`로. 0002 커밋 글·README·`tutorial_test.go`의 "단계가 DB 하나를 나눈다"를 "`maago migrate`의 DB와 앱 시험의 DB는 따로"로. 시험 파일의 `_ "modernc.org/sqlite"`는 남기고 이유를 적는다(D-90: 시험은 `main`을 거치지 않는다)
+- 문서: TODO M3의 "절대 경로 환경 변수" 항목을 지운다(풀렸다). ARCHITECTURE §2의 "런타임이 기대는 내부 패키지" 문장에 `maagotest`(시험 바이너리만)가 `migrate`·`practicedb`를 끈다는 것은 13번 목록에
+- 받지 않음: 없음
+
+구현 리뷰 (ponytail·codex·fable)
+- 만들며 고친 것: macOS에서 `project.Root`는 심볼릭 링크를 푼 경로(`/private/var/…`), `os.Getwd`는 풀지 않은 경로(`/var/…`)라 패키지 부분이 `../..`가 되었다. 작업 디렉터리도 풀어 맞춘다. "남은 스키마" 변이(먼저 지우지 않음)가 살아남아 찾았다. 튜토리얼은 rebase 대신 커밋마다 원래 트리에 같은 변환을 걸어 다시 만들었다(충돌 없음, 글·작성자·날짜 그대로). 변이: `search_path` 없음, 끝에 지우지 않음, 한 시험의 둘째 DB가 같은 이름, SQLite 파일 공유, 남은 스키마를 지우지 않음, 이름이 절대 경로, 주소의 query를 버림 — 모두 잡힌다
+- ponytail(스스로, fable 6·8과 같다): 빈 SQLite 파일 만들기(마이그레이션이 만든다)와 시험의 `MAAGO_DATABASE_URL` 거르기(`walk`가 이미 지운다)를 지웠다
+- codex(샌드박스가 빌드를 막아 코드만 읽음): 받음 — `t.Fatal`은 시험의 고루틴에서만: `DB`의 문서에 적었다(1). 반환값을 오류로 바꾸는 것은 받지 않음: 시험 도구라 호출 자리가 줄어드는 것이 D-113의 모양이다
+- fable(PG로 돌림): 받음 — 드라이버가 없을 때 "maago를 다시 빌드하라"던 문구를 "이 패키지의 _test.go 파일에서 import"로(1, 고친 줄까지 시험), "남은 스키마" 시험이 이름이 달라도 지나가던 것(2: 하위 시험의 `current_schema()`가 계산한 이름과 같아야 한다), 튜토리얼은 두 줄(`db := maagotest.DB(t)`, `ctx := t.Context()`, 3), 루트의 패키지는 `path.Join`(4), 주소의 query를 지키는 시험(5: `application_name`이 풀의 연결마다), `go.mod` 진단을 그대로(7)
+
+
+
+
 ## 11. 작은 할일
 
 - 하위 경로(`Config.Prefix`: URL 함수·`{{url}}`·`SeeOther`·로그인 이동에 붙는다), 표시 타임존과 템플릿 시각 함수, 오류 보고 훅의 예시, 응답 뒤 작업의 문서(D-118)

@@ -24,26 +24,27 @@ index 5766e2e..82165b7 100644
  ORDER BY created_at DESC, id DESC
  LIMIT :limit
 diff --git a/board/queries_test.go b/board/queries_test.go
-index 5ba8478..8a8864a 100644
+index 4668f9a..213556a 100644
 --- a/board/queries_test.go
 +++ b/board/queries_test.go
-@@ -84,3 +84,23 @@ func TestPostQueries(t *testing.T) {
+@@ -86,3 +86,24 @@ func TestPostQueries(t *testing.T) {
  		t.Errorf("a post that does not exist: %v", err)
  	}
  }
 +
 +func TestRecentPosts(t *testing.T) {
-+	ctx, tx := tx(t)
-+	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: "최근"})
++	db := maagotest.DB(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "최근"})
 +	if err != nil {
 +		t.Fatal(err)
 +	}
 +	for _, title := range []string{"오래된 글", "새 글"} {
-+		if _, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: title, Body: title + "의 본문"}); err != nil {
++		if _, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: title, Body: title + "의 본문"}); err != nil {
 +			t.Fatal(err)
 +		}
 +	}
-+	ps, err := RecentPosts(ctx, tx, RecentPostsParams{Limit: 1})
++	ps, err := RecentPosts(ctx, db, RecentPostsParams{Limit: 1})
 +	if err != nil {
 +		t.Fatal(err)
 +	}

@@ -13,10 +13,10 @@ Content-Transfer-Encoding: 8bit
 주지 않으면 기본값이 들어간다.
 
 diff --git a/board/board_test.go b/board/board_test.go
-index 4cb6206..93d1f97 100644
+index 5897aa6..c6ad329 100644
 --- a/board/board_test.go
 +++ b/board/board_test.go
-@@ -42,20 +42,20 @@ func TestPostCRUD(t *testing.T) {
+@@ -22,20 +22,20 @@ func TestPostCRUD(t *testing.T) {
  	if err != nil {
  		t.Fatal(err)
  	}
@@ -26,22 +26,22 @@ index 4cb6206..93d1f97 100644
 +		t.Errorf("status %q, views %d: want the defaults", p.Status, p.Views)
  	}
  
- 	got, err := GetPost(ctx, tx, p.ID)
+ 	got, err := GetPost(ctx, db, p.ID)
  	if err != nil || got.Title != "첫 글" || !got.CreatedAt.Equal(p.CreatedAt) {
  		t.Fatalf("got %+v, %v", got, err)
  	}
 -	got.Status = "published"
 +	got.Status, got.Views = "published", 3
- 	if err := UpdatePost(ctx, tx, &got); err != nil {
+ 	if err := UpdatePost(ctx, db, &got); err != nil {
  		t.Fatal(err)
  	}
--	if again, _ := GetPost(ctx, tx, p.ID); again.Status != "published" {
+-	if again, _ := GetPost(ctx, db, p.ID); again.Status != "published" {
 -		t.Errorf("status %q after the update", again.Status)
-+	if again, _ := GetPost(ctx, tx, p.ID); again.Status != "published" || again.Views != 3 {
++	if again, _ := GetPost(ctx, db, p.ID); again.Status != "published" || again.Views != 3 {
 +		t.Errorf("status %q, views %d after the update", again.Status, again.Views)
  	}
  
- 	if err := DeletePost(ctx, tx, p.ID); err != nil {
+ 	if err := DeletePost(ctx, db, p.ID); err != nil {
 diff --git a/board/models.go b/board/models.go
 index 0b9dfcb..f873463 100644
 --- a/board/models.go
