@@ -543,6 +543,51 @@ URL 함수
 
 → 확인: 가짜 인증으로 로그인 필수 HTML 뷰 → 로그인 URL로 303(`next` 포함), API → 401 problem, 로그인한 요청은 통과
 
+### 계획
+
+모양 (결정에 없는 선택은 ★)
+- ★ **인증은 함수 하나**: `Config.Auth func(r *http.Request) (any, error)`. 돌려준 값이 사용자이고, `nil`이면 로그인하지 않음, `error`면 인증을 볼 수 없음(세션 저장소가 죽음 등: 500과 `OnError`). 인터페이스(메서드 하나)보다 함수가 짧고, 시험의 가짜 인증이 한 줄이다. M5의 세션·토큰이 이 함수를 준다
+- ★ **사용자 타입은 코어가 모른다**(D-51 "코어는 인터페이스만"): `maago.UserFrom[U any](ctx) (U, bool)`가 ctx의 값을 U로 꺼낸다(없거나 타입이 다르면 `false`). 코어가 `User` 인터페이스를 정하면(예: `UserID() int64`) contrib User와 사용자 모델에 메서드를 강제한다(모델의 `ID` 필드와 같은 이름 `ID()`는 Go에서 못 쓴다). 기각: `UserFrom(ctx) any`(뷰마다 타입 단언), 코어의 `User` 인터페이스
+- **요청마다 한 번**: `Handler`의 `serve`가 라우트 앞에서 `Auth`를 부르고 값을 ctx에 넣는다(로그인 필수가 아닌 뷰도 "로그인했다면 누구"를 안다). `Auth`가 nil이면 부르지 않는다(모두 로그인하지 않음)
+- **로그인 필수**(D-115의 `maago.LoginRequired`): 생성된 `AppRoute`에 `LoginRequired bool`. 사용자가 없으면 HTML은 `Config.LoginURL`로 303, `next`에 요청의 경로와 query(`r.URL.RequestURI()`, `url.Values`로 붙임). API는 401 problem(`detail` "login required"). 뷰는 부르지 않는다
+- ★ **잘못된 설정은 `Handler` 오류**(D-114): 로그인 필수 라우트가 있는데 `Config.Auth`가 nil이면 오류("어떤 요청도 들어갈 수 없다"), HTML 로그인 필수 라우트가 있는데 `LoginURL`이 비면 오류. 조용히 모두 막거나 모두 통과시키지 않는다(PHILOSOPHY 7)
+- **`WWW-Authenticate`**: RFC 9110은 401에 이 머리를 요구하지만 스킴은 M5(세션·토큰)가 정한다. M4는 `Config.AuthChallenge string`(예: `Bearer`)을 두지 않고, 401에 머리 없이 낸다고 적고 M5에 넘긴다
+- **CSRF와의 순서**: 교차 출처 검사(3번)가 먼저, 인증은 그 뒤(교차 출처 POST가 로그인 화면으로 가지 않고 403)
+
+파일
+- 루트 `http.go`: `Config.Auth`·`LoginURL`, `AppRoute.LoginRequired`, `serve`에서 인증과 로그인 필수, `Handler`의 설정 검사. 새 `UserFrom`, `WithUser`(뷰를 HTTP 없이 시험할 때, `WithDB`처럼)
+- `internal/web/templates/urls.go.tmpl`·`gen.go`: `LoginRequired: true`
+- 시험: `http_test.go`(가짜 인증으로 303·`next`·401 problem·통과·`Auth` 오류 500·설정 오류 둘·`UserFrom` 타입), `cmd/maago/testdata/web`에 로그인 필수 HTML·API 라우트 하나씩
+
+하지 않기로 한 것
+- 세션·토큰·로그인 화면(M5), `next` 검증(열린 이동, M5가 로그인 뒤 이동할 때), 권한·역할
+
+단계
+1. 런타임 → 확인: 위 시험들, `next`가 query까지 담고 이스케이프됨
+2. 생성 → 확인: `urls_gen` 골든에 `LoginRequired`
+3. 종단 → 확인: 픽스처의 로그인 필수 HTML 303·API 401·로그인한 요청 200과 `UserFrom`으로 본 사용자
+4. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)와 사람의 결정 — 위 계획을 이렇게 고친다
+- **사람의 결정(2026-10-04)**: `UserFrom[U]`(D-51 문구를 고침), `Auth`는 요청마다 한 번(리뷰어가 갈림: codex는 필요할 때만, fable은 늘), 로그인하지 않은 HTML 요청은 GET·HEAD만 로그인 URL로 303이고 나머지는 401, `WWW-Authenticate`는 M5. D-121
+- **`Auth`의 오류는 `status` 규칙으로**(fable 1): `Status(401, …)`(토큰이 틀림)은 401, 그 밖은 500과 `OnError`. M5의 토큰 인증이 서명을 바꾸지 않고 들어온다
+- **`UserFrom`**(fable 2, codex 3): ctx에 없으면 `(영값, false)`, 있는데 U가 아니면 panic(`DBFrom`처럼, 설정과 뷰가 어긋난 것). 비교는 타입 단언 그대로(`User` 값과 `*User`는 다르다, U가 인터페이스면 그것을 구현한 값). `Auth`가 `(*User)(nil)`을 돌려주면 로그인한 것이 된다: 문서에 적는다(reflect 없이 가를 수 없다, PHILOSOPHY 1)
+- **401**(fable 10): API·HTML 모두 있는 `fail` 길(`detail` "login required"), `OnError`는 부르지 않는다
+- **`next`**(codex 4): `r.URL.RequestURI()`(경로와 query). `LoginURL`에 query가 있으면 지키고 `next`를 더한다. 하위 경로(`/app`)는 11번이 `next`와 `LoginURL` 둘 다에 붙인다(11번에 넘김). `LoginURL`이 해석되지 않으면 `Handler` 오류
+- **픽스처의 `Config`**(fable 4): `site_test.go`의 `handler`와 `main.go`가 `Auth`·`LoginURL`을 준다(로그인 필수 라우트가 생기면 `Handler`가 거절하므로)
+- 확인 더함: 교차 출처 POST가 로그인 필수 HTML에 오면 303이 아니라 403(순서), HEAD도 막힘, preflight는 `Auth`를 부르지 않음, 공개 라우트: `Auth`가 nil이면 통과·`UserFrom` false, `Auth`가 있으면 `UserFrom`이 사용자, 공개 라우트에서 `Auth` 오류는 500, `Status(401)` 오류는 401, POST 미로그인 401, `UserFrom` 타입이 다르면 panic·포인터와 값·인터페이스 U, `LoginURL`의 query 지킴, 변이(검사를 지우면 종단 303·401이 깨짐)
+- 받지 않음: codex 1의 "필요할 때만"(사람의 결정), codex 5의 머리(사람의 결정, M5)
+- M5에 넘김: `next`가 같은 출처의 경로인지 검증, 401의 `WWW-Authenticate`, `func(r)`인 `Auth`는 쿠키를 쓸 수 없다(읽을 때 세션을 늘리려면 D-46 미들웨어)
+
+구현 리뷰 (ponytail·codex·fable)
+- 만들며 확인한 것: 변이 셋(로그인 필수 검사를 지움, 생성기가 `LoginRequired`를 뺌, `Auth`의 사용자를 ctx에 넣지 않음)이 모두 잡힌다
+- ponytail(스스로): 지울 것 없음(fable 6의 두 번째 루프는 아래에서 합침)
+- codex(샌드박스가 쓰기를 막아 코드만 읽음): 지적 없음(`Auth` panic·오류, 401의 `OnError` 제외, 절대 `LoginURL`, `next` 이스케이프, API만 있는 앱, HEAD, CORS 머리, typed nil을 확인)
+- fable(변이 다섯 모두 잡힘): 받음 — `Auth` 주석에 "없거나 끝난 세션은 nil(`sql.ErrNoRows`는 404, `Status(401)`은 로그인 화면으로 보내지 않는다)"와 `DBFrom(r.Context())`(1·3), 상대 `LoginURL`은 페이지마다 달라져 `Handler` 오류(2: `/`로 시작하거나 절대 URL. 11번의 접두어는 경로에만), 시험 더함(3·4: `Auth`가 DB를 봄, `Auth` 없는 공개 라우트, `Auth`의 panic은 500), MILESTONES의 D-51 문구(5), 두 번째 루프를 라우트 루프에 합침(6). 받지 않음 — 2의 선택(`LoginURL`이 로그인 필수 라우트면 거절): 이동 고리는 설정을 바꾸면 바로 보인다. 5의 M5 넘김을 MILESTONES에 옮기기: TASKS-M5 초안이 이 절에서 가져간다
+
+
+
+
 ## 10. 서비스 시험 도구 (`maagotest`, D-113)
 
 - `maagotest.DB(t)`, 두 방언(D-113). 자체 시험은 드라이버가 필요해 `cmd/maago`에(D-90)

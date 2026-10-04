@@ -14,4 +14,6 @@ var Routes = maago.Routes{
 	maago.POST("/api/posts", "api_post_create", APIPostCreate, maago.API),
 	maago.GET("/broken", "broken", Broken),
 	maago.GET("/export/{format}", "post_export", PostExport),
+	maago.GET("/secret", "secret", Secret, maago.LoginRequired),
+	maago.GET("/api/secret", "api_secret", Secret, maago.API, maago.LoginRequired),
 }

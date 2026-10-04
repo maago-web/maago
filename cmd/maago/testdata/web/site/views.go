@@ -164,3 +164,25 @@ func PostExport(w http.ResponseWriter, r *http.Request) {
 	}
 	fmt.Fprintf(w, "posts,%d\n", n)
 }
+
+// Account is the fixture's user: who a request says it is.
+type Account struct{ Name string }
+
+// Auth is a fake Config.Auth (D-121): a request is from the account its
+// X-User header names. M5 brings sessions and tokens.
+func Auth(r *http.Request) (any, error) {
+	if name := r.Header.Get("X-User"); name != "" {
+		return &Account{name}, nil
+	}
+	return nil, nil
+}
+
+type SecretPage struct {
+	Name string
+}
+
+// Secret requires login; the route table says so.
+func Secret(ctx context.Context, in struct{}) (SecretPage, error) {
+	a, _ := maago.UserFrom[*Account](ctx)
+	return SecretPage{a.Name}, nil
+}

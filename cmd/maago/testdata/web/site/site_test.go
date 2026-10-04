@@ -35,7 +35,7 @@ func handler(t *testing.T) (http.Handler, *sql.DB, *[]error) {
 		t.Fatal(err)
 	}
 	var reported []error
-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App},
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, LoginURL: "/login",
 		OnError: func(_ context.Context, _ *http.Request, err error) { reported = append(reported, err) }})
 	if err != nil {
 		t.Fatal(err)
@@ -158,7 +158,7 @@ func TestForm(t *testing.T) {
 // Config.Messages replaces what forms say; what it leaves empty stays.
 func TestFormMessages(t *testing.T) {
 	_, db, _ := handler(t)
-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Messages: maago.Messages{Required: "필수 항목입니다."}})
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, LoginURL: "/login", Messages: maago.Messages{Required: "필수 항목입니다."}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,5 +263,31 @@ func TestExportStreams(t *testing.T) {
 	}
 	if len(*reported) != 1 || !strings.HasPrefix((*reported)[0].Error(), "panic: export failed") {
 		t.Errorf("OnError heard %v", *reported)
+	}
+}
+
+// TestLogin: maago.LoginRequired in the route table, with the fake Auth
+// (D-121).
+func TestLogin(t *testing.T) {
+	h, _, _ := handler(t)
+	for _, c := range []struct {
+		name, path, user string
+		code             int
+		has, location    string
+	}{
+		{"page, nobody", SecretURL() + "?x=1", "", 303, "", "/login?next=%2Fsecret%3Fx%3D1"},
+		{"API, nobody", ApiSecretURL(), "", 401, `"status":401`, ""},
+		{"page, ann", SecretURL(), "ann", 200, "<p>secret for ann</p>", ""},
+		{"API, ann", ApiSecretURL(), "ann", 200, `{"Name":"ann"}`, ""},
+	} {
+		r := httptest.NewRequest("GET", c.path, nil)
+		if c.user != "" {
+			r.Header.Set("X-User", c.user)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != c.code || !strings.Contains(w.Body.String(), c.has) || w.Header().Get("Location") != c.location {
+			t.Errorf("%s: %d %q Location %q", c.name, w.Code, w.Body, w.Header().Get("Location"))
+		}
 	}
 }

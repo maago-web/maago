@@ -98,7 +98,7 @@ var Routes = maago.Routes{
 	maago.GET("/{$}", "home", Home),
 	maago.GET("/posts/{id}", "post_detail", PostDetail),
 	maago.GET("/tags/{tag}/{n}", "tag_page", TagPage),
-	maago.POST("/posts/{id}", "post_update", PostUpdate),
+	maago.POST("/posts/{id}", "post_update", PostUpdate, maago.LoginRequired),
 	maago.GET("/api/posts/{id}", "api_post", APIPost, maago.API),
 	maago.GET("/feed.csv", "feed", Feed),
 	maago.GET("/by/{post_id}", "by_post_id", ByPostID),

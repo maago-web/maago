@@ -163,6 +163,7 @@ LIMIT :limit
 | D-118 | 응답 뒤 작업(FastAPI `BackgroundTasks`)은 프레임워크가 주지 않는다. 앱이 `go f(context.WithoutCancel(ctx))`로 쓴다고 문서에 적는다. D-72의 "비동기 태스크"는 큐·워커를 뜻한다 | v0 | 대가: 서버가 꺼질 때 도는 작업을 기다리지 않고 panic은 앱이 받는다. 사람의 결정, M4 초안, 2026-09-28 |
 | D-119 | 폼은 `maago.Form`을 임베드한 struct이고 필드는 `maago.Field[T]`(값·받은 글·있음·오류·라벨을 한 타입에, 뷰와 템플릿이 같은 타입을 본다). 태그는 모델과 같은 뜻: `label`·`help`·`choices`·`min`·`max`(문자열 글자 수), 숫자 범위는 `min_value`·`max_value`, 필드는 기본이 필수이고 `optional`로 빈 칸을 허용. 모델 폼(`maago.Form`의 `model=X`)은 규칙을 모델에서 받고 필드 태그는 `optional`만. In의 `maago:"form"` 필드로 받고 GET·HEAD는 묶지 않는다. 폼 전체 검증은 순수 메서드 `Validate()`(DB 없음). DB를 보는 검증(중복·겹침)은 `Valid()` 뒤 뷰가 쿼리로 하고 `Field.Error`를 쓴다 | v0 | 생성되는 상태 타입이 없어 이름 규칙이 하나 줄고, 영값이 조용히 들어가지 않는다(PHILOSOPHY 7). 한 기호는 한 뜻(PHILOSOPHY 4): `max`가 길이와 값을 함께 뜻하지 않는다. DB 검증이 뷰에 있으면 path 값(자기 ID 빼기)을 보고 장치가 하나다. 대가: 동시 요청 경쟁에서 지면 unique 제약이 막아 500이다. 기각: 평범한 struct + 생성 상태 타입(TUTORIAL-FUTURE §9의 모양), unique 위반 오류 글 읽기(드라이버 글에 기댄다, D-90), 모델의 `blank` 태그, 숫자에도 `min`·`max`. 모델 수준 검증 메서드(D-15)는 M6. 사람의 결정, M4 6번, 2026-10-01 |
 | D-120 | API 라우트의 요청 본문은 폼(D-119)으로만 받는다: JSON 객체 하나를 같은 `Field[T]`·규칙·문구로 읽고, 숫자는 쓴 글 그대로(큰 정수가 `float64`를 거치지 않는다). 본문 형식은 라우트가 정한다(HTML은 urlencoded, API는 JSON, 다른 것은 400). 유효하지 않은 API 폼은 생성 코드가 뷰를 부르지 않고 422 problem, 뷰가 DB로 찾은 오류는 `maago.Invalid(&f.Field, msg)`·`maago.InvalidForm(msg)`(여럿은 `errors.Join`. HTML 라우트에서 돌려주면 글 422). `errors` 멤버는 `[{"field":"count","detail":"…"},{"detail":"…"}]`(선언 순서, 폼 전체는 끝) | v0 | 검증 규칙과 문구가 한 벌이고, 완료 조건의 세 결과가 API에서도 갈린다. API에는 다시 그릴 것이 없어 뷰를 부르지 않는다. 대가: DB 검증이 HTML(`Field.Error`)과 API(`Invalid`) 두 모양이다(뷰는 폼을 값으로 받는다), 중첩·배열 본문은 탈출구(D-41)로. 기각: 아무 struct의 `maago:"json"`(오류가 하나로 뭉친다), `Content-Type`이 고르는 본문(다른 출처의 단순 POST가 preflight 없이 API에 온다), 뷰가 늘 고르는 422(잊으면 잘못된 값이 저장된다), `pointer`·맵 모양의 `errors`. 사람의 결정, M4 7번, 2026-10-01 |
+| D-121 | 인증은 `Config.Auth func(r *http.Request) (any, error)` 하나: 돌려준 값이 사용자, nil이면 로그인하지 않음, 오류는 `Status` 규칙(`Status(401)`은 401, 그 밖은 500과 `OnError`). `Handler`가 요청마다 라우트 앞에서 한 번 부르고, 뷰는 `maago.UserFrom[U](ctx)`(없으면 false, 타입이 다르면 panic). 라우트 표의 `maago.LoginRequired`: 사용자가 없으면 HTML의 GET·HEAD는 `Config.LoginURL`로 303(`next`에 경로와 query), 그 밖의 메서드와 API는 401(API는 problem). 로그인 필수 라우트가 있는데 `Auth`가 없거나 HTML 로그인 필수 라우트가 있는데 `LoginURL`이 없으면 `Handler` 오류 | v0 | 함수가 인터페이스보다 짧고 가짜 인증이 한 줄. 공개 페이지도 "로그인했다면 누구"를 안다. POST 본문은 이동하면 잃고 `next`가 POST 전용 경로를 가리키면 로그인 뒤 405라 이동하지 않는다. 대가: 사용자를 읽지 않는 라우트에도 인증 조회 하나, 인증 저장소가 죽으면 공개 페이지도 500, 401에 `WWW-Authenticate`가 없다(RFC 9110, 스킴은 M5). 기각: 필요할 때만 부르는 인증(오류를 돌려줄 자리가 없다), 코어의 `User` 인터페이스(D-51), 모든 메서드 303. 사람의 결정, M4 9번, 2026-10-04 |
 
 ## E′. Admin
 
@@ -176,7 +177,7 @@ LIMIT :limit
 | # | 결정 | 단계 | 근거 |
 |---|---|---|---|
 | D-50 | **allauth 수준을 기본 제공**: 계정 기본(가입·로그인·세션·비밀번호), 이메일 인증, 소셜 로그인, MFA | v0: 계정·이메일 / v1: 소셜·MFA | 구 D-44(admin 인증 없음)를 뒤집는다 |
-| D-51 | User는 contrib 앱. 코어는 인터페이스만 요구 | v0 | 구 D-31 |
+| D-51 | User는 contrib 앱. 코어는 사용자 타입을 모른다: `Config.Auth`가 돌려준 값을 뷰가 `maago.UserFrom[U]`로 꺼낸다(M4 9번에서 "인터페이스만 요구"를 고침, 사람의 결정 2026-10-04, D-121) | v0 | 구 D-31. 모델의 `ID` 필드와 `ID()` 메서드는 Go에서 함께 못 쓴다 |
 
 ## G. 검증 · 피드백 루프
 
@@ -251,3 +252,4 @@ LIMIT :limit
 - **2026-10-01 (M4 5번)** — D-45: 부분 응답은 라우트 옵션 `maago.Block("x")`(사람의 결정)
 - **2026-10-01 (M4 6번 계획)** — D-119(폼: `Field[T]`, 모델 폼은 `optional`만, 숫자는 `min_value`·`max_value`, DB 검증은 뷰의 쿼리. 사람의 결정). D-81: 옵션 이름에 `_`
 - **2026-10-01 (M4 7번 계획)** — D-120(API 본문은 폼으로, 형식은 라우트가, 422는 생성 코드와 `maago.Invalid`. 사람의 결정)
+- **2026-10-04 (M4 9번 계획)** — D-121(인증 함수 하나, `UserFrom[U]`, 로그인 필수의 303·401), D-51 고침(코어는 사용자 타입을 모른다). 사람의 결정

@@ -17,7 +17,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{site.App}})
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{site.App}, Auth: site.Auth, LoginURL: "/login"})
 	if err != nil {
 		log.Fatal(err)
 	}

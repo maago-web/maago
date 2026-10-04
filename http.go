@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -34,6 +35,20 @@ type Config struct {
 
 	// TimeZone is where the times people enter and see are; nil is UTC.
 	TimeZone *time.Location
+
+	// Auth tells who sent r (D-121): a user, which views read with
+	// UserFrom, or nil for nobody. It runs once for each request, before
+	// the route. Its error answers as a view's does: Status(401, err) for
+	// a bad token, else a 500. A nil pointer returned as the user is a
+	// user: return nil itself for nobody, also for a missing or expired
+	// session (an sql.ErrNoRows would answer 404, a Status(401) would not
+	// send a page to the login page). The database is in r's context:
+	// DBFrom(r.Context()).
+	Auth func(r *http.Request) (any, error)
+
+	// LoginURL is where an HTML route that requires login sends a GET or
+	// HEAD without a user, with the request's path and query in next.
+	LoginURL string
 }
 
 // App is an app's routes, as maago gen generates them into the app's App
@@ -50,6 +65,7 @@ type App struct {
 type AppRoute struct {
 	Method, Path, Name string
 	API                bool
+	LoginRequired      bool // a request without a user does not reach Serve (D-121)
 	Serve              func(w http.ResponseWriter, r *http.Request) error
 }
 
@@ -70,6 +86,7 @@ func Handler(cfg Config) (http.Handler, error) {
 		return nil, err
 	}
 	seen := map[string]bool{}
+	login, htmlLogin := false, false // some route requires login; some HTML one does
 	for _, app := range cfg.Apps {
 		switch {
 		case app.name == "":
@@ -86,7 +103,20 @@ func Handler(cfg Config) (http.Handler, error) {
 			pattern := r.Method + " " + r.Path
 			h.routes[pattern] = r
 			h.mux.Handle(pattern, h.serve(r))
+			login = login || r.LoginRequired
+			htmlLogin = htmlLogin || r.LoginRequired && !r.API
 		}
+	}
+	switch {
+	case login && cfg.Auth == nil:
+		return nil, errors.New("maago: routes require login, but Config.Auth is nil, so no request could reach them; set it to what tells the user of a request")
+	case htmlLogin && cfg.LoginURL == "":
+		return nil, errors.New("maago: HTML routes require login, but Config.LoginURL is empty; set it to the login page")
+	}
+	if u, err := url.Parse(cfg.LoginURL); err != nil {
+		return nil, fmt.Errorf("maago: Config.LoginURL: %w", err)
+	} else if cfg.LoginURL != "" && !u.IsAbs() && !strings.HasPrefix(u.Path, "/") {
+		return nil, fmt.Errorf("maago: Config.LoginURL %q is relative, so it would move with each page; start it with / or give a whole URL", cfg.LoginURL)
 	}
 	csrf := http.NewCrossOriginProtection()
 	for _, o := range cfg.Origins {
@@ -182,6 +212,24 @@ func (h *handler) serve(route *AppRoute) http.Handler {
 			err := fmt.Errorf("panic: "+verb+"\n%s", p, debug.Stack())
 			h.report(ww, r, route, http.StatusInternalServerError, err)
 		}()
+		if h.cfg.Auth != nil {
+			u, err := h.cfg.Auth(r)
+			if err != nil {
+				h.report(ww, r, route, status(err), err)
+				return
+			}
+			if u != nil {
+				r = r.WithContext(WithUser(r.Context(), u))
+			}
+		}
+		if route.LoginRequired && r.Context().Value(userKey{}) == nil {
+			if !route.API && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+				http.Redirect(ww, r, h.loginURL(r), http.StatusSeeOther)
+				return
+			}
+			h.report(ww, r, route, http.StatusUnauthorized, errors.New("login required"))
+			return
+		}
 		if err := route.Serve(ww, r); err != nil {
 			h.report(ww, r, route, status(err), err)
 		}
@@ -323,3 +371,37 @@ func SeeOther[P any](url string) Result[P] {
 // Page is the page to render, or the URL to redirect to. Only generated
 // code reads it.
 func (r Result[P]) Page() (P, string) { return r.page, r.to }
+
+// loginURL is Config.LoginURL with r's path and query as next, keeping
+// the query the URL has.
+func (h *handler) loginURL(r *http.Request) string {
+	u, _ := url.Parse(h.cfg.LoginURL) // Handler parsed it
+	q := u.Query()
+	q.Set("next", r.URL.RequestURI())
+	u.RawQuery = q.Encode()
+	return u.String()
+}
+
+type userKey struct{}
+
+// WithUser returns ctx carrying user, as Handler gives each request
+// Config.Auth's answer. A view tested without HTTP gets its user this way.
+func WithUser(ctx context.Context, user any) context.Context {
+	return context.WithValue(ctx, userKey{}, user)
+}
+
+// UserFrom is the user of the request, as Config.Auth told it, and
+// whether there is one (D-121). A user of another type than U is a
+// mismatch between Config.Auth and the view, and panics.
+func UserFrom[U any](ctx context.Context) (U, bool) {
+	var zero U
+	v := ctx.Value(userKey{})
+	if v == nil {
+		return zero, false
+	}
+	u, ok := v.(U)
+	if !ok {
+		panic(fmt.Sprintf("maago: the user is a %T, not a %s; UserFrom must ask for the type Config.Auth returns", v, fmt.Sprintf("%T", &zero)[1:]))
+	}
+	return u, true
+}
