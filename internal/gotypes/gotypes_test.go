@@ -133,6 +133,20 @@ c/c.go:3:14: cannot use 1 (untyped int constant) as bool value in variable decla
 `,
 		},
 		{
+			name: "a name that differs only in case",
+			files: map[string]string{
+				"a/a.go": "package a\n\nfunc APIPostsURL() string { return \"\" }\n\nvar X = ApiPostsURL()\n",
+				"b/b.go": "package b\n\nfunc DB() {}\n\nvar Y = Db\n",
+				"c/c.go": "package c\n\nimport \"example.com/app/b\"\n\nvar Z = b.Db\n", // not checked: b failed
+				// go/types hints at another package's name itself.
+				"d/d.go": "package d\n\nimport \"example.com/app/e\"\n\nvar W = e.ApiPostsUrl()\n",
+				"e/e.go": "package e\n\nfunc APIPostsURL() string { return \"\" }\n",
+			},
+			want: "a/a.go:5:9: undefined: ApiPostsURL\n  fix: did you mean APIPostsURL? go build reports the same error; fix it there\n" +
+				"b/b.go:5:9: undefined: Db\n  fix: did you mean DB? go build reports the same error; fix it there\n" +
+				"d/d.go:5:11: undefined: e.ApiPostsUrl (but have APIPostsURL)\n  fix: go build reports the same error; fix it there\n",
+		},
+		{
 			name: "imports that go list cannot find",
 			files: map[string]string{
 				"a/a.go": "package a\n\nimport _ \"example.org/nowhere\"\n",

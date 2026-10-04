@@ -1,0 +1,222 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 5 Oct 2026 02:25:55 +0900
+Subject: [PATCH] Export posts as CSV
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+게시판의 글을 CSV 파일로 내려받는다.
+
+- CSV는 페이지가 아니다. 그래서 뷰의 모양(func(ctx, In) (P, error))을
+  벗어난다: 탈출구 뷰, 그냥 http.HandlerFunc다. 라우트 표에는 다른 뷰처럼
+  한 줄로 적는다. 경로 값은 r.PathValue("id")로 직접 읽는다. In이 없으니
+  URL 함수의 인자도 문자열이다(BoardExportURL(id string)). 템플릿에서는
+  {{url "board_export" (print .Board.ID)}}
+- DB는 여기서도 maago.DBFrom(r.Context())다
+- 글을 한꺼번에 읽지 않는다. export_rows.sql이 id 다음부터 500개씩 읽고
+  (WHERE p.id > :after ORDER BY p.id), 읽은 만큼 써서 보낸다. 긴 게시판도
+  메모리에 다 올라오지 않는다
+- 두 Flush가 다르다. csv.Writer.Flush는 CSV 버퍼를 w로 옮긴다.
+  http.Flusher의 Flush는 w에 쌓인 것을 클라이언트로 보낸다
+- encoding/csv가 쉼표와 따옴표가 든 제목을 감싼다
+- =, +, -, @로 시작하는 제목은 앞에 '를 붙인다(cell). 스프레드시트가 그
+  칸을 수식으로 실행하지 않게 한다(CSV 주입)
+
+중간에 오류가 나면? 첫 쪽을 보낸 뒤라면(Flush) 200과 머리가 이미 나갔다.
+그냥 끝내면 받는 쪽은 잘린 파일을 온전한 파일로 안다. 그래서 기록하고
+panic(http.ErrAbortHandler)로 연결을 끊는다(abort). 받는 쪽은 받다 실패한
+것을 안다. 받는 쪽이 떠나 쓰기가 실패해도 같다. 아직 아무것도 보내지
+않았다면(csv.Writer가 첫 줄을 쥐고 있다) 보통 뷰처럼 panic(err)이 500이
+되고 Config.OnError가 듣는다.
+
+diff --git a/board/export.go b/board/export.go
+new file mode 100644
+index 0000000..b3d93b8
+--- /dev/null
++++ b/board/export.go
+@@ -0,0 +1,79 @@
++package board
++
++import (
++	"database/sql"
++	"encoding/csv"
++	"errors"
++	"log"
++	"net/http"
++	"strconv"
++	"strings"
++	"time"
++
++	"github.com/maago-web/maago"
++)
++
++// exportPage is how many rows ExportBoard reads at a time.
++var exportPage int64 = 500
++
++// ExportBoard sends a board's posts as a CSV file, a page of rows at a
++// time, so a long board never sits whole in memory. A CSV is not a page,
++// so this is an escape view (D-41): an http.HandlerFunc, which reads the
++// path and writes the response itself.
++func ExportBoard(w http.ResponseWriter, r *http.Request) {
++	ctx, db := r.Context(), maago.DBFrom(r.Context())
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.NotFound(w, r)
++		return
++	}
++	if _, err := GetBoard(ctx, db, id); errors.Is(err, sql.ErrNoRows) {
++		http.NotFound(w, r)
++		return
++	} else if err != nil {
++		panic(err) // nothing is written yet: a 500, and Config.OnError hears it
++	}
++	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
++	w.Header().Set("Content-Disposition", `attachment; filename="board-`+strconv.FormatInt(id, 10)+`.csv"`)
++	cw := csv.NewWriter(w)
++	cw.Write([]string{"id", "title", "status", "created_at", "comments"})
++	var after int64
++	for {
++		rows, err := ExportRows(ctx, db, ExportRowsParams{BoardID: id, After: after, Limit: exportPage})
++		if err != nil && after == 0 {
++			panic(err) // the csv.Writer still holds the first line: as above
++		}
++		if err != nil {
++			abort(id, err)
++		}
++		for _, p := range rows {
++			cw.Write([]string{strconv.FormatInt(p.ID, 10), cell(p.Title), p.Status, p.CreatedAt.Format(time.RFC3339), strconv.FormatInt(p.Comments, 10)})
++		}
++		cw.Flush() // from the csv.Writer into w
++		if err := cw.Error(); err != nil {
++			abort(id, err) // the client left, most likely
++		}
++		if int64(len(rows)) < exportPage {
++			return // the last page
++		}
++		w.(http.Flusher).Flush() // from w to the client
++		after = rows[len(rows)-1].ID
++	}
++}
++
++// abort ends an export cut short. The 200 and some rows are out: ending
++// the response would make a cut file look whole, so it cuts the
++// connection instead, and the client knows the file is not.
++func abort(id int64, err error) {
++	log.Printf("export of board %d: %v", id, err)
++	panic(http.ErrAbortHandler)
++}
++
++// cell keeps a spreadsheet from running what a title says: text that
++// starts like a formula gets a ' in front (CSV injection).
++func cell(s string) string {
++	if s != "" && strings.ContainsRune("=+-@\t\r", rune(s[0])) {
++		return "'" + s
++	}
++	return s
++}
+diff --git a/board/queries/export_rows.sql b/board/queries/export_rows.sql
+new file mode 100644
+index 0000000..5d91e17
+--- /dev/null
++++ b/board/queries/export_rows.sql
+@@ -0,0 +1,13 @@
++-- name: ExportRows :many ExportRow
++-- The posts of a board that are not hidden, by id, the limit of them past
++-- id after: a page of the CSV.
++-- param: board_id int64
++-- param: after    int64
++-- param: limit    int64
++-- column: comments int64
++SELECT p.id, p.title, p.status, p.created_at,
++       (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
++FROM board_post p
++WHERE p.board_id = :board_id AND NOT p.hidden AND p.id > :after
++ORDER BY p.id
++LIMIT :limit
+diff --git a/board/templates/board_page.html b/board/templates/board_page.html
+index 8fd9885..3438753 100644
+--- a/board/templates/board_page.html
++++ b/board/templates/board_page.html
+@@ -1,6 +1,6 @@
+ {{define "content"}}
+ <h1>{{.Board.Name}}</h1>
+-<p><a href="{{url "post_new" .Board.ID}}">글쓰기</a></p>
++<p><a href="{{url "post_new" .Board.ID}}">글쓰기</a> · <a href="{{url "board_export" (print .Board.ID)}}">CSV로 받기</a></p>
+ <form><input name="q" value="{{.Q}}"><button>찾기</button></form>
+ {{block "rows" .}}<ul id="rows">{{range .Posts}}
+ <li><a href="{{url "post_detail" .ID}}">{{.Title}}</a> ({{.Comments}})</li>{{else}}
+diff --git a/board/urls.go b/board/urls.go
+index dea403c..756c5ea 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -10,6 +10,7 @@ var Routes = maago.Routes{
+ 	maago.POST("/boards/new", "board_create", NewBoard),
+ 	maago.GET("/boards/{id}", "board_detail", ShowBoard),
+ 	maago.GET("/boards/{id}/rows", "board_rows", ShowBoard, maago.Block("rows")),
++	maago.GET("/boards/{id}/posts.csv", "board_export", ExportBoard),
+ 	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
+ 	maago.POST("/boards/{id}/posts/new", "post_create", NewPost),
+ 	maago.GET("/posts/{id}", "post_detail", ShowPost),
+diff --git a/board/web_test.go b/board/web_test.go
+index 9220624..fe47ffd 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -2,6 +2,7 @@ package board
+ 
+ import (
+ 	"database/sql"
++	"encoding/csv"
+ 	"fmt"
+ 	"net/http"
+ 	"net/http/httptest"
+@@ -327,3 +328,49 @@ func TestAPI(t *testing.T) {
+ 		t.Errorf("no board: %d %s", w.Code, w.Body)
+ 	}
+ }
++
++func TestExport(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, title := range []string{"하나", `"따옴표", 쉼표`, "셋", "=1+2", "숨김"} {
++		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: title, Body: "본문"})
++		if err != nil {
++			t.Fatal(err)
++		}
++		if title == "숨김" {
++			p.Hidden = true
++			if err := UpdatePost(ctx, db, &p); err != nil {
++				t.Fatal(err)
++			}
++		}
++	}
++	defer func(n int64) { exportPage = n }(exportPage)
++	exportPage = 2 // four rows: two full pages, then an empty one
++
++	w := httptest.NewRecorder()
++	h.ServeHTTP(w, httptest.NewRequest("GET", BoardExportURL(fmt.Sprint(b.ID)), nil))
++	if w.Code != 200 || w.Header().Get("Content-Type") != "text/csv; charset=utf-8" || w.Header().Get("Content-Disposition") != `attachment; filename="board-1.csv"` {
++		t.Fatalf("%d %v", w.Code, w.Header())
++	}
++	rows, err := csv.NewReader(w.Body).ReadAll()
++	if err != nil {
++		t.Fatal(err)
++	}
++	var titles []string
++	for _, r := range rows {
++		titles = append(titles, r[1])
++	}
++	if got := strings.Join(titles, "|"); got != `title|하나|"따옴표", 쉼표|셋|'=1+2` {
++		t.Errorf("titles %s in\n%q", got, rows)
++	}
++
++	for _, path := range []string{BoardExportURL("2"), BoardExportURL("abc")} {
++		if code, _ := get(h, path); code != 404 {
++			t.Errorf("%s: %d", path, code)
++		}
++	}
++}

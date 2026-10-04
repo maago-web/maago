@@ -1,0 +1,258 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 5 Oct 2026 02:25:55 +0900
+Subject: [PATCH] An API for a frontend
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+다른 출처에서 도는 프론트엔드(Vite 개발 서버, localhost:5173)가 부를 JSON
+API를 붙인다.
+
+- 라우트 표의 maago.API가 API 라우트다. 뷰의 반환값이 JSON이고, 오류는
+  RFC 9457 problem(application/problem+json)이다. URL 함수는
+  이름에서 나온다: api_posts는 APIPostsURL. API·URL·ID 같은 약어는 Go
+  관례대로 통째로 대문자다
+- 글 목록은 게시판 화면과 같은 쿼리를 부른다. 글이 없으면 []다
+- 글 만들기는 HTML과 같은 PostForm을 JSON 객체 하나로 받는다
+  ({"title": "…", "body": "…"}). 규칙과 문구도 같다. 규칙을 어긴 폼은
+  뷰에 오지 않는다: 생성된 코드가 422와 errors 목록으로 답한다. 깨진
+  JSON이나 빈 본문은 400
+- DB가 아는 것(같은 제목, 겹치는 고정)은 HTML 뷰와 함께 쓰는 savePost가
+  보고 폼에 적는다. API 뷰는 그것을 maago.Invalid(&f.Title, …)나
+  maago.InvalidForm(…)으로 돌려준다. 같은 422 모양이다
+- 만들면 200과 만든 글이다. JSON의 키는 Go 필드 이름(ID, Title)이고 숫자는
+  숫자다
+
+main의 Config.Origins가 믿는 출처를 적는다. 그 출처는:
+- 미리 묻는 요청(preflight, OPTIONS)에 204를 받고
+- 실제 요청의 응답에 Access-Control-Allow-Origin이 붙어 페이지가 읽는다
+
+적지 않은 출처의 POST는 CSRF 검사가 403으로 막는다. 그 출처의 preflight는
+허락을 받지 못한다(405, 허락 머리 없음). 그래서 브라우저가 실제 요청을
+보내지 않는다.
+
+diff --git a/board/urls.go b/board/urls.go
+index e62419d..dea403c 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -17,4 +17,8 @@ var Routes = maago.Routes{
+ 	maago.POST("/posts/{id}/publish", "post_publish", Publish),
+ 	maago.POST("/posts/{id}/archive", "post_archive", Archive),
+ 	maago.POST("/posts/{id}/delete", "post_delete", HidePost),
++
++	// JSON for a frontend on another origin: main trusts it in Config.Origins.
++	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
++	maago.POST("/api/boards/{id}/posts", "api_post_create", APINewPost, maago.API),
+ }
+diff --git a/board/views.go b/board/views.go
+index 16f4b99..d6adf85 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -154,9 +154,7 @@ type PostFormPage struct {
+ 	Form  PostForm
+ }
+ 
+-// NewPost writes a post on the board of the path. The same title twice on
+-// one board would break the model's unique=(BoardID,Title) as a 500; the
+-// view asks first and says so on the field.
++// NewPost writes a post on the board of the path.
+ func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], error) {
+ 	db := maago.DBFrom(ctx)
+ 	b, err := GetBoard(ctx, db, in.BoardID)
+@@ -167,32 +165,45 @@ func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], err
+ 	if !f.Valid() {
+ 		return maago.Show(PostFormPage{b, f}), nil
+ 	}
+-	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: b.ID, Title: f.Title.Value})
++	p, ok, err := savePost(ctx, db, b.ID, &f)
+ 	if err != nil {
+ 		return maago.Result[PostFormPage]{}, err
+ 	}
++	if !ok {
++		return maago.Show(PostFormPage{b, f}), nil
++	}
++	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
++}
++
++// savePost saves the post of a valid form f on board boardID, after what
++// only the database can check: the same title twice on one board would
++// break the model's unique=(BoardID,Title) as a 500, and two notices may
++// not be pinned at once. When one fails, it says so on f, as Validate
++// would, and reports false.
++func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Post, bool, error) {
++	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
++	if err != nil {
++		return Post{}, false, err
++	}
+ 	if taken.N > 0 {
+ 		f.Title.Error = "이 게시판에 같은 제목의 글이 있습니다."
+-		return maago.Show(PostFormPage{b, f}), nil
++		return Post{}, false, nil
+ 	}
+ 	if f.PinnedFrom.Given {
+-		n, err := PinnedOverlap(ctx, db, PinnedOverlapParams{BoardID: b.ID, From: f.PinnedFrom.Value, Until: f.PinnedUntil.Value})
++		n, err := PinnedOverlap(ctx, db, PinnedOverlapParams{BoardID: boardID, From: f.PinnedFrom.Value, Until: f.PinnedUntil.Value})
+ 		if err != nil {
+-			return maago.Result[PostFormPage]{}, err
++			return Post{}, false, err
+ 		}
+ 		if n.N > 0 {
+ 			f.AddError("이 기간에 고정된 다른 공지가 있습니다.")
+-			return maago.Show(PostFormPage{b, f}), nil
++			return Post{}, false, nil
+ 		}
+ 	}
+ 	p, err := InsertPost(ctx, db, NewPostInput{
+-		BoardID: b.ID, Title: f.Title.Value, Body: f.Body.Value,
++		BoardID: boardID, Title: f.Title.Value, Body: f.Body.Value,
+ 		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
+ 	})
+-	if err != nil {
+-		return maago.Result[PostFormPage]{}, err
+-	}
+-	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
++	return p, err == nil, err
+ }
+ 
+ // Publish publishes a draft.
+@@ -222,3 +233,38 @@ func move(ctx context.Context, id int64, to string) (maago.Result[PostPage], err
+ 	}
+ 	return maago.SeeOther[PostPage](PostDetailURL(id)), nil
+ }
++
++type APIPostsIn struct {
++	BoardID int64 `maago:"path=id"`
++}
++
++// APIPosts is the first page of a board as JSON, for a frontend of its
++// own: the same query as the board's page.
++func APIPosts(ctx context.Context, in APIPostsIn) ([]PostSummary, error) {
++	db := maago.DBFrom(ctx)
++	if _, err := GetBoard(ctx, db, in.BoardID); err != nil {
++		return nil, err
++	}
++	return PostList(ctx, db, PostListParams{BoardID: in.BoardID, Now: time.Now(), Limit: pageSize})
++}
++
++// APINewPost writes a post from a JSON object, with the same form as
++// NewPost. A form that does not pass never gets here: the generated code
++// answers it with a 422. What savePost finds on f is a 422 too:
++// maago.Invalid names the field, maago.InvalidForm the form.
++func APINewPost(ctx context.Context, in NewPostIn) (Post, error) {
++	db := maago.DBFrom(ctx)
++	if _, err := GetBoard(ctx, db, in.BoardID); err != nil {
++		return Post{}, err
++	}
++	f := in.Form
++	p, ok, err := savePost(ctx, db, in.BoardID, &f)
++	switch {
++	case err != nil || ok:
++		return p, err
++	case f.Title.Error != "":
++		return Post{}, maago.Invalid(&f.Title, f.Title.Error)
++	default:
++		return Post{}, maago.InvalidForm(f.Errors[0])
++	}
++}
+diff --git a/board/web_test.go b/board/web_test.go
+index 223478f..9220624 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -14,11 +14,14 @@ import (
+ 	"github.com/maago-web/maago/maagotest"
+ )
+ 
++// front is the origin main trusts, a frontend of its own.
++const front = "http://localhost:5173"
++
+ // app serves the board on a new database, as main does.
+ func app(t *testing.T) (http.Handler, *sql.DB) {
+ 	t.Helper()
+ 	db := maagotest.DB(t)
+-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}})
++	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Origins: []string{front}})
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -261,3 +264,66 @@ func TestCommentAndHide(t *testing.T) {
+ 		t.Errorf("%v %v", cs, err)
+ 	}
+ }
++
++func TestAPI(t *testing.T) {
++	h, db := app(t)
++	b, err := InsertBoard(t.Context(), db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	// call sends a request as a page of origin would, and returns the
++	// response.
++	call := func(method, path, origin, body string, header ...string) *httptest.ResponseRecorder {
++		r := httptest.NewRequest(method, path, strings.NewReader(body))
++		r.Header.Set("Origin", origin)
++		r.Header.Set("Sec-Fetch-Site", "cross-site")
++		if body != "" {
++			r.Header.Set("Content-Type", "application/json")
++		}
++		for i := 0; i < len(header); i += 2 {
++			r.Header.Set(header[i], header[i+1])
++		}
++		w := httptest.NewRecorder()
++		h.ServeHTTP(w, r)
++		return w
++	}
++	const evil = "https://evil.example"
++
++	// The browser asks first whether the frontend may POST JSON.
++	w := call("OPTIONS", APIPostCreateURL(b.ID), front, "", "Access-Control-Request-Method", "POST", "Access-Control-Request-Headers", "content-type")
++	if w.Code != 204 || w.Header().Get("Access-Control-Allow-Origin") != front {
++		t.Errorf("preflight: %d %v", w.Code, w.Header())
++	}
++	if w := call("OPTIONS", APIPostCreateURL(b.ID), evil, "", "Access-Control-Request-Method", "POST"); w.Code != 405 || w.Header().Get("Access-Control-Allow-Origin") != "" {
++		t.Errorf("preflight from another site: %d %v", w.Code, w.Header())
++	}
++
++	for _, c := range []struct {
++		origin, body string
++		code         int
++		has          string
++	}{
++		{front, `{"title": "API 글", "body": "본문"}`, 200, `"Title":"API 글"`},
++		{front, `{"title": "API 글", "body": "본문"}`, 422, `"errors":[{"field":"title","detail":"이 게시판에 같은 제목의 글이 있습니다."}]`},
++		{front, `{"title": "", "body": "본문"}`, 422, `{"field":"title","detail":"This field is required."}`},
++		{front, `{"title": "빈 본문"`, 400, `"status":400`},
++		{front, ``, 400, `"status":400`},
++		{evil, `{"title": "남의 글", "body": "본문"}`, 403, `"status":403`},
++	} {
++		w := call("POST", APIPostCreateURL(b.ID), c.origin, c.body)
++		if w.Code != c.code || !strings.Contains(w.Body.String(), c.has) {
++			t.Errorf("POST %s from %s: %d, want %d with %s:\n%s", c.body, c.origin, w.Code, c.code, c.has, w.Body)
++		}
++		if acao := w.Header().Get("Access-Control-Allow-Origin"); (c.origin == front) != (acao == front) {
++			t.Errorf("POST from %s: Access-Control-Allow-Origin %q", c.origin, acao)
++		}
++	}
++
++	w = call("GET", APIPostsURL(b.ID), front, "")
++	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || !strings.Contains(w.Body.String(), `"Title":"API 글"`) || strings.Contains(w.Body.String(), "남의 글") {
++		t.Errorf("list: %d %v %s", w.Code, w.Header(), w.Body)
++	}
++	if w := call("GET", APIPostsURL(b.ID+1), front, ""); w.Code != 404 {
++		t.Errorf("no board: %d %s", w.Code, w.Body)
++	}
++}
+diff --git a/main.go b/main.go
+index 119f1f8..5936fe5 100644
+--- a/main.go
++++ b/main.go
+@@ -25,6 +25,9 @@ func main() {
+ 	h, err := maago.Handler(maago.Config{
+ 		DB:   db,
+ 		Apps: []maago.App{board.App},
++		// The frontend's dev server, another origin: its pages may call the
++		// API, and read the answers.
++		Origins: []string{"http://localhost:5173"},
+ 		// Every 5xx: a view's error or a panic. Send it where you watch
+ 		// errors; the log will do here.
+ 		OnError: func(ctx context.Context, r *http.Request, err error) {

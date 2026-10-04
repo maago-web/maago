@@ -273,19 +273,37 @@ func fieldType(t model.Type, pointer bool) string {
 	return t.String()
 }
 
-// FieldName is a Go field name for a snake_case column name: each word
-// capitalized, and id in capitals, the one initialism D-76 needs undone
-// (board_id → BoardID).
-func FieldName(column string) string {
+// FieldName is a Go name for a snake_case name: each word capitalized,
+// and an initialism Go's linters know in capitals, plural or not, undoing
+// what D-76 makes of it (board_id → BoardID, api_posts → APIPosts,
+// user_ids → UserIDs, D-110).
+func FieldName(name string) string {
 	var b strings.Builder
-	for _, w := range strings.Split(column, "_") {
-		if w == "id" {
-			b.WriteString("ID")
-		} else if w != "" {
-			b.WriteString(strings.ToUpper(w[:1]) + w[1:])
+	for _, w := range strings.Split(name, "_") {
+		u := strings.ToUpper(w)
+		switch {
+		case w == "":
+		case initialisms[u]:
+			b.WriteString(u)
+		case strings.HasSuffix(w, "s") && initialisms[u[:len(u)-1]]:
+			b.WriteString(u[:len(u)-1] + "s")
+		default:
+			b.WriteString(u[:1] + w[1:])
 		}
 	}
 	return b.String()
+}
+
+// initialisms are the default initialisms of staticcheck's ST1003, the
+// list Go code is written to. No more: a name never depends on a list of
+// Maago's own (D-110).
+var initialisms = map[string]bool{
+	"ACL": true, "AMQP": true, "API": true, "ASCII": true, "CPU": true, "CSS": true, "DB": true, "DNS": true,
+	"EOF": true, "GID": true, "GUID": true, "HTML": true, "HTTP": true, "HTTPS": true, "ID": true, "IP": true,
+	"JSON": true, "QPS": true, "RAM": true, "RPC": true, "RTP": true, "SIP": true, "SLA": true, "SMTP": true,
+	"SQL": true, "SSH": true, "TCP": true, "TLS": true, "TS": true, "TTL": true, "UDP": true, "UI": true,
+	"UID": true, "URI": true, "URL": true, "UTF8": true, "UUID": true, "VM": true, "XML": true, "XMPP": true,
+	"XSRF": true, "XSS": true,
 }
 
 // joins is what a query's joins tell about its result columns (D-104).

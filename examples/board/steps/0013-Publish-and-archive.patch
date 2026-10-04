@@ -1,0 +1,157 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 5 Oct 2026 02:25:55 +0900
+Subject: [PATCH] Publish and archive
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+글에 상태가 있다: draft에서 published로, published에서 archived로. 한
+방향이다.
+
+- 전이 규칙은 모델 옆의 Go 메서드다: func (p Post) Next(to string) error.
+  태그로 적지 않는다. 규칙은 코드가 가장 잘 말한다
+- 라우트 둘: POST /posts/{id}/publish와 /archive. 두 뷰가 move 하나를
+  부른다. GetPost로 읽고, Next에 묻고, UpdatePost로 쓴다
+- 규칙 밖이면 maago.Status(http.StatusConflict, err)를 돌려준다. 응답은
+  409다. HTML 라우트는 상태 문구만 보이고, err는 보이지 않는다(API
+  라우트는 problem의 detail에 싣는다)
+- 글 화면은 지금 상태에서 갈 수 있는 단추 하나만 그린다. {{if eq
+  .Post.Status "draft"}}
+
+단추를 숨겨도 요청은 직접 보낼 수 있다. 막는 것은 Next다. 시험은 단추
+없이 규칙 밖의 요청을 보내 본다.
+
+diff --git a/board/models.go b/board/models.go
+index d91f180..6ba06ee 100644
+--- a/board/models.go
++++ b/board/models.go
+@@ -3,6 +3,7 @@
+ package board
+ 
+ import (
++	"fmt"
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
+@@ -42,3 +43,15 @@ type Comment struct {
+ 	Text      string
+ 	CreatedAt time.Time `maago:"auto=create"`
+ }
++
++// next is where a post of each status may go: draft, then published, then
++// archived, one way.
++var next = map[string]string{"draft": "published", "published": "archived"}
++
++// Next reports whether p may become status to.
++func (p Post) Next(to string) error {
++	if next[p.Status] != to {
++		return fmt.Errorf("a %s post cannot become %s", p.Status, to)
++	}
++	return nil
++}
+diff --git a/board/templates/post_page.html b/board/templates/post_page.html
+index 023e3ff..232987e 100644
+--- a/board/templates/post_page.html
++++ b/board/templates/post_page.html
+@@ -3,4 +3,6 @@
+ <h1>{{.Post.Title}}</h1>
+ <p>{{.Post.Status}} · 조회 {{.Post.Views}}</p>
+ <div>{{.Post.Body}}</div>
++{{if eq .Post.Status "draft"}}<form method="post" action="{{url "post_publish" .Post.ID}}"><button>게시하기</button></form>{{end}}
++{{if eq .Post.Status "published"}}<form method="post" action="{{url "post_archive" .Post.ID}}"><button>보관하기</button></form>{{end}}
+ {{end}}
+diff --git a/board/urls.go b/board/urls.go
+index 23c8d5a..011e86e 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -13,4 +13,6 @@ var Routes = maago.Routes{
+ 	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
+ 	maago.POST("/boards/{id}/posts/new", "post_create", NewPost),
+ 	maago.GET("/posts/{id}", "post_detail", ShowPost),
++	maago.POST("/posts/{id}/publish", "post_publish", Publish),
++	maago.POST("/posts/{id}/archive", "post_archive", Archive),
+ }
+diff --git a/board/views.go b/board/views.go
+index 26f272d..e17a025 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -2,6 +2,7 @@ package board
+ 
+ import (
+ 	"context"
++	"net/http"
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
+@@ -157,3 +158,31 @@ func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], err
+ 	}
+ 	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
+ }
++
++// Publish publishes a draft.
++func Publish(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
++	return move(ctx, in.ID, "published")
++}
++
++// Archive archives a published post.
++func Archive(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
++	return move(ctx, in.ID, "archived")
++}
++
++// move gives post id status to, if Post.Next allows it, and goes back to
++// the post. What it does not allow is a 409 Conflict.
++func move(ctx context.Context, id int64, to string) (maago.Result[PostPage], error) {
++	db := maago.DBFrom(ctx)
++	p, err := GetPost(ctx, db, id)
++	if err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	if err := p.Next(to); err != nil {
++		return maago.Result[PostPage]{}, maago.Status(http.StatusConflict, err)
++	}
++	p.Status = to
++	if err := UpdatePost(ctx, db, &p); err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	return maago.SeeOther[PostPage](PostDetailURL(id)), nil
++}
+diff --git a/board/web_test.go b/board/web_test.go
+index f5bfaf6..b424fe9 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -190,3 +190,34 @@ func TestPinAndSchedule(t *testing.T) {
+ 		t.Errorf("search:\n%s", body)
+ 	}
+ }
++
++func TestPublishAndArchive(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "글", Body: "본문"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, c := range []struct {
++		path string
++		code int
++	}{
++		{PostArchiveURL(p.ID), 409}, // a draft is not archived
++		{PostPublishURL(p.ID), 303},
++		{PostPublishURL(p.ID), 409}, // not twice
++		{PostArchiveURL(p.ID), 303},
++		{PostPublishURL(p.ID), 409}, // archived is the end
++		{PostPublishURL(p.ID + 1), 404},
++	} {
++		if code, _, body := post(h, c.path, nil); code != c.code {
++			t.Errorf("POST %s: %d, want %d:\n%s", c.path, code, c.code, body)
++		}
++	}
++	if got, err := GetPost(ctx, db, p.ID); err != nil || got.Status != "archived" {
++		t.Errorf("%q %v", got.Status, err)
++	}
++}

@@ -1,0 +1,314 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 5 Oct 2026 02:25:55 +0900
+Subject: [PATCH] Serve boards and posts
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+화면을 띄운다. 라우트 표 하나, 뷰 셋, 템플릿.
+
+- board/urls.go의 var Routes가 라우트 표다. 한 줄에 경로, 이름, 뷰.
+  maago gen이 이름마다 URL 함수(BoardDetailURL)와 어댑터를 만든다
+- 뷰는 func(ctx, In) (페이지, error). In의 필드 태그가 값의 출처다:
+  path=id는 경로의 {id}, query=page는 ?page=. 포인터면 없어도 된다(nil)
+- 페이지 타입이 템플릿을 정한다: BoardPage는 templates/board_page.html.
+  base.html이 틀이고 페이지는 {{define "content"}}를 채운다
+- 템플릿의 {{url "board_detail" .ID}}는 URL 함수와 같은 일을 한다. 틀린
+  필드 이름이나 없는 라우트 이름은 maago gen이 잡는다(다음 단계에서 본다)
+- 없는 글은 404다: 쿼리가 돌려준 sql.ErrNoRows를 뷰가 그대로 돌려준다.
+  ?page=abc처럼 읽을 수 없는 값은 400
+- /boards/{id}/rows는 같은 뷰로 {{block "rows"}}만 그린다(maago.Block).
+  HTMX처럼 목록 조각만 바꿔 끼우는 화면이 쓴다
+
+main은 maago.Handler에 앱을 넘긴다(Config.Apps). 앱은 빠뜨리면 maago gen이
+알려 준다. OnError는 뷰의 오류와 panic(5xx)을 듣는다: 오류 보고 서비스를
+붙일 자리다.
+
+시험은 maago.Handler를 만들어 httptest로 요청한다.
+
+diff --git a/board/queries/board_list.sql b/board/queries/board_list.sql
+new file mode 100644
+index 0000000..7b775bc
+--- /dev/null
++++ b/board/queries/board_list.sql
+@@ -0,0 +1,5 @@
++-- name: BoardList :many Board
++-- Every board, by name.
++SELECT id, name
++FROM board_board
++ORDER BY name
+diff --git a/board/templates/base.html b/board/templates/base.html
+new file mode 100644
+index 0000000..4c3c113
+--- /dev/null
++++ b/board/templates/base.html
+@@ -0,0 +1,8 @@
++<!doctype html>
++<html lang="ko">
++<head><meta charset="utf-8"><title>게시판</title></head>
++<body>
++<header><a href="{{url "home"}}">게시판</a></header>
++<main>{{block "content" .}}{{end}}</main>
++</body>
++</html>
+diff --git a/board/templates/board_page.html b/board/templates/board_page.html
+new file mode 100644
+index 0000000..8a53ff4
+--- /dev/null
++++ b/board/templates/board_page.html
+@@ -0,0 +1,10 @@
++{{define "content"}}
++<h1>{{.Board.Name}}</h1>
++<form><input name="q" value="{{.Q}}"><button>찾기</button></form>
++{{block "rows" .}}<ul id="rows">{{range .Posts}}
++<li><a href="{{url "post_detail" .ID}}">{{.Title}}</a> ({{.Comments}})</li>{{else}}
++<li>글이 없습니다.</li>{{end}}
++</ul>{{end}}
++<nav>{{if .Prev}}<a href="{{url "board_detail" .Board.ID}}?page={{.Prev}}">이전</a>{{end}}
++{{if .Next}}<a href="{{url "board_detail" .Board.ID}}?page={{.Next}}">다음</a>{{end}}</nav>
++{{end}}
+diff --git a/board/templates/home_page.html b/board/templates/home_page.html
+new file mode 100644
+index 0000000..c5ae98e
+--- /dev/null
++++ b/board/templates/home_page.html
+@@ -0,0 +1,7 @@
++{{define "content"}}
++<h1>게시판</h1>
++<ul>{{range .Boards}}
++<li><a href="{{url "board_detail" .ID}}">{{.Name}}</a></li>{{else}}
++<li>아직 게시판이 없습니다.</li>{{end}}
++</ul>
++{{end}}
+diff --git a/board/templates/post_page.html b/board/templates/post_page.html
+new file mode 100644
+index 0000000..023e3ff
+--- /dev/null
++++ b/board/templates/post_page.html
+@@ -0,0 +1,6 @@
++{{define "content"}}
++<p>{{.Post.BoardName}}</p>
++<h1>{{.Post.Title}}</h1>
++<p>{{.Post.Status}} · 조회 {{.Post.Views}}</p>
++<div>{{.Post.Body}}</div>
++{{end}}
+diff --git a/board/urls.go b/board/urls.go
+new file mode 100644
+index 0000000..7da271f
+--- /dev/null
++++ b/board/urls.go
+@@ -0,0 +1,12 @@
++package board
++
++import "github.com/maago-web/maago"
++
++// Routes are the board's pages. Each line is one route: its path, a name
++// for the URL function and {{url}}, and the view.
++var Routes = maago.Routes{
++	maago.GET("/{$}", "home", Home),
++	maago.GET("/boards/{id}", "board_detail", ShowBoard),
++	maago.GET("/boards/{id}/rows", "board_rows", ShowBoard, maago.Block("rows")),
++	maago.GET("/posts/{id}", "post_detail", ShowPost),
++}
+diff --git a/board/views.go b/board/views.go
+new file mode 100644
+index 0000000..f983549
+--- /dev/null
++++ b/board/views.go
+@@ -0,0 +1,76 @@
++package board
++
++import (
++	"context"
++
++	"github.com/maago-web/maago"
++)
++
++// pageSize is how many posts a page of a board shows.
++const pageSize = 10
++
++type HomePage struct {
++	Boards []Board
++}
++
++// Home lists the boards.
++func Home(ctx context.Context, in struct{}) (HomePage, error) {
++	bs, err := BoardList(ctx, maago.DBFrom(ctx))
++	return HomePage{bs}, err
++}
++
++type BoardIn struct {
++	ID   int64   `maago:"path=id"`
++	Page *int64  `maago:"query=page"` // nil: the first page
++	Q    *string `maago:"query=q"`    // nil: no search
++}
++
++type BoardPage struct {
++	Board      Board
++	Posts      []PostSummary
++	Page       int64
++	Prev, Next int64 // 0: none
++	Q          string
++}
++
++// ShowBoard shows a board's posts, a page at a time, or those whose title
++// has q.
++func ShowBoard(ctx context.Context, in BoardIn) (BoardPage, error) {
++	db := maago.DBFrom(ctx)
++	b, err := GetBoard(ctx, db, in.ID)
++	if err != nil {
++		return BoardPage{}, err // sql.ErrNoRows: a 404
++	}
++	p := BoardPage{Board: b, Page: 1}
++	if in.Page != nil && *in.Page > 1 {
++		p.Page = *in.Page
++	}
++	if in.Q != nil {
++		p.Q = *in.Q
++		p.Posts, err = SearchPosts(ctx, db, SearchPostsParams{BoardID: b.ID, Q: in.Q, Limit: pageSize})
++		return p, err
++	}
++	// One more than a page tells whether a next page is there.
++	p.Posts, err = PostList(ctx, db, PostListParams{BoardID: b.ID, Limit: pageSize + 1, Offset: (p.Page - 1) * pageSize})
++	if len(p.Posts) > pageSize {
++		p.Posts, p.Next = p.Posts[:pageSize], p.Page+1
++	}
++	if p.Page > 1 {
++		p.Prev = p.Page - 1
++	}
++	return p, err
++}
++
++type PostIn struct {
++	ID int64 `maago:"path=id"`
++}
++
++type PostPage struct {
++	Post PostWithBoard
++}
++
++// ShowPost shows one post.
++func ShowPost(ctx context.Context, in PostIn) (PostPage, error) {
++	p, err := PostDetail(ctx, maago.DBFrom(ctx), PostDetailParams{ID: in.ID})
++	return PostPage{p}, err
++}
+diff --git a/board/web_test.go b/board/web_test.go
+new file mode 100644
+index 0000000..20e655e
+--- /dev/null
++++ b/board/web_test.go
+@@ -0,0 +1,75 @@
++package board
++
++import (
++	"database/sql"
++	"fmt"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/maago-web/maago"
++	"github.com/maago-web/maago/maagotest"
++)
++
++// app serves the board on a new database, as main does.
++func app(t *testing.T) (http.Handler, *sql.DB) {
++	t.Helper()
++	db := maagotest.DB(t)
++	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}})
++	if err != nil {
++		t.Fatal(err)
++	}
++	return h, db
++}
++
++// get requests path and returns the status and the body.
++func get(h http.Handler, path string) (int, string) {
++	w := httptest.NewRecorder()
++	h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
++	return w.Code, w.Body.String()
++}
++
++func TestPages(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	var first Post
++	for i := 1; i <= 12; i++ {
++		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: fmt.Sprintf("글 %d", i), Body: "<b>본문</b>"})
++		if err != nil {
++			t.Fatal(err)
++		}
++		if i == 1 {
++			first = p
++		}
++	}
++
++	for _, c := range []struct {
++		path string
++		code int
++		has  string
++	}{
++		{HomeURL(), 200, `<a href="/boards/1">자유</a>`},
++		{BoardDetailURL(b.ID), 200, "글 12"},               // the newest first
++		{BoardDetailURL(b.ID) + "?page=2", 200, "글 2"},    // ten a page
++		{BoardDetailURL(b.ID) + "?q=11", 200, "글 11"},     // a search
++		{BoardDetailURL(b.ID) + "?page=abc", 400, "Bad"},  // not a number
++		{BoardDetailURL(b.ID + 1), 404, "Not Found"},      // no board
++		{PostDetailURL(first.ID), 200, "&lt;b&gt;본문"},     // escaped
++		{PostDetailURL(first.ID + 100), 404, "Not Found"}, // sql.ErrNoRows
++		{"/posts/abc", 404, "Not Found"},                  // not an id
++	} {
++		if code, body := get(h, c.path); code != c.code || !strings.Contains(body, c.has) {
++			t.Errorf("GET %s: %d, want %d with %q:\n%s", c.path, code, c.code, c.has, body)
++		}
++	}
++
++	// The rows alone, for a page that swaps them in.
++	if code, body := get(h, BoardRowsURL(b.ID)+"?page=2"); code != 200 || !strings.HasPrefix(body, `<ul id="rows">`) || strings.Contains(body, "<html") {
++		t.Errorf("rows: %d %s", code, body)
++	}
++}
+diff --git a/main.go b/main.go
+index 77f630f..119f1f8 100644
+--- a/main.go
++++ b/main.go
+@@ -4,9 +4,12 @@ package main
+ import (
+ 	"context"
+ 	"log"
++	"net/http"
+ 
+ 	"github.com/maago-web/maago"
+ 
++	"example.com/board/board"
++
+ 	_ "modernc.org/sqlite" // the database driver: the app imports it, not maago
+ )
+ 
+@@ -19,8 +22,18 @@ func main() {
+ 		log.Fatal(err)
+ 	}
+ 	defer db.Close()
+-	if err := db.PingContext(ctx); err != nil {
++	h, err := maago.Handler(maago.Config{
++		DB:   db,
++		Apps: []maago.App{board.App},
++		// Every 5xx: a view's error or a panic. Send it where you watch
++		// errors; the log will do here.
++		OnError: func(ctx context.Context, r *http.Request, err error) {
++			log.Printf("%s %s: %v", r.Method, r.URL.Path, err)
++		},
++	})
++	if err != nil {
+ 		log.Fatal(err)
+ 	}
+-	log.Print("the database is ready")
++	log.Print("listening on :8000")
++	log.Fatal(http.ListenAndServe(":8000", h))
+ }

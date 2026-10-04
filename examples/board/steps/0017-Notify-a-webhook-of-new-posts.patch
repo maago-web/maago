@@ -1,0 +1,221 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 5 Oct 2026 02:25:55 +0900
+Subject: [PATCH] Notify a webhook of new posts
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+새 글이 올라오면 다른 서비스(채팅 봇 같은 것)에 알린다. 웹훅: 정해 둔
+주소에 JSON을 POST한다.
+
+- 주소와 토큰은 앱의 설정이다. 앱의 패키지 변수 board.Webhook에 두고,
+  main이 환경 변수(BOARD_WEBHOOK_URL, BOARD_WEBHOOK_TOKEN)에서 채운다.
+  토큰은 코드에 적지 않는다. Authorization: Bearer 머리로 보낸다
+- 알림은 응답을 늦추지 않는다. savePost가 저장한 뒤
+  go notify(context.WithoutCancel(ctx), hook, p)로 따로 보낸다. 요청의 ctx는
+  응답이 끝나면 취소된다. WithoutCancel은 값(DB 등)은 두고 취소만 뗀다
+- 실패하면 1초, 2초 뒤에 다시 보낸다. 세 번까지다. 5xx와 응답 없음만
+  다시 보낸다. 4xx는 다시 보내도 같다(토큰이 틀렸거나 주소가 없다).
+  끝내 실패하면 기록한다. 글은 이미 저장되었다
+- notify는 hook을 값으로 받는다. 요청 때 읽은 설정으로 보낸다
+
+시험은 notify를 직접 부른다. 가짜 웹훅은 httptest.NewServer다. 두 번 503,
+그다음 200이면 세 번 보내고 성공한다. 400이면 한 번에 그친다. 기다림은
+패키지 변수 retryWait를 1ms로 줄인다.
+
+프로세스가 알림 도중 내려가면 알림은 사라진다. 꼭 가야 하는 알림이면
+DB에 적어 두고 따로 보내는 작업 큐가 필요하다. 그것은 이 튜토리얼 밖이다.
+
+diff --git a/board/notify.go b/board/notify.go
+new file mode 100644
+index 0000000..2b9b203
+--- /dev/null
++++ b/board/notify.go
+@@ -0,0 +1,62 @@
++package board
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"fmt"
++	"net/http"
++	"time"
++)
++
++// Hook is a webhook: where to post, and the token it wants.
++type Hook struct{ URL, Token string }
++
++// Webhook is where new posts are announced; main fills it in from the
++// environment. With no URL, nothing is announced.
++var Webhook Hook
++
++// retryWait is how long notify waits before each try after the first.
++var retryWait = []time.Duration{time.Second, 2 * time.Second}
++
++// notify tells hook of post p. It tries again after a 5xx or no
++// answer, and gives up after a 4xx, which another try would not change.
++// It runs after the response, on a context the request's end does not
++// cancel (D-118).
++func notify(ctx context.Context, hook Hook, p Post) error {
++	if hook.URL == "" {
++		return nil
++	}
++	body, err := json.Marshal(map[string]any{"id": p.ID, "title": p.Title, "path": PostDetailURL(p.ID)})
++	if err != nil {
++		return err
++	}
++	for i := 0; ; i++ {
++		again, err := send(ctx, hook, body)
++		if err == nil || !again || i == len(retryWait) {
++			return err
++		}
++		time.Sleep(retryWait[i])
++	}
++}
++
++// send posts body to hook once, and reports whether to try again.
++func send(ctx context.Context, hook Hook, body []byte) (again bool, err error) {
++	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
++	defer cancel()
++	r, err := http.NewRequestWithContext(ctx, "POST", hook.URL, bytes.NewReader(body))
++	if err != nil {
++		return false, err
++	}
++	r.Header.Set("Content-Type", "application/json")
++	r.Header.Set("Authorization", "Bearer "+hook.Token)
++	resp, err := http.DefaultClient.Do(r)
++	if err != nil {
++		return true, err // no answer
++	}
++	resp.Body.Close()
++	if resp.StatusCode >= 300 {
++		return resp.StatusCode >= 500, fmt.Errorf("webhook: %s", resp.Status)
++	}
++	return false, nil
++}
+diff --git a/board/notify_test.go b/board/notify_test.go
+new file mode 100644
+index 0000000..3c01cec
+--- /dev/null
++++ b/board/notify_test.go
+@@ -0,0 +1,55 @@
++package board
++
++import (
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++	"time"
++)
++
++func TestNotify(t *testing.T) {
++	defer func(w []time.Duration) { retryWait = w }(retryWait)
++	retryWait = []time.Duration{time.Millisecond, time.Millisecond}
++	post := Post{ID: 7, Title: "새 글"}
++
++	for _, c := range []struct {
++		name    string
++		answers []int // the fake webhook's, in turn; the last again after
++		calls   int
++		fails   bool
++	}{
++		{"503 twice, then 200", []int{503, 503, 200}, 3, false},
++		{"503 always", []int{503}, 3, true},
++		{"400: not again", []int{400}, 1, true},
++	} {
++		var calls int
++		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++			var got struct {
++				ID    int64
++				Title string
++				Path  string
++			}
++			if err := json.NewDecoder(r.Body).Decode(&got); err != nil || got.ID != 7 || got.Title != "새 글" || got.Path != "/posts/7" || r.Header.Get("Authorization") != "Bearer s3cret" {
++				t.Errorf("%s: %+v %v %q", c.name, got, err, r.Header.Get("Authorization"))
++			}
++			w.WriteHeader(c.answers[min(calls, len(c.answers)-1)])
++			calls++
++		}))
++		err := notify(t.Context(), Hook{srv.URL, "s3cret"}, post)
++		srv.Close()
++		if calls != c.calls || (err != nil) != c.fails {
++			t.Errorf("%s: %d calls, %v", c.name, calls, err)
++		}
++	}
++
++	// No answer at all: tried again, then given up.
++	srv := httptest.NewServer(nil)
++	srv.Close()
++	if err := notify(t.Context(), Hook{srv.URL, "s3cret"}, post); err == nil {
++		t.Error("no server: no error")
++	}
++	if err := notify(t.Context(), Hook{}, post); err != nil {
++		t.Errorf("no webhook: %v", err)
++	}
++}
+diff --git a/board/views.go b/board/views.go
+index d6adf85..68bae01 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -2,6 +2,7 @@ package board
+ 
+ import (
+ 	"context"
++	"log"
+ 	"net/http"
+ 	"time"
+ 
+@@ -179,7 +180,8 @@ func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], err
+ // only the database can check: the same title twice on one board would
+ // break the model's unique=(BoardID,Title) as a 500, and two notices may
+ // not be pinned at once. When one fails, it says so on f, as Validate
+-// would, and reports false.
++// would, and reports false. A saved post is announced to the webhook
++// after the response.
+ func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Post, bool, error) {
+ 	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
+ 	if err != nil {
+@@ -203,7 +205,16 @@ func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Pos
+ 		BoardID: boardID, Title: f.Title.Value, Body: f.Body.Value,
+ 		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
+ 	})
+-	return p, err == nil, err
++	if err != nil {
++		return Post{}, false, err
++	}
++	hook := Webhook
++	go func() {
++		if err := notify(context.WithoutCancel(ctx), hook, p); err != nil {
++			log.Printf("notify of post %d: %v", p.ID, err)
++		}
++	}()
++	return p, true, nil
+ }
+ 
+ // Publish publishes a draft.
+diff --git a/main.go b/main.go
+index 5936fe5..7999ea1 100644
+--- a/main.go
++++ b/main.go
+@@ -5,6 +5,7 @@ import (
+ 	"context"
+ 	"log"
+ 	"net/http"
++	"os"
+ 
+ 	"github.com/maago-web/maago"
+ 
+@@ -22,6 +23,10 @@ func main() {
+ 		log.Fatal(err)
+ 	}
+ 	defer db.Close()
++	// Where to announce new posts. Settings of the app are the app's own
++	// package variables, filled in here.
++	board.Webhook.URL = os.Getenv("BOARD_WEBHOOK_URL")
++	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")
+ 	h, err := maago.Handler(maago.Config{
+ 		DB:   db,
+ 		Apps: []maago.App{board.App},

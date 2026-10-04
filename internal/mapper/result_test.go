@@ -145,7 +145,7 @@ func TestNewResult(t *testing.T) {
 			[]practicedb.Column{col("name", "boards.name", 0)}, "name→Name *string"},
 		// The model's field name, unless the column is renamed.
 		{"SELECT url, url AS link_url FROM posts",
-			[]practicedb.Column{col("url", "posts.url", 0), col("link_url", "posts.url", 0)}, "url→URL string, link_url→LinkUrl string"},
+			[]practicedb.Column{col("url", "posts.url", 0), col("link_url", "posts.url", 0)}, "url→URL string, link_url→LinkURL string"},
 	} {
 		rs, errs := results(t, []string{head + c.body + "\n"}, [][]practicedb.Column{c.cols})
 		if errs != "" || rs[0].Model != nil || fields(rs[0]) != c.want {
@@ -206,5 +206,19 @@ func TestSharedResult(t *testing.T) {
 	rs, errs = results(t, []string{"-- name: X :many Post\nSELECT 1\n", "-- name: Y :exec\nDELETE FROM posts\n"}, [][]practicedb.Column{nil, nil})
 	if errs != "" || rs[0] != nil || rs[1] != nil {
 		t.Errorf("got %v %s, want nothing", rs, errs)
+	}
+}
+
+// FieldName undoes D-76 for the initialisms of staticcheck's ST1003 and
+// no other word (D-110).
+func TestFieldName(t *testing.T) {
+	for in, want := range map[string]string{
+		"board_id": "BoardID", "api_posts": "APIPosts", "user_ids": "UserIDs", "urls": "URLs",
+		"json_body": "JSONBody", "utf8_name": "UTF8Name", "db": "DB",
+		"app_name": "AppName", "ids_x": "IDsX", "s": "S", "status": "Status", "__a": "A",
+	} {
+		if got := FieldName(in); got != want {
+			t.Errorf("FieldName(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

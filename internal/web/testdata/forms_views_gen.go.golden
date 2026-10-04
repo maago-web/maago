@@ -84,8 +84,8 @@ func serveNoticeCreate(w http.ResponseWriter, r *http.Request) error {
 	return maago.Render(w, maagoPages, "notice_page.html", "", page)
 }
 
-// serveApiNoticeCreate serves route api_notice_create with view APINotice.
-func serveApiNoticeCreate(w http.ResponseWriter, r *http.Request) error {
+// serveAPINoticeCreate serves route api_notice_create with view APINotice.
+func serveAPINoticeCreate(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in NoticeIn
 	vals, err := maago.JSONValues(r, "title", "days", "rate", "pinned", "start")

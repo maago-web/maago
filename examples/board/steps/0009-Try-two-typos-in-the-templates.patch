@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 5 Oct 2026 02:25:55 +0900
+Subject: [PATCH] Try two typos in the templates
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+일부러 틀려 본다. 글 화면에서 .Post.Title을 .Post.Titel로, 첫 화면에서
+라우트 이름 board_detail을 board_detial로 썼다. 서로 다른 파일이다.
+
+maago gen은 템플릿을 페이지 타입으로 걸어 보고, {{url}}의 이름을 라우트
+표와 맞춰 본다. 둘 다 한 번에 알리고 아무것도 쓰지 않는다:
+
+    board/templates/home_page.html:4:20: unknown route name "board_detial"
+      fix: did you mean "board_detail"? routes are declared in the apps' var Routes
+    board/templates/post_page.html:3:13: PostPage.Post has no field or method "Titel"
+      fix: did you mean "Title"?
+
+브라우저를 열기 전에, 하나 고치고 다시 돌릴 필요 없이 둘 다 보인다.
+
+Maago-Expect: board/templates/home_page.html:4:20: unknown route name "board_detial"
+Maago-Expect: board/templates/post_page.html:3:13: PostPage.Post has no field or method "Titel"
+
+diff --git a/board/templates/home_page.html b/board/templates/home_page.html
+index c5ae98e..6ff9a09 100644
+--- a/board/templates/home_page.html
++++ b/board/templates/home_page.html
+@@ -1,7 +1,7 @@
+ {{define "content"}}
+ <h1>게시판</h1>
+ <ul>{{range .Boards}}
+-<li><a href="{{url "board_detail" .ID}}">{{.Name}}</a></li>{{else}}
++<li><a href="{{url "board_detial" .ID}}">{{.Name}}</a></li>{{else}}
+ <li>아직 게시판이 없습니다.</li>{{end}}
+ </ul>
+ {{end}}
+diff --git a/board/templates/post_page.html b/board/templates/post_page.html
+index 023e3ff..1e25108 100644
+--- a/board/templates/post_page.html
++++ b/board/templates/post_page.html
+@@ -1,6 +1,6 @@
+ {{define "content"}}
+ <p>{{.Post.BoardName}}</p>
+-<h1>{{.Post.Title}}</h1>
++<h1>{{.Post.Titel}}</h1>
+ <p>{{.Post.Status}} · 조회 {{.Post.Views}}</p>
+ <div>{{.Post.Body}}</div>
+ {{end}}

@@ -14,7 +14,7 @@ var App = maago.NewApp("example.com/app/site",
 	maago.AppRoute{Method: "GET", Path: "/posts/{id}", Name: "post_detail", Serve: servePostDetail},
 	maago.AppRoute{Method: "GET", Path: "/tags/{tag}/{n}", Name: "tag_page", Serve: serveTagPage},
 	maago.AppRoute{Method: "POST", Path: "/posts/{id}", Name: "post_update", LoginRequired: true, Serve: servePostUpdate},
-	maago.AppRoute{Method: "GET", Path: "/api/posts/{id}", Name: "api_post", API: true, Serve: serveApiPost},
+	maago.AppRoute{Method: "GET", Path: "/api/posts/{id}", Name: "api_post", API: true, Serve: serveAPIPost},
 	maago.AppRoute{Method: "GET", Path: "/feed.csv", Name: "feed", Serve: serveFeed},
 	maago.AppRoute{Method: "GET", Path: "/by/{post_id}", Name: "by_post_id", Serve: serveByPostID},
 )
@@ -39,8 +39,8 @@ func PostUpdateURL(id int64) string {
 	return maago.Prefix() + "/posts/" + strconv.FormatInt(id, 10)
 }
 
-// ApiPostURL is the path of route api_post: GET /api/posts/{id}.
-func ApiPostURL(id int64) string {
+// APIPostURL is the path of route api_post: GET /api/posts/{id}.
+func APIPostURL(id int64) string {
 	return maago.Prefix() + "/api/posts/" + strconv.FormatInt(id, 10)
 }
 

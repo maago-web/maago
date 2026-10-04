@@ -1,0 +1,288 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 5 Oct 2026 02:25:55 +0900
+Subject: [PATCH] Comments, and hide what has them
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+글에 댓글을 단다. 글을 지우면 숨긴다.
+
+- 댓글 폼은 CommentForm(model=Comment)이다. 글 화면의 뷰가 GET에 글과
+  댓글을 그리고, 같은 경로의 POST에 댓글을 단다. 라우트는 두 줄,
+  post_detail과 comment_create
+- 댓글은 글을 가리킨다(fk=Post). 댓글 달린 글을 DELETE로 지우면 DB가
+  막는다. 지우기는 글을 숨긴다: Post.Hidden을 켠다. 댓글도 글과 함께
+  보이지 않고, DB에는 남는다
+- Hidden bool default=false. maago makemigrations --name hide_posts가
+  0005를 쓴다. maago gen이 다시 recent_posts.sql을 막는다. 새 컬럼을
+  고른다
+- 쿼리마다 NOT p.hidden을 더한다: 목록, 검색, 글 하나, 고정 기간 겹침.
+  숨긴 글의 화면은 PostDetail이 행을 찾지 못해 404다. 그 글에 댓글을 달
+  수도 없다
+- 같은 제목 검사(post_title_taken.sql)는 숨긴 글도 센다. 모델의
+  unique=(BoardID,Title)은 숨긴 글에도 걸린다
+
+숨긴 글을 정말로 지우는 일은 지운 사람이 쓴 사람인지 묻는 일과 함께
+나중에 한다.
+
+diff --git a/board/forms.go b/board/forms.go
+index b9cefcd..198bc37 100644
+--- a/board/forms.go
++++ b/board/forms.go
+@@ -49,3 +49,9 @@ func given(f maago.Field[time.Time]) *time.Time {
+ 	}
+ 	return &f.Value
+ }
++
++// CommentForm is a comment on the post of the path.
++type CommentForm struct {
++	maago.Form `maago:"model=Comment"`
++	Text       maago.Field[string]
++}
+diff --git a/board/models.go b/board/models.go
+index 6ba06ee..95de516 100644
+--- a/board/models.go
++++ b/board/models.go
+@@ -33,6 +33,8 @@ type Post struct {
+ 	PinnedUntil *time.Time `maago:"label='고정 끝'"`
+ 	// A post with PublishAt is not listed before then.
+ 	PublishAt *time.Time `maago:"label='게시 시각'"`
++	// A deleted post is hidden: its comments stay, and point at it.
++	Hidden bool `maago:"default=false"`
+ }
+ 
+ type Comment struct {
+diff --git a/board/queries/pinned_overlap.sql b/board/queries/pinned_overlap.sql
+index 91f4ede..5b8f7b7 100644
+--- a/board/queries/pinned_overlap.sql
++++ b/board/queries/pinned_overlap.sql
+@@ -1,9 +1,11 @@
+ -- name: PinnedOverlap :one Count
+--- How many posts of the board are pinned for some of from..until.
++-- How many posts of the board, not hidden, are pinned for some of
++-- from..until.
+ -- param: board_id int64
+ -- param: from     time.Time
+ -- param: until    time.Time
+ -- column: n int64
+ SELECT count(*) AS n
+ FROM board_post
+-WHERE board_id = :board_id AND pinned_from < :until AND pinned_until > :from
++WHERE board_id = :board_id AND NOT hidden
++  AND pinned_from < :until AND pinned_until > :from
+diff --git a/board/queries/post_comments.sql b/board/queries/post_comments.sql
+new file mode 100644
+index 0000000..a9718c4
+--- /dev/null
++++ b/board/queries/post_comments.sql
+@@ -0,0 +1,7 @@
++-- name: PostComments :many Comment
++-- The comments of a post, oldest first.
++-- param: post_id int64
++SELECT id, post_id, text, created_at
++FROM board_comment
++WHERE post_id = :post_id
++ORDER BY created_at, id
+diff --git a/board/queries/post_detail.sql b/board/queries/post_detail.sql
+index 12da43e..78cc96b 100644
+--- a/board/queries/post_detail.sql
++++ b/board/queries/post_detail.sql
+@@ -1,7 +1,7 @@
+ -- name: PostDetail :one PostWithBoard
+--- One post with the name of its board.
++-- One post with the name of its board; none if it is hidden.
+ -- param: id int64
+ SELECT p.id, p.title, p.body, p.status, p.views, p.created_at, b.name AS board_name
+ FROM board_post p
+ JOIN board_board b ON b.id = p.board_id
+-WHERE p.id = :id
++WHERE p.id = :id AND NOT p.hidden
+diff --git a/board/queries/post_list.sql b/board/queries/post_list.sql
+index fdfb466..a17bdad 100644
+--- a/board/queries/post_list.sql
++++ b/board/queries/post_list.sql
+@@ -10,6 +10,7 @@ SELECT p.id, p.title, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+ WHERE p.board_id = :board_id
++  AND NOT p.hidden
+   AND (p.publish_at IS NULL OR p.publish_at <= :now)
+ ORDER BY CASE WHEN p.pinned_from <= :now AND p.pinned_until > :now THEN 0 ELSE 1 END,
+          p.created_at DESC, p.id DESC
+diff --git a/board/queries/recent_posts.sql b/board/queries/recent_posts.sql
+index 1ede919..145e89d 100644
+--- a/board/queries/recent_posts.sql
++++ b/board/queries/recent_posts.sql
+@@ -1,8 +1,9 @@
+ -- name: RecentPosts :many Post
+--- The newest posts of every board.
++-- The newest posts of every board that are not hidden.
+ -- param: limit int64
+ SELECT id, board_id, title, status, views, created_at, updated_at, body,
+-       pinned_from, pinned_until, publish_at
++       pinned_from, pinned_until, publish_at, hidden
+ FROM board_post
++WHERE NOT hidden
+ ORDER BY created_at DESC, id DESC
+ LIMIT :limit
+diff --git a/board/queries/search_posts.sql b/board/queries/search_posts.sql
+index 9cfdb01..d0cce84 100644
+--- a/board/queries/search_posts.sql
++++ b/board/queries/search_posts.sql
+@@ -9,6 +9,7 @@ SELECT p.id, p.title, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+ WHERE p.board_id = :board_id
++  AND NOT p.hidden
+   AND (p.publish_at IS NULL OR p.publish_at <= :now)
+   {q} AND p.title LIKE '%' || :q || '%'
+ ORDER BY p.created_at DESC, p.id DESC
+diff --git a/board/templates/post_page.html b/board/templates/post_page.html
+index 232987e..eaf4667 100644
+--- a/board/templates/post_page.html
++++ b/board/templates/post_page.html
+@@ -5,4 +5,15 @@
+ <div>{{.Post.Body}}</div>
+ {{if eq .Post.Status "draft"}}<form method="post" action="{{url "post_publish" .Post.ID}}"><button>게시하기</button></form>{{end}}
+ {{if eq .Post.Status "published"}}<form method="post" action="{{url "post_archive" .Post.ID}}"><button>보관하기</button></form>{{end}}
++<form method="post" action="{{url "post_delete" .Post.ID}}"><button>지우기</button></form>
++<h2>댓글</h2>
++<ul>{{range .Comments}}
++<li>{{.Text}} <small>{{date "2006-01-02 15:04" .CreatedAt}}</small></li>{{else}}
++<li>아직 댓글이 없습니다.</li>{{end}}
++</ul>
++<form method="post" action="{{url "comment_create" .Post.ID}}">
++{{with .Form.Text}}<textarea name="{{.Name}}">{{.Raw}}</textarea>
++{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
++<button>댓글 달기</button>
++</form>
+ {{end}}
+diff --git a/board/urls.go b/board/urls.go
+index 011e86e..e62419d 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -13,6 +13,8 @@ var Routes = maago.Routes{
+ 	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
+ 	maago.POST("/boards/{id}/posts/new", "post_create", NewPost),
+ 	maago.GET("/posts/{id}", "post_detail", ShowPost),
++	maago.POST("/posts/{id}", "comment_create", ShowPost),
+ 	maago.POST("/posts/{id}/publish", "post_publish", Publish),
+ 	maago.POST("/posts/{id}/archive", "post_archive", Archive),
++	maago.POST("/posts/{id}/delete", "post_delete", HidePost),
+ }
+diff --git a/board/views.go b/board/views.go
+index e17a025..16f4b99 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -67,14 +67,50 @@ type PostIn struct {
+ 	ID int64 `maago:"path=id"`
+ }
+ 
++type ShowPostIn struct {
++	ID   int64       `maago:"path=id"`
++	Form CommentForm `maago:"form"`
++}
++
+ type PostPage struct {
+-	Post PostWithBoard
++	Post     PostWithBoard
++	Comments []Comment
++	Form     CommentForm
++}
++
++// ShowPost shows one post and its comments on GET, and adds a comment on
++// POST. A hidden post is not found.
++func ShowPost(ctx context.Context, in ShowPostIn) (maago.Result[PostPage], error) {
++	db := maago.DBFrom(ctx)
++	p, err := PostDetail(ctx, db, PostDetailParams{ID: in.ID})
++	if err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	f := in.Form
++	if f.Valid() {
++		if _, err := InsertComment(ctx, db, NewCommentInput{PostID: p.ID, Text: f.Text.Value}); err != nil {
++			return maago.Result[PostPage]{}, err
++		}
++		return maago.SeeOther[PostPage](PostDetailURL(p.ID)), nil
++	}
++	cs, err := PostComments(ctx, db, PostCommentsParams{PostID: p.ID})
++	return maago.Show(PostPage{p, cs, f}), err
+ }
+ 
+-// ShowPost shows one post.
+-func ShowPost(ctx context.Context, in PostIn) (PostPage, error) {
+-	p, err := PostDetail(ctx, maago.DBFrom(ctx), PostDetailParams{ID: in.ID})
+-	return PostPage{p}, err
++// HidePost deletes a post as people see it: it hides it, and its comments
++// with it. They stay in the database, so a comment never points at a post
++// that is gone.
++func HidePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
++	db := maago.DBFrom(ctx)
++	p, err := GetPost(ctx, db, in.ID)
++	if err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	p.Hidden = true
++	if err := UpdatePost(ctx, db, &p); err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	return maago.SeeOther[PostPage](BoardDetailURL(p.BoardID)), nil
+ }
+ 
+ type NewBoardIn struct {
+diff --git a/board/web_test.go b/board/web_test.go
+index b424fe9..223478f 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -221,3 +221,43 @@ func TestPublishAndArchive(t *testing.T) {
+ 		t.Errorf("%q %v", got.Status, err)
+ 	}
+ }
++
++func TestCommentAndHide(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "글", Body: "본문"})
++	if err != nil {
++		t.Fatal(err)
++	}
++
++	if code, _, body := post(h, CommentCreateURL(p.ID), url.Values{"text": {""}}); code != 200 || !strings.Contains(body, "This field is required.") {
++		t.Errorf("empty comment: %d %s", code, body)
++	}
++	if code, loc, _ := post(h, CommentCreateURL(p.ID), url.Values{"text": {"<i>첫 댓글</i>"}}); code != 303 || loc != PostDetailURL(p.ID) {
++		t.Fatalf("comment: %d %q", code, loc)
++	}
++	if code, body := get(h, PostDetailURL(p.ID)); code != 200 || !strings.Contains(body, "&lt;i&gt;첫 댓글") {
++		t.Errorf("post with its comment: %d %s", code, body)
++	}
++
++	if code, loc, _ := post(h, PostDeleteURL(p.ID), nil); code != 303 || loc != BoardDetailURL(b.ID) {
++		t.Fatalf("delete: %d %q", code, loc)
++	}
++	if code, _ := get(h, PostDetailURL(p.ID)); code != 404 {
++		t.Errorf("hidden post: %d", code)
++	}
++	if code, _, _ := post(h, CommentCreateURL(p.ID), url.Values{"text": {"늦은 댓글"}}); code != 404 {
++		t.Errorf("comment on a hidden post: %d", code)
++	}
++	if _, body := get(h, BoardDetailURL(b.ID)); !strings.Contains(body, "글이 없습니다.") {
++		t.Errorf("list:\n%s", body)
++	}
++	// The comment is still there, its post with it.
++	if cs, err := PostComments(ctx, db, PostCommentsParams{PostID: p.ID}); err != nil || len(cs) != 1 {
++		t.Errorf("%v %v", cs, err)
++	}
++}
+diff --git a/migrations/0005_hide_posts.sql b/migrations/0005_hide_posts.sql
+new file mode 100644
+index 0000000..bf5268f
+--- /dev/null
++++ b/migrations/0005_hide_posts.sql
+@@ -0,0 +1 @@
++ALTER TABLE "board_post" ADD COLUMN "hidden" INTEGER NOT NULL DEFAULT 0 CHECK ("hidden" IN (0, 1));

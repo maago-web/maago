@@ -68,10 +68,10 @@ func TestRequests(t *testing.T) {
 		{"GET", "/list?page=1&x=%zz", 400, "Bad Request"},  // malformed
 		{"GET", "/list?page=1&other=1", 200, "page 1"},     // keys of no field are ignored
 		{"GET", "/list/rows?page=3", 200, "page 3"},
-		{"GET", ApiPostURL(p.ID), 200, `"Title":"hello \u003cb\u003e"`},
-		{"GET", ApiPostURL(p.ID + 1), 404, `"status":404`},
+		{"GET", APIPostURL(p.ID), 200, `"Title":"hello \u003cb\u003e"`},
+		{"GET", APIPostURL(p.ID + 1), 404, `"status":404`},
 		{"GET", "/broken", 500, "Internal Server Error"},
-		{"GET", PageURL(7), 200, strings.Join([]string{PostDetailURL(7), PageURL(7), PostListURL(), PostRowsURL(), PostCreateURL(), ApiPostURL(7), BrokenURL(), PostExportURL("csv")}, " ")}, // {{url}} is XxxURL
+		{"GET", PageURL(7), 200, strings.Join([]string{PostDetailURL(7), PageURL(7), PostListURL(), PostRowsURL(), PostCreateURL(), APIPostURL(7), BrokenURL(), PostExportURL("csv")}, " ")}, // {{url}} is XxxURL
 		{"GET", PostDetailURL(p.ID), 200, "<!doctype html>"}, // through base.html
 	} {
 		w := httptest.NewRecorder()
@@ -169,7 +169,7 @@ func TestFormMessages(t *testing.T) {
 	if body := w.Body.String(); !strings.Contains(body, "필수 항목입니다.") || !strings.Contains(body, "Enter a number.") {
 		t.Errorf("messages: %s", body)
 	}
-	r = httptest.NewRequest("POST", ApiPostCreateURL(), strings.NewReader(`{"count":1}`))
+	r = httptest.NewRequest("POST", APIPostCreateURL(), strings.NewReader(`{"count":1}`))
 	r.Header.Set("Content-Type", "application/json")
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, r)
@@ -202,7 +202,7 @@ func TestAPIForm(t *testing.T) {
 		{"created", `{"title":"new","count":"1","agree":true}`, 200, `"Title":"new"`, 1},
 	} {
 		before := apiCalls
-		r := httptest.NewRequest("POST", ApiPostCreateURL(), strings.NewReader(c.body))
+		r := httptest.NewRequest("POST", APIPostCreateURL(), strings.NewReader(c.body))
 		r.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
@@ -276,9 +276,9 @@ func TestLogin(t *testing.T) {
 		has, location    string
 	}{
 		{"page, nobody", SecretURL() + "?x=1", "", 303, "", "/login?next=%2Fsecret%3Fx%3D1"},
-		{"API, nobody", ApiSecretURL(), "", 401, `"status":401`, ""},
+		{"API, nobody", APISecretURL(), "", 401, `"status":401`, ""},
 		{"page, ann", SecretURL(), "ann", 200, "<p>secret for ann</p>", ""},
-		{"API, ann", ApiSecretURL(), "ann", 200, `{"Name":"ann"}`, ""},
+		{"API, ann", APISecretURL(), "ann", 200, `{"Name":"ann"}`, ""},
 	} {
 		r := httptest.NewRequest("GET", c.path, nil)
 		if c.user != "" {

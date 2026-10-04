@@ -695,7 +695,7 @@ D-113이 모양을 정했다. 이 계획은 그것을 코드와 시험으로 옮
 
 ## 12. 게시판 튜토리얼의 M4 단계 (D-103)
 
-M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 함께. 상태가 걸린 단계(상태 전이)는 4번의 열린 질문을 기다린다.
+M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 함께. ~~상태가 걸린 단계(상태 전이)는 4번의 열린 질문을 기다린다~~ → 3번이 풀었다: 규칙 밖의 전이는 `maago.Status(409, …)`.
 - 게시판·글 목록(페이지)·상세 뷰와 템플릿, 일부러 틀리기(`{{.Post.Titel}}`, `Maago-Expect`)
 - 글·게시판 쓰기 폼, 게시판 이름 중복(DB를 보는 검증), 공지 고정 기간 겹침·과거 시각 예약 게시 막기(폼 검증)
 - 글 상태 전이(규칙 밖은 오류), 댓글, 댓글 달린 글은 숨기기
@@ -703,6 +703,64 @@ M8 대응표에서 M4가 받는 것. 각 단계는 앱의 `maagotest` 시험과 
 - M5로 간 것: 작성자만 고치고 지우기(결정 절), 로그인 필수 화면
 
 → 확인: `TestBoardTutorial`이 새 단계까지 통과(SQLite)
+
+### 계획
+
+있는 것: 0001~0007(모델 셋, 마이그레이션, 쿼리 넷, 모델·쿼리 시험, 일부러 틀리기 하나). 10번부터 앱 시험은 `maagotest.DB(t)`. 이 작업은 단계(패치)를 더한다. 단계마다 커밋 글이 튜토리얼 글이고(D-103, 한국어 본문, 영어 제목), `TestBoardTutorial`이 단계마다 `gen`·`check`·`migrate`·앱 시험을 돌린다. 웹 시험은 앱 패키지에서 `maago.Handler` + `httptest`(D-113: HTTP는 `httptest` 그대로).
+
+단계 (★ 내용의 선택)
+- 0008 **Serve boards and posts**: `board/urls.go`(라우트 표), 뷰(게시판 목록, 게시판의 글 목록 `?page=`, 글 상세), 템플릿(`base.html`과 페이지 셋), `main.go`가 `maago.Handler`로 띄움(`Config.Apps`, D-114). 시험: 목록·상세 200, 없는 글 404, `?page=abc` 400
+- 0009 **Try a typo in a template** (`Maago-Expect`): `{{.Post.Titel}}`과 다른 파일의 `post_detial`이 **한 번에**(D-61, M4 완료 조건 2). 0010이 되돌린다(0006→0007과 같은 꼴)
+- 0010 **Fix the typos**
+- 0011 **Write boards and posts**: 모델 폼 둘(`BoardForm model=Board`, `PostForm model=Post`), GET·POST 두 줄, 게시판 이름 중복은 뷰가 쿼리(`board_name_taken.sql`)로 보고 `Field.Error`(D-119), 저장 뒤 `SeeOther`. 시험: 빈 제목 200과 문구, 중복 이름 200과 그 필드의 오류, 저장 303
+- ★ 0012 **Pin notices and schedule posts**: `Post`에 `PinnedFrom`·`PinnedUntil`·`PublishAt`(`*time.Time`, 마이그레이션), 폼 `Validate`가 "끝 > 시작"과 "과거 시각의 예약 금지"(DB 없는 검증), 같은 게시판의 겹치는 고정 기간은 뷰가 쿼리로(`pinned_overlap.sql`, 자기 ID 빼기). 기각 후보: 별도 `Notice` 모델(글과 공지가 갈라져 단계가 길어진다)
+- ★ 0013 **Publish and archive**: 상태 전이 `draft → published → archived`, 라우트 `POST /posts/{id}/publish`·`/archive`, 규칙 밖은 `maago.Status(409, …)`. 전이 규칙은 모델 옆 Go 함수(`func (p Post) Next(to string) error`)
+- ★ 0014 **Comments, and hide what has them**: 댓글 폼, 글 지우기는 댓글이 있으면 `Hidden`을 켠다(필드 `Hidden bool default=false`, 마이그레이션, 목록 쿼리가 거른다). D-84의 `NO ACTION`과 맞는다
+- 0015 **An API for a frontend**: API 라우트(목록 JSON, 글 만들기 JSON 폼 D-120), `Config.Origins`로 다른 출처(CORS preflight와 실제 요청). 시험: 다른 출처의 preflight 204, 신뢰하지 않는 출처 403, 422 problem
+- 0016 **Export posts as CSV**: 탈출구 뷰(D-41)가 `encoding/csv`로 흘려 보냄, `Content-Disposition`. 8번이 넘긴 것: 중간 오류는 ★ 기록하고 `panic(http.ErrAbortHandler)`로 끊는다(잘린 CSV를 정상처럼 끝내지 않는다)
+- ★ 0017 **Notify a webhook of new posts**: 글을 만든 뒤 `go notify(context.WithoutCancel(ctx), …)`(D-118), 토큰은 환경 변수(`BOARD_WEBHOOK_TOKEN`, `Authorization: Bearer`), 실패는 세 번까지 다시(1초·2초 간격, 5xx·연결 오류만), 끝내 실패면 `log`. 시험: 가짜 서버(`httptest.NewServer`)가 두 번 503 뒤 200, 토큰 머리, 4xx는 다시 하지 않음. 오류 보고: `main`의 `Config.OnError` 예
+- 0018 **Serve under /app**: `Config.Prefix`와 `http.StripPrefix`(D-122), `LoginURL` 없음(로그인은 M5). 시험: 링크가 `/app/…`, `SeeOther`를 따라가 200
+
+파일
+- `examples/board/steps/0008~0018`(풀어서 커밋을 쌓고 `pack`), `cmd/maago/tutorial_test.go`(새 단계의 `Maago-Expect`, 필요하면 `TestBoardTutorialCatches`에 웹 단계의 경우 하나)
+- 프레임워크 코드는 바꾸지 않는 것이 목표다. 단계를 쓰다 프레임워크의 빈 곳이 나오면 멈추고 계획을 고친다(그 자리의 작업으로)
+
+하지 않기로 한 것
+- 작성자만 고치고 지우기·로그인 필수 화면(M5), 첨부 파일(M7), Tailwind(M7), PG로 바꾸기(M8)
+
+단계
+1. 단계마다 풀어 둔 저장소에서 커밋하고 `go build -C cmd/maago`로 만든 maago로 `gen`·`check`·`migrate`·`go test` → 확인: 그 단계의 시험
+2. `pack` → 확인: `TestBoardTutorial`·`TestBoardTutorialCatches`(SQLite)
+3. 두 모듈 `go vet`·`go test`, `gofmt -l .`
+
+계획 리뷰 (codex·fable)와 사람의 결정 — 위 계획을 이렇게 고친다
+- **사람의 결정(2026-10-05)**: 예약 게시는 목록 쿼리가 미래 글을 거른다(`publish_at IS NULL OR publish_at <= :now`), M4의 지우기는 늘 숨기기(진짜 삭제는 작성자 검사와 함께 M5), 전이 규칙은 모델 옆 메서드 `func (p Post) Next(to string) error`(D-15), 앱 설정(웹훅 URL·토큰)은 `main`이 채우는 패키지 변수(튜토리얼의 관례, 프레임워크는 바꾸지 않는다)
+- **0008**(fable 1·9·12): `maago.Block("rows")` 라우트 하나(게시판의 글 목록 조각, M8 표의 `{{block}}` 행)와 "본문이 그 블록만" 확인, `?page=`는 `*int64`(없으면 1), 이미 있는 `search_posts.sql`을 `?q=`(포인터 query)로, `main.go`의 `Config.OnError` 예(오류 보고는 처음부터), 앱 시험 도우미는 `maagotest.DB(t)` + `maago.Handler`
+- **0011**(fable 7): 같은 게시판의 같은 제목도 뷰가 쿼리로(`post_title_taken.sql`, 아니면 unique 위반이 500), `PostForm`에 `BoardID`를 두지 않고 경로 `/boards/{id}/posts/new`에서
+- **0012**(codex 1, fable 5): 모델 폼의 `*time.Time` 필드는 `Field[time.Time]` + `optional`이고 뷰가 `Given`을 보고 `*time.Time`으로 옮긴다(틀이 nullable을 지키지 않는 것은 13번 목록에), 고치기 화면이 없으므로 "자기 ID 빼기"는 지운다(고치기는 M5의 작성자와 함께)
+- **0014**(codex 3, fable 6): 목록·상세 쿼리가 `NOT p.hidden`(두 방언 공통)으로 거르고, 상세는 생성된 `GetPost`가 아니라 `post_detail.sql`이라 숨긴 글은 404
+- **0015**(codex 6, fable 2): 신뢰한 출처의 preflight 204, 신뢰한 출처의 실제 POST에 `Access-Control-Allow-Origin`, 신뢰하지 않은 출처의 실제 POST 403 problem(그 preflight는 405로 따로). 7번이 넘긴 것(만든 것은 200과 객체, 정수는 정수로, 본문 없는 POST 400)을 글에
+- **0016**(codex 4, fable 4): 시험은 머리(`Content-Type`·`Content-Disposition`)와 CSV 행. 스트리밍 자체는 픽스처의 `TestExportStreams`가 증명한다. 중간 오류 정책(기록하고 `panic(http.ErrAbortHandler)`)과 `csv.Writer.Flush`·`http.Flusher.Flush`의 차이는 글에
+- **0017**(codex 5, fable 3): 시험은 `notify`를 직접(동기) 부르고 대기는 패키지 변수(`retryWait`)로 짧게, 가짜 서버가 두 번 503 뒤 200·토큰 머리·4xx는 다시 하지 않음. 뷰 경로는 저장 303만
+- **마이그레이션**(codex 7): 모델을 바꾸는 단계(0012·0014)는 쓸 때 `maago makemigrations`로 만든 SQL을 패치에 넣는다. 걷기는 만들지 않는다
+- **`/app`**(codex 8): 0018 마지막, 그 시험은 다른 Handler와 섞이지 않게 처음에 만든다
+- `TestBoardTutorialCatches`에 웹 경우 하나: 0009의 `Maago-Expect` 한 줄을 지우면 걷기가 실패
+- 받지 않음: codex 2(모델 폼에 다른 필드)는 이 단계들이 쓰지 않는다
+
+만들며 정한 것
+- 0009는 계획의 `post_detial` 대신 첫 화면의 `board_detial`(첫 화면이 실제로 부르는 라우트)
+- 0014의 지우기 뷰는 `HidePost`(`DeletePost`는 생성된 모델 함수의 이름)
+- 0015의 API 뷰는 HTML 뷰와 `savePost`(DB 검사와 저장)를 함께 쓰고, 찾은 것을 `maago.Invalid`·`InvalidForm`으로 돌려준다(D-120). 생성된 `invalidPostForm`은 뷰가 부를 수 없다: `views_gen.go`는 타입 검사 뒤에 생기므로 `maago gen`이 "undefined"라 한다
+- 0016의 탈출구 뷰는 경로 값이 문자열이라 템플릿이 `{{url "board_export" (print .Board.ID)}}`(런타임 `URLFunc`은 정수도 받는다)
+- 0017의 `notify`는 `Hook`을 값으로 받는다(요청 때 읽은 설정, 시험이 바꾸는 패키지 변수와 겹치지 않는다)
+
+구현 리뷰 (ponytail·codex·fable)
+- 만들며 확인한 것: 단계마다 `gen`·`check`·`go test`, `-race`·`-shuffle=on`, `TestBoardTutorial`·`TestBoardTutorialCatches`(새 경우 "템플릿 오류 둘 중 하나만 기대")
+- ponytail(스스로): `TestPinAndSchedule`의 `more`를 만드는 고리를 표로(받음)
+- **사람의 결정(2026-10-05)**: fable이 `ApiPostsURL`(Go 관례는 `APIPostsURL`)을 사람에게 넘겼다(codex는 13번 문서로). 지금 고친다. 범위는 에이전트가 쓰기 좋은 쪽: snake_case에서 만드는 모든 Go 이름이 staticcheck ST1003의 약어 목록을 따르고(우리 것을 더하지 않음), 사용자 코드의 `undefined: X`에 대소문자만 다른 이름이 있으면 fix가 알린다. D-110 고침. 기각: 라우트 이름에만 목록(규칙이 둘), 프로젝트가 고치는 맵핑 표(짐작할 수 없다). 바뀐 것: `mapper.FieldName`과 `TestFieldName`, `gotypes`의 `caseHint`(다른 패키지의 이름은 go/types가 이미 "but have"로 알린다), 골든·gentest(`Ids` → `IDs`), 픽스처의 `APIPostURL`
+- codex(픽스처·튜토리얼 실행 없이 읽음): 받음 — CSV 쓰기 실패도 기록하고 끊는다(1, `abort`), 수식으로 시작하는 칸 앞에 `'`(2, CSV 주입, `cell`), 신뢰하지 않은 출처의 POST가 아무것도 저장하지 않음(3). 받지 않음 — 4 마이그레이션의 SQLite 꼴: PG는 M8
+- fable(변이 18개, 15개 잡힘): 받음 — 첫 쪽을 보내기 전의 DB 오류는 `panic(err)`로 500과 `OnError`(1, `csv.Writer`가 첫 줄을 쥐고 있어 아직 아무것도 나가지 않았다, 글도 고침), 겹치지 않는 공지가 저장되는 경우(2, AND→OR 변이가 이제 잡힌다), 지금 이 분의 예약을 막지 않음(3, `Truncate(time.Minute)`). 4 `http.Flusher.Flush`를 지운 변이는 계획대로 픽스처의 `TestExportStreams`가 맡는다
+- 13번으로: 뷰가 생성된 `invalidXxx`를 부를 수 없는 것(문서 한 줄), 탈출구 뷰의 경로 값에 템플릿 검사가 정수를 받기(런타임은 받는다)
 
 ## 13. 완료 조건 종단 테스트와 문서
 

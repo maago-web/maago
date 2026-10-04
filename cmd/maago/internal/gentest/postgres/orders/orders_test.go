@@ -198,10 +198,10 @@ func TestOneAndExec(t *testing.T) {
 	if _, err := DeleteOrders(ctx, db, DeleteOrdersParams{}); !errors.Is(err, maago.ErrEmptySlice) || !strings.HasPrefix(err.Error(), "DeleteOrders: ids: ") {
 		t.Errorf("no ids: %v", err)
 	}
-	if n, err := DeleteOrders(ctx, db, DeleteOrdersParams{Ids: []int64{3, 4, 99}}); n != 2 || err != nil {
+	if n, err := DeleteOrders(ctx, db, DeleteOrdersParams{IDs: []int64{3, 4, 99}}); n != 2 || err != nil {
 		t.Errorf("delete: %d %v", n, err)
 	}
-	if n, err := DeleteOrders(ctx, db, DeleteOrdersParams{Ids: []int64{3}}); n != 0 || err != nil {
+	if n, err := DeleteOrders(ctx, db, DeleteOrdersParams{IDs: []int64{3}}); n != 0 || err != nil {
 		t.Errorf("delete again: %d %v, want 0 rows and no error", n, err)
 	}
 }
@@ -216,17 +216,17 @@ func TestOrdersMatching(t *testing.T) {
 		p    OrdersMatchingParams
 		want string
 	}{
-		{OrdersMatchingParams{Ids: []int64{1, 2, 4, 6}, Times: times, Min: 100}, "[{2 300} {6 120}]"},
-		{OrdersMatchingParams{Ids: []int64{1, 2, 4, 6}, Statuses: []string{"paid", "new"}, Times: times, Min: 100}, "[{2 300} {6 120}]"},
-		{OrdersMatchingParams{Ids: []int64{1, 2, 4, 6}, Statuses: []string{"paid"}, Times: times, Min: 5}, "[{2 300} {4 10} {6 120}]"},
-		{OrdersMatchingParams{Ids: []int64{6, 4}, Statuses: []string{"new"}, Times: times, Min: 5}, "[]"},
+		{OrdersMatchingParams{IDs: []int64{1, 2, 4, 6}, Times: times, Min: 100}, "[{2 300} {6 120}]"},
+		{OrdersMatchingParams{IDs: []int64{1, 2, 4, 6}, Statuses: []string{"paid", "new"}, Times: times, Min: 100}, "[{2 300} {6 120}]"},
+		{OrdersMatchingParams{IDs: []int64{1, 2, 4, 6}, Statuses: []string{"paid"}, Times: times, Min: 5}, "[{2 300} {4 10} {6 120}]"},
+		{OrdersMatchingParams{IDs: []int64{6, 4}, Statuses: []string{"new"}, Times: times, Min: 5}, "[]"},
 	} {
 		rows, err := OrdersMatching(ctx, db, c.p)
 		if got := fmt.Sprint(rows); err != nil || got != c.want {
 			t.Errorf("%+v: %s %v, want %s", c.p, got, err, c.want)
 		}
 	}
-	if _, err := OrdersMatching(ctx, db, OrdersMatchingParams{Ids: []int64{1}, Statuses: []string{"new"}}); !errors.Is(err, maago.ErrEmptySlice) ||
+	if _, err := OrdersMatching(ctx, db, OrdersMatchingParams{IDs: []int64{1}, Statuses: []string{"new"}}); !errors.Is(err, maago.ErrEmptySlice) ||
 		!strings.HasPrefix(err.Error(), "OrdersMatching: times: ") {
 		t.Errorf("no times: %v", err)
 	}

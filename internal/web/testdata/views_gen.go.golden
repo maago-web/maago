@@ -113,8 +113,8 @@ func servePostUpdate(w http.ResponseWriter, r *http.Request) error {
 	return maago.Render(w, maagoPages, "post_page.html", "", page)
 }
 
-// serveApiPost serves route api_post with view APIPost.
-func serveApiPost(w http.ResponseWriter, r *http.Request) error {
+// serveAPIPost serves route api_post with view APIPost.
+func serveAPIPost(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in UpdateIn
 	if in.ID, err = maago.Path(r, "id", maago.ParseInt64); err != nil {

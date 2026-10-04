@@ -33,6 +33,9 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"short expectation", "0006-Try-a-model-result-that-misses-a-column.patch",
 			`Maago-Expect: board/queries/recent_posts.sql:4:1: result columns do not match model Post: missing "body"`,
 			`Maago-Expect: board/queries/recent_posts.sql:4:1: result columns do not match model Post`, "maago gen: expected\n"},
+		// Both template errors at once (D-61): expecting one is not enough.
+		{"one template error of two", "0009-Try-two-typos-in-the-templates.patch",
+			"\nMaago-Expect: board/templates/post_page.html:3:13: PostPage.Post has no field or method \"Titel\"", "", "maago gen: expected\n"},
 		{"gofmt", "0002-Add-Board-Post-and-Comment.patch", "+\tdb := maagotest.DB(t)", "+    db := maagotest.DB(t)", "gofmt -l: "},
 	} {
 		t.Run(c.name, func(t *testing.T) {

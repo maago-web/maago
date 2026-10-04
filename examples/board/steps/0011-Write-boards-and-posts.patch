@@ -1,0 +1,304 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 5 Oct 2026 02:25:55 +0900
+Subject: [PATCH] Write boards and posts
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+쓰기 화면을 붙인다. 게시판 만들기와 글쓰기, 폼 둘.
+
+- board/forms.go의 폼은 maago.Form을 임베드하고 필드마다 maago.Field[T].
+  model=Board면 규칙(필수, max=100, 라벨)을 모델에서 가져온다. 두 번 적지
+  않는다
+- 한 뷰가 GET에 빈 폼을 그리고 POST에 저장한다. 라우트 표에 두 줄, 같은
+  경로와 같은 뷰. f.Valid()는 POST이고 규칙을 다 지켰을 때만 참
+- 규칙을 어기면 같은 화면을 다시 그린다(200). 필드의 .Error에 문구가,
+  .Raw에 보낸 값이 남는다
+- 이미 있는 이름처럼 DB를 봐야 아는 것은 뷰가 쿼리(board_name_taken.sql)로
+  보고 f.Name.Error에 적는다. 글 제목도 같은 게시판 안에서 그렇게
+  본다(post_title_taken.sql). 보지 않으면 모델의 unique가 막고 500이 된다
+- 저장하면 maago.SeeOther로 새 것의 화면으로 보낸다(303). 새로 고침이 다시
+  보내지 않는다
+- 글의 게시판은 폼이 아니라 경로(/boards/{id}/posts/new)에서 온다. 없는
+  게시판이면 404
+
+다른 사이트가 이 폼을 보내면 403이다. maago.Handler가 CSRF를 막는다
+(Config.Origins에 적은 출처만 믿는다).
+
+diff --git a/board/forms.go b/board/forms.go
+new file mode 100644
+index 0000000..6db3438
+--- /dev/null
++++ b/board/forms.go
+@@ -0,0 +1,17 @@
++package board
++
++import "github.com/maago-web/maago"
++
++// BoardForm takes its fields' rules from the model: the name is required,
++// and at most 100 characters.
++type BoardForm struct {
++	maago.Form `maago:"model=Board"`
++	Name       maago.Field[string]
++}
++
++// PostForm is the post's title and body. The board comes from the path.
++type PostForm struct {
++	maago.Form `maago:"model=Post"`
++	Title      maago.Field[string]
++	Body       maago.Field[string]
++}
+diff --git a/board/queries/board_name_taken.sql b/board/queries/board_name_taken.sql
+new file mode 100644
+index 0000000..e2f58cf
+--- /dev/null
++++ b/board/queries/board_name_taken.sql
+@@ -0,0 +1,7 @@
++-- name: BoardNameTaken :one Count
++-- How many boards have the name: 0 or 1.
++-- param: name string
++-- column: n int64
++SELECT count(*) AS n
++FROM board_board
++WHERE name = :name
+diff --git a/board/queries/post_title_taken.sql b/board/queries/post_title_taken.sql
+new file mode 100644
+index 0000000..d28b47e
+--- /dev/null
++++ b/board/queries/post_title_taken.sql
+@@ -0,0 +1,8 @@
++-- name: PostTitleTaken :one Count
++-- How many posts of the board have the title: 0 or 1.
++-- param: board_id int64
++-- param: title    string
++-- column: n int64
++SELECT count(*) AS n
++FROM board_post
++WHERE board_id = :board_id AND title = :title
+diff --git a/board/templates/board_form_page.html b/board/templates/board_form_page.html
+new file mode 100644
+index 0000000..2cded19
+--- /dev/null
++++ b/board/templates/board_form_page.html
+@@ -0,0 +1,9 @@
++{{define "content"}}
++<h1>새 게시판</h1>
++<form method="post">
++{{with .Form.Name}}<label for="{{.Name}}">{{.Label}}</label>
++<input id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}">
++{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
++<button>만들기</button>
++</form>
++{{end}}
+diff --git a/board/templates/board_page.html b/board/templates/board_page.html
+index 8a53ff4..8fd9885 100644
+--- a/board/templates/board_page.html
++++ b/board/templates/board_page.html
+@@ -1,5 +1,6 @@
+ {{define "content"}}
+ <h1>{{.Board.Name}}</h1>
++<p><a href="{{url "post_new" .Board.ID}}">글쓰기</a></p>
+ <form><input name="q" value="{{.Q}}"><button>찾기</button></form>
+ {{block "rows" .}}<ul id="rows">{{range .Posts}}
+ <li><a href="{{url "post_detail" .ID}}">{{.Title}}</a> ({{.Comments}})</li>{{else}}
+diff --git a/board/templates/home_page.html b/board/templates/home_page.html
+index c5ae98e..7633994 100644
+--- a/board/templates/home_page.html
++++ b/board/templates/home_page.html
+@@ -4,4 +4,5 @@
+ <li><a href="{{url "board_detail" .ID}}">{{.Name}}</a></li>{{else}}
+ <li>아직 게시판이 없습니다.</li>{{end}}
+ </ul>
++<p><a href="{{url "board_new"}}">새 게시판</a></p>
+ {{end}}
+diff --git a/board/templates/post_form_page.html b/board/templates/post_form_page.html
+new file mode 100644
+index 0000000..e3dab06
+--- /dev/null
++++ b/board/templates/post_form_page.html
+@@ -0,0 +1,11 @@
++{{define "content"}}
++<h1>{{.Board.Name}}에 글쓰기</h1>
++<form method="post">
++{{with .Form.Title}}<label for="{{.Name}}">{{.Label}}</label>
++<input id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}">
++{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
++{{with .Form.Body}}<textarea name="{{.Name}}">{{.Raw}}</textarea>
++{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
++<button>올리기</button>
++</form>
++{{end}}
+diff --git a/board/urls.go b/board/urls.go
+index 7da271f..23c8d5a 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -6,7 +6,11 @@ import "github.com/maago-web/maago"
+ // for the URL function and {{url}}, and the view.
+ var Routes = maago.Routes{
+ 	maago.GET("/{$}", "home", Home),
++	maago.GET("/boards/new", "board_new", NewBoard),
++	maago.POST("/boards/new", "board_create", NewBoard),
+ 	maago.GET("/boards/{id}", "board_detail", ShowBoard),
+ 	maago.GET("/boards/{id}/rows", "board_rows", ShowBoard, maago.Block("rows")),
++	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
++	maago.POST("/boards/{id}/posts/new", "post_create", NewPost),
+ 	maago.GET("/posts/{id}", "post_detail", ShowPost),
+ }
+diff --git a/board/views.go b/board/views.go
+index f983549..26904b1 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -74,3 +74,72 @@ func ShowPost(ctx context.Context, in PostIn) (PostPage, error) {
+ 	p, err := PostDetail(ctx, maago.DBFrom(ctx), PostDetailParams{ID: in.ID})
+ 	return PostPage{p}, err
+ }
++
++type NewBoardIn struct {
++	Form BoardForm `maago:"form"`
++}
++
++type BoardFormPage struct {
++	Form BoardForm
++}
++
++// NewBoard draws the form on GET and saves it on POST. A taken name needs
++// the database, so the view checks it, not the form.
++func NewBoard(ctx context.Context, in NewBoardIn) (maago.Result[BoardFormPage], error) {
++	f := in.Form
++	if !f.Valid() {
++		return maago.Show(BoardFormPage{f}), nil
++	}
++	db := maago.DBFrom(ctx)
++	taken, err := BoardNameTaken(ctx, db, BoardNameTakenParams{Name: f.Name.Value})
++	if err != nil {
++		return maago.Result[BoardFormPage]{}, err
++	}
++	if taken.N > 0 {
++		f.Name.Error = "이미 있는 이름입니다."
++		return maago.Show(BoardFormPage{f}), nil
++	}
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: f.Name.Value})
++	if err != nil {
++		return maago.Result[BoardFormPage]{}, err
++	}
++	return maago.SeeOther[BoardFormPage](BoardDetailURL(b.ID)), nil
++}
++
++type NewPostIn struct {
++	BoardID int64    `maago:"path=id"`
++	Form    PostForm `maago:"form"`
++}
++
++type PostFormPage struct {
++	Board Board
++	Form  PostForm
++}
++
++// NewPost writes a post on the board of the path. The same title twice on
++// one board would break the model's unique=(BoardID,Title) as a 500; the
++// view asks first and says so on the field.
++func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], error) {
++	db := maago.DBFrom(ctx)
++	b, err := GetBoard(ctx, db, in.BoardID)
++	if err != nil {
++		return maago.Result[PostFormPage]{}, err // sql.ErrNoRows: a 404
++	}
++	f := in.Form
++	if !f.Valid() {
++		return maago.Show(PostFormPage{b, f}), nil
++	}
++	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: b.ID, Title: f.Title.Value})
++	if err != nil {
++		return maago.Result[PostFormPage]{}, err
++	}
++	if taken.N > 0 {
++		f.Title.Error = "이 게시판에 같은 제목의 글이 있습니다."
++		return maago.Show(PostFormPage{b, f}), nil
++	}
++	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: f.Title.Value, Body: f.Body.Value})
++	if err != nil {
++		return maago.Result[PostFormPage]{}, err
++	}
++	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
++}
+diff --git a/board/web_test.go b/board/web_test.go
+index 20e655e..5cc8c1c 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -5,6 +5,7 @@ import (
+ 	"fmt"
+ 	"net/http"
+ 	"net/http/httptest"
++	"net/url"
+ 	"strings"
+ 	"testing"
+ 
+@@ -30,6 +31,16 @@ func get(h http.Handler, path string) (int, string) {
+ 	return w.Code, w.Body.String()
+ }
+ 
++// post sends form to path, as a browser on the same site does, and returns
++// the status, the Location and the body.
++func post(h http.Handler, path string, form url.Values) (int, string, string) {
++	r := httptest.NewRequest("POST", path, strings.NewReader(form.Encode()))
++	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++	w := httptest.NewRecorder()
++	h.ServeHTTP(w, r)
++	return w.Code, w.Header().Get("Location"), w.Body.String()
++}
++
+ func TestPages(t *testing.T) {
+ 	h, db := app(t)
+ 	ctx := t.Context()
+@@ -73,3 +84,50 @@ func TestPages(t *testing.T) {
+ 		t.Errorf("rows: %d %s", code, body)
+ 	}
+ }
++
++func TestWrite(t *testing.T) {
++	h, _ := app(t)
++
++	if code, body := get(h, BoardNewURL()); code != 200 || !strings.Contains(body, `<label for="name">이름</label>`) {
++		t.Fatalf("form: %d %s", code, body)
++	}
++	if code, _, body := post(h, BoardCreateURL(), url.Values{"name": {""}}); code != 200 || !strings.Contains(body, "This field is required.") {
++		t.Errorf("empty name: %d %s", code, body)
++	}
++	code, loc, _ := post(h, BoardCreateURL(), url.Values{"name": {"자유"}})
++	if code != 303 || loc != BoardDetailURL(1) {
++		t.Fatalf("save: %d %q", code, loc)
++	}
++	if code, _, body := post(h, BoardCreateURL(), url.Values{"name": {"자유"}}); code != 200 || !strings.Contains(body, "이미 있는 이름입니다.") || !strings.Contains(body, `value="자유"`) {
++		t.Errorf("taken name: %d %s", code, body)
++	}
++
++	write := url.Values{"title": {"첫 글"}, "body": {"안녕"}}
++	code, loc, _ = post(h, PostCreateURL(1), write)
++	if code != 303 || loc != PostDetailURL(1) {
++		t.Fatalf("post: %d %q", code, loc)
++	}
++	if code, body := get(h, loc); code != 200 || !strings.Contains(body, "첫 글") {
++		t.Errorf("after the post: %d %s", code, body)
++	}
++	if code, _, body := post(h, PostCreateURL(1), write); code != 200 || !strings.Contains(body, "같은 제목의 글이 있습니다") {
++		t.Errorf("taken title: %d %s", code, body)
++	}
++	if code, _, body := post(h, PostCreateURL(1), url.Values{"title": {strings.Repeat("가", 201)}, "body": {"x"}}); code != 200 || !strings.Contains(body, "Enter at most 200 characters.") {
++		t.Errorf("long title: %d %s", code, body)
++	}
++	if code, _, _ := post(h, PostCreateURL(2), write); code != 404 {
++		t.Errorf("no board: %d", code)
++	}
++
++	// Another site cannot post the form (Config.Origins trusts none).
++	r := httptest.NewRequest("POST", BoardCreateURL(), strings.NewReader("name=x"))
++	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++	r.Header.Set("Origin", "https://evil.example")
++	r.Header.Set("Sec-Fetch-Site", "cross-site")
++	w := httptest.NewRecorder()
++	h.ServeHTTP(w, r)
++	if w.Code != 403 {
++		t.Errorf("cross-site post: %d", w.Code)
++	}
++}

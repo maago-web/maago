@@ -57,18 +57,18 @@ func scanCustomerOrdersStrict(rows *sql.Rows) (CustomerOrderStrict, error) {
 
 // DeleteOrdersParams is what DeleteOrders takes.
 type DeleteOrdersParams struct {
-	Ids []int64
+	IDs []int64
 }
 
 // DeleteOrders runs queries/delete_orders.sql.
 func DeleteOrders(ctx context.Context, db maago.DB, p DeleteOrdersParams) (int64, error) {
 	var query string
 	var args []any
-	if len(p.Ids) == 0 {
+	if len(p.IDs) == 0 {
 		return 0, fmt.Errorf("DeleteOrders: ids: %w", maago.ErrEmptySlice)
 	}
-	query = `DELETE FROM orders WHERE id IN (` + maago.Placeholders("$", 1, len(p.Ids)) + `)`
-	for _, x := range p.Ids {
+	query = `DELETE FROM orders WHERE id IN (` + maago.Placeholders("$", 1, len(p.IDs)) + `)`
+	for _, x := range p.IDs {
 		args = append(args, x)
 	}
 	return maago.Exec(ctx, db, query, args...)
@@ -96,7 +96,7 @@ func scanOrderByAmount(rows *sql.Rows) (Order, error) {
 
 // OrdersMatchingParams is what OrdersMatching takes.
 type OrdersMatchingParams struct {
-	Ids      []int64
+	IDs      []int64
 	Statuses []string
 	Times    []time.Time
 	Min      int64
@@ -118,7 +118,7 @@ func OrdersMatching(ctx context.Context, db maago.DB, p OrdersMatchingParams) ([
 	var args []any
 	switch key {
 	case 0:
-		if len(p.Ids) == 0 {
+		if len(p.IDs) == 0 {
 			return nil, fmt.Errorf("OrdersMatching: ids: %w", maago.ErrEmptySlice)
 		}
 		if len(p.Times) == 0 {
@@ -126,19 +126,19 @@ func OrdersMatching(ctx context.Context, db maago.DB, p OrdersMatchingParams) ([
 		}
 		query = `SELECT id, amount FROM orders
 WHERE
-  id IN (` + maago.Placeholders("$", 2, len(p.Ids)) + `)
-  AND created_at IN (` + maago.Placeholders("$", 2+len(p.Ids), len(p.Times)) + `)
+  id IN (` + maago.Placeholders("$", 2, len(p.IDs)) + `)
+  AND created_at IN (` + maago.Placeholders("$", 2+len(p.IDs), len(p.Times)) + `)
   AND amount >= $1
 ORDER BY id`
 		args = []any{p.Min}
-		for _, x := range p.Ids {
+		for _, x := range p.IDs {
 			args = append(args, x)
 		}
 		for _, x := range p.Times {
 			args = append(args, x)
 		}
 	case 1:
-		if len(p.Ids) == 0 {
+		if len(p.IDs) == 0 {
 			return nil, fmt.Errorf("OrdersMatching: ids: %w", maago.ErrEmptySlice)
 		}
 		if len(p.Statuses) == 0 {
@@ -149,13 +149,13 @@ ORDER BY id`
 		}
 		query = `SELECT id, amount FROM orders
 WHERE
-  id IN (` + maago.Placeholders("$", 2, len(p.Ids)) + `)
-  AND status IN (` + maago.Placeholders("$", 2+len(p.Ids), len(p.Statuses)) + `)
-  AND created_at IN (` + maago.Placeholders("$", 2+len(p.Ids)+len(p.Statuses), len(p.Times)) + `)
+  id IN (` + maago.Placeholders("$", 2, len(p.IDs)) + `)
+  AND status IN (` + maago.Placeholders("$", 2+len(p.IDs), len(p.Statuses)) + `)
+  AND created_at IN (` + maago.Placeholders("$", 2+len(p.IDs)+len(p.Statuses), len(p.Times)) + `)
   AND amount >= $1
 ORDER BY id`
 		args = []any{p.Min}
-		for _, x := range p.Ids {
+		for _, x := range p.IDs {
 			args = append(args, x)
 		}
 		for _, x := range p.Statuses {

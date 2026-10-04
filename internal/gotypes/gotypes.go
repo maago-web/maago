@@ -284,13 +284,30 @@ func (c *checker) diagnose(p *pkg, e types.Error) diag.Diagnostic {
 	pos := c.fset.Position(e.Pos)
 	msg := diag.OneLine(strings.ReplaceAll(e.Msg, "\n\t", "; ")) // "not enough arguments…\n\thave …\n\twant …"
 	if _, generated := c.overlay[pos.Filename]; !generated {
-		return diag.New(pos, msg, "go build reports the same error; fix it there")
+		return diag.New(pos, msg, caseHint(p, msg)+"go build reports the same error; fix it there")
 	}
 	if len(p.ignored) > 0 {
 		return diag.New(pos, msg, "generated code cannot see what files with a build constraint declare ("+
 			strings.Join(p.ignored, ", ")+"); move the models and what the queries use out of them")
 	}
 	return diag.New(pos, msg, "report this as a maago bug")
+}
+
+// caseHint is "did you mean Y? " for "undefined: X" when p declares a
+// name Y that differs from X only in case, such as a name maago generates
+// with an initialism in capitals (D-110), and "" otherwise. For pkg.X,
+// go/types gives the hint itself.
+func caseHint(p *pkg, msg string) string {
+	name, ok := strings.CutPrefix(msg, "undefined: ")
+	if !ok || p.types == nil {
+		return ""
+	}
+	for _, n := range p.types.Scope().Names() {
+		if n != name && strings.EqualFold(n, name) {
+			return "did you mean " + n + "? "
+		}
+	}
+	return ""
 }
 
 // importerFunc is a function as a types.Importer.
