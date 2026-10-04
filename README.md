@@ -5,7 +5,7 @@
 
 M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·M4(HTTP)가 끝났다. 문서부터 읽는다.
 
-**다음 작업: TASKS-M5 초안**(U-06과 다른 앱의 `fk=`가 선행 결정).
+**다음 작업: M5 1번**([TASKS-M5.md](docs/TASKS-M5.md)의 다른 앱 `fk=`).
 
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙

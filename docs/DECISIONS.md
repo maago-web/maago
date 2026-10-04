@@ -39,7 +39,7 @@ go-django) 분석에서 얻은 교훈은 `교훈 N`으로 표시한다. 두 원�
 | D-75 | NULL 허용은 포인터 타입(`*time.Time`)으로. 포인터가 아니면 `NOT NULL` | v0 | Go 타입이 이미 말하므로 태그와 어긋날 일이 없다. 2026-09-24 |
 | D-76 | 기본 테이블 이름은 `앱_모델`의 snake_case(`blog_post`), 컬럼 이름은 필드 이름의 snake_case(`AuthorID` → `author_id`). 테이블은 `table=`로 바꾸고, 컬럼 이름을 바꾸는 태그는 두지 않는다. snake_case는 소문자·숫자 뒤의 대문자 앞과, 대문자 연속이 끝나고 소문자가 올 때 그 마지막 대문자 앞에 `_`를 넣는다. 복수형 약어의 `s`는 붙인다(`URLs` → `urls`, `UserIDs` → `user_ids`) | v0 | 앱끼리 겹치지 않고 복수형 규칙이 필요 없다(Django). 2026-09-24, 변환 규칙은 M1 4번(2026-09-25) |
 | D-77 | v0 필드 타입은 `int64`·`int32`·`bool`·`float64`·`string`·`time.Time`·`[]byte`와 그 포인터. 방언별 대응은 [TASKS-M1.md](TASKS-M1.md)의 표. 그 밖의 타입은 D-18로 | v0 | 2026-09-24 |
-| D-78 | `fk=`는 같은 앱의 모델 이름만. 다른 앱의 모델은 U-06과 함께 정한다(M5) | v0 | 2026-09-24 |
+| D-78 | `fk=`는 같은 앱의 모델 이름(`fk=Post`). 다른 앱은 `fk=앱.모델`(D-124) | v0 | 2026-09-24, 다른 앱은 M5 초안에서 정함 |
 | D-79 | M1의 `models_gen.go`는 D-18의 주석(지원하지 않는 필드와 이유)만 담는다. DDL은 M2의 마이그레이션이, 이름 상수는 쓰는 곳이 생길 때 | v0 | 2026-09-24 |
 | D-80 | 태그 안에서 필드를 가리킬 때(`ordering=`, `unique=(a,b)`, `index=(a,b)`)는 Go 필드 이름을 쓴다(`ordering=-PublishedAt`) | v0 | `fk=Post`와 같이 태그 안의 이름이 모두 Go 쪽이 된다(PHILOSOPHY 4). 생성기가 struct 필드와 바로 대조한다. 2026-09-25 |
 | D-81 | 태그는 한 줄의 백쿼트 문자열로 쓴다. `maago:"…"` 값 안에는 백슬래시·`"`·문자열 밖 공백을 쓰지 않는다. 옵션 이름은 소문자 단어를 `_`로 이은 것(`min_value`. M4 6번에서 넓힘, 사람의 결정 2026-10-01) | v0 | 오류 위치를 칸까지 정확히 짚기 위해(D-62). 규칙을 줄인다(PHILOSOPHY 3). 값 안의 `"`는 [TODO.md](TODO.md). M1 3번, 2026-09-25 |
@@ -121,7 +121,7 @@ LIMIT :limit
 | # | 결정 | 단계 | 근거 |
 |---|---|---|---|
 | D-30 | 지원 DB: SQLite, MySQL, PostgreSQL | v0: SQLite·PG / v1: MySQL | 구 D-45(2개)를 넓힌다 |
-| D-31 | **DB 이식성은 약속하지 않는다.** 프로젝트는 DB를 하나 선언하고, 손으로 쓴 SQL은 그 방언으로만 검증한다. 세 방언을 감당하는 것은 Maago가 생성하는 SQL(CRUD·인증·admin)뿐. 개발 DB와 운영 DB는 같은 종류 | — | “ORM을 써서 MySQL을 PostgreSQL로 잘 옮겼다는 경우는 없었다” |
+| D-31 | **DB 이식성은 약속하지 않는다.** 프로젝트는 DB를 하나 선언하고, 손으로 쓴 SQL은 그 방언으로만 검증한다. 세 방언을 감당하는 것은 Maago가 생성하는 SQL(CRUD·admin)과 contrib 앱이 복사해 주는 SQL(D-123)뿐. 개발 DB와 운영 DB는 같은 종류 | — | “ORM을 써서 MySQL을 PostgreSQL로 잘 옮겼다는 경우는 없었다” |
 | D-32 | **마이그레이션: 기계가 초안을 쓰고, 사람이나 에이전트가 고치고, 기계가 검증한다.** `makemigrations` / `showmigrations` / `migrate`, 번호 붙은 SQL 파일 | v0 | Django 경험 + SQL은 손으로 |
 | D-33 | **외부 라이브러리·바이너리 없이 직접 구현한다.** 이 원칙은 마이그레이션에만 적용한다(세션·해싱·OAuth 등은 사안별). 스키마 읽기, 비교, DDL 쓰기(SQLite 테이블 재생성 포함) | v0 | 구 D-13·D-15(Atlas)를 뒤집는다. 규모는 수천 줄(nigel 자체 구현 6,744줄) |
 | D-34 | 이전 상태는 기록하지 않는다. 기존 마이그레이션을 **연습용 DB에 적용해 읽은 결과**가 이전 상태다 | v0 | 손으로 고친 SQL이 그대로 진실이 된다 |
@@ -150,12 +150,12 @@ LIMIT :limit
 |---|---|---|---|
 | D-40 | **R2 라우트 표 → 생성.** Go 코드의 라우트 표에서 `http.ServeMux` 등록 코드와 URL 함수를 생성. 템플릿의 `{{url "이름" …}}`은 생성 시점에 검사 | v0 | 구 D-22(ServeMux)는 생성 대상으로 남고, 구 D-25(URL reverse, v1)를 앞당긴다 |
 | D-41 | **V4 타입 있는 시그니처.** `func(ctx, In) (Page, error)`. 파싱·바인딩·렌더는 생성 코드. 표준 `func(w, r)`은 탈출구(웹훅·스트리밍) | v0 | SQL 파라미터와 같은 구조 |
-| D-42 | **T2 html/template + 생성 시점 검사.** 뷰의 반환 타입이 템플릿의 데이터 타입. 필드·URL 이름 오류는 `파일:줄:칸`(D-62) | v0 | 이스케이프는 검증된 stdlib에. 자체 컴파일(T3)은 [TODO.md](TODO.md). 템플릿 오버라이드(`embed.FS` 내장 + 사용자 FS 우선)는 v1, admin·인증 템플릿에 적용(구 D-21) |
+| D-42 | **T2 html/template + 생성 시점 검사.** 뷰의 반환 타입이 템플릿의 데이터 타입. 필드·URL 이름 오류는 `파일:줄:칸`(D-62) | v0 | 이스케이프는 검증된 stdlib에. 자체 컴파일(T3)은 [TODO.md](TODO.md). 템플릿 오버라이드(`embed.FS` 내장 + 사용자 FS 우선)는 v1, admin 템플릿에 적용(구 D-21). 인증 템플릿은 복사본이 곧 사용자의 것(D-123) |
 | D-43 | **F2 태그에서 생성된 폼.** `maago.Form`을 임베드한 struct의 `maago` 태그(또는 모델 폼은 모델의 태그)로 바인딩·검증 코드 생성(모양은 D-119). 값은 (값, 있음, 오류)로 구분 | v0 | 구 D-33, 구 v0의 무음 폐기 버그 |
 | D-44 | **J3 API 라우트 1급.** 라우트 표에서 API로 선언하면 반환값이 JSON, 오류는 RFC 9457 | v0 | HTML 뷰와 같은 모양 |
 | D-45 | **P2 HTMX 친화.** 템플릿 `{{block}}` 하나만 렌더하는 부분 응답. 고르는 것은 라우트 표의 옵션 `maago.Block("rows")`(같은 뷰·같은 페이지, 그 블록만). 블록 이름이 리터럴이라 생성 때 페이지 세트에 있는지, 단독으로 이스케이프되는지 검사한다 | v0 | 구 D-20. 표 한 줄에 보인다(PHILOSOPHY 5). 대가: 부분 응답마다 URL·이름이 하나 더, 뷰는 페이지 전체를 계산한다. 기각: 요청 헤더(`HX-Target`은 블록 이름이 아니고 같은 URL이 헤더로 다른 것을 낸다), 뷰가 고름(이름이 식이면 검사할 수 없다). 사람의 결정, M4 5번, 2026-10-01 |
 | D-46 | 미들웨어 `func(http.Handler) http.Handler`, 요청 스코프는 `context.Context` 명시 전달, 앱 등록은 `main`이 명시적으로(D-114), 설정은 타입 구조체 + env | v0 | 구 D-23·D-28·D-26·D-27. 처음의 "blank import + `init()`"을 M4 초안에서 고쳤다(사람의 결정, 2026-09-28) |
-| D-47 | CSRF는 `http.CrossOriginProtection`. admin은 스스로 건다. CSRF와 CORS는 한 목록 `Config.Origins`(브라우저가 `Origin`에 보내는 꼴 그대로, `*` 없음): 그 출처의 요청은 교차 출처 검사를 지나고, CORS가 그 페이지에 응답을 읽게 한다(preflight 204, `Access-Control-Allow-Origin`). 목록 밖 출처의 POST는 403(API는 problem), 그 preflight는 허락 머리 없이 405 | v0 | 구 D-29. 믿는 출처가 두 목록이면 한쪽만 고치는 실수가 생긴다. 목록은 M4 2번 |
+| D-47 | CSRF는 `http.CrossOriginProtection`. admin은 스스로 건다. CSRF와 CORS는 한 목록 `Config.Origins`(브라우저가 `Origin`에 보내는 꼴 그대로, `*` 없음): 그 출처의 요청은 교차 출처 검사를 지나고, CORS가 그 페이지에 응답을 읽게 한다(preflight 204, `Access-Control-Allow-Origin`). 목록 밖 출처의 POST는 403(API는 problem), 그 preflight는 허락 머리 없이 405. preflight가 허락하는 요청 머리는 `Content-Type`과 `Authorization`(D-129) | v0 | 구 D-29. 믿는 출처가 두 목록이면 한쪽만 고치는 실수가 생긴다. 목록은 M4 2번 |
 | D-113 | 서비스 시험(U-07의 M4 몫): 시험 전용 패키지 `maago/maagotest`. `maagotest.DB(t)`는 환경 변수, 없으면 `go.mod` 루트의 `.env`에서 방언과 서버를 읽고, 시험마다 새 DB(SQLite는 `t.TempDir()`의 파일, PG는 패키지 경로 + `t.Name()`으로 지은 스키마를 지우고 다시 만들어 `search_path`로)에 `migrations/`를 적용해 준다. HTTP는 `httptest`, 데이터는 생성된 `InsertX`. 메일 확인은 M5 | v0 | 시험이 서로 보이지 않고, 남은 스키마를 시간으로 추측하지 않고 이름으로 지운다. 런타임 공개 API가 루트 하나라는 원칙의 유일한 예외(루트에 두면 앱 바이너리가 `testing`을 끌고 간다). 기각: 트랜잭션 롤백(앱의 트랜잭션·풀과 부딪힌다), 별도 시험 DB 주소. 사람의 결정, M4 초안, 2026-09-28 |
 | D-114 | 앱은 `main`이 명시적으로 모은다: 생성된 `urls_gen.go`가 앱 값을 내보내고 `maago.Handler(maago.Config{DB: db, Apps: …})`. contrib도 같다. 라우트가 있는 앱을 빠뜨리면 생성 오류(방법은 M4 2번). 뷰는 `maago.DBFrom(ctx) *sql.DB`로 DB를 얻고(없으면 panic), `maago.WithDB`는 공개. `Handler`의 오류는 `Config`의 잘못된 값뿐, 라우트 충돌은 생성기가 본다 | v0 | 무엇이 들어왔는지 `main`에 다 보인다(PHILOSOPHY 5). 추천은 D-46의 `init()` 등록이었고 사람이 이것을 골랐다. 대가: `main`이 앱 목록을 든다, DB가 ctx 안이라 시그니처에 보이지 않는다(D-41이 고정). 사람의 결정, M4 초안, 2026-09-28 |
 | D-115 | 라우트 표는 앱의 `var Routes = maago.Routes{maago.GET("/post/{id}", "post_detail", PostDetail), …}` 리터럴. 경로는 전체 경로, 이름은 프로젝트 전체에서 하나(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`: 이중·끝 `_`는 URL 함수 이름이 겹친다, M4 2번). `{$}` 없이 `/`로 끝나는 경로는 오류(그 아래 모든 경로를 받아 모르는 URL이 404가 되지 않는다. 그 경로만이면 `/{$}`, 사람의 결정 2026-09-29). 이름 겹침과 패턴 충돌(메서드 포함, `ServeMux` 규칙)은 생성 오류. URL 함수는 `PostDetailURL(id int64) string`(인자는 와일드카드 순서, 타입은 In의 path 필드, `url.PathEscape`). 메서드·API·로그인 필수는 표의 한 줄에 | v0 | 한 표에서 URL이 다 보인다. 기각: `include` 접두어(URL이 흩어진다), `app:name`(규칙이 는다). 사람의 결정, M4 초안, 2026-09-28 |
@@ -163,7 +163,7 @@ LIMIT :limit
 | D-118 | 응답 뒤 작업(FastAPI `BackgroundTasks`)은 프레임워크가 주지 않는다. 앱이 `go f(context.WithoutCancel(ctx))`로 쓴다고 문서에 적는다. D-72의 "비동기 태스크"는 큐·워커를 뜻한다 | v0 | 대가: 서버가 꺼질 때 도는 작업을 기다리지 않고 panic은 앱이 받는다. 사람의 결정, M4 초안, 2026-09-28 |
 | D-119 | 폼은 `maago.Form`을 임베드한 struct이고 필드는 `maago.Field[T]`(값·받은 글·있음·오류·라벨을 한 타입에, 뷰와 템플릿이 같은 타입을 본다). 태그는 모델과 같은 뜻: `label`·`help`·`choices`·`min`·`max`(문자열 글자 수), 숫자 범위는 `min_value`·`max_value`, 필드는 기본이 필수이고 `optional`로 빈 칸을 허용. 모델 폼(`maago.Form`의 `model=X`)은 규칙을 모델에서 받고 필드 태그는 `optional`만. In의 `maago:"form"` 필드로 받고 GET·HEAD는 묶지 않는다. 폼 전체 검증은 순수 메서드 `Validate()`(DB 없음). DB를 보는 검증(중복·겹침)은 `Valid()` 뒤 뷰가 쿼리로 하고 `Field.Error`를 쓴다. 모델의 포인터 필드(`*time.Time`, NULL)는 모델 폼에서 `Field[T]` + `optional`이고 뷰가 `Given`을 보고 nil을 넘긴다(틀이 NULL을 대신 지키지 않는다). 사용자에게 보이는 문구는 `Config.Messages`(빈 필드는 영어 기본값) | v0 | 생성되는 상태 타입이 없어 이름 규칙이 하나 줄고, 영값이 조용히 들어가지 않는다(PHILOSOPHY 7). 한 기호는 한 뜻(PHILOSOPHY 4): `max`가 길이와 값을 함께 뜻하지 않는다. DB 검증이 뷰에 있으면 path 값(자기 ID 빼기)을 보고 장치가 하나다. 대가: 동시 요청 경쟁에서 지면 unique 제약이 막아 500이다. 기각: 평범한 struct + 생성 상태 타입(TUTORIAL-FUTURE §9의 모양), unique 위반 오류 글 읽기(드라이버 글에 기댄다, D-90), 모델의 `blank` 태그, 숫자에도 `min`·`max`. 모델 수준 검증 메서드(D-15)는 M6. 사람의 결정, M4 6번, 2026-10-01 |
 | D-120 | API 라우트의 요청 본문은 폼(D-119)으로만 받는다: JSON 객체 하나를 같은 `Field[T]`·규칙·문구로 읽고, 숫자는 쓴 글 그대로(큰 정수가 `float64`를 거치지 않는다). 본문 형식은 라우트가 정한다(HTML은 urlencoded, API는 JSON, 다른 것은 400). 유효하지 않은 API 폼은 생성 코드가 뷰를 부르지 않고 422 problem, 뷰가 DB로 찾은 오류는 `maago.Invalid(&f.Field, msg)`·`maago.InvalidForm(msg)`(여럿은 `errors.Join`. HTML 라우트에서 돌려주면 글 422). `errors` 멤버는 `[{"field":"count","detail":"…"},{"detail":"…"}]`(선언 순서, 폼 전체는 끝). 생성된 `bindX`·`invalidX`는 생성 코드만 부른다(`views_gen.go`는 타입 검사 뒤에 생기므로 뷰가 부르면 "undefined") | v0 | 검증 규칙과 문구가 한 벌이고, 완료 조건의 세 결과가 API에서도 갈린다. API에는 다시 그릴 것이 없어 뷰를 부르지 않는다. 대가: DB 검증이 HTML(`Field.Error`)과 API(`Invalid`) 두 모양이다(뷰는 폼을 값으로 받는다), 중첩·배열 본문은 탈출구(D-41)로. 기각: 아무 struct의 `maago:"json"`(오류가 하나로 뭉친다), `Content-Type`이 고르는 본문(다른 출처의 단순 POST가 preflight 없이 API에 온다), 뷰가 늘 고르는 422(잊으면 잘못된 값이 저장된다), `pointer`·맵 모양의 `errors`. 사람의 결정, M4 7번, 2026-10-01 |
-| D-121 | 인증은 `Config.Auth func(r *http.Request) (any, error)` 하나: 돌려준 값이 사용자, nil이면 로그인하지 않음, 오류는 `Status` 규칙(`Status(401)`은 401, 그 밖은 500과 `OnError`). `Handler`가 요청마다 라우트 앞에서 한 번 부르고, 뷰는 `maago.UserFrom[U](ctx)`(없으면 false, 타입이 다르면 panic). 라우트 표의 `maago.LoginRequired`: 사용자가 없으면 HTML의 GET·HEAD는 `Config.LoginURL`로 303(`next`에 경로와 query), 그 밖의 메서드와 API는 401(API는 problem). 로그인 필수 라우트가 있는데 `Auth`가 없거나 HTML 로그인 필수 라우트가 있는데 `LoginURL`이 없으면 `Handler` 오류 | v0 | 함수가 인터페이스보다 짧고 가짜 인증이 한 줄. 공개 페이지도 "로그인했다면 누구"를 안다. POST 본문은 이동하면 잃고 `next`가 POST 전용 경로를 가리키면 로그인 뒤 405라 이동하지 않는다. 대가: 사용자를 읽지 않는 라우트에도 인증 조회 하나, 인증 저장소가 죽으면 공개 페이지도 500, 401에 `WWW-Authenticate`가 없다(RFC 9110, 스킴은 M5). 기각: 필요할 때만 부르는 인증(오류를 돌려줄 자리가 없다), 코어의 `User` 인터페이스(D-51), 모든 메서드 303. 사람의 결정, M4 9번, 2026-10-04 |
+| D-121 | 인증은 `Config.Auth func(r *http.Request) (any, error)` 하나: 돌려준 값이 사용자, nil이면 로그인하지 않음, 오류는 `Status` 규칙(`Status(401)`은 401, 그 밖은 500과 `OnError`). `Handler`가 요청마다 라우트 앞에서 한 번 부르고, 뷰는 `maago.UserFrom[U](ctx)`(없으면 false, 타입이 다르면 panic). 라우트 표의 `maago.LoginRequired`: 사용자가 없으면 HTML의 GET·HEAD는 `Config.LoginURL`로 303(`next`에 경로와 query), 그 밖의 메서드와 API는 401(API는 problem). 로그인 필수 라우트가 있는데 `Auth`가 없거나 HTML 로그인 필수 라우트가 있는데 `LoginURL`이 없으면 `Handler` 오류 | v0 | 함수가 인터페이스보다 짧고 가짜 인증이 한 줄. 공개 페이지도 "로그인했다면 누구"를 안다. POST 본문은 이동하면 잃고 `next`가 POST 전용 경로를 가리키면 로그인 뒤 405라 이동하지 않는다. 대가: 사용자를 읽지 않는 라우트에도 인증 조회 하나, 인증 저장소가 죽으면 공개 페이지도 500, 401에 `WWW-Authenticate`가 없다(RFC 9110. API 라우트는 M5에서 `Bearer`, D-129). 기각: 필요할 때만 부르는 인증(오류를 돌려줄 자리가 없다), 코어의 `User` 인터페이스(D-51), 모든 메서드 303. 사람의 결정, M4 9번, 2026-10-04 |
 | D-122 | 하위 경로와 표시 타임존: `Config.Prefix`(`/app`, 앞단이 떼고 넘긴다. 떼지 않으면 `main`에서 `http.StripPrefix`)와 `Config.TimeZone`을 `Handler`가 프로세스 값으로 둔다(마지막 `Handler`가 이긴다). 접두어는 경로를 만드는 자리에서 한 번: 생성된 `XxxURL`·`{{url}}`·로그인 이동의 `next`. `SeeOther`·`LoginURL`은 바깥에서 보이는 URL 그대로. 템플릿 시각은 `{{date "형식" .T}}`(`TimeZone`으로, `time.Time`·`*time.Time`, nil·영값은 빈 글) | v0 | 생성된 `XxxURL`과 템플릿 함수 표는 패키지 수준이라 요청 ctx가 닿지 않는다. 접두어를 한 자리에서만 붙여 두 번 붙을 수 없다. 대가: 숨은 프로세스 상태 하나(`Handler` 없이 부른 `XxxURL`은 접두어 없음·UTC, 폼의 기본 문구와 같은 모양), 한 프로세스에 다른 접두어의 앱 둘을 못 둔다. 기각: 요청 ctx로 넘기기(모든 호출에 ctx, `html/template`은 실행 뒤 함수 표를 바꿀 수 없다), 생성 시점 상수(배포 경로마다 다시 생성), 앱이 접두어를 받기. 사람의 결정, M4 11번, 2026-10-05 |
 
 ## E′. Admin
@@ -179,6 +179,14 @@ LIMIT :limit
 |---|---|---|---|
 | D-50 | **allauth 수준을 기본 제공**: 계정 기본(가입·로그인·세션·비밀번호), 이메일 인증, 소셜 로그인, MFA | v0: 계정·이메일 / v1: 소셜·MFA | 구 D-44(admin 인증 없음)를 뒤집는다 |
 | D-51 | User는 contrib 앱. 코어는 사용자 타입을 모른다: `Config.Auth`가 돌려준 값을 뷰가 `maago.UserFrom[U]`로 꺼낸다(M4 9번에서 "인터페이스만 요구"를 고침, 사람의 결정 2026-10-04, D-121) | v0 | 구 D-31. 모델의 `ID` 필드와 `ID()` 메서드는 Go에서 함께 못 쓴다 |
+| D-123 | contrib 앱이 프로젝트에 들어오는 법(U-06의 답): **앱 층은 프로젝트로 복사, 보안 부품은 라이브러리.** `maago add auth`가 이 저장소에 내장한 앱(모델·쿼리·라우트·뷰·폼·템플릿·시험)을 사용자 모듈의 `auth/`에 쓴다(이미 있는 파일이 하나라도 있으면 아무것도 쓰지 않고 거절). 쓴 파일은 사람의 것(D-67)이고 그 뒤로는 보통 앱이다. 보안의 모양을 가진 것(해싱, 토큰 만들기·해시, 쿠키 속성, `next` 검사, 시도 제한의 창, 상수 시간 비교, 같은 응답)은 모두 `contrib/auth`(stdlib만, 사용자 타입을 모른다, D-51)에 두고 복사본이 부른다. 런타임 공개 API가 루트 하나라는 원칙의 둘째 예외(첫째 `maagotest`). 커스텀 User는 복사된 `User`에 필드를 더하는 것 하나(통째로 바꾸기 없음). 복사되는 SQL은 두 방언에서 돈다(시각은 Go의 `:now`) | v0 | 생성기에 특별한 경우가 없고 에이전트가 모든 코드를 읽고 고친다(PHILOSOPHY 5). 보안 수정은 `go get -u`로 따라온다. 모듈 캐시는 읽기 전용이라 생성물을 거기 둘 수 없다. 대가: 앱 층의 개선은 따라오지 않는다(빈 디렉터리에 다시 `add`하고 `git diff --no-index`). 기각: 모듈 캐시의 contrib 모델 읽기(생성물의 주인이 둘, 모든 프로젝트가 `go list`), 라이브러리 + 인터페이스(보안에 민감한 이음을 에이전트가 처음부터, D-69). D-73·D-31·D-42를 고침. 사람의 결정, M5 초안, 2026-10-05 |
+| D-124 | 다른 앱의 모델은 `fk=앱.모델`: 앱은 Go 패키지 이름(D-76 테이블 이름과 같은 열쇠), 같은 앱 안에서도 써도 된다. 앱 사이 FK의 고리는 막지 않는다(생성물이 FK 대상 타입을 부르지 않아 Go import가 생기지 않는다) | v0 | 규칙 하나. 테이블 이름·import 경로 표기는 기각(다른 이름 공간, 모듈 이름에 묶임). D-78을 고침. M5 초안, 2026-10-05 |
+| D-125 | 타입 있는 뷰는 `maago.SetCookie(ctx, *http.Cookie)`로 쿠키를 맡기고, 생성된 어댑터가 응답(그림·303·JSON) 전에 적용한다 | v0 | 로그인이 생성된 폼·템플릿·200 다시 그리기를 그대로 쓴다. 기각: 로그인·로그아웃을 탈출구 뷰로(가장 중요한 폼이 폼 흐름을 잃는다). 사람의 결정, M5 초안, 2026-10-05 |
+| D-126 | 인증 메일의 본문은 복사된 앱의 Go 문자열(인증·재설정). 보내는 함수는 `contrib/auth`의 패키지 변수 `auth.Mail`을 `main`이 채운다(`auth.SMTP`(stdlib `net/smtp`)·`auth.ConsoleMail`), 시험은 `maagotest.Mailbox(t)`(U-07의 나머지) | v0 | 메일 템플릿 검사기와 `text/template` 게이트(D-66)를 건드리지 않고, 루트 API가 소비자 하나를 위해 늘지 않는다. 두 번째 소비자가 생기면 루트로. 기각: 루트 `Config.Mail` + 메일 템플릿. 사람의 결정, M5 초안, 2026-10-05 |
+| D-127 | 비밀번호 해싱은 stdlib `crypto/pbkdf2` + SHA-256, 글 꼴은 Django의 `pbkdf2_sha256$반복$소금$해시`, 반복 600,000, 비밀번호 최대 4096바이트, 페퍼 없음. 로그인에 성공한 해시가 옛 것(다른 접두어, 읽기만 하는 `pbkdf2_sha1`, 적은 반복 수)이면 그 자리에서 새 해시로. 없는 계정에도 더미 해시를 돌린다 | v0 | D-09(런타임은 stdlib만)를 지킨다. 기각: argon2id·bcrypt(`x/crypto`, D-09·D-90을 고쳐야 한다). 사람의 결정, M5 초안, 2026-10-05 |
+| D-128 | 세션과 일회 토큰: 세션은 DB 테이블, 쿠키에는 32바이트 무작위 토큰·DB에는 SHA-256, `HttpOnly`·`Secure`·`SameSite=Lax`·`Path`는 `maago.Prefix()`(없으면 `/`). 로그인 때 새 토큰, 비밀번호 변경은 지금 세션을 갈아 끼우고 다른 세션을 지우며 재설정은 모두 지운다. 인증·재설정 토큰은 목적별 SHA-256과 만료, 쓰기는 조건 붙은 `DELETE`의 지운 행 수로 한 번만. 이메일 인증 전에는 로그인하지 못한다. `next`는 `/`로 시작하고 둘째 글자가 `/`·`\`가 아니며 제어 문자가 없을 때만. 로그인·가입·다시 보내기·재설정 요청은 계정이 있든 없든 같은 응답. 시도 제한은 이메일별과 `r.RemoteAddr`별 15분 10번(넘으면 429), `X-Forwarded-For`는 믿지 않는다 | v0 | 서명 쿠키는 지우기·강제 로그아웃이 안 되고, 서명 무상태 토큰은 한 번만 쓰기가 약하다. 사람의 결정(리뷰 제안 그대로), M5 초안, 2026-10-05 |
+| D-129 | API 인증은 개인 접근 토큰: 무작위, DB에는 SHA-256, 만들 때 평문을 한 번만 보이고 지울 수 있다. `Authorization: Bearer`, `auth.FromSession`이 쿠키가 없으면 Bearer를 본다(`Config.Auth` 하나). API 라우트의 401에는 `WWW-Authenticate: Bearer`, `Config.Origins`의 출처는 preflight에서 `Authorization`도 허락 | v0 | 다른 출처의 프런트엔드가 토큰을 쓴다(게시판 0015). 기각: JWT(키 관리, 폐기 불가, stdlib에 없다), 같은 출처 전용. D-121·D-47을 고침. 사람의 결정, M5 초안, 2026-10-05 |
+| D-130 | M5의 사용자 범위: `IsStaff`·`IsActive`. staff 검사는 뷰의 한 줄(아니면 403), staff 라우트 옵션·`IsSuperuser`·모델별 권한·그룹은 M6(admin이 첫 소비자). 탈퇴는 비활성 + 세션·토큰 지우기(지우기는 D-84). `createsuperuser`는 복사된 앱의 함수를 `main`이 `-createsuperuser` 플래그로 부르고 이메일·비밀번호는 플래그·환경 변수로(묻지 않는다) | v0: 계정·이메일 | 코어는 사용자 타입을 모른다(D-51). CLI는 복사된 User의 모양을 모른다(D-123). 사람의 결정, M5 초안, 2026-10-05 |
 
 ## G. 검증 · 피드백 루프
 
@@ -207,7 +215,7 @@ LIMIT :limit
 | D-70 | **이제 만드는 것**: SQL 매퍼 번역기, 마이그레이션 diff·DDL 엔진, 라우트·뷰·폼 생성기, 템플릿 검사기, 인증 앱 |
 | D-71 | **여전히 만들지 않는 것**: ORM(쿼리 빌더, 지연 로딩, 문자열 필터 API), 템플릿 엔진, 캐시, 시그널, DI 컨테이너, 자체 errors 패키지, 런타임 동적 모델 |
 | D-72 | **범위 밖**: CMS/pages, blocks, 이미지 처리, 검색, i18n, 커머스, 모델에서 REST 자동 생성, 다중 DB, 비동기 태스크 (구 D-37) |
-| D-73 | `maago new` 스캐폴드는 얇게(v1). 프레임워크 코드를 사용자 리포에 복사하지 않는다 (구 D-35, 교훈 1) |
+| D-73 | `maago new` 스캐폴드는 얇게(v1). 프레임워크 코드를 사용자 리포에 복사하지 않는다. 예외: contrib 앱의 앱 층(`maago add`, D-123). 보안 부품은 복사하지 않는다 (구 D-35, 교훈 1) |
 
 ## 이전 결정에서 바뀐 것
 
@@ -221,7 +229,7 @@ LIMIT :limit
 | D-41 | Go를 위한 Django 스타일 프레임워크 | D-01 AgenticCoding |
 | D-44 | admin 인증 없음 | D-50 allauth 수준 |
 | D-45 | SQLite + PostgreSQL | D-30 세 DB |
-| D-09·D-32·D-42·D-43·D-48 | Ent 어노테이션, Ent 저장 시 검증, `admin.Model` 인터페이스, Ent 스키마 임베드, 헬퍼 생성자 | 폐기(모델이 struct가 되며 전제가 사라짐). D-43이 풀던 문제는 U-06 |
+| D-09·D-32·D-42·D-43·D-48 | Ent 어노테이션, Ent 저장 시 검증, `admin.Model` 인터페이스, Ent 스키마 임베드, 헬퍼 생성자 | 폐기(모델이 struct가 되며 전제가 사라짐). D-43이 풀던 문제는 U-06, M5에서 D-123 |
 
 ## 나중에
 
@@ -229,7 +237,6 @@ LIMIT :limit
 |---|---|
 | U-04 | M2M의 admin 위젯. 연결 테이블이 모델이 된 뒤의 모양(구 Q-3) |
 | U-05 | 다중 DB·테넌시(구 Q-4) |
-| U-06 | contrib 앱(User, 세션, MFA 등)의 모델이 사용자 프로젝트의 스키마·마이그레이션에 들어오는 방식. 구 D-43(Ent 스키마 임베드)이 풀던 문제 |
 
 ---
 
@@ -258,3 +265,4 @@ LIMIT :limit
 - **2026-10-05 (M4 12번)** — D-110 고침: snake_case에서 만드는 Go 이름은 staticcheck ST1003의 약어 목록을 따른다(`APIPostsURL`), 대소문자만 다른 이름 안내. 사람의 결정
 - **2026-10-05 (M4 13번)** — D-47(CSRF와 CORS는 한 목록 `Config.Origins`), D-119(모델 폼의 포인터 필드), D-120(생성된 `bindX`·`invalidX`는 생성 코드만), D-103(앱 시험은 `maagotest`) 문구
 - **2026-10-05 (M4 13번 리뷰)** — D-42(`파일:줄:칸`), D-43(모양은 D-119), D-47(믿지 않는 출처의 preflight 405), D-119(`Config.Messages`) 문구
+- **2026-10-05 (M5 초안)** — D-123(contrib 앱은 앱 층 복사·보안 부품은 라이브러리, U-06의 답), D-124(`fk=앱.모델`), D-125(`maago.SetCookie`), D-126(메일), D-127(PBKDF2), D-128(세션·일회 토큰·`next`·같은 응답·시도 제한), D-129(API 토큰·`WWW-Authenticate`·preflight의 `Authorization`), D-130(M5의 사용자 범위). 고침: D-73·D-31·D-42·D-78·D-121·D-47. U-06을 "나중에"에서 뺐다. 사람의 결정
