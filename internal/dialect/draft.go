@@ -7,14 +7,13 @@ import (
 	"github.com/maago-web/maago/internal/schema"
 )
 
-// Model returns the model of table and the tables of its app, for foreign
-// keys. A draft asks only for tables the models make, so a missing one is
-// a bug.
-func Model(apps []*model.App, table string) (*model.Model, map[string]string) {
+// Model returns the model of table. A draft asks only for tables the
+// models make, so a missing one is a bug.
+func Model(apps []*model.App, table string) *model.Model {
 	for _, app := range apps {
 		for _, m := range app.Models {
 			if m.Table == table {
-				return m, Tables(app)
+				return m
 			}
 		}
 	}
@@ -24,7 +23,7 @@ func Model(apps []*model.App, table string) (*model.Model, map[string]string) {
 // Field returns the field of table's model with column; like the model,
 // it must exist.
 func Field(apps []*model.App, table, column string) *model.Field {
-	m, _ := Model(apps, table)
+	m := Model(apps, table)
 	for _, f := range m.Fields {
 		if f.Column == column {
 			return f

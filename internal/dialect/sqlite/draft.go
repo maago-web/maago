@@ -120,8 +120,8 @@ func mentions(expr, column string) bool {
 func statements(apps []*model.App, c migrate.Change) []string {
 	switch c.Kind {
 	case migrate.CreateTable:
-		m, tables := dialect.Model(apps, c.To.Name)
-		return append([]string{table(m, m.Table, tables)}, indexes(m)...)
+		m := dialect.Model(apps, c.To.Name)
+		return append([]string{table(m, m.Table)}, indexes(m)...)
 	case migrate.DropTable:
 		return []string{dialect.DropTable(c.From.Name)}
 	case migrate.AddColumn:
@@ -143,7 +143,7 @@ func statements(apps []*model.App, c migrate.Change) []string {
 // counter so that no dropped id comes back (D-87), then the swap and the
 // indexes.
 func rebuilt(apps []*model.App, from, to *schema.Table) []string {
-	m, tables := dialect.Model(apps, to.Name)
+	m := dialect.Model(apps, to.Name)
 	t, tmp := dialect.Quote(to.Name), "maago_new_"+to.Name
 	var kept, lost []string
 	var warn string
@@ -163,7 +163,7 @@ func rebuilt(apps []*model.App, from, to *schema.Table) []string {
 	if len(lost) > 0 {
 		drop = dialect.Dropping(fmt.Sprintf("the values of %s in %q, which the copy above leaves out", dialect.QuoteAll(lost), to.Name)) + drop
 	}
-	stmts := []string{table(m, tmp, tables)}
+	stmts := []string{table(m, tmp)}
 	if len(kept) > 0 {
 		stmts = append(stmts, warn+fmt.Sprintf("INSERT INTO %s (%s) SELECT %s FROM %s;", dialect.Quote(tmp), dialect.QuoteAll(kept), dialect.QuoteAll(kept), t))
 	}

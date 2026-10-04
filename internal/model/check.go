@@ -66,7 +66,7 @@ type Field struct {
 	Default     *string // as written, quotes removed
 	Choices     []string
 	Label, Help string
-	FK          string // model name in the same app
+	FK          string // the table of the model it refers to (D-124)
 	Auto        string // "create" or "update": generated CRUD fills it with the time (D-102)
 }
 
@@ -90,15 +90,12 @@ func Check(fset *token.FileSet, pkgs []*Package) ([]*App, []diag.Diagnostic) {
 	var apps []*App
 	for _, pkg := range pkgs {
 		app := &App{Dir: pkg.Dir, Name: pkg.Name}
-		var names []string
 		for _, rm := range pkg.Models {
-			names = append(names, rm.Name)
-		}
-		for _, rm := range pkg.Models {
-			app.Models = append(app.Models, c.model(pkg.Name, rm, names))
+			app.Models = append(app.Models, c.model(app, rm))
 		}
 		apps = append(apps, app)
 	}
+	c.resolve(apps)
 	c.tables(apps)
 	return apps, c.ds
 }
@@ -107,6 +104,16 @@ type checker struct {
 	fset      *token.FileSet
 	ds        []diag.Diagnostic
 	uniq, idx []decl // of the model being checked
+	refs      []ref  // every fk=, resolved once all apps are known
+}
+
+// ref is an fk= as written: Model, or app.Model (D-124).
+type ref struct {
+	f      *Field // nil when the field is not int64: only the name is checked
+	app    *App   // the app the field is in
+	target string
+	where  string
+	pos    token.Pos
 }
 
 // decl is one unique or index as written, on a field or a model.
@@ -119,8 +126,8 @@ func (c *checker) errf(pos token.Pos, fix, format string, args ...any) {
 	c.ds = append(c.ds, diag.New(c.fset.Position(pos), fmt.Sprintf(format, args...), fix))
 }
 
-func (c *checker) model(app string, rm *RawModel, models []string) *Model {
-	m := &Model{Name: rm.Name, Pos: rm.Pos, Table: Snake(app) + "_" + Snake(rm.Name)}
+func (c *checker) model(app *App, rm *RawModel) *Model {
+	m := &Model{Name: rm.Name, Pos: rm.Pos, Table: Snake(app.Name) + "_" + Snake(rm.Name)}
 	c.uniq, c.idx = nil, nil
 	hasID := false
 	for _, rf := range rm.Fields {
@@ -131,7 +138,7 @@ func (c *checker) model(app string, rm *RawModel, models []string) *Model {
 			hasID = true
 			if typ != Int64 || ptr {
 				c.errf(rf.Pos, "declare it as ID int64 (D-74)", "%s is the primary key and must be int64, not %s", where, types.ExprString(rf.Type))
-				c.fieldOptions(&Field{Name: rf.Name}, rf.Options, where, models) // its options are wrong or right regardless
+				c.fieldOptions(&Field{Name: rf.Name}, rf.Options, where, app) // its options are wrong or right regardless
 				continue
 			}
 		case rf.Embedded:
@@ -145,7 +152,7 @@ func (c *checker) model(app string, rm *RawModel, models []string) *Model {
 			continue
 		}
 		f := &Field{Name: rf.Name, Column: Snake(rf.Name), Pos: rf.Pos, Type: typ, Pointer: ptr}
-		c.fieldOptions(f, rf.Options, where, models)
+		c.fieldOptions(f, rf.Options, where, app)
 		m.Fields = append(m.Fields, f)
 	}
 	if !hasID {
@@ -239,7 +246,7 @@ func fieldType(e ast.Expr, timeName string) (t Type, ptr bool, why string) {
 
 const supportedTypes = "int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one (D-77)"
 
-func (c *checker) fieldOptions(f *Field, opts []Option, where string, models []string) {
+func (c *checker) fieldOptions(f *Field, opts []Option, where string, app *App) {
 	seen := map[string]bool{}
 	var defaultOpt *Option
 	for i := range opts {
@@ -300,15 +307,21 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, models []s
 				f.Choices = o.Values
 			}
 		case "fk":
-			switch {
-			case !c.shape(o, where, Bare, 1, "name a model, like fk=Post"):
-			case !slices.Contains(models, first(o)):
-				c.unknown(o.ValuePos[0], "model", first(o), where, models)
-			case f.Type != Int64:
-				c.errf(o.KeyPos, "declare the field as int64, or *int64 to allow NULL", "%s refers to %s by ID, so it must be int64, not %s", where, first(o), f.Type)
-			default:
-				f.FK = first(o)
+			const fix = "name a model, like fk=Post or fk=auth.User"
+			if !c.shape(o, where, Bare, 1, fix) {
+				break
 			}
+			if a, name, dotted := strings.Cut(first(o), "."); dotted && (a == "" || name == "" || strings.Contains(name, ".")) {
+				c.errf(o.KeyPos, fix, "fk in %s is not written as expected", where)
+				break
+			}
+			r := ref{app: app, target: first(o), where: where, pos: o.ValuePos[0]}
+			if f.Type != Int64 {
+				c.errf(o.KeyPos, "declare the field as int64, or *int64 to allow NULL", "%s refers to %s by ID, so it must be int64, not %s", where, first(o), f.Type)
+			} else {
+				r.f, f.FK = f, first(o) // resolve sets the table; constraints needs it set now
+			}
+			c.refs = append(c.refs, r)
 		case "default":
 			defaultOpt = o
 		case "auto":
@@ -473,6 +486,57 @@ func (c *checker) unknown(pos token.Pos, what, got, where string, allowed []stri
 		fix = fmt.Sprintf("did you mean %q? %s", s, fix)
 	}
 	c.errf(pos, fix, "unknown %s %q in %s", what, got, where)
+}
+
+// resolve turns each fk= into the table of the model it names: a model of
+// the field's own app, or app.Model with app a package name (D-124). An
+// app name two packages share is an error only where an fk= uses it. A
+// name that does not resolve leaves the field without an FK.
+func (c *checker) resolve(apps []*App) {
+	byName := map[string][]*App{}
+	var names []string
+	for _, a := range apps {
+		if byName[a.Name] == nil {
+			names = append(names, a.Name)
+		}
+		byName[a.Name] = append(byName[a.Name], a)
+	}
+	for _, r := range c.refs {
+		table := c.lookup(r, byName, names)
+		if r.f != nil {
+			r.f.FK = table
+		}
+	}
+}
+
+// lookup is the table r names, or "" after reporting why there is none.
+func (c *checker) lookup(r ref, byName map[string][]*App, names []string) string {
+	app, name, prefix := r.app, r.target, ""
+	if a, n, dotted := strings.Cut(r.target, "."); dotted {
+		switch cands := byName[a]; len(cands) {
+		case 0:
+			c.unknown(r.pos, "app", a, r.where, names)
+			return ""
+		case 1:
+			app, name, prefix = cands[0], n, a+"."
+		default:
+			var dirs []string
+			for _, cand := range cands {
+				dirs = append(dirs, cand.Dir+"/")
+			}
+			c.errf(r.pos, "rename one of the packages", "app %q in %s is ambiguous: %s", a, r.where, strings.Join(dirs, ", "))
+			return ""
+		}
+	}
+	var models []string
+	for _, m := range app.Models {
+		if m.Name == name {
+			return m.Table
+		}
+		models = append(models, prefix+m.Name)
+	}
+	c.unknown(r.pos, "model", r.target, r.where, models)
+	return ""
 }
 
 // tables reports table names used by more than one model, across apps.

@@ -26,9 +26,8 @@ func DDL(fset *token.FileSet, apps []*model.App) (string, []diag.Diagnostic) {
 	}
 	var stmts []string
 	for _, app := range apps {
-		tables := dialect.Tables(app)
 		for _, m := range app.Models {
-			stmts = append(stmts, table(m, m.Table, tables))
+			stmts = append(stmts, table(m, m.Table))
 			stmts = append(stmts, indexes(m)...)
 		}
 	}
@@ -50,7 +49,7 @@ func indexes(m *model.Model) []string {
 
 // table is the CREATE TABLE of m under name, which differs from m.Table
 // while a draft rebuilds the table.
-func table(m *model.Model, name string, tables map[string]string) string {
+func table(m *model.Model, name string) string {
 	var lines []string
 	for _, f := range m.Fields {
 		lines = append(lines, column(f))
@@ -58,7 +57,7 @@ func table(m *model.Model, name string, tables map[string]string) string {
 	for _, f := range m.Fields {
 		if f.FK != "" {
 			lines = append(lines, fmt.Sprintf("CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE NO ACTION",
-				dialect.Quote(dialect.ForeignKeyName(m.Table, f.Column)), dialect.Quote(f.Column), dialect.Quote(tables[f.FK]), dialect.Quote("id")))
+				dialect.Quote(dialect.ForeignKeyName(m.Table, f.Column)), dialect.Quote(f.Column), dialect.Quote(f.FK), dialect.Quote("id")))
 		}
 	}
 	return fmt.Sprintf("CREATE TABLE %s (\n    %s\n) STRICT;", dialect.Quote(name), strings.Join(lines, ",\n    "))

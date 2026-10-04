@@ -48,15 +48,6 @@ func Number(t model.Type, v string) string {
 	panic("dialect.Number: not a number type: " + t.String())
 }
 
-// Tables maps each model of app to its table, for foreign keys.
-func Tables(app *model.App) map[string]string {
-	t := map[string]string{}
-	for _, m := range app.Models {
-		t[m.Name] = m.Table
-	}
-	return t
-}
-
 func UniqueName(table string, cols []string) string {
 	return table + "_" + strings.Join(cols, "_") + "_key"
 }

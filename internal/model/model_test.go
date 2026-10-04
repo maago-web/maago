@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"go/token"
 	"os"
 	"path/filepath"
@@ -96,6 +97,14 @@ type Post struct {
 	Seen     *time.Time ` + q + `maago:"auto=create"` + q + `
 	Word     string     ` + q + `maago:"auto=update"` + q + `
 	Bare     time.Time  ` + q + `maago:"auto"` + q + `
+	ViaID    int64      ` + q + `maago:"fk=autth.User"` + q + `
+	ByID     int64      ` + q + `maago:"fk=auth.Usr"` + q + `
+	SameID   int64      ` + q + `maago:"fk=blog.Post"` + q + `
+	CutID    int64      ` + q + `maago:"fk=auth."` + q + `
+	DeepID   int64      ` + q + `maago:"fk=a.b.C"` + q + `
+	DotID    int64      ` + q + `maago:"fk=.User"` + q + `
+	BothID   string     ` + q + `maago:"fk=Nope"` + q + `
+	GoodID   int64      ` + q + `maago:"fk=auth.User"` + q + `
 }
 
 type Author struct {
@@ -136,8 +145,63 @@ type Post struct {
 	ID int64 ` + q + `maago:"unique"` + q + `
 }
 `,
+		"auth/models.go": `package auth
+
+import "github.com/maago-web/maago"
+
+type User struct {
+	maago.Model
+
+	ID int64
+}
+`,
 	})
 	golden.Check(t, "testdata/errors.golden", []byte(errs))
+}
+
+// An fk= names a model of the field's own app, or app.Model of any app
+// (D-124); either way the field gets the table of that model, table=
+// included, and its automatic index.
+func TestCrossAppFK(t *testing.T) {
+	q := "`"
+	apps, errs, _ := load(t, map[string]string{
+		"auth/models.go": `package auth
+
+import "github.com/maago-web/maago"
+
+type User struct {
+	maago.Model ` + q + `maago:"table=users"` + q + `
+
+	ID int64
+}
+`,
+		"blog/models.go": `package blog
+
+import "github.com/maago-web/maago"
+
+type Post struct {
+	maago.Model
+
+	ID       int64
+	AuthorID int64  ` + q + `maago:"fk=auth.User"` + q + `
+	ParentID *int64 ` + q + `maago:"fk=blog.Post"` + q + `
+	NextID   *int64 ` + q + `maago:"fk=Post"` + q + `
+}
+`,
+	})
+	if errs != "" {
+		t.Fatal(errs)
+	}
+	var got []string
+	for _, f := range apps[1].Models[0].Fields {
+		got = append(got, f.Name+"→"+f.FK)
+	}
+	if s := strings.Join(got, " "); s != "ID→ AuthorID→users ParentID→blog_post NextID→blog_post" {
+		t.Errorf("%s", s)
+	}
+	if s := fmt.Sprint(apps[1].Models[0].Indexes); s != "[[author_id] [parent_id] [next_id]]" {
+		t.Errorf("indexes %s", s)
+	}
 }
 
 // Read's errors: a syntax error drops its whole package, so the tag error
@@ -169,6 +233,34 @@ func TestSnake(t *testing.T) {
 	} {
 		if got := Snake(in); got != want {
 			t.Errorf("Snake(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A name that does not resolve leaves the field without an FK, so nothing
+// later can take the name written for a table.
+func TestUnresolvedFK(t *testing.T) {
+	q := "`"
+	apps, errs, _ := load(t, map[string]string{
+		"blog/models.go": `package blog
+
+import "github.com/maago-web/maago"
+
+type Post struct {
+	maago.Model
+
+	ID     int64
+	AID    int64 ` + q + `maago:"fk=Nope"` + q + `
+	BID    int64 ` + q + `maago:"fk=auth.User"` + q + `
+}
+`,
+	})
+	if errs == "" {
+		t.Fatal("no errors")
+	}
+	for _, f := range apps[0].Models[0].Fields {
+		if f.FK != "" {
+			t.Errorf("%s has FK %q", f.Name, f.FK)
 		}
 	}
 }

@@ -1,7 +1,7 @@
 app blog (blog)
   model Post @blog/models.go:10:6 table=blog_post ordering=[{PublishedAt true} {Title false}] uniques=[[slug] [author_id slug]] indexes=[[status] [author_id]]
     ID(id) int64 label="번호"
-    AuthorID(author_id) int64 fk=Author
+    AuthorID(author_id) int64 fk=people
     Title(title) string max=200 label="제목" help="Shown in lists"
     Slug(slug) string max=100
     Status(status) string default="draft" choices=["draft" "published"]
@@ -19,9 +19,9 @@ app blog (blog)
   model Author @blog/models.go:34:6 table=people ordering=[] uniques=[[editor_id] [code]] indexes=[[reviewer_id] [code] [parent_id]]
     ID(id) int64
     Name(name) string
-    ParentID(parent_id) int64 null fk=Author
-    EditorID(editor_id) int64 fk=Author
-    ReviewerID(reviewer_id) int64 null fk=Author
+    ParentID(parent_id) int64 null fk=people
+    EditorID(editor_id) int64 fk=people
+    ReviewerID(reviewer_id) int64 null fk=people
     Code(code) string
     Order(order) int32 default="007"
     Admin(admin) bool default="false"

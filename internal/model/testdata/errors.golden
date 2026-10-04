@@ -1,15 +1,15 @@
 blog/models.go:9:22: unknown tag key "tabel" in Post
   fix: did you mean "table"? allowed: table, ordering, unique, index
 blog/models.go:9:43: unknown column field "Titel" in Post
-  fix: did you mean "Title"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare
+  fix: did you mean "Title"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
 blog/models.go:9:64: field Title appears twice in unique of Post
   fix: remove the repeated field
 blog/models.go:9:71: index in Post is not written as expected
   fix: list fields in parentheses, like index=(AuthorID,Title)
 blog/models.go:9:91: unknown column field "Foo" in Post
-  fix: allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare
+  fix: allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
 blog/models.go:9:95: unknown column field "Bar" in Post
-  fix: did you mean "Bare"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare
+  fix: did you mean "Bare"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
 blog/models.go:12:33: max in Post.Title is "0", not a positive whole number
   fix: use a positive whole number, like max=200
 blog/models.go:12:35: unknown tag key "uniqe" in Post.Title
@@ -56,25 +56,41 @@ blog/models.go:27:30: auto fills a time.Time, but Post.Word is string
   fix: declare the field as time.Time, or remove auto
 blog/models.go:28:30: auto in Post.Bare is not written as expected
   fix: write auto=create or auto=update
-blog/models.go:32:28: table name "Blog-Authors" of Author is not a plain SQL name
+blog/models.go:29:33: unknown app "autth" in Post.ViaID
+  fix: did you mean "auth"? allowed: auth, blog
+blog/models.go:30:33: unknown model "auth.Usr" in Post.ByID
+  fix: did you mean "auth.User"? allowed: auth.User
+blog/models.go:31:33: app "blog" in Post.SameID is ambiguous: blog/, shop/
+  fix: rename one of the packages
+blog/models.go:32:30: fk in Post.CutID is not written as expected
+  fix: name a model, like fk=Post or fk=auth.User
+blog/models.go:33:30: fk in Post.DeepID is not written as expected
+  fix: name a model, like fk=Post or fk=auth.User
+blog/models.go:34:30: fk in Post.DotID is not written as expected
+  fix: name a model, like fk=Post or fk=auth.User
+blog/models.go:35:30: Post.BothID refers to Nope by ID, so it must be int64, not string
+  fix: declare the field as int64, or *int64 to allow NULL
+blog/models.go:35:33: unknown model "Nope" in Post.BothID
+  fix: allowed: Post, Author, Tag, Dup, Nullable
+blog/models.go:40:28: table name "Blog-Authors" of Author is not a plain SQL name
   fix: use lowercase letters, digits and _, like table=blog_posts
-blog/models.go:34:2: Author.ID is the primary key and must be int64, not string
+blog/models.go:42:2: Author.ID is the primary key and must be int64, not string
   fix: declare it as ID int64 (D-74)
-blog/models.go:34:22: Author.ID is the primary key and cannot have "unique"
+blog/models.go:42:22: Author.ID is the primary key and cannot have "unique"
   fix: remove it; ID may only have label and help
-blog/models.go:38:6: model Tag has no primary key
+blog/models.go:46:6: model Tag has no primary key
   fix: add the field ID int64 (D-74)
-blog/models.go:38:6: table "blog_post" of blog: Tag is also the table of blog: Post
+blog/models.go:46:6: table "blog_post" of blog: Tag is also the table of blog: Post
   fix: give one of them another name with table=…
-blog/models.go:45:22: unique on Slug is declared twice in Dup
+blog/models.go:53:22: unique on Slug is declared twice in Dup
   fix: remove one of them
-blog/models.go:45:52: index on Slug, ID is declared twice in Dup
+blog/models.go:53:52: index on Slug, ID is declared twice in Dup
   fix: remove one of them
-blog/models.go:45:85: unique on Slug, ID is declared twice in Dup
+blog/models.go:53:85: unique on Slug, ID is declared twice in Dup
   fix: remove one of them
-blog/models.go:50:2: fields AuthorID and AuthorId of Dup both become column "author_id"
+blog/models.go:58:2: fields AuthorID and AuthorId of Dup both become column "author_id"
   fix: rename one of them
-blog/models.go:56:2: Nullable.ID is the primary key and must be int64, not *int64
+blog/models.go:64:2: Nullable.ID is the primary key and must be int64, not *int64
   fix: declare it as ID int64 (D-74)
 shop/models.go:5:6: table "blog_post" of shop: Post is also the table of blog: Post
   fix: give one of them another name with table=…

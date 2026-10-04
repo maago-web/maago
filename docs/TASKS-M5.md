@@ -67,6 +67,49 @@
 `fk=앱.모델`을 모델 읽기가 모든 앱을 안 뒤에 푼다. 오류: 없는 앱·모델, 패키지 이름이 같은 두 앱(이미 테이블 겹침으로 잡히는지 확인). FK 순서는 할 일이 없다(사실 절).
 → 확인: 두 앱 프로젝트의 `makemigrations`·`check`·`migrate`(두 방언), 오류 표
 
+### 계획
+
+있는 것: `model.Field.FK`는 같은 앱의 모델 이름이고, 방언 코드가 앱마다 만든 이름→테이블 표(`dialect.Tables(app)`)로 `REFERENCES`의 테이블을 찾는다(SQLite `table`·초안의 재생성, PG `foreignKeys`). 그 밖의 소비자는 "FK인가"만 본다(`CheckNames`의 제약 이름, FK 열의 자동 인덱스). 다른 디렉터리에 같은 패키지 이름의 앱은 지금도 된다(테이블이 겹치면 오류).
+
+- **`Field.FK`의 뜻을 바꾼다: 가리키는 모델의 테이블 이름.** `model.Check`가 모든 앱의 모델(그 `table=`까지)을 만든 뒤 한 번에 푼다. 그러면 `dialect.Tables`와 방언 코드의 표 인자가 사라진다(쓰는 곳이 없어지므로 지운다)
+- `fk=` 값의 꼴: `모델`(같은 앱, 지금 그대로) 또는 `앱.모델`(D-124, 같은 앱이어도 된다). 앱은 Go 패키지 이름
+- 오류(지금의 같은 앱 오류는 문구·자리 그대로):
+  - `fk=autth.User`: 없는 앱 → `unknown app "autth" in …` + `did you mean "auth"?`(있는 앱 이름 목록, 지금의 `c.unknown`)
+  - `fk=auth.Usr`: 그 앱에 없는 모델 → 그 앱의 모델 목록으로 `did you mean`
+  - `fk=blog.Post`인데 `package blog`인 앱이 둘: `app name "blog" is ambiguous: blog/ and shop/` + fix "rename one package, or …"(가리킬 때만 오류, 앱이 겹치는 것 자체는 그대로 된다)
+  - `fk=a.b.C`·`fk=.User`·`fk=auth.`: 꼴 오류(`name a model, like fk=Post or fk=auth.User`)
+  - 형(`int64`) 검사는 지금처럼 이름 풀기와 따로(둘 다 틀리면 둘 다)
+- 고리: 막지 않는다(D-124). 같은 모델을 가리키는 것(`fk=Post` 안의 `ParentID`)도 지금처럼 된다
+- 매퍼: FK는 열 하나(`int64`)일 뿐이라 바뀌는 것 없음. `RecentPosts`처럼 모델 결과는 열을 그대로
+
+파일
+- `internal/model/check.go`(풀기, `Field.FK` 주석), `internal/dialect/dialect.go`(`Tables` 지움), `internal/dialect/sqlite/{sqlite,draft}.go`·`internal/dialect/postgres/postgres.go`(표 인자 지움, `f.FK` 그대로)
+- 시험: `internal/model/model_test.go`의 오류 골든(새 경우들)과 성공 경우(`fk=auth.User`의 `Field.FK == "auth_user"`, `table=`를 쓴 대상), `cmd/maago`에 두 앱 프로젝트(`blog.Post.AuthorID fk=auth.User`, `auth`는 `table=`가 없는 것과 있는 것)의 `makemigrations` → `check` → `migrate`를 두 방언으로, 모델과 DB가 같은지(`TestM2Done`의 비교)
+
+하지 않기로 한 것
+- `ondelete=`(D-84 그대로), FK 대상의 PK가 `ID int64`가 아닌 경우(지금도 모든 모델의 PK는 `ID int64`)
+
+단계
+1. `Field.FK`를 테이블 이름으로, 방언 코드의 표 지우기 → 확인: 지금의 시험이 그대로 통과(뜻만 바뀌고 출력은 같다)
+2. `앱.모델` 풀기와 오류 → 확인: 오류 골든, 성공 경우
+3. 두 앱 프로젝트의 마이그레이션 → 확인: 두 방언
+4. 두 모듈 확인 명령
+
+계획 리뷰 (codex·fable) — 위 계획을 이렇게 고친다
+- 표를 쓰는 자리에 `internal/dialect/draft.go`의 `Model`(둘째 반환값 `Tables(app)`)도 있다: 그것도 지운다(codex 1, fable 8). SQLite 재생성(`rebuilt`)이 다른 앱을 가리키면 지금은 `REFERENCES ""`가 된다
+- 형 검사와 이름 풀기는 지금 한 `switch`라 하나만 나온다. 풀기를 미루면 둘이 독립이 되어 둘 다 틀리면 둘 다 낸다(D-61, codex 3·fable 2). 골든에 둘 다 틀린 필드 하나
+- FK 열의 자동 인덱스는 "FK인가"만 보므로, `c.model` 때 적힌 대상을 임시로 넣고 모든 앱을 안 뒤 테이블 이름으로 바꾼다(codex 2)
+- 점 꼴 오류는 따로 써야 한다(태그의 맨 값은 `.`를 받는다): `a.b.C`·`.User`·`auth.`는 지금의 꼴 오류 문구, fix는 하나로 "name a model, like fk=Post or fk=auth.User"(fable 3)
+- 겹치는 앱 이름: FK 값의 자리에, 후보 디렉터리를 정렬해 `, `로, fix "rename one package, or write fk=Post from inside the app", 없는 앱의 did-you-mean 목록은 겹친 이름을 한 번만(codex 5, fable 6). 앱 이름은 Go 패키지 이름 그대로 비교(대문자도, `Snake`하지 않는다)
+- 대상 모델의 `table=`가 틀려도 그 모델의 기본 테이블로 풀린다(그 모델의 오류는 따로 나니 이어지는 오류가 없다, codex 4·fable 7)
+- 시험 더함: 1단계는 `valid.golden`이 바뀐다(`fk=Author` → `fk=people`, DDL·초안은 같다, fable 1). 오류 골든의 "다른 앱의 없는 모델"은 셋째 디렉터리(고유한 패키지 이름)에(fable 5). `cmd/maago`의 두 앱 시험에 대상 앱의 `table=`, 서로 가리키는 두 앱, 그리고 **다른 앱을 가리키는 테이블의 SQLite 재생성**(제자리에서 더할 수 없는 CHECK, `max=`를 더해 재생성을 강제. 기본값 없는 NOT NULL은 행이 있는 테이블에 적용할 수 없다) 뒤 행과 `check`(codex 6, fable 4). 두 앱을 쓰는 작은 도우미
+
+구현 리뷰 (ponytail·codex·fable)
+- 만들며 확인한 것: `valid.golden`의 `fk=Author` → `fk=people`(대상의 `table=`), 오류 골든의 새 경우 일곱, `TestCrossAppFK`(대상 테이블·자동 인덱스), `TestCrossAppMigrations`(두 방언, 서로 가리키는 두 앱, 행을 넣은 뒤 SQLite가 `blog_post`를 실제로 재생성)
+- ponytail(스스로·fable): 지울 것 없음. `ref` 목록이 D-61의 독립과 값의 자리를 함께 주는 가장 작은 모양
+- codex: 받음 — 풀리지 않은 FK는 비운다(1: 적힌 이름이 테이블처럼 남지 않게, `lookup`이 ""를 돌려주고 `TestUnresolvedFK`), 점 꼴 `a.b.C`·`.User`도 골든에(2). 받지 않음 — 3 기본값 없는 NOT NULL로 재생성: 같은 `rebuilt`를 CHECK가 지나고, 그 필드는 행이 있는 테이블에 적용할 수 없다
+- fable(변이 여섯 모두 잡힘): 받음 — 떨어진 `tables` 주석(1), `dialect.Model` 주석 줄 바꿈(2), 모호함 문구 "ambiguous: blog/, shop/"(3), 점 꼴 오류의 자리를 같은 계열처럼 키에(4), fix는 "rename one of the packages"만(5: 셋째 앱에서 쓴 FK에는 "안에서 fk=Post"가 맞지 않는다), 계획의 재생성 문장을 시험과 맞춤(6)
+
 ## 2. `maago add`와 scaffold (D-123)
 
 `cmd/maago add <앱>`: embed한 scaffold를 `<앱>/`에 쓴다. 이미 있는 파일이 하나라도 있으면 아무것도 쓰지 않고 거절. 처음 scaffold는 모델(User·Session·Token·APIToken·LoginAttempt)과 최소 라우트 하나(빈 라우트 표는 오류). scaffold 시험 도구(임시 프로젝트, 두 방언).

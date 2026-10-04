@@ -19,10 +19,10 @@ func Draft(apps []*model.App, cs []migrate.Change) string {
 	for _, c := range cs {
 		switch c.Kind {
 		case migrate.CreateTable:
-			m, refs := dialect.Model(apps, c.To.Name)
+			m := dialect.Model(apps, c.To.Name)
 			stmts = append(stmts, table(m))
 			stmts = append(stmts, indexStmts(m)...)
-			fks = append(fks, foreignKeys(m, refs)...)
+			fks = append(fks, foreignKeys(m)...)
 		default:
 			stmts = append(stmts, statements(apps, c, cs)...)
 		}

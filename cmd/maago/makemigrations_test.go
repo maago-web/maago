@@ -210,3 +210,67 @@ func TestMakeMigrationsRefuses(t *testing.T) {
 		refuse(t, root, "", nil, "maago did not write migrations/0002_", "fix: write this migration by hand")
 	})
 }
+
+// Two apps that refer to each other (D-124), the auth app's table named
+// with table=: makemigrations, check and migrate in both dialects, rows
+// kept, then a change that makes SQLite rebuild blog_post, whose FK
+// points into the other app, applied over those rows.
+func TestCrossAppMigrations(t *testing.T) {
+	const auth = `package auth
+
+import m "github.com/maago-web/maago"
+
+type User struct {
+	m.Model ~maago:"table=users"~
+
+	ID         int64
+	Email      string
+	FavoriteID *int64 ~maago:"fk=blog.Post"~
+}
+`
+	const blog = `package blog
+
+import m "github.com/maago-web/maago"
+
+type Post struct {
+	m.Model
+
+	ID       int64
+	AuthorID int64 ~maago:"fk=auth.User"~
+	Title    string
+}
+`
+	for _, dd := range []draftDialect{draftSQLite, draftPG} {
+		t.Run(string(dd.d), func(t *testing.T) {
+			root := dd.makeProject(t, blog)
+			if err := os.Mkdir(filepath.Join(root, "auth"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(root, "auth", "models.go"), strings.ReplaceAll(auth, "~", "`"))
+			initial := readFile(t, filepath.Join(root, makeMigrations(t, root, "")))
+			if !strings.Contains(initial, `REFERENCES "users"`) || !strings.Contains(initial, `REFERENCES "blog_post"`) {
+				t.Fatalf("no FK across the apps:\n%s", initial)
+			}
+			expect(t, root)
+
+			r := newRealDB(t, dd.d)
+			r.root = root
+			r.migrate(t, "0001_initial.sql")
+			db := r.open(t)
+			mustExec(t, db, `INSERT INTO users (email) VALUES ('a@example.com')`)
+			mustExec(t, db, `INSERT INTO blog_post (author_id, title) VALUES (1, 'hi')`)
+
+			// A CHECK SQLite cannot add in place: it rebuilds blog_post.
+			setModels(t, root, strings.Replace(blog, "Title    string", "Title    string ~maago:\"max=100\"~", 1))
+			w := makeMigrations(t, root, "")
+			if change := readFile(t, filepath.Join(root, w)); dd.d == project.SQLite && !strings.Contains(change, `INSERT INTO "maago_new_blog_post"`) {
+				t.Fatalf("not a rebuild:\n%s", change)
+			}
+			expect(t, root)
+			r.migrate(t, filepath.Base(w))
+			if got := rowsText(t, r.open(t), "SELECT u.email || ' ' || p.title FROM blog_post p JOIN users u ON u.id = p.author_id"); got != "a@example.com hi\n" {
+				t.Errorf("rows after the change: %q", got)
+			}
+		})
+	}
+}

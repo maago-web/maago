@@ -33,22 +33,21 @@ func DDL(fset *token.FileSet, apps []*model.App) (string, []diag.Diagnostic) {
 	}
 	var tables, fks, indexes []string
 	for _, app := range apps {
-		refs := dialect.Tables(app)
 		for _, m := range app.Models {
 			tables = append(tables, table(m))
-			fks = append(fks, foreignKeys(m, refs)...)
+			fks = append(fks, foreignKeys(m)...)
 			indexes = append(indexes, indexStmts(m)...)
 		}
 	}
 	return strings.Join(append(append(tables, fks...), indexes...), "\n\n") + "\n", nil
 }
 
-func foreignKeys(m *model.Model, refs map[string]string) []string {
+func foreignKeys(m *model.Model) []string {
 	var stmts []string
 	for _, f := range m.Fields {
 		if f.FK != "" {
 			stmts = append(stmts, fmt.Sprintf("ALTER TABLE %s ADD CONSTRAINT %s FOREIGN KEY (%s) REFERENCES %s (%s) ON DELETE NO ACTION;",
-				dialect.Quote(m.Table), dialect.Quote(dialect.ForeignKeyName(m.Table, f.Column)), dialect.Quote(f.Column), dialect.Quote(refs[f.FK]), dialect.Quote("id")))
+				dialect.Quote(m.Table), dialect.Quote(dialect.ForeignKeyName(m.Table, f.Column)), dialect.Quote(f.Column), dialect.Quote(f.FK), dialect.Quote("id")))
 		}
 	}
 	return stmts
