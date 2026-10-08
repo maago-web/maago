@@ -10,6 +10,8 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/http/httptrace"
+	"net/textproto"
 	"strings"
 	"testing"
 )
@@ -227,6 +229,8 @@ func TestCrossOrigin(t *testing.T) {
 		{"untrusted GET", cfg, req("GET", "/api/posts", "Origin", "https://evil.example.com"), 200, "", "Origin", ""},
 		{"preflight", cfg, req("OPTIONS", "/api/posts", "Origin", trusted, "Access-Control-Request-Method", "POST", "Access-Control-Request-Headers", "content-type"),
 			204, trusted, "Origin, Access-Control-Request-Method, Access-Control-Request-Headers", ""},
+		{"preflight with a token", cfg, req("OPTIONS", "/api/posts", "Origin", trusted, "Access-Control-Request-Method", "DELETE", "Access-Control-Request-Headers", "authorization,content-type"),
+			204, trusted, "Origin, Access-Control-Request-Method, Access-Control-Request-Headers", ""},
 		{"preflight without request headers", cfg, req("OPTIONS", "/api/posts", "Origin", trusted, "Access-Control-Request-Method", "DELETE"),
 			204, trusted, "Origin, Access-Control-Request-Method, Access-Control-Request-Headers", ""},
 		{"cross-site POST to no route", cfg, req("POST", "/nothing", "Sec-Fetch-Site", "cross-site"), 403, "", "", "text/plain"},
@@ -248,10 +252,87 @@ func TestCrossOrigin(t *testing.T) {
 		if c.allow != "" && h.Get("Access-Control-Allow-Credentials") != "true" {
 			t.Errorf("%s: no Allow-Credentials", c.name)
 		}
-		if c.code == 204 && (h.Get("Access-Control-Allow-Methods") != c.r.Header.Get("Access-Control-Request-Method") || h.Get("Access-Control-Allow-Headers") != "Content-Type") {
+		if c.code == 204 && (h.Get("Access-Control-Allow-Methods") != c.r.Header.Get("Access-Control-Request-Method") || h.Get("Access-Control-Allow-Headers") != "Content-Type, Authorization") {
 			t.Errorf("%s: Allow-Methods %q, Allow-Headers %q", c.name, h.Get("Access-Control-Allow-Methods"), h.Get("Access-Control-Allow-Headers"))
 		}
 	}
+}
+
+// A cookie of SetCookie goes with the response the view writes, and not
+// with the error a view returns or panics with (D-125).
+func TestSetCookie(t *testing.T) {
+	set := func(w http.ResponseWriter, r *http.Request) {
+		SetCookie(r.Context(), &http.Cookie{Name: "session", Value: "s1"})
+	}
+	apps := []App{NewApp("a",
+		route("GET", "/written", false, func(w http.ResponseWriter, r *http.Request) error { set(w, r); return ok(w, r) }),
+		route("GET", "/early-hints", false, func(w http.ResponseWriter, r *http.Request) error {
+			set(w, r)
+			w.WriteHeader(http.StatusEarlyHints)
+			w.WriteHeader(http.StatusCreated)
+			return nil
+		}),
+		route("GET", "/error", false, func(w http.ResponseWriter, r *http.Request) error {
+			set(w, r)
+			return Status(http.StatusUnprocessableEntity, errors.New("bad form"))
+		}),
+		route("GET", "/panic", false, func(w http.ResponseWriter, r *http.Request) error { set(w, r); panic("boom") }),
+		route("GET", "/flushed", false, func(w http.ResponseWriter, r *http.Request) error {
+			set(w, r)
+			http.NewResponseController(w).Flush()
+			return errors.New("too late to say")
+		}),
+		route("GET", "/late", false, func(w http.ResponseWriter, r *http.Request) error { ok(w, r); set(w, r); return nil }),
+		route("GET", "/invalid", false, func(w http.ResponseWriter, r *http.Request) error {
+			SetCookie(r.Context(), &http.Cookie{Name: "bad name", Value: "x"})
+			return ok(w, r)
+		}),
+	)}
+	for _, c := range []struct {
+		path   string
+		code   int
+		cookie string
+		panics bool
+	}{
+		{"/written", 200, "session=s1", false},
+		{"/error", 422, "", false},
+		{"/panic", 500, "", true},
+		{"/flushed", 200, "session=s1", false},
+		{"/late", 200, "", true}, // the panic comes after the body: OnError hears it
+		{"/invalid", 500, "", true},
+	} {
+		w, reported := serve(t, Config{Apps: apps}, httptest.NewRequest("GET", c.path, nil))
+		panicked := len(reported) > 0 && strings.HasPrefix(reported[0].Error(), "panic: ")
+		if w.Code != c.code || w.Header().Get("Set-Cookie") != c.cookie || panicked != c.panics {
+			t.Errorf("%s: %d Set-Cookie %q panic %v, want %d %q %v", c.path, w.Code, w.Header().Get("Set-Cookie"), panicked, c.code, c.cookie, c.panics)
+		}
+	}
+	// An early hint goes before the response, without its cookies.
+	cfg := Config{Apps: apps, DB: testDB}
+	h, err := Handler(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+	var hint http.Header
+	trace := &httptrace.ClientTrace{Got1xxResponse: func(code int, h textproto.MIMEHeader) error { hint = http.Header(h); return nil }}
+	r, _ := http.NewRequestWithContext(httptrace.WithClientTrace(context.Background(), trace), "GET", srv.URL+"/early-hints", nil)
+	resp, err := srv.Client().Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if hint == nil || hint.Get("Set-Cookie") != "" || resp.StatusCode != 201 || resp.Header.Get("Set-Cookie") != "session=s1" {
+		t.Errorf("early hints: 103 %v, then %d %v", hint, resp.StatusCode, resp.Header)
+	}
+
+	defer func() {
+		if recover() == nil {
+			t.Error("no panic outside Handler")
+		}
+	}()
+	SetCookie(context.Background(), &http.Cookie{Name: "session", Value: "s1"})
 }
 
 func TestResult(t *testing.T) {

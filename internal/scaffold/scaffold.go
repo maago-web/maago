@@ -38,7 +38,8 @@ func Apps() []string {
 
 // Add writes app into the project holding dir, at <root>/<app>/, and
 // returns the files it wrote, relative to the root. If any of them is
-// there already, it writes nothing (D-123).
+// there already, it writes nothing (D-123). A file named for a dialect,
+// x.sqlite or x.postgres, is written as x if it is the project's.
 func Add(dir, app string) ([]string, []diag.Diagnostic) {
 	apps := Apps()
 	if !slices.Contains(apps, app) {
@@ -52,13 +53,25 @@ func Add(dir, app string) ([]string, []diag.Diagnostic) {
 	if len(ds) > 0 {
 		return nil, ds
 	}
-	var names []string // slash paths relative to the root
+	dialect, _, ds := project.Database(root, os.LookupEnv)
+	if len(ds) > 0 {
+		return nil, ds
+	}
+	src := map[string]string{} // slash paths relative to the root: the file to write, the embedded one
 	fs.WalkDir(files, "testdata/"+app, func(p string, d fs.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
-			names = append(names, strings.TrimPrefix(p, "testdata/"))
+			n := strings.TrimPrefix(p, "testdata/")
+			switch ext := path.Ext(n); ext {
+			case "." + string(dialect):
+				src[strings.TrimSuffix(n, ext)] = n
+			case "." + string(project.SQLite), "." + string(project.Postgres):
+			default:
+				src[n] = n
+			}
 		}
 		return err
 	})
+	names := slices.Sorted(maps.Keys(src))
 	const fix = "remove it, or run maago add in an empty directory and compare the two with git diff --no-index"
 	for _, n := range names {
 		switch _, err := os.Lstat(filepath.Join(root, filepath.FromSlash(n))); {
@@ -73,7 +86,7 @@ func Add(dir, app string) ([]string, []diag.Diagnostic) {
 	}
 	var written []string
 	for _, n := range names {
-		if err := write(root, n); err != nil {
+		if err := write(root, n, src[n]); err != nil {
 			undo(root, written, n)
 			return nil, []diag.Diagnostic{diag.New(token.Position{Filename: n}, "cannot write the file: "+diag.OneLine(err.Error()), "make the directory writable, then run maago add "+app+" again")}
 		}
@@ -101,10 +114,10 @@ func undo(root string, written []string, failed string) {
 	}
 }
 
-// write copies the embedded file n to root, failing if something is
-// there by now, and leaves nothing behind when it fails.
-func write(root, n string) error {
-	src, err := files.ReadFile(path.Join("testdata", n))
+// write copies the embedded file from to n under root, failing if
+// something is there by now, and leaves nothing behind when it fails.
+func write(root, n, from string) error {
+	src, err := files.ReadFile(path.Join("testdata", from))
 	if err != nil {
 		return err
 	}

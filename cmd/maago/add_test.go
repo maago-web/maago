@@ -11,10 +11,10 @@ import (
 	"github.com/maago-web/maago/internal/scaffold"
 )
 
-// The auth app maago add writes is an ordinary app (D-123): its table
-// goes into makemigrations and check passes, in both dialects, also once
-// a field is added to User; and it compiles, which nothing else checks,
-// since the go tool skips the scaffold's testdata.
+// The auth app maago add writes is an ordinary app (D-123): its tables
+// go into makemigrations, check passes and its own tests pass, in both
+// dialects, also once a field is added to User. Nothing else compiles
+// it: the go tool skips the scaffold's testdata.
 func TestAddAuth(t *testing.T) {
 	repo, err := filepath.Abs("../..")
 	if err != nil {
@@ -26,8 +26,11 @@ func TestAddAuth(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			writeFile(t, filepath.Join(root, "go.mod"), "module example.com/app\n\ngo 1.25.0\n\nrequire github.com/maago-web/maago v0.0.0\n")
+			// The fixture's module: both drivers, with their sums.
+			writeFile(t, filepath.Join(root, "go.mod"), strings.Replace(readFile(t, "testdata/web/go.mod"), "module example.com/web", "module example.com/app", 1))
+			writeFile(t, filepath.Join(root, "go.sum"), readFile(t, "testdata/web/go.sum"))
 			writeFile(t, filepath.Join(root, "go.work"), "go 1.25.0\n\nuse .\n\nreplace github.com/maago-web/maago => "+repo+"\n")
+			writeFile(t, filepath.Join(root, "main.go"), authMain)
 			t.Setenv("GOWORK", filepath.Join(root, "go.work"))
 			url := "sqlite:app.db"
 			if dd.d == project.Postgres {
@@ -49,20 +52,55 @@ func TestAddAuth(t *testing.T) {
 				}
 			}
 			expect(t, root)
+			goTest(t, root)
 
 			models := filepath.Join(root, "auth", "models.go")
-			writeFile(t, models, strings.Replace(readFile(t, models), "\tCreatedAt ", "\tNickname     string     `maago:\"default=''\"`\n\tCreatedAt ", 1))
+			writeFile(t, models, strings.Replace(readFile(t, models), "\tPasswordHash string\n", "\tPasswordHash string\n\tNickname     string `maago:\"default=''\"`\n", 1))
 			if added := readFile(t, filepath.Join(root, makeMigrations(t, root, ""))); !strings.Contains(added, `"nickname"`) {
 				t.Errorf("no nickname:\n%s", added)
 			}
 			expect(t, root)
-
-			vet := osexec.Command("go", "vet", "./...")
-			vet.Dir = root
-			vet.Env = append(os.Environ(), "GOFLAGS=-mod=readonly", "GOPROXY=off")
-			if out, err := vet.CombinedOutput(); err != nil {
-				t.Errorf("go vet: %v\n%s", err, out)
-			}
+			goTest(t, root)
 		})
+	}
+}
+
+// authMain serves the auth app, as main does once maago add auth wrote it.
+// It is only compiled, so its SQLite driver serves the PostgreSQL run too.
+const authMain = `package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+
+	"github.com/maago-web/maago"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/auth"
+)
+
+func main() {
+	db, err := maago.OpenDB(context.Background(), maago.DBConfig{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App}, Auth: auth.Current, LoginURL: "/login"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Fatal(http.ListenAndServe(":8000", h))
+}
+`
+
+// goTest runs the project's own tests, offline, on the database of
+// MAAGO_DATABASE_URL.
+func goTest(t *testing.T, root string) {
+	t.Helper()
+	test := osexec.Command("go", "test", "-count=1", "./...")
+	test.Dir = root
+	test.Env = append(os.Environ(), "GOFLAGS=-mod=readonly", "GOPROXY=off")
+	if out, err := test.CombinedOutput(); err != nil {
+		t.Errorf("go test: %v\n%s", err, out)
 	}
 }

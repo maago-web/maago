@@ -22,3 +22,15 @@ type User struct {
 	VerifiedAt   *time.Time // when the email was verified; nil: not yet
 	CreatedAt    time.Time  `maago:"auto=create"`
 }
+
+// Session is a signed-in browser. Its cookie holds a token; Hash is the
+// token's hash, so the table holds no token.
+type Session struct {
+	maago.Model
+
+	ID        int64
+	UserID    int64     `maago:"fk=User"`
+	Hash      string    `maago:"max=64,unique"`
+	ExpiresAt time.Time // the session ends then
+	CreatedAt time.Time `maago:"auto=create"`
+}

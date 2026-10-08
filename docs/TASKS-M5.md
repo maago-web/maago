@@ -200,8 +200,58 @@
 
 ## 4. 쿠키 자리(코어), 세션, 로그인·로그아웃 (D-125, D-128)
 
-코어: `maago.SetCookie`(D-125), API 401의 `WWW-Authenticate: Bearer`, preflight의 `Authorization`(D-129). `contrib/auth`: 세션 쿠키·`FromSession`·`SafeNext`·시도 제한. 복사본: `Session` 쿼리, 로그인 폼·뷰, 로그아웃(POST).
+코어: `maago.SetCookie`(D-125), API 401의 `WWW-Authenticate: Bearer`, preflight의 `Authorization`(D-129). `contrib/auth`: 세션 쿠키·`FromSession`·`SafeNext`(시도 제한은 8번). 복사본: `Session` 쿼리, 로그인 폼·뷰, 로그아웃(POST).
 → 확인: 로그인 전후 쿠키 값이 다르다(완료 조건 6), 로그아웃 뒤 이전 쿠키는 로그인하지 않은 것, 만료, `next`의 `//evil`·`https://…`·`/\evil`는 기본 자리로, 없는 이메일과 틀린 비밀번호가 같은 응답
+
+### 계획
+
+세 층. 이 작업의 끝에 `maago add auth`한 프로젝트가 로그인·로그아웃하고, 뷰가 `maago.UserFrom[auth.User]`로 사용자를 안다. 시도 제한은 8번.
+
+코어(`maago`, D-125·D-129)
+- `maago.SetCookie(ctx, *http.Cookie)`: `serve`가 요청 ctx에 `*written`을 싣고, `SetCookie`는 거기 모은다. `written`이 첫 최종 응답(`WriteHeader`의 200 이상, `Write`, `Flush`) 직전에 `http.SetCookie`로 붙인다. 1xx에는 붙이지 않는다. 생성된 어댑터·탈출구 뷰·303·JSON 모두 이 래퍼를 지나므로 어댑터 템플릿은 바뀌지 않는다. `report`는 아직 쓰지 않았으면 모은 쿠키를 버린다(500·422·panic에 세션이 붙지 않게). 이미 쓴 뒤에는 거둘 수 없다(스트리밍은 쓰기 전에 맡긴다). panic: `serve` 밖(`DBFrom`처럼), 이미 쓴 뒤, `c.Valid()`가 틀린 쿠키(`http.SetCookie`는 말없이 버린다)
+- API 라우트의 401에 `WWW-Authenticate: Bearer`(D-129, `fail`의 API 분기 한 줄. HTML 401은 범위 밖). preflight가 `Authorization`도 허락(`preflightOK`와 `Access-Control-Allow-Headers: Content-Type, Authorization`)
+
+라이브러리(`contrib/auth`, stdlib만)
+- `NewToken() (token, hash string)`: 32바이트 `crypto/rand`, 토큰은 `base64.RawURLEncoding`(43자), 해시는 SHA-256의 hex(DB에 넣는 것). `HashToken(token) string`
+- `SessionCookie(token, path string, maxAge time.Duration) *http.Cookie`: 이름 `session`, `HttpOnly`·`Secure`·`SameSite=Lax`, `Path`는 부르는 쪽이 넘긴다(라이브러리는 `maago`를 import하지 않는다. 복사본이 `cmp.Or(maago.Prefix(), "/")`). 지우는 쿠키는 `maxAge < 0`(같은 Path)
+- `FromSession[U any](find func(ctx context.Context, hash string) (U, error)) func(*http.Request) (any, error)`: 쿠키가 없거나 43자 base64url이 아니면 `find`를 부르지 않고 `nil, nil`. `find`가 `sql.ErrNoRows`면 `nil, nil`(만료·지운 세션은 로그인하지 않은 것), 다른 오류는 그대로, 성공만 `U`를 담는다(제네릭: 오류 때의 영값 `User`가 "사용자 있음"이 되지 않게). Bearer는 11번
+- `SafeNext(next, fallback string) string`(D-128): `/`로 시작, 둘째 글자가 `/`·`\`가 아님, 제어 문자 없음, `%2f`·`%5c`(대소문자 무관)가 없음. 아니면 `fallback`
+
+복사본(`internal/scaffold/testdata/auth/`)
+- 모델 `Session`: `ID`, `UserID`(`fk=User`), `Hash`(`max=64,unique`), `ExpiresAt time.Time`, `CreatedAt`(`auto=create`)
+- 쿼리(두 방언, 시각은 `-- param: now time.Time`): `user_by_email.sql`(`:one User`, `SELECT *`: 사용자가 `User`에 필드를 더해도 깨지지 않게), `session_user.sql`(`:one User`, `SELECT u.* … JOIN auth_session s … WHERE s.hash = :hash AND s.expires_at > :now AND u.is_active AND u.verified_at IS NOT NULL`, D-130의 조건을 세션에도), `delete_user_sessions.sql`(`:exec`, 로그아웃), `delete_expired_sessions.sql`(`:exec`, 로그인 때)
+- 라우트: `GET /login "login"`, `POST /login "login_submit"`, `POST /logout "logout"`. `main`은 `auth.App`을 쓴다(D-114). `Config.LoginURL`은 글자 그대로 `"/login"`(`Handler` 전에는 `Prefix()`가 비어 있다, D-122)
+- `forms.go`: `LoginForm{Email, Password}`(평범한 폼)
+- `views.go`(라이브러리는 `authlib`로 import): `Login`이 두 라우트를 맡는다(GET은 폼, POST는 로그인, 픽스처의 `PostForm`처럼), In은 `Next *string query=next`와 `Form LoginForm`. 이메일은 `strings.ToLower(TrimSpace)`, `UserByEmail`의 `ErrNoRows`는 빈 해시로 `authlib.Check`(같은 비용) → 맞고 **그다음** `IsActive && VerifiedAt != nil`(D-128·D-130) → 틀리면 폼 오류 하나 "Incorrect email or password."(무엇이 틀렸는지 말하지 않는다) → `rehash`면 새 해시를 저장 → 만료 세션 지우기, 새 세션(요청이 가져온 쿠키는 읽지도 쓰지도 않는다: 세션 고정 방지, 완료 조건 6) → `maago.SetCookie` → `SeeOther(SafeNext(next, Prefix()+"/"))`. 인증 전 계정은 6번이 "메일의 링크"를 보이고, 4번은 같은 오류. `Logout`(POST, `LoginRequired` 없음): 사용자가 있으면 그 사용자의 세션을 **모두** 지운다(타입 있는 뷰는 쿠키를 읽지 않는다, 사람의 결정 2026-10-08), 지우는 쿠키, `SeeOther` 로그인 페이지
+- `auth.go`: `Current = authlib.FromSession(…)`(`Config.Auth`에 넣는 값, `SessionUser`를 `time.Now()`로), `SessionAge = 14 * 24 * time.Hour`
+- 템플릿: `templates/base.html`(앱마다 하나, D-116, 첫 줄에 "사이트의 레이아웃으로 바꾸라"), `login_page.html`(영어, 비밀번호 칸에 `value`를 쓰지 않는다, `form`의 `action`은 `?next=`를 지닌다)
+- 시험(`auth_test.go`, 복사본에 들어간다): `maagotest.DB` + `maago.Handler`로. 로그인 성공(303, 쿠키 속성, 다음 요청에서 사용자), 틀린 비밀번호·없는 이메일·인증 전·비활성이 같은 응답(200, 같은 오류 문구, `Set-Cookie` 없음, 본문에 비밀번호 없음), 가져온 `session=attacker`가 로그인 뒤 그대로 쓰이지 않음, 로그인 1의 쿠키 S1을 들고 로그인 2 → S2 ≠ S1(완료 조건 6), 로그아웃 뒤 이전 쿠키는 로그인하지 않은 것, 만료, 인증이 지워진 사용자의 세션, `next`의 `//evil`·`https://evil`·`/\evil`·`/%2F%2Fevil`. 쿠키는 jar 없이 `Set-Cookie` 값을 옮긴다(`Secure`는 속성으로 본다). `authlib.Iterations`를 낮춘다(시험 바이너리마다)
+- 드라이버: 복사본의 `driver_test.go`는 방언마다 하나(`driver_test.go.sqlite`·`driver_test.go.postgres`로 담고), `scaffold.Add`가 프로젝트의 방언(`project.Database`)에 맞는 것을 `driver_test.go`로 쓴다. 그대로 복사의 유일한 예외(사람의 결정 2026-10-08, D-123 고침)
+
+시험(`cmd/maago`의 `TestAddAuth`)
+- 임시 프로젝트: `testdata/web`의 `go.mod`·`go.sum`(module 줄만 바꿈), `main.go`(`auth.App`), `add auth` → `makemigrations` → `gen`·`check` → **`go test ./...`**(`GOPROXY=off`, 두 방언) → `User`에 `Nickname` → 다시. CLI `migrate`는 돌리지 않는다(`maagotest.DB`가 새 DB에 적용한다). 2번의 `go vet`은 `go test`가 대신
+- `scaffold`: 방언 없는 프로젝트(`.env`도 변수도 없음)는 `Add`가 진단으로 거절. 두 방언에서 `driver_test.go`의 import
+- 라이브러리 단위 시험: 토큰 길이·서로 다름·해시, 쿠키 속성, `FromSession`(쿠키 없음·빈 값·모양이 틀린 값은 `find`를 부르지 않음, `ErrNoRows`, 다른 오류), `SafeNext` 표
+- 코어 단위 시험(`func(w, r) error` 라우트): 쿠키 뒤 쓰기 → 있음, 쿠키 뒤 오류·panic → 없음, 1xx 뒤 → 최종 응답에만, `serve` 밖·쓴 뒤·틀린 쿠키 → panic. API 401의 `WWW-Authenticate`, preflight의 `Authorization`
+
+하지 않기로 한 것: Bearer(11번), 시도 제한(8번), "로그인 상태 유지" 선택, 기기별 로그아웃
+
+단계
+1. 코어 → 확인: 루트 단위 시험
+2. 라이브러리 → 확인: `contrib/auth` 단위 시험
+3. 복사본과 scaffold의 방언 → 확인: `TestAddAuth`가 복사본의 시험을 두 방언으로 돌린다
+4. 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: 세션 조회가 `verified_at`을 보지 않음 → 넣음. `SafeNext`의 `%2F`·`%5C` → 거절. 1xx·스트리밍·오류의 쿠키 → 최종 응답에만, 쓴 뒤는 panic. `TestAddAuth`의 go.mod/go.sum → `testdata/web`의 것. `Secure` 쿠키와 httptest → 값을 손으로 옮김. 토큰 인코딩 → `RawURLEncoding` 43자, 모양이 틀리면 조회하지 않음
+- fable: ★로그아웃이 쿠키를 읽을 길이 없음 → 사람의 결정: 사용자의 세션을 모두 지움. 같은 경로 라우트 이름 → `login`·`login_submit`. `:one User`는 `SELECT *`(필드 추가에 견딤). `report`의 쿠키 버리기와 `c.Valid()` panic. `FromSession` 제네릭(오류 때 영값 사용자). `HashToken` 하나로, 지우는 쿠키는 `SessionCookie`의 음수 수명. `LoginURL`은 글자 그대로. 비밀번호 `value` 없음과 다시 그리기의 `Set-Cookie` 없음. 문구 "Incorrect email or password.". ★드라이버 import → 사람의 결정: `add`가 방언을 보고 씀. CLI `migrate` 뺌. 완료 조건 6은 S1을 들고 다시 로그인해 S2 ≠ S1로. 머리말의 시도 제한은 8번
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 계획과 달리 `create_session.sql`은 두지 않았다(생성된 `InsertSession`)
+- codex: `ResponseController.Flush`가 `written`을 건너뛴다 → 아님(`Flusher`를 `Unwrap`보다 먼저 본다), 그래도 시험 라우트를 `NewResponseController`로. 저장할 때의 이메일 정규화 → 가입이 생기는 6번에 적음. `rand.Read`의 오류 → Go 1.24부터 오류를 돌려주지 않는다(멈춘다), 그대로. 만료 세션 지우기의 시험 → 로그인 뒤 그 행이 없음을 봄. 로그아웃의 CSRF는 코어의 교차 출처 시험이 본다
+- fable: 복사본의 D-번호 셋 → 지움. 시험 구멍 셋(다른 사용자의 세션이 로그아웃에 남음, 두 번째 로그인 뒤 첫 세션이 삶, 세션 경로의 `is_active`) → 더하고 변형으로 잡힘을 확인. DECISIONS 변경 기록과 ARCHITECTURE의 `add` 문장 → 고침. `authMain`의 SQLite import → 주석. 쿠키 이름 → `authlib.CookieName`. `TestRehash`의 `Iterations` → `defer`. `SetCookie`의 nil 쿠키 → 검사 순서. Safari와 `Secure` → 12번에 적음
 
 ## 5. 메일 (`contrib/auth`, `maagotest`, D-126)
 
@@ -210,7 +260,7 @@
 
 ## 6. 비밀번호 검증기, 가입과 이메일 인증 (D-128)
 
-검증기는 Go 함수 목록(D-15: 길이, 흔한 비밀번호 작은 목록, 이메일과 비슷함). 가입 폼(모델 폼, 이메일 중복은 뷰의 쿼리 D-119, 같은 응답), 인증 토큰 메일, 링크로 활성.
+검증기는 Go 함수 목록(D-15: 길이, 흔한 비밀번호 작은 목록, 이메일과 비슷함). 이메일은 저장할 때도 `ToLower(TrimSpace)`(4번의 로그인이 그렇게 찾는다, codex 4번 구현 리뷰). 가입 폼(모델 폼, 이메일 중복은 뷰의 쿼리 D-119, 같은 응답), 인증 토큰 메일, 링크로 활성.
 → 확인: 가입 → 메일함의 링크 → 활성 → 로그인(maagotest), 인증 전 로그인 거절, 같은 링크 두 번
 
 ## 7. 비밀번호 변경과 재설정
@@ -237,7 +287,7 @@
 
 ## 12. 게시판 튜토리얼의 M5 단계 (D-103)
 
-`maago add auth`(그 뒤 `maago gen`이 `auth.App`을 쓰라고 막는 것까지 단계의 글), `main`(`auth.App`·`Auth`·`LoginURL`·메일·`-createsuperuser`), `Post.AuthorID fk=auth.User`(마이그레이션), 로그인 필수 쓰기, 작성자만 고치고 지우기(뷰의 Go 코드, 아니면 403), 지우기는 댓글이 없으면 진짜 지우기·있으면 숨기기(D-84), 가입·로그인 화면. 시험은 낮은 반복 수와 메일함. 댓글의 작성자는 계획에서.
+`Secure` 쿠키는 Safari가 `http://localhost`에서 받지 않으니 튜토리얼은 그것을 한 줄 말한다(fable 4번 리뷰). `maago add auth`(그 뒤 `maago gen`이 `auth.App`을 쓰라고 막는 것까지 단계의 글), `main`(`auth.App`·`Auth`·`LoginURL`·메일·`-createsuperuser`), `Post.AuthorID fk=auth.User`(마이그레이션), 로그인 필수 쓰기, 작성자만 고치고 지우기(뷰의 Go 코드, 아니면 403), 지우기는 댓글이 없으면 진짜 지우기·있으면 숨기기(D-84), 가입·로그인 화면. 시험은 낮은 반복 수와 메일함. 댓글의 작성자는 계획에서.
 → 확인: `TestBoardTutorial`(SQLite)
 
 ## 13. 완료 조건 종단 테스트와 문서

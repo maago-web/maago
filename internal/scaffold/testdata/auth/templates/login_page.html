@@ -1,0 +1,9 @@
+{{define "content"}}<h1>Sign in</h1>
+<form method="post" action="{{url "login_submit"}}{{with .Next}}?next={{.}}{{end}}">
+{{range .Form.Errors}}<p class="error">{{.}}</p>{{end}}
+{{with .Form.Email}}<label for="{{.Name}}">Email</label>
+<input type="email" id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}" autocomplete="username" required>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+{{with .Form.Password}}<label for="{{.Name}}">Password</label>
+<input type="password" id="{{.Name}}" name="{{.Name}}" autocomplete="current-password" required>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+<button>Sign in</button>
+</form>{{end}}

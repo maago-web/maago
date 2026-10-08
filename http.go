@@ -187,7 +187,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if trusted && h.preflightOK(r, method) {
 			allow(w, origin)
 			w.Header().Set("Access-Control-Allow-Methods", method)
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -198,10 +198,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // preflightOK reports whether a route serves method at r's path, and the
-// request asks for no header but Content-Type.
+// request asks for no header but Content-Type and Authorization.
 func (h *handler) preflightOK(r *http.Request, method string) bool {
 	for _, name := range strings.Split(r.Header.Get("Access-Control-Request-Headers"), ",") {
-		if name = strings.TrimSpace(name); name != "" && !strings.EqualFold(name, "Content-Type") {
+		if name = strings.TrimSpace(name); name != "" && !strings.EqualFold(name, "Content-Type") && !strings.EqualFold(name, "Authorization") {
 			return false
 		}
 	}
@@ -226,8 +226,9 @@ func (h *handler) route(r *http.Request) *AppRoute {
 // error or panic into the response.
 func (h *handler) serve(route *AppRoute) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r = r.WithContext(context.WithValue(WithDB(r.Context(), h.cfg.DB), formKey{}, h.forms))
 		ww := &written{ResponseWriter: w}
+		ctx := context.WithValue(WithDB(r.Context(), h.cfg.DB), formKey{}, h.forms)
+		r = r.WithContext(context.WithValue(ctx, cookiesKey{}, ww))
 		defer func() {
 			p := recover()
 			if p == nil {
@@ -278,6 +279,7 @@ func (h *handler) report(w *written, r *http.Request, route *AppRoute, code int,
 		}
 	}
 	if !w.wrote {
+		w.cookies = nil // a failed view leaves no session behind
 		h.fail(w, route, code, err)
 	}
 }
@@ -316,28 +318,45 @@ func (h *handler) fail(w http.ResponseWriter, route *AppRoute, code int, err err
 	if code < 500 && p.Errors == nil {
 		p.Detail = err.Error()
 	}
+	if code == http.StatusUnauthorized {
+		w.Header().Set("WWW-Authenticate", "Bearer") // D-129
+	}
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(p)
 }
 
-// written records whether anything was written.
+// written records whether anything was written, and holds the cookies
+// of SetCookie until the response starts.
 type written struct {
 	http.ResponseWriter
-	wrote bool
+	wrote   bool
+	cookies []*http.Cookie
+}
+
+// start marks the response written, its cookies set.
+func (w *written) start() {
+	if !w.wrote {
+		for _, c := range w.cookies {
+			http.SetCookie(w.ResponseWriter, c)
+		}
+		w.wrote = true
+	}
 }
 
 // A 1xx header is not the response yet.
 func (w *written) WriteHeader(code int) {
+	if code >= 200 {
+		w.start()
+	}
 	w.ResponseWriter.WriteHeader(code)
-	w.wrote = w.wrote || code >= 200
 }
 
 var _ http.Flusher = (*written)(nil) // streaming views flush (task 8)
 
-func (w *written) Flush() { w.wrote = true; http.NewResponseController(w.ResponseWriter).Flush() }
+func (w *written) Flush() { w.start(); http.NewResponseController(w.ResponseWriter).Flush() }
 
-func (w *written) Write(b []byte) (int, error) { w.wrote = true; return w.ResponseWriter.Write(b) }
+func (w *written) Write(b []byte) (int, error) { w.start(); return w.ResponseWriter.Write(b) }
 
 func (w *written) Unwrap() http.ResponseWriter { return w.ResponseWriter } // for http.ResponseController
 
@@ -361,6 +380,26 @@ type statusError struct {
 
 func (e *statusError) Error() string { return e.err.Error() }
 func (e *statusError) Unwrap() error { return e.err }
+
+type cookiesKey struct{}
+
+// SetCookie sets c on the response of the request ctx belongs to, when the
+// response starts (D-125): a typed view signs in this way. A view that
+// returns an error sets none. It panics outside a request from Handler,
+// once the response has started, and on a cookie net/http would drop.
+func SetCookie(ctx context.Context, c *http.Cookie) {
+	w, _ := ctx.Value(cookiesKey{}).(*written)
+	switch {
+	case w == nil:
+		panic("maago: SetCookie outside a request from Handler")
+	case w.wrote:
+		panic("maago: SetCookie after the response started")
+	}
+	if err := c.Valid(); err != nil {
+		panic("maago: SetCookie: " + err.Error())
+	}
+	w.cookies = append(w.cookies, c)
+}
 
 type dbKey struct{}
 

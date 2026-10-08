@@ -83,6 +83,9 @@ func TestLoginRequired(t *testing.T) {
 		if (len(reported) > 0) != c.reported {
 			t.Errorf("%s: OnError heard %v", c.name, reported)
 		}
+		if want := map[bool]string{true: "Bearer"}[c.code == 401 && strings.Contains(c.path, "api")]; w.Header().Get("WWW-Authenticate") != want {
+			t.Errorf("%s: WWW-Authenticate %q, want %q", c.name, w.Header().Get("WWW-Authenticate"), want)
+		}
 	}
 
 	// A preflight is answered before the routes: Auth is not asked.

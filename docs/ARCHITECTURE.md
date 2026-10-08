@@ -34,6 +34,7 @@ github.com/maago-web/maago
 │                          (D-115, D-45, D-121), Result·Show·SeeOther·Status(D-116), DBFrom·WithDB,
 │                          Form·Field·Messages·Invalid·InvalidForm(D-119, D-120), UserFrom·WithUser
 │                          (D-121), Prefix(D-122).
+│                          M5가 더한 것: SetCookie(D-125).
 │                          생성 코드만 부르는 것: One·Many·Exec, Placeholders,
 │                          SQLiteTime·SQLiteNullTime·ScanSQLiteTime·ScanNullSQLiteTime(D-105),
 │                          NewApp·AppRoute·Pages·Render·Bind*·FinishForm·FormValues·JSONValues·Unprocessable·
@@ -41,7 +42,8 @@ github.com/maago-web/maago
 │                          런타임이 기대는 내부 패키지는 internal/diag·internal/project뿐(시험이 본다)
 ├── maagotest/          시험 전용 도우미 (M4, D-113). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
 ├── contrib/
-│   ├── auth/            인증의 보안 부품(stdlib만, M5). 앱 층은 `maago add auth`가
+│   ├── auth/            인증의 보안 부품(stdlib만, M5): Hash·Check(D-127), NewToken·HashToken·
+│   │                      SessionCookie·FromSession·SafeNext(D-128). 앱 층은 `maago add auth`가
 │   │                      프로젝트에 복사한다(D-123)                     D-50, D-51
 │   └── admin/           admin 런타임 (M6)         D-48, D-49
 │
@@ -111,7 +113,7 @@ github.com/maago-web/maago
   파일 시스템이 주지 않는다. 이름 바꾸기 중 실패하면 실패한 파일을 알리고 다시 돌리라고 한다.
   디스크와 같은 파일은 건너뛰므로, 다시 돌리면 남은 파일만 쓴다.
 - 검사기는 단계에 붙는 함수다. M1부터는 새 검사기를 붙이기만 하고 파이프라인은 고치지 않는다.
-- 다른 명령은 같은 단계를 쓰고 끝만 바꾼다(`add`는 단계를 쓰지 않고 루트만 찾아 파일을 복사한다, D-123). `makemigrations`는 DB 검사 자리에서 초안을 쓰고 생성이 없다. 쿼리 파일은 읽지 않는다(D-112).
+- 다른 명령은 같은 단계를 쓰고 끝만 바꾼다(`add`는 단계를 쓰지 않고 루트와 DB 방언만 읽어 파일을 복사한다, D-123). `makemigrations`는 DB 검사 자리에서 초안을 쓰고 생성이 없다. 쿼리 파일은 읽지 않는다(D-112).
   `migrate`·`showmigrations`는 모델을 읽지 않는다: `.env`와 마이그레이션 파일을 읽고 문장 검사 뒤 실제 DB에 간다(M2 9·10번).
 
 ---
