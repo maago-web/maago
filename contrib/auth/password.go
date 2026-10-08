@@ -10,12 +10,15 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/subtle"
+	_ "embed"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"hash"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Iterations is the PBKDF2 rounds of a new hash (D-127). Tests and the
@@ -107,4 +110,70 @@ func rounds() int {
 		panic("auth: Iterations is outside 1 to 10,000,000")
 	}
 	return Iterations
+}
+
+// PasswordRule checks a new password, with about the user's own words that
+// it must not be like (D-15): the email, and what a project adds.
+type PasswordRule func(password string, about []string) error
+
+// ValidatePassword checks password against rules, and returns the errors
+// of all that fail, joined. A password over 4096 bytes always fails, as
+// Hash would.
+func ValidatePassword(password string, about []string, rules ...PasswordRule) error {
+	if len(password) > maxPassword {
+		return errors.New("This password is too long. It must be 4096 bytes or fewer.")
+	}
+	var errs []error
+	for _, r := range rules {
+		errs = append(errs, r(password, about))
+	}
+	return errors.Join(errs...)
+}
+
+// MinLength fails a password of fewer than n characters.
+func MinLength(n int) PasswordRule {
+	return func(password string, about []string) error {
+		if utf8.RuneCountInString(password) < n {
+			return fmt.Errorf("This password is too short. It must contain at least %d characters.", n)
+		}
+		return nil
+	}
+}
+
+// common is common.txt: one password a line, after its # lines.
+//
+//go:embed common.txt
+var common string
+
+// NotCommon fails a password on the list of 1,000 common ones in
+// common.txt, from SecLists (MIT; the file says how they were picked),
+// case aside. The list holds those of 8 characters or more: with a
+// shorter MinLength, short common ones pass.
+//
+// ponytail: 1,000 passwords, not Django's 20,000.
+func NotCommon(password string, about []string) error {
+	if strings.Contains(common, "\n"+strings.ToLower(password)+"\n") {
+		return errors.New("This password is too common.")
+	}
+	return nil
+}
+
+// NotSimilar fails a password that holds a word of about, case aside: a
+// run of 3 or more letters or digits, such as ann of ann.lee@example.com.
+// Of an email only the part before @ counts: every .com would ban com.
+//
+// ponytail: words held, not Django's similarity ratio.
+func NotSimilar(password string, about []string) error {
+	pw := strings.ToLower(password)
+	for _, a := range about {
+		if i := strings.LastIndex(a, "@"); i >= 0 {
+			a = a[:i]
+		}
+		for _, w := range strings.FieldsFunc(strings.ToLower(a), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
+			if utf8.RuneCountInString(w) >= 3 && strings.Contains(pw, w) {
+				return errors.New("This password is too similar to your email.")
+			}
+		}
+	}
+	return nil
 }

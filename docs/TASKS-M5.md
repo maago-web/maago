@@ -295,8 +295,63 @@
 
 ## 6. 비밀번호 검증기, 가입과 이메일 인증 (D-128)
 
-검증기는 Go 함수 목록(D-15: 길이, 흔한 비밀번호 작은 목록, 이메일과 비슷함). 이메일은 저장할 때도 `ToLower(TrimSpace)`(4번의 로그인이 그렇게 찾는다, codex 4번 구현 리뷰). 가입 폼(모델 폼, 이메일 중복은 뷰의 쿼리 D-119, 같은 응답), 인증 토큰 메일, 링크로 활성.
+검증기는 Go 함수 목록(D-15: 길이, 흔한 비밀번호 작은 목록, 이메일과 비슷함). 이메일은 저장할 때도 `ToLower(TrimSpace)`(4번의 로그인이 그렇게 찾는다, codex 4번 구현 리뷰). 가입 폼(평범한 폼, 이메일 중복은 뷰의 쿼리 D-119, 같은 응답), 인증 토큰 메일, 링크로 활성.
 → 확인: 가입 → 메일함의 링크 → 활성 → 로그인(maagotest), 인증 전 로그인 거절, 같은 링크 두 번
+
+### 계획
+
+이 작업의 끝에 복사본으로 가입 → 메일의 링크 → 인증 → 로그인이 된다(완료 조건 2의 앞 절반). 다시 보내기는 8번(시도 제한과 함께).
+
+라이브러리(`contrib/auth/password.go`에 더함, D-15)
+- `type PasswordRule func(password string, about []string) error`: `about`은 비밀번호와 닮으면 안 되는 사용자 정보(이메일, 사용자가 더한 필드)
+- `MinLength(n)`(글자 수), `NotCommon`(`common.txt`를 `//go:embed`: SecLists(MIT) `xato-net-10-million-passwords-100000.txt`(커밋 c205c36)의 빈도순에서 8자 이상·출력 가능한 ASCII·소문자로 겹침 없이 1,000개, 출처와 거른 법과 MIT 고지는 Go 주석과 파일 머리 `#` 줄. 비교는 소문자. `MinLength`를 낮추면 짧은 것은 이 목록이 막지 않는다), `NotSimilar`(각 `about` 값을 글자·숫자 아닌 것으로 쪼갠 3자 이상 조각(소문자)이 비밀번호(소문자)에 담기면 거절, 이메일의 `@` 앞부분도 이 규칙. `ponytail:` Django의 SequenceMatcher 비율이 아님)
+- `ValidatePassword(password string, about []string, rules ...PasswordRule) error`: 4096바이트를 넘으면 늘 오류(규칙과 상관없이, `Hash`의 `ErrTooLong`이 뷰에 닿지 않게), 그다음 규칙들의 오류를 `errors.Join`. 뷰는 `f.Password.Error = err.Error()`. 규칙 목록은 복사본이 들고 사용자가 고친다(D-15, D-123)
+- 문구: "This password is too short. It must contain at least 8 characters." / "This password is too common." / "This password is too similar to your email."(about의 값마다 "your information"이 아니라 이메일만 있으니 이메일로; 필드를 더한 사용자가 고친다)
+
+복사본
+- 모델 `Token{ID, UserID fk=User, Purpose string choices=verify/reset, Hash max=64 unique, ExpiresAt, CreatedAt auto=create}`: 일회 토큰(인증, 7번의 재설정). 해시는 `authlib.HashToken`, 목적은 칸으로 갈라 인증 토큰이 재설정에 쓰이지 않는다(D-128 "목적별")
+- 쿼리: `use_token.sql`(`:one Token`, `DELETE FROM auth_token WHERE hash = :hash AND purpose = :purpose AND expires_at > :now RETURNING *`: 지우기와 읽기가 한 문장이라 같은 토큰의 두 요청 중 하나만 행을 받는다, D-128), `delete_expired_tokens.sql`(`:exec`, 토큰을 만들 때), `verify_user.sql`(`:exec`, `UPDATE auth_user SET verified_at = :now WHERE id = :id`)
+- `normalizeEmail`(`views.go`, `strings.ToLower(TrimSpace)`), 로그인과 가입이 함께 쓴다(4번 숙제). 주소는 ASCII만(메일이 그것만 보낸다, 5번)
+- `PasswordRules = []authlib.PasswordRule{authlib.MinLength(8), authlib.NotCommon, authlib.NotSimilar}`(사용자가 고친다)
+- `SiteURL`: 메일 링크의 앞(`https://example.com`), `main`이 채운다(12번의 `main`). 뷰는 요청을 보지 않고, `Host` 머리로 만들면 링크를 남의 사이트로 바꿀 수 있다(재설정 링크 오염). 쓸 때 `http`·`https`와 호스트만 있고 경로·사용자 정보·질의가 없는지 보고, 아니면 오류(뷰의 500, 행을 넣기 전)
+- `mails.go`: 본문은 Go 문자열(D-126) — `verifyMail(to, link)`("Verify your email"), `accountExistsMail(to, loginLink)`("You already have an account"), 링크는 한 줄에 홀로, 끝에 "If you didn't sign up, you can ignore this email."
+- 라우트: `GET`·`POST /signup`(`signup`·`signup_submit`, 뷰 `Signup` 하나), `GET`·`POST /verify`(`verify`·`verify_submit`, 뷰 `Verify` 하나)
+- 폼: `SignupForm{Email max=254, Password max=4096}`(평범한 폼: 비밀번호는 모델의 칸이 아니다. 확인 칸은 두지 않는다), `Validate()`가 이메일을 `net/mail`로(주소 하나, 이름 없음, ASCII) "Enter a valid email address.". `VerifyForm{Token max=64}`
+- `Signup`(POST): `SiteURL` 확인 → 이메일 정규화 → `ValidatePassword`의 오류는 비밀번호 칸에 → **해시를 먼저**(있는 계정이든 아니든 같은 비용) → `UserByEmail`이 있으면 새 행 없이 그 주소로 "이미 계정" 메일, 없으면 `InsertUser`(`VerifiedAt` nil) → 만료 토큰 지우기 → 토큰 → 인증 메일. 메일이 실패하면 500이고 인증 전 행은 남는다(사람의 결정 2026-10-08, 8번의 다시 보내기가 살린다). 응답은 두 경우 같은 "Check your email for a link to verify your account."(D-128 같은 응답). 시간은 새 계정 쪽이 넣기 둘만큼 길다(해싱에 비해 작다, 받음). 이메일 중복은 뷰의 쿼리(D-119), 동시 두 가입이 겨루면 unique 제약이 500(D-119의 대가)
+- `Verify`(In: `Token *string query=token`, `Form VerifyForm`): GET은 링크의 토큰을 숨은 칸에 담은 "Verify" 단추를 그린다(토큰이 없거나 이상해도 200), **POST가 토큰을 쓴다**(메일 스캐너가 링크를 미리 열어도 토큰이 쓰이지 않는다). 트랜잭션 하나에서 `UseToken`(목적 `verify`) → `VerifyUser`(토큰은 쓰였는데 인증이 안 된 상태가 남지 않게). `ErrNoRows`면 "This link is invalid or has expired."(200) → `SeeOther` 로그인. 페이지에 외부 자원이 없어 URL의 토큰이 Referer로 나가지 않는다
+- 로그인(4번): 비밀번호가 맞고 인증 전이면 "Verify your email first. Follow the link we sent you."(비밀번호를 아는 사람에게만, 사람의 결정 2026-10-08). 비활성·틀림·없음은 4번 그대로
+- 인증 토큰 수명 3일
+- 템플릿: `signup_page.html`(보낸 뒤에는 같은 페이지의 안내), `verify_page.html`
+
+시험(복사본 `auth_test.go`)
+- 가입 GET 200 → POST → `maagotest.Mailbox`의 메일: `To`는 정규화된 주소, 본문의 링크가 `SiteURL`로 시작하고 토큰을 담음, DB에는 해시만(본문에 해시 없음), `Set-Cookie` 없음 → GET 인증 페이지(토큰을 아직 쓰지 않음, 두 번 GET 해도 됨) → POST 인증(토큰 행이 사라짐) → 로그인. 같은 토큰 POST 두 번 → 두 번째는 무효
+- 인증 전 로그인: 맞는 비밀번호면 인증 안내, 틀리면 4번의 같은 오류(`TestLoginFails`의 "not verified"는 틀린 비밀번호로)
+- 있는 이메일로 가입(대문자·공백 섞어): 응답이 새 가입과 같음, 새 행 없음, 그 주소로 "이미 계정" 메일 하나
+- 비밀번호 규칙 오류(짧음·흔함·이메일과 닮음·4096바이트 넘음)와 깨진·ASCII 아닌 이메일은 칸 오류, 행도 메일도 없음, 다시 그린 본문에 비밀번호 없음
+- 메일 실패(`authlib.Mail`을 오류 함수로) → 500, 인증 전 행이 남음. `SiteURL` 비움 → 500, 행·메일 없음
+- 만료된 토큰, 재설정 목적 토큰을 인증에 → 무효. 새 토큰을 만들 때 만료 토큰이 지워짐. 토큰 없는·쓰레기 GET → 200
+- `SiteURL`을 시험이 채운다
+라이브러리 단위 시험: 세 규칙의 표(글자 수 경계, 대소문자, 3자 미만 조각 무시), `ValidatePassword`가 모든 오류를 모음, 4096바이트
+
+하지 않기로 한 것: 다시 보내기·시도 제한(8번), 비밀번호 확인 칸, 가입 뒤 자동 로그인, 인증 링크 GET 한 번에 끝내기. 8번에 넘김: 남의 이메일로 먼저 가입한 행(공격자의 비밀번호)을 피해자가 다시 보내기로 인증하면 공격자가 들어온다(선점 가로채기) — 다시 보내기·인증이 비밀번호를 어떻게 다룰지 8번 계획이 정한다
+
+단계
+1. 라이브러리 규칙 → 확인: `contrib/auth` 시험
+2a. `Token` 모델·`use_token.sql`·`Verify` → 확인: 두 방언에서 `DELETE … RETURNING`의 `:one Token`
+2b. `Signup`·메일·로그인 안내 → 확인: `TestAddAuth`(두 방언), 변형으로 시험이 잡는지
+3. ARCHITECTURE, 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: 메일 실패 뒤 행 지우기가 FK로 깨지고 동시 가입과 겨룸 → ★사람의 결정: 인증 전 행을 남김(지우지 않는다). 가입의 시간 차 → 해싱을 먼저, 넣기 둘의 차는 받음. 토큰 쓰기와 인증이 따로 → 트랜잭션 하나. `DELETE … RETURNING` 시험 → 2a에서 두 방언. 이메일 정규화 → ASCII 주소만, 소문자. ★인증 전 로그인 안내 → 사람의 결정: 안내함. `SiteURL` 검사 → 쓸 때. ★비밀번호 정책 → 사람의 결정: SecLists 1,000개. Referer → 외부 자원 없음. 병렬 시험 → 쓰지 않는다(5번)
+- fable: 머리말의 "모델 폼" → 평범한 폼으로 고침. `Verify`의 토큰은 포인터 query. `:one Token` + `RETURNING *`(새 타입 없음). 폼 `max`는 글자, `Hash`는 바이트 → `ValidatePassword`가 4096바이트. 서버의 이메일 검사 → `Validate()`. ★메일 먼저 넣기는 나중에(추천) → 사람은 행을 남기는 쪽을 골랐다. ★인증 복구 → 사람의 결정: 8번에 다시 보내기. `[]string` → `error`(`errors.Join`). `NotSimilar`의 조각 규칙. `email.go` → `views.go`. 단계 2를 2a·2b로. 빠진 시험들. 영어 문구
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 계획대로(`use_token.sql`은 `:one Token`과 `RETURNING *`, 새 결과 타입 없음, 두 방언에서 돎)
+- codex: 결함 없음. 같은 토큰의 동시 두 요청 → 시험(303 하나, 200 하나). `Prefix` 아래의 메일 링크 → 시험. 인증 전 기존 계정의 가입 → 시험("이미 계정" 메일, 다시 보내기는 8번)
+- fable: 시험이 `authlib.Mail`을 오류 함수로 남김(`defer`가 `Mailbox`의 Cleanup보다 먼저) → `t.Cleanup`. ★`NotSimilar`가 이메일 전체를 조각내 `com`이 든 비밀번호를 모두 막음 → 사람의 결정: 이메일은 `@` 앞부분만(D-128 고침). `NotCommon`의 출처 주석, 복사본 주석 문장, `siteURL` 검사를 `scheme://host`와 비교 하나로, D-128의 "지운 행 수"를 `DELETE … RETURNING`으로, `TestLoginNotVerified`를 `TestSignup`에 합침, `Messages()[0]` 보호, `base.html`의 제목, 가입의 `autocomplete="username"`, README의 다음 작업
+- 고친 뒤 변형으로 확인: `siteURL`의 두 검사, `@` 앞부분
 
 ## 7. 비밀번호 변경과 재설정
 
@@ -305,7 +360,7 @@
 
 ## 8. 시도 횟수 제한
 
-로그인·재설정 요청·인증 메일 다시 보내기에 이메일별·IP별 창.
+로그인·가입·재설정 요청·인증 메일 다시 보내기에 이메일별·IP별 창. 인증 메일 다시 보내기 라우트도 여기서(6번의 사람의 결정: 메일이 실패한 인증 전 행을 살린다). 선점 가로채기(남이 먼저 만든 인증 전 행)를 계획이 다룬다(6번에서 넘김).
 → 확인: 11번째 시도 429, 창이 지나면 다시
 
 ## 9. staff·비활성·탈퇴·`createsuperuser` (D-130)

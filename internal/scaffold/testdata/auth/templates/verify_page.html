@@ -1,0 +1,6 @@
+{{define "content"}}<h1>Verify your email</h1>
+{{range .Form.Errors}}<p class="error">{{.}}</p>{{end}}
+<form method="post" action="{{url "verify_submit"}}">
+<input type="hidden" name="token" value="{{.Token}}">
+<button>Verify</button>
+</form>{{end}}

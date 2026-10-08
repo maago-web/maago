@@ -34,3 +34,17 @@ type Session struct {
 	ExpiresAt time.Time // the session ends then
 	CreatedAt time.Time `maago:"auto=create"`
 }
+
+// Token is a one-time token that a mail carries: to verify the email, or
+// to reset the password. Hash is the token's hash; Purpose keeps a
+// verification token from resetting a password.
+type Token struct {
+	maago.Model
+
+	ID        int64
+	UserID    int64     `maago:"fk=User"`
+	Purpose   string    `maago:"choices=verify/reset"`
+	Hash      string    `maago:"max=64,unique"`
+	ExpiresAt time.Time // the token is no use after it
+	CreatedAt time.Time `maago:"auto=create"`
+}

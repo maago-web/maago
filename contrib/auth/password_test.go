@@ -140,3 +140,42 @@ func TestIterationsOutOfRange(t *testing.T) {
 		}()
 	}
 }
+
+func TestPasswordRules(t *testing.T) {
+	about := []string{"Ann.Lee@example.com"}
+	rules := []PasswordRule{MinLength(8), NotCommon, NotSimilar}
+	for _, c := range []struct {
+		password string
+		want     []string // the start of each error, in order
+	}{
+		{"correct horse battery", nil},
+		{"가나다라마바사아", nil},                                   // 8 characters, 24 bytes
+		{"가나다라마바사", []string{"This password is too short"}}, // 7
+		{"Password", []string{"This password is too common"}},
+		{"BASEBALL", []string{"This password is too common"}},
+		{"deeznutz", []string{"This password is too common"}}, // the list's last
+		{"my-ann-pass", []string{"This password is too similar"}},
+		{"leeway forever", []string{"This password is too similar"}},
+		{"example-pass", nil}, // the domain does not count
+		{"welcome home", nil},
+		{"an-le-xx-ok", nil}, // pieces under 3 characters are no words
+		{"ann", []string{"This password is too short", "This password is too similar"}},
+		{strings.Repeat("a", 4097), []string{"This password is too long"}},
+	} {
+		err := ValidatePassword(c.password, about, rules...)
+		var got []string
+		if err != nil {
+			got = strings.Split(err.Error(), "\n")
+		}
+		ok := len(got) == len(c.want)
+		for i := 0; ok && i < len(got); i++ {
+			ok = strings.HasPrefix(got[i], c.want[i])
+		}
+		if !ok {
+			t.Errorf("%.20q: %v, want %v", c.password, got, c.want)
+		}
+	}
+	if err := ValidatePassword("short", nil); err != nil {
+		t.Errorf("no rules: %v", err)
+	}
+}

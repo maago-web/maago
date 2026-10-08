@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,7 +16,10 @@ import (
 	"github.com/maago-web/maago/maagotest"
 )
 
-func init() { authlib.Iterations = 1000 } // fast hashes in tests only
+func init() {
+	authlib.Iterations = 1000 // fast hashes in tests only
+	SiteURL = "https://example.com"
+}
 
 const password = "correct horse battery staple"
 
@@ -123,7 +127,7 @@ func TestLoginFails(t *testing.T) {
 	for name, body := range map[string]string{
 		"wrong password": form("ann@example.com", "wrong"),
 		"no account":     form("nobody@example.com", password),
-		"not verified":   form("new@example.com", password),
+		"not verified":   form("new@example.com", "wrong"),
 		"not active":     form("gone@example.com", password),
 	} {
 		w := do(h, "POST", "/login", body, "")
@@ -247,4 +251,218 @@ func TestNext(t *testing.T) {
 			t.Errorf("next %q: %d Location %q, want %q", next, w.Code, w.Header().Get("Location"), want)
 		}
 	}
+}
+
+// link is the one line of body that starts with prefix.
+func link(t *testing.T, body, prefix string) string {
+	t.Helper()
+	for _, l := range strings.Split(body, "\n") {
+		if strings.HasPrefix(l, prefix) {
+			return l
+		}
+	}
+	t.Fatalf("no link %s in\n%s", prefix, body)
+	return ""
+}
+
+func TestSignup(t *testing.T) {
+	h, db := site(t)
+	box := maagotest.Mailbox(t)
+	if w := do(h, "GET", "/signup", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `name="password"`) {
+		t.Errorf("form: %d %s", w.Code, w.Body)
+	}
+	w := do(h, "POST", "/signup", form(" Ann@Example.com ", password), "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Check your email") || w.Header().Get("Set-Cookie") != "" || strings.Contains(w.Body.String(), password) {
+		t.Fatalf("signup: %d %v\n%s", w.Code, w.Header(), w.Body)
+	}
+	sent := box.Messages()
+	if len(sent) != 1 || sent[0].To != "ann@example.com" || sent[0].Subject != "Verify your email" {
+		t.Fatalf("sent %v", sent)
+	}
+	l := link(t, sent[0].Body, "https://example.com/verify?token=")
+	token := strings.TrimPrefix(l, "https://example.com/verify?token=")
+	if _, err := GetUser(context.Background(), db, 1); err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := db.QueryRow("SELECT hash FROM auth_token").Scan(&stored); err != nil || stored != authlib.HashToken(token) {
+		t.Errorf("stored %q %v, want the token's hash", stored, err)
+	}
+
+	// Not verified yet: no sign-in, and the right password learns why.
+	if w := do(h, "POST", "/login", form("ann@example.com", password), ""); !strings.Contains(w.Body.String(), "Verify your email first.") || w.Header().Get("Set-Cookie") != "" {
+		t.Errorf("before verifying: %d %s", w.Code, w.Body)
+	}
+	// Opening the link, even twice, uses nothing up.
+	for range 2 {
+		if w := do(h, "GET", "/verify?token="+token, "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `value="`+token+`"`) {
+			t.Fatalf("verify page: %d %s", w.Code, w.Body)
+		}
+	}
+	verify := url.Values{"token": {token}}.Encode()
+	if w := do(h, "POST", "/verify", verify, ""); w.Code != 303 || w.Header().Get("Location") != "/login" {
+		t.Fatalf("verify: %d %s", w.Code, w.Body)
+	}
+	if w := do(h, "POST", "/verify", verify, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "This link is invalid or has expired.") {
+		t.Errorf("verify again: %d %s", w.Code, w.Body)
+	}
+	if c := login(t, h, "ann@example.com", ""); whoami(h, c.Value) != "ann@example.com" {
+		t.Error("not signed in")
+	}
+}
+
+// Signing up with an email that has an account answers the same, adds no
+// account, and tells the owner.
+func TestSignupExisting(t *testing.T) {
+	h, db := site(t)
+	box := maagotest.Mailbox(t)
+	newUser(t, db, "ann@example.com", nil)
+	newUser(t, db, "new@example.com", func(in *NewUserInput) { in.VerifiedAt = nil }) // verified or not: until resending (task 8), the same
+	fresh := do(h, "POST", "/signup", form("bob@example.com", "a long fresh password"), "")
+	for i, email := range []string{"ANN@example.com ", "new@example.com"} {
+		again := do(h, "POST", "/signup", form(email, "a long fresh password"), "")
+		if again.Code != fresh.Code || again.Body.String() != fresh.Body.String() {
+			t.Errorf("%s: answers differ:\n%s\n%s", email, fresh.Body, again.Body)
+		}
+		sent := box.Messages()
+		if len(sent) != 2+i || sent[1+i].To != strings.ToLower(strings.TrimSpace(email)) || sent[1+i].Subject != "You already have an account" {
+			t.Fatalf("sent %v", sent)
+		}
+		link(t, sent[1+i].Body, "https://example.com/login")
+	}
+	var n int
+	if err := db.QueryRow("SELECT count(*) FROM auth_user").Scan(&n); err != nil || n != 3 {
+		t.Errorf("%d users, %v", n, err)
+	}
+}
+
+// What the form refuses adds nothing and sends nothing.
+func TestSignupRefuses(t *testing.T) {
+	h, db := site(t)
+	box := maagotest.Mailbox(t)
+	for _, c := range []struct{ email, password, want string }{
+		{"ann@example.com", "short", "This password is too short."},
+		{"ann@example.com", "BaseBall", "This password is too common."},
+		{"ann@example.com", "ann rides a bike", "This password is too similar to your email."},
+		{"ann@example.com", strings.Repeat("가", 1400), "This password is too long."},
+		{"not an email", "a long new password", "Enter a valid email address."},
+		{"Ann <ann@example.com>", "a long new password", "Enter a valid email address."},
+		{"앤@example.com", "a long new password", "Enter a valid email address."},
+	} {
+		w := do(h, "POST", "/signup", form(c.email, c.password), "")
+		if w.Code != 200 || !strings.Contains(w.Body.String(), c.want) || strings.Contains(w.Body.String(), `value="`+c.password) {
+			t.Errorf("%s %.20q: %d\n%s", c.email, c.password, w.Code, w.Body)
+		}
+	}
+	var n int
+	if err := db.QueryRow("SELECT count(*) FROM auth_user").Scan(&n); err != nil || n != 0 || len(box.Messages()) != 0 {
+		t.Errorf("%d users, %v, sent %v", n, err, box.Messages())
+	}
+}
+
+// A mail that fails is a 500 that leaves the account unverified; without
+// SiteURL nothing is stored.
+func TestSignupMailFails(t *testing.T) {
+	h, db := site(t)
+	old := authlib.Mail
+	authlib.Mail = func(context.Context, authlib.Message) error { return errors.New("smtp down") }
+	t.Cleanup(func() { authlib.Mail = old }) // after Mailbox's below: cleanups run last first
+	if w := do(h, "POST", "/signup", form("ann@example.com", "a long new password"), ""); w.Code != 500 {
+		t.Errorf("mail fails: %d", w.Code)
+	}
+	u, err := UserByEmail(context.Background(), db, UserByEmailParams{Email: "ann@example.com"})
+	if err != nil || u.VerifiedAt != nil {
+		t.Errorf("%v %v", u, err)
+	}
+
+	box := maagotest.Mailbox(t)
+	t.Cleanup(func() { SiteURL = "https://example.com" })
+	for _, SiteURL = range []string{"", "example.com", "https://", "ftp://example.com", "https://example.com/app", "https://ann@example.com", "https://example.com?x=1"} {
+		if w := do(h, "POST", "/signup", form("bob@example.com", "a long new password"), ""); w.Code != 500 {
+			t.Errorf("SiteURL %q: %d", SiteURL, w.Code)
+		}
+	}
+	if _, err := UserByEmail(context.Background(), db, UserByEmailParams{Email: "bob@example.com"}); err != sql.ErrNoRows || len(box.Messages()) != 0 {
+		t.Errorf("stored without SiteURL: %v, sent %v", err, box.Messages())
+	}
+	SiteURL = "https://example.com/" // a slash at the end is no path
+	if w := do(h, "POST", "/signup", form("bob@example.com", "a long new password"), ""); w.Code != 200 || len(box.Messages()) != 1 || !strings.HasPrefix(link(t, box.Messages()[0].Body, "https://"), "https://example.com/verify?token=") {
+		t.Errorf("SiteURL with a slash: %d %v", w.Code, box.Messages())
+	}
+}
+
+// A token works only for its purpose, until it expires; making a token
+// removes the expired ones.
+func TestVerifyTokens(t *testing.T) {
+	h, db := site(t)
+	ctx := context.Background()
+	ann := newUser(t, db, "ann@example.com", func(in *NewUserInput) { in.VerifiedAt = nil })
+	add := func(purpose string, expires time.Time) (string, Token) {
+		token, hash := authlib.NewToken()
+		tk, err := InsertToken(ctx, db, NewTokenInput{UserID: ann.ID, Purpose: purpose, Hash: hash, ExpiresAt: expires})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return token, tk
+	}
+	expired, old := add("verify", time.Now().Add(-time.Second))
+	reset, _ := add("reset", time.Now().Add(time.Hour))
+	for name, token := range map[string]string{"expired": expired, "reset": reset, "garbage": "x", "empty": ""} {
+		w := do(h, "POST", "/verify", url.Values{"token": {token}}.Encode(), "")
+		if w.Code != 200 || !strings.Contains(w.Body.String(), "This link is invalid or has expired.") {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body)
+		}
+	}
+	for _, path := range []string{"/verify", "/verify?token=x"} {
+		if w := do(h, "GET", path, "", ""); w.Code != 200 {
+			t.Errorf("GET %s: %d", path, w.Code)
+		}
+	}
+	if u, _ := GetUser(ctx, db, ann.ID); u.VerifiedAt != nil {
+		t.Error("verified by a token that does not verify")
+	}
+	if _, err := newToken(ctx, db, ann.ID, "verify", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := GetToken(ctx, db, old.ID); err != sql.ErrNoRows {
+		t.Errorf("the expired token is still there: %v", err)
+	}
+}
+
+// Of two requests with one token at once, one verifies and the other is
+// told the link is used.
+func TestVerifyOnce(t *testing.T) {
+	h, db := site(t)
+	ann := newUser(t, db, "ann@example.com", func(in *NewUserInput) { in.VerifiedAt = nil })
+	token, err := newToken(context.Background(), db, ann.ID, "verify", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := make(chan int, 2)
+	for range 2 {
+		go func() { codes <- do(h, "POST", "/verify", url.Values{"token": {token}}.Encode(), "").Code }()
+	}
+	if a, b := <-codes, <-codes; a+b != 303+200 {
+		t.Errorf("codes %d and %d, want one 303 and one 200", a, b)
+	}
+}
+
+// Under a prefix, the links of the mails have it.
+func TestMailLinksPrefix(t *testing.T) {
+	_, db := site(t)
+	box := maagotest.Mailbox(t)
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Current, LoginURL: "/app/login", Prefix: "/app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sh := http.StripPrefix("/app", h)
+	newUser(t, db, "ann@example.com", nil)
+	do(sh, "POST", "/app/signup", form("bob@example.com", "a long new password"), "")
+	do(sh, "POST", "/app/signup", form("ann@example.com", "a long new password"), "")
+	sent := box.Messages()
+	if len(sent) != 2 {
+		t.Fatalf("sent %v", sent)
+	}
+	link(t, sent[0].Body, "https://example.com/app/verify?token=")
+	link(t, sent[1].Body, "https://example.com/app/login")
 }
