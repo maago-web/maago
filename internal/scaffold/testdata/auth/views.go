@@ -54,18 +54,24 @@ func Login(ctx context.Context, in LoginIn) (maago.Result[LoginPage], error) {
 			return maago.Result[LoginPage]{}, err
 		}
 	}
-	now := time.Now()
-	if _, err := DeleteExpiredSessions(ctx, db, DeleteExpiredSessionsParams{Now: now}); err != nil {
+	if _, err := DeleteExpiredSessions(ctx, db, DeleteExpiredSessionsParams{Now: time.Now()}); err != nil {
 		return maago.Result[LoginPage]{}, err
 	}
-	// A new token, never the one the request brought: a cookie planted
-	// before sign-in does not become a session.
-	token, hash := authlib.NewToken()
-	if _, err := InsertSession(ctx, db, NewSessionInput{UserID: u.ID, Hash: hash, ExpiresAt: now.Add(SessionAge)}); err != nil {
+	token, err := newSession(ctx, db, u.ID)
+	if err != nil {
 		return maago.Result[LoginPage]{}, err
 	}
 	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge))
 	return maago.SeeOther[LoginPage](authlib.SafeNext(next, maago.Prefix()+"/")), nil
+}
+
+// newSession stores a new session of the user and returns its token for
+// the cookie: a new token, never the one the request brought, so that a
+// cookie planted before sign-in does not become a session.
+func newSession(ctx context.Context, db maago.DB, userID int64) (string, error) {
+	token, hash := authlib.NewToken()
+	_, err := InsertSession(ctx, db, NewSessionInput{UserID: userID, Hash: hash, ExpiresAt: time.Now().Add(SessionAge)})
+	return token, err
 }
 
 // Logout signs the user out on every device: a view does not read the
@@ -197,4 +203,173 @@ func Verify(ctx context.Context, in VerifyIn) (maago.Result[VerifyPage], error) 
 		return maago.Result[VerifyPage]{}, err
 	}
 	return maago.SeeOther[VerifyPage](LoginURL()), nil
+}
+
+type PasswordChangeIn struct {
+	Form PasswordChangeForm `maago:"form"`
+}
+
+type PasswordChangePage struct {
+	Form    PasswordChangeForm
+	Changed bool
+}
+
+// PasswordChange changes the password of the signed-in user. It ends
+// every session of the user and starts a new one for this browser: the
+// view does not read the cookie, so it cannot keep the current session.
+func PasswordChange(ctx context.Context, in PasswordChangeIn) (maago.Result[PasswordChangePage], error) {
+	f := in.Form
+	if !f.Valid() {
+		return maago.Show(PasswordChangePage{Form: f}), nil
+	}
+	u, _ := maago.UserFrom[User](ctx) // the route requires login
+	if ok, _ := authlib.Check(f.OldPassword.Value, u.PasswordHash); !ok {
+		f.OldPassword.Error = "Your old password is incorrect."
+		return maago.Show(PasswordChangePage{Form: f}), nil
+	}
+	if err := authlib.ValidatePassword(f.NewPassword.Value, []string{u.Email}, PasswordRules...); err != nil {
+		f.NewPassword.Error = err.Error()
+		return maago.Show(PasswordChangePage{Form: f}), nil
+	}
+	hash, err := authlib.Hash(f.NewPassword.Value)
+	if err != nil {
+		return maago.Result[PasswordChangePage]{}, err
+	}
+	tx, err := maago.DBFrom(ctx).BeginTx(ctx, nil)
+	if err != nil {
+		return maago.Result[PasswordChangePage]{}, err
+	}
+	defer tx.Rollback()
+	if _, err := SetPassword(ctx, tx, SetPasswordParams{ID: u.ID, Hash: hash}); err != nil {
+		return maago.Result[PasswordChangePage]{}, err
+	}
+	if _, err := DeleteUserSessions(ctx, tx, DeleteUserSessionsParams{UserID: u.ID}); err != nil {
+		return maago.Result[PasswordChangePage]{}, err
+	}
+	token, err := newSession(ctx, tx, u.ID)
+	if err != nil {
+		return maago.Result[PasswordChangePage]{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return maago.Result[PasswordChangePage]{}, err
+	}
+	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge))
+	return maago.Show(PasswordChangePage{Changed: true}), nil
+}
+
+type PasswordResetIn struct {
+	Form PasswordResetForm `maago:"form"`
+}
+
+type PasswordResetPage struct {
+	Form PasswordResetForm
+	Sent bool
+}
+
+// PasswordReset mails a link to reset the password to an active account.
+// The answer is the same whether the email has one or not.
+func PasswordReset(ctx context.Context, in PasswordResetIn) (maago.Result[PasswordResetPage], error) {
+	f := in.Form
+	if !f.Valid() {
+		return maago.Show(PasswordResetPage{Form: f}), nil
+	}
+	site, err := siteURL()
+	if err != nil {
+		return maago.Result[PasswordResetPage]{}, err
+	}
+	db := maago.DBFrom(ctx)
+	u, err := UserByEmail(ctx, db, UserByEmailParams{Email: normalizeEmail(f.Email.Value)})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return maago.Result[PasswordResetPage]{}, err
+	}
+	if !u.IsActive { // no account is no active one
+		return maago.Show(PasswordResetPage{Sent: true}), nil // nothing to send
+	}
+	token, err := newToken(ctx, db, u.ID, "reset", ResetAge)
+	if err != nil {
+		return maago.Result[PasswordResetPage]{}, err
+	}
+	if err := authlib.Mail(ctx, resetMail(u.Email, site+PasswordResetConfirmURL()+"?token="+token)); err != nil {
+		return maago.Result[PasswordResetPage]{}, err
+	}
+	return maago.Show(PasswordResetPage{Sent: true}), nil
+}
+
+type PasswordResetConfirmIn struct {
+	Token *string                  `maago:"query=token"` // of the link
+	Form  PasswordResetConfirmForm `maago:"form"`
+}
+
+type PasswordResetConfirmPage struct {
+	Form  PasswordResetConfirmForm
+	Token string
+}
+
+// PasswordResetConfirm draws the form of the link on GET and sets the new
+// password on POST. It ends every session of the user and leaves them to
+// sign in.
+func PasswordResetConfirm(ctx context.Context, in PasswordResetConfirmIn) (maago.Result[PasswordResetConfirmPage], error) {
+	f := in.Form
+	if !f.Bound() {
+		token := ""
+		if in.Token != nil {
+			token = *in.Token
+		}
+		return maago.Show(PasswordResetConfirmPage{Form: f, Token: token}), nil
+	}
+	page := PasswordResetConfirmPage{Form: f, Token: f.Token.Value}
+	if !f.Valid() {
+		if f.Token.Error != "" {
+			page.Form.AddError("This link is invalid or has expired.")
+		}
+		return maago.Show(page), nil
+	}
+	// The hash first, out of the transaction: the database is not held
+	// while it works.
+	hash, err := authlib.Hash(f.Password.Value)
+	if errors.Is(err, authlib.ErrTooLong) {
+		page.Form.Password.Error = authlib.ValidatePassword(f.Password.Value, nil).Error()
+		return maago.Show(page), nil
+	}
+	if err != nil {
+		return maago.Result[PasswordResetConfirmPage]{}, err
+	}
+	tx, err := maago.DBFrom(ctx).BeginTx(ctx, nil)
+	if err != nil {
+		return maago.Result[PasswordResetConfirmPage]{}, err
+	}
+	defer tx.Rollback() // a password the rules refuse leaves the token for another try
+	t, err := UseToken(ctx, tx, UseTokenParams{Hash: authlib.HashToken(f.Token.Value), Purpose: "reset", Now: time.Now()})
+	if errors.Is(err, sql.ErrNoRows) {
+		page.Form.AddError("This link is invalid or has expired.")
+		return maago.Show(page), nil
+	}
+	if err != nil {
+		return maago.Result[PasswordResetConfirmPage]{}, err
+	}
+	u, err := GetUser(ctx, tx, t.UserID)
+	if err != nil {
+		return maago.Result[PasswordResetConfirmPage]{}, err
+	}
+	if !u.IsActive {
+		page.Form.AddError("This link is invalid or has expired.")
+		return maago.Show(page), nil
+	}
+	if err := authlib.ValidatePassword(f.Password.Value, []string{u.Email}, PasswordRules...); err != nil {
+		page.Form.Password.Error = err.Error()
+		return maago.Show(page), nil
+	}
+	if _, err := SetPassword(ctx, tx, SetPasswordParams{ID: u.ID, Hash: hash}); err != nil {
+		return maago.Result[PasswordResetConfirmPage]{}, err
+	}
+	if _, err := DeleteUserSessions(ctx, tx, DeleteUserSessionsParams{UserID: u.ID}); err != nil {
+		return maago.Result[PasswordResetConfirmPage]{}, err
+	}
+	if _, err := DeleteUserTokens(ctx, tx, DeleteUserTokensParams{UserID: u.ID, Purpose: "reset"}); err != nil {
+		return maago.Result[PasswordResetConfirmPage]{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return maago.Result[PasswordResetConfirmPage]{}, err
+	}
+	return maago.SeeOther[PasswordResetConfirmPage](LoginURL()), nil
 }

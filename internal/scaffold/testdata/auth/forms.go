@@ -37,3 +37,23 @@ type VerifyForm struct {
 	maago.Form
 	Token maago.Field[string] `maago:"max=64"`
 }
+
+// PasswordChangeForm changes the password of the signed-in user.
+type PasswordChangeForm struct {
+	maago.Form
+	OldPassword maago.Field[string] `maago:"max=4096"`
+	NewPassword maago.Field[string] `maago:"max=4096"`
+}
+
+// PasswordResetForm asks for a link to reset the password.
+type PasswordResetForm struct {
+	maago.Form
+	Email maago.Field[string] `maago:"max=254"`
+}
+
+// PasswordResetConfirmForm sets a new password with the token of the link.
+type PasswordResetConfirmForm struct {
+	maago.Form
+	Token    maago.Field[string] `maago:"max=64"`
+	Password maago.Field[string] `maago:"max=4096"`
+}

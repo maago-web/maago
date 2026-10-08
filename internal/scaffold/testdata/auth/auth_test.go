@@ -465,4 +465,238 @@ func TestMailLinksPrefix(t *testing.T) {
 	}
 	link(t, sent[0].Body, "https://example.com/app/verify?token=")
 	link(t, sent[1].Body, "https://example.com/app/login")
+	do(sh, "POST", "/app/password/reset", url.Values{"email": {"ann@example.com"}}.Encode(), "")
+	if sent = box.Messages(); len(sent) != 3 {
+		t.Fatalf("sent %v", sent)
+	}
+	link(t, sent[2].Body, "https://example.com/app/password/reset/confirm?token=")
+}
+
+func count(t *testing.T, db *sql.DB, query string) int {
+	t.Helper()
+	var n int
+	if err := db.QueryRow(query).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// resetLink asks for a reset of email and returns the token of the mail.
+func resetLink(t *testing.T, h http.Handler, box *maagotest.Inbox, email string) string {
+	t.Helper()
+	before := len(box.Messages())
+	if w := do(h, "POST", "/password/reset", url.Values{"email": {email}}.Encode(), ""); w.Code != 200 || w.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("reset: %d %v", w.Code, w.Header())
+	}
+	sent := box.Messages()
+	if len(sent) != before+1 || sent[before].Subject != "Reset your password" {
+		t.Fatalf("sent %v", sent)
+	}
+	return strings.TrimPrefix(link(t, sent[before].Body, "https://example.com/password/reset/confirm?token="), "https://example.com/password/reset/confirm?token=")
+}
+
+func confirm(token, password string) string {
+	return url.Values{"token": {token}, "password": {password}}.Encode()
+}
+
+func TestPasswordReset(t *testing.T) {
+	h, db := site(t)
+	box := maagotest.Mailbox(t)
+	ann := newUser(t, db, "ann@example.com", nil)
+	newUser(t, db, "bob@example.com", nil)
+	old := login(t, h, "ann@example.com", "")
+	bobs1 := login(t, h, "bob@example.com", "")
+	if _, err := newToken(context.Background(), db, ann.ID, "verify", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	other := resetLink(t, h, box, "ann@example.com")
+	bobs := resetLink(t, h, box, "bob@example.com")
+	token := resetLink(t, h, box, " ANN@example.com ")
+
+	for range 2 { // opening the link uses nothing up
+		if w := do(h, "GET", "/password/reset/confirm?token="+token, "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `value="`+token+`"`) || !strings.Contains(w.Body.String(), `name="password"`) {
+			t.Fatalf("GET: %d %s", w.Code, w.Body)
+		}
+	}
+	for _, weak := range []string{"short", "baseball", strings.Repeat("가", 1400)} { // the last: 4200 bytes
+		w := do(h, "POST", "/password/reset/confirm", confirm(token, weak), "")
+		if w.Code != 200 || !strings.Contains(w.Body.String(), "This password is too") || !strings.Contains(w.Body.String(), `value="`+token+`"`) || strings.Contains(w.Body.String(), `value="`+weak) {
+			t.Errorf("%.10q: %d %s", weak, w.Code, w.Body)
+		}
+	}
+	const fresh = "a fresh secret phrase"
+	w := do(h, "POST", "/password/reset/confirm", confirm(token, fresh), "")
+	if w.Code != 303 || w.Header().Get("Location") != "/login" || w.Header().Get("Set-Cookie") != "" {
+		t.Fatalf("confirm: %d %v %s", w.Code, w.Header(), w.Body)
+	}
+	if w := do(h, "POST", "/login", form("ann@example.com", password), ""); w.Code != 200 {
+		t.Errorf("the old password still signs in: %d", w.Code)
+	}
+	if w := do(h, "POST", "/login", form("ann@example.com", fresh), ""); w.Code != 303 {
+		t.Errorf("the new password does not sign in: %d %s", w.Code, w.Body)
+	}
+	if whoami(h, old.Value) != "" {
+		t.Error("a session from before the reset is still signed in")
+	}
+	if w := do(h, "POST", "/login", form("bob@example.com", password), ""); w.Code != 303 || whoami(h, bobs1.Value) != "bob@example.com" {
+		t.Errorf("ann's reset changed bob's password or session: %d", w.Code)
+	}
+	for name, tk := range map[string]string{"the same link": token, "ann's other link": other} {
+		if w := do(h, "POST", "/password/reset/confirm", confirm(tk, "another secret phrase"), ""); w.Code != 200 || !strings.Contains(w.Body.String(), "This link is invalid or has expired.") {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body)
+		}
+	}
+	if w := do(h, "POST", "/password/reset/confirm", confirm(bobs, "a fresh secret phrase"), ""); w.Code != 303 {
+		t.Errorf("bob's link: %d %s", w.Code, w.Body)
+	}
+	if count(t, db, "SELECT count(*) FROM auth_token WHERE purpose = 'verify'") != 1 {
+		t.Error("the reset removed the verification token")
+	}
+}
+
+// Of two requests with one link at once, one sets the password.
+func TestPasswordResetOnce(t *testing.T) {
+	h, db := site(t)
+	ann := newUser(t, db, "ann@example.com", nil)
+	token, err := newToken(context.Background(), db, ann.ID, "reset", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	codes := make(chan int, 2)
+	for _, pw := range []string{"first secret phrase", "second secret phrase"} {
+		go func() { codes <- do(h, "POST", "/password/reset/confirm", confirm(token, pw), "").Code }()
+	}
+	if a, b := <-codes, <-codes; a+b != 303+200 {
+		t.Errorf("codes %d and %d, want one 303 and one 200", a, b)
+	}
+}
+
+// A reset request answers the same for any email, and mails only an
+// active account, verified or not.
+func TestPasswordResetRequest(t *testing.T) {
+	h, db := site(t)
+	box := maagotest.Mailbox(t)
+	newUser(t, db, "ann@example.com", nil)
+	newUser(t, db, "new@example.com", func(in *NewUserInput) { in.VerifiedAt = nil })
+	newUser(t, db, "gone@example.com", func(in *NewUserInput) { in.IsActive = maago.Set(false) })
+	ask := func(email string) *httptest.ResponseRecorder {
+		return do(h, "POST", "/password/reset", url.Values{"email": {email}}.Encode(), "")
+	}
+	want := ask("ann@example.com")
+	for _, email := range []string{"nobody@example.com", "gone@example.com", "new@example.com"} {
+		if w := ask(email); w.Code != want.Code || w.Body.String() != want.Body.String() {
+			t.Errorf("%s answers differently:\n%s", email, w.Body)
+		}
+	}
+	sent := box.Messages()
+	if len(sent) != 2 || sent[0].To != "ann@example.com" || sent[1].To != "new@example.com" {
+		t.Errorf("sent %v", sent)
+	}
+	if w := do(h, "GET", "/password/reset", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `name="email"`) {
+		t.Errorf("form: %d", w.Code)
+	}
+	if !strings.Contains(do(h, "GET", "/login", "", "").Body.String(), `href="/password/reset"`) {
+		t.Error("no link from the login page")
+	}
+
+	t.Cleanup(func() { SiteURL = "https://example.com" })
+	SiteURL = "example.com"
+	tokens := count(t, db, "SELECT count(*) FROM auth_token")
+	if w := ask("ann@example.com"); w.Code != 500 || count(t, db, "SELECT count(*) FROM auth_token") != tokens {
+		t.Errorf("bad SiteURL: %d", w.Code)
+	}
+}
+
+// A link that is expired, of another purpose, or of an account closed
+// since, sets nothing.
+func TestPasswordResetRefuses(t *testing.T) {
+	h, db := site(t)
+	ctx := context.Background()
+	ann := newUser(t, db, "ann@example.com", nil)
+	add := func(purpose string, expires time.Time) string {
+		token, hash := authlib.NewToken()
+		if _, err := InsertToken(ctx, db, NewTokenInput{UserID: ann.ID, Purpose: purpose, Hash: hash, ExpiresAt: expires}); err != nil {
+			t.Fatal(err)
+		}
+		return token
+	}
+	expired := add("reset", time.Now().Add(-time.Second))
+	verify := add("verify", time.Now().Add(time.Hour))
+	closed := add("reset", time.Now().Add(time.Hour))
+	refused := func(name, token string) {
+		t.Helper()
+		w := do(h, "POST", "/password/reset/confirm", confirm(token, "a fresh secret phrase"), "")
+		if w.Code != 200 || !strings.Contains(w.Body.String(), "This link is invalid or has expired.") {
+			t.Errorf("%s: %d %s", name, w.Code, w.Body)
+		}
+	}
+	for name, token := range map[string]string{"expired": expired, "verify": verify, "garbage": "x", "too long": strings.Repeat("x", 65), "none": ""} {
+		refused(name, token)
+	}
+	ann.IsActive = false
+	if err := UpdateUser(ctx, db, &ann); err != nil {
+		t.Fatal(err)
+	}
+	refused("closed", closed)
+	if got, _ := GetUser(ctx, db, ann.ID); got.PasswordHash != ann.PasswordHash {
+		t.Error("the password changed")
+	}
+	// Open again, the account's link still works: the refusal used nothing up.
+	ann.IsActive = true
+	if err := UpdateUser(ctx, db, &ann); err != nil {
+		t.Fatal(err)
+	}
+	if w := do(h, "POST", "/password/reset/confirm", confirm(closed, "a fresh secret phrase"), ""); w.Code != 303 {
+		t.Errorf("the link after reopening: %d %s", w.Code, w.Body)
+	}
+	for _, path := range []string{"/password/reset/confirm", "/password/reset/confirm?token=x"} {
+		if w := do(h, "GET", path, "", ""); w.Code != 200 {
+			t.Errorf("GET %s: %d", path, w.Code)
+		}
+	}
+}
+
+func TestPasswordChange(t *testing.T) {
+	h, db := site(t)
+	ann := newUser(t, db, "ann@example.com", nil)
+	if w := do(h, "GET", "/password", "", ""); w.Code != 303 || w.Header().Get("Location") != "/login?next=%2Fpassword" {
+		t.Errorf("GET without a session: %d %v", w.Code, w.Header())
+	}
+	change := func(old, new string) string { return url.Values{"old_password": {old}, "new_password": {new}}.Encode() }
+	const fresh = "a fresh secret phrase"
+	if w := do(h, "POST", "/password", change(password, fresh), ""); w.Code != 401 {
+		t.Errorf("POST without a session: %d", w.Code)
+	}
+	here := login(t, h, "ann@example.com", "")
+	there := login(t, h, "ann@example.com", "")
+	if w := do(h, "GET", "/password", "", here.Value); w.Code != 200 || !strings.Contains(w.Body.String(), `name="old_password"`) {
+		t.Errorf("form: %d %s", w.Code, w.Body)
+	}
+	for _, c := range []struct{ old, new, want string }{
+		{"wrong", fresh, "Your old password is incorrect."},
+		{password, "short", "This password is too short."},
+	} {
+		w := do(h, "POST", "/password", change(c.old, c.new), here.Value)
+		if w.Code != 200 || !strings.Contains(w.Body.String(), c.want) || w.Header().Get("Set-Cookie") != "" || strings.Contains(w.Body.String(), `value="`+c.old) || strings.Contains(w.Body.String(), `value="`+c.new) {
+			t.Errorf("%s: %d %v %s", c.want, w.Code, w.Header(), w.Body)
+		}
+	}
+	if got, _ := GetUser(context.Background(), db, ann.ID); got.PasswordHash != ann.PasswordHash || whoami(h, here.Value) == "" {
+		t.Error("a refused change changed something")
+	}
+
+	w := do(h, "POST", "/password", change(password, fresh), here.Value)
+	cookies := w.Result().Cookies()
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Your password was changed.") || len(cookies) != 1 || cookies[0].Value == here.Value {
+		t.Fatalf("change: %d %v %s", w.Code, cookies, w.Body)
+	}
+	if whoami(h, cookies[0].Value) != "ann@example.com" || whoami(h, here.Value) != "" || whoami(h, there.Value) != "" {
+		t.Error("the sessions after a change")
+	}
+	if w := do(h, "POST", "/login", form("ann@example.com", fresh), ""); w.Code != 303 {
+		t.Errorf("the new password: %d", w.Code)
+	}
+	if w := do(h, "POST", "/login", form("ann@example.com", password), ""); w.Code != 200 {
+		t.Errorf("the old password still signs in: %d", w.Code)
+	}
 }

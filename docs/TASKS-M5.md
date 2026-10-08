@@ -358,6 +358,60 @@
 변경(로그인 필수, 옛 비밀번호, 세션 갈아 끼우기), 재설정(메일 링크, 한 번, 모든 세션과 다른 재설정 토큰을 지움, 없는 이메일에도 같은 응답).
 → 확인: 재설정 흐름, 같은 링크 두 번은 거절, 동시 두 요청 중 하나만
 
+### 계획
+
+이 작업의 끝에 복사본으로 가입 → 인증 → 로그인 → 비밀번호 재설정이 돈다(완료 조건 2). 라이브러리는 바뀌지 않는다.
+
+쿼리(더함): `set_password.sql`(`:exec`, `UPDATE auth_user SET password_hash = :hash WHERE id = :id`: 행 전체를 쓰지 않아 그사이의 다른 변경(비활성 등)을 덮지 않는다), `delete_user_tokens.sql`(`:exec`, `WHERE user_id = :user_id AND purpose = :purpose`: 재설정은 재설정 토큰만 지운다, 대기 중인 인증 링크는 산다, 사람의 결정 2026-10-08)
+
+세션: `newSession(ctx, db, userID) (token string, err error)`로 4번 로그인의 넣기를 꺼낸다(새 토큰, 요청의 쿠키는 쓰지 않는다). `SetCookie`는 부르는 쪽이 커밋 뒤에. 만료 세션 지우기는 로그인에 남는다
+
+변경(`GET`·`POST /password`, `password_change`·`password_change_submit`, `maago.LoginRequired`, 뷰 `PasswordChange`)
+- 폼 `PasswordChangeForm{OldPassword, NewPassword}`(`max=4096`). 옛 비밀번호가 틀리면 그 칸에 "Your old password is incorrect." → 새 비밀번호의 `ValidatePassword` 오류는 새 칸에 → `Hash` → 트랜잭션 하나에서 `SetPassword` → `DeleteUserSessions` → `newSession` → 커밋 → `SetCookie` → "Your password was changed." D-128의 "지금 세션을 갈아 끼우고 다른 세션을 지운다"를 쿠키를 읽지 않고 이룬다
+- 로그인하지 않은 POST는 401(D-121, HTML의 POST는 303이 아님)
+
+재설정 요청(`GET`·`POST /password/reset`, `password_reset`·`password_reset_submit`, 뷰 `PasswordReset`)
+- 폼 `PasswordResetForm{Email max=254}`. `siteURL` → 정규화 → 있고 `IsActive`면 재설정 토큰(`ResetAge = time.Hour`) + `resetMail`("Reset your password"). 없거나 비활성이면 아무것도 보내지 않는다(Django와 같음, 사람의 결정 2026-10-08). 응답은 늘 "If an account exists with that email, we've sent a link to reset its password." 시간 차(메일 보내기)는 가입처럼 받고 시도 제한은 8번
+- 인증 전 계정도 받는다. 재설정은 인증하지 않는다(6번의 결정). 남이 먼저 만든 인증 전 행의 비밀번호를 주인이 바꿀 수 있다(8번의 선점 가로채기에 도움)
+
+재설정 확인(`GET`·`POST /password/reset/confirm`, `password_reset_confirm`·`password_reset_confirm_submit`, 뷰 `PasswordResetConfirm`, 사람의 결정 2026-10-08)
+- In: `Token *string query=token`, `Form PasswordResetConfirmForm{Token max=64, Password max=4096}`. GET은 숨은 토큰과 새 비밀번호 칸(토큰을 쓰지 않는다)
+- POST: **해시 먼저**(`ErrTooLong`은 칸 오류 "This password is too long.", 쓰레기 토큰도 해싱 한 번의 비용: 가입과 같다) → 트랜잭션 하나에서 `UseToken`(목적 `reset`, 없으면 "This link is invalid or has expired.") → `GetUser`(트랜잭션 안에서 새로 읽음) → 비활성이면 같은 무효 → `ValidatePassword`의 오류는 칸에, **롤백이 토큰을 되살려** 링크가 아직 된다 → `SetPassword` → `DeleteUserSessions` → `DeleteUserTokens(reset)` → 커밋 → `SeeOther` 로그인. 자동 로그인 없음(사람의 결정 2026-10-08)
+
+복사본의 그 밖
+- `base.html` 머리에 `<meta name="referrer" content="no-referrer">`: 링크의 토큰이 Referer로 나가지 않게(인증·재설정 페이지)
+- 로그인 페이지에 "Forgot your password?"(`{{url "password_reset"}}`)
+- 템플릿 셋(`password_change_page`·`password_reset_page`·`password_reset_confirm_page`), `autocomplete`는 `current-password`·`new-password`. 비밀번호 칸에 `value` 없음
+- `resetMail`: 링크 한 줄, "If you didn't ask for this, you can ignore this email. Your password won't change."
+
+시험(복사본)
+- 재설정 흐름: 요청(대문자·공백 섞인 이메일) → 메일 링크(`SiteURL`) → GET 두 번(토큰 그대로) → 약한 비밀번호 POST는 칸 오류이고 링크가 아직 됨 → 맞는 POST 303 `Location` `/login`, `Set-Cookie` 없음 → 옛 비밀번호 안 됨, 새 것 됨, 재설정 전 세션은 로그인하지 않은 것, ann의 다른 재설정 토큰은 무효, bob의 재설정 토큰은 그대로, ann의 인증 토큰은 그대로, 같은 링크 다시 → 무효
+- 동시 두 POST(같은 토큰) → 303 하나, 200 하나
+- 요청: 없는 이메일·비활성은 같은 응답(상태·본문)이고 메일 없음, 인증 전 계정은 메일 받음, `SiteURL`이 틀리면 500이고 토큰 없음. `Prefix` 아래의 링크(`TestMailLinksPrefix`에 더함)
+- 확인: 만료, `verify` 목적, 요청과 확인 사이에 비활성이 된 계정 → 무효이고 해시 그대로. 토큰 없는·쓰레기 GET → 200. 4096바이트 넘는 비밀번호 → 칸 오류
+- 변경: 로그인하지 않은 GET은 로그인으로 303, POST는 401이고 비밀번호 그대로. 틀린 옛 비밀번호·약한 새 비밀번호는 칸 오류, `Set-Cookie` 없음, 세션 그대로. 성공: 새 쿠키 ≠ 요청의 쿠키, 옛 쿠키와 다른 기기의 세션은 로그인하지 않은 것, 새 쿠키는 로그인한 것, 새 비밀번호로 로그인
+- 다시 그린 본문에 비밀번호 없음
+
+하지 않기로 한 것: 재설정 뒤 자동 로그인, 재설정의 인증, 시도 제한(8번), 변경 뒤 알림 메일, 로그인 재해싱의 행 전체 쓰기(4번 그대로)
+
+단계
+1. `newSession`으로 로그인을 나눔, 쿼리 둘 → 확인: 4번 시험 그대로
+2. 변경 → 3. 재설정 요청·확인 → 확인: `TestAddAuth`(두 방언), 변형
+4. 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: 낡은 행의 `UpdateUser` → `set_password.sql`. 확인과 비활성 사이 → 트랜잭션 안에서 다시 읽고 비활성은 무효. ★요청의 시간 차와 메일의 차 → 사람의 결정: 없는 이메일엔 아무것도 보내지 않음(Django, 시도 제한은 8번). "8"은 작업 번호(오독). 변경의 원자성 → 트랜잭션, `SetCookie`는 커밋 뒤. 401·교차 출처 → 401 시험(교차 출처는 코어 시험이 본다). Referer → `no-referrer` 메타. 동시 시험 → 6번의 모양
+- fable: ★재설정 확인 구조 → 사람의 결정: 해시 먼저, 트랜잭션 하나(`find_token` 없음). 행 전체 쓰기 → `set_password.sql`. 401 → D-121대로, 시험. 확인의 비활성 → 무효. 변경의 트랜잭션. `newSession`. ★이름 → 사람의 결정: `confirm`. ★지울 토큰 → 사람의 결정: 재설정 토큰만. 영어 문구, `autocomplete`, 빠진 시험들
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 계획대로
+- 변형으로 찾음: `set_password.sql`의 `WHERE`를 지워도 통과 → ann의 재설정 뒤 bob의 옛 비밀번호로 로그인되는지 봄
+- codex: 결함 없음. 비활성에 막힌 링크가 쓰이지 않았는지 → 다시 열린 계정에서 같은 링크가 됨을 봄
+- fable: `Prefix` 아래 재설정 링크 → `TestMailLinksPrefix`에. 비활성이 만료·목적 시험을 가림 → 활성일 때 먼저, 비활성은 따로. 다른 사용자의 세션 → bob의 세션이 남음을 봄. 변경 뒤 옛 비밀번호 → 봄. 다시 그린 새 비밀번호 → 봄. 토큰 칸 오류가 빈 폼 → "invalid" 문구, 65자·빈 토큰 시험. `invalid` 함수 → 풀어 씀. `PasswordReset`의 `switch` → 로그인의 모양. "too long" 문구 둘 → `ValidatePassword`의 것 하나. 메일의 "within an hour"가 `ResetAge`에 묶임 → 뺌(사람에게 묻지 않음: 문구를 빼면 묶임이 없다). "Email me a link", `delete_user_tokens.sql` 주석, README
+- 고친 뒤 변형으로 확인: 세션 지우기의 `WHERE`, 토큰 칸 오류, 요청과 확인의 비활성
+
 ## 8. 시도 횟수 제한
 
 로그인·가입·재설정 요청·인증 메일 다시 보내기에 이메일별·IP별 창. 인증 메일 다시 보내기 라우트도 여기서(6번의 사람의 결정: 메일이 실패한 인증 전 행을 살린다). 선점 가로채기(남이 먼저 만든 인증 전 행)를 계획이 다룬다(6번에서 넘김).

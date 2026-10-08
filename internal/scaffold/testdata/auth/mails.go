@@ -22,3 +22,12 @@ func accountExistsMail(to, loginLink string) authlib.Message {
 If you didn't sign up, you can ignore this email.
 `}
 }
+
+func resetMail(to, link string) authlib.Message {
+	return authlib.Message{To: to, Subject: "Reset your password", Body: `To choose a new password, open this link:
+
+` + link + `
+
+If you didn't ask for this, you can ignore this email. Your password won't change.
+`}
+}

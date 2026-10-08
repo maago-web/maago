@@ -12,11 +12,12 @@ import (
 	authlib "github.com/maago-web/maago/contrib/auth"
 )
 
-// SessionAge is how long a sign-in lasts; VerifyAge how long the link
-// of a verification mail works.
+// SessionAge is how long a sign-in lasts; VerifyAge and ResetAge how long
+// the link of a verification or reset mail works.
 const (
 	SessionAge = 14 * 24 * time.Hour
 	VerifyAge  = 3 * 24 * time.Hour
+	ResetAge   = time.Hour
 )
 
 // SiteURL is where the site is, for the links of mails: scheme and host,
