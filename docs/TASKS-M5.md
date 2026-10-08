@@ -154,6 +154,50 @@
 `Hash`·`Check(password, encoded) (ok, rehash bool)`, 더미 해시, 최대 길이. 복사된 앱의 로그인이 `rehash`면 새 해시를 쓴다.
 → 확인: Django가 만든 해시 벡터, 적은 반복 수·`pbkdf2_sha1` 해시로 로그인하면 바뀐다(완료 조건 5)
 
+### 계획
+
+새 패키지 `github.com/maago-web/maago/contrib/auth`(루트 모듈, stdlib만, D-123의 둘째 예외). 이 작업은 해싱만, 로그인에서 쓰는 것은 4번.
+
+- `var Iterations = 600_000`: 새 해시의 반복 수(D-127). 시험·튜토리얼이 낮춘다(패키지 변수, M4 12번의 관례)
+- `Hash(password string) (string, error)`: `pbkdf2_sha256$반복$소금$해시`. 소금은 `crypto/rand`의 영숫자 22자(Django와 같은 꼴·엔트로피 약 131비트), 해시는 32바이트의 표준 base64. 비밀번호가 4096바이트를 넘으면 `ErrTooLong`(긴 입력 DoS, D-127)
+- `Check(password, encoded string) (ok, rehash bool)`: `pbkdf2_sha256`과 읽기만 하는 `pbkdf2_sha1`(Django의 옛 해셔, 20바이트). 비교는 `subtle.ConstantTimeCompare`. `ok`이고 (접두어가 `pbkdf2_sha256`이 아니거나 반복 수가 `Iterations`와 다르면) `rehash`(Django의 `must_update`와 같다). 모르는 꼴·깨진 글·4096바이트 넘는 비밀번호는 `false, false`
+- **더미 해시**: `encoded`가 빈 글이면(계정이 없을 때 뷰가 그대로 넘긴다) 같은 비용의 PBKDF2를 한 번 돌리고 `false, false`(D-127·D-128의 "없는 계정에도 더미 해시"). 형식이 틀린 해시도 같은 비용을 치른다(빨리 끝나면 계정의 상태가 드러난다)
+- 오류 값은 `ErrTooLong` 하나. 빈 비밀번호의 거절은 검증기(6번)의 일
+
+파일: `contrib/auth/password.go`, `contrib/auth/password_test.go`
+
+시험
+- 벡터: Django의 알고리즘(`hashlib.pbkdf2_hmac` + base64, Django 해셔의 `encode`와 같은 식)으로 Go 밖에서 만든 `pbkdf2_sha256`·`pbkdf2_sha1` 해시 각각을 `Check`가 받는다(`uv run python`으로 한 번 만들어 시험에 박는다, 만든 명령을 주석에)
+- `Hash` → `Check`가 참, 다른 비밀번호는 거짓, 같은 비밀번호의 두 해시는 다르다(소금)
+- `rehash`: 낮은 반복 수의 sha256, sha1 → 참. 지금 반복 수 → 거짓
+- 더미·깨진 해시·모르는 접두어·숫자가 아닌 반복 수·4097바이트: `false, false`. 더미와 깨진 해시도 PBKDF2를 한 번 도는 것은 코드의 모양으로 지킨다(모든 길이 한 함수 `derive`를 한 번 부르고 결과를 비교한다). 시간을 재는 시험은 두지 않는다(기계마다 흔들린다)
+
+하지 않기로 한 것: 페퍼(D-127), argon2(D-127), 해시 꼴의 이주 명령(로그인 때 다시 해싱으로 충분)
+
+단계
+1. `Hash`·`Check`·`Iterations`·`ErrTooLong` → 확인: 위 시험
+2. 두 모듈 확인 명령, ARCHITECTURE §2의 `contrib/auth` 줄은 2번에서 고쳤다
+
+계획 리뷰 (codex·fable)와 사람의 결정 — 위 계획을 이렇게 고친다
+- **사람의 결정(2026-10-07)**: 다시 해싱은 반복 수가 다르면 양쪽(Django의 `must_update`. Django 6.1의 1,500,000 해시도 600,000으로 바뀐다), 저장된 해시의 반복 수는 1~10,000,000만(그 밖은 깨진 해시, 이 기계에서 10M ≈ 1초), `auth.Iterations`는 둔다(D-127 고침)
+- **깨진 해시의 비용**(codex 1·3·5, fable 2): 빈 글·모르는 접두어·필드가 넷이 아님·반복 수가 숫자가 아니거나 범위 밖은 모두 **고정 소금과 지금의 `Iterations`**로 더미를 한 번 돌리고 `false, false`. 공격자가 준 소금·반복 수·길이는 더미 비용에 쓰지 않는다
+- **비교**(fable 5, codex 4·5의 뜻): Django의 `verify`처럼 읽은 소금·반복 수로 다시 만든 글 전체를 `subtle.ConstantTimeCompare`. base64를 풀지 않아 그 분기가 없고, 접두어마다 길이(32·20)가 한 곳에 산다. 꼴은 `strings.SplitN(encoded, "$", 4)`가 정확히 넷(Django와 같다). 소금은 읽을 때 `$` 없는 비지 않은 글이면 된다(옛 Django의 12자 소금도)
+- **소금**(fable 4): 만들 때 `crypto/rand.Text()`(26자 base32, 128비트 이상). Django의 `decode`는 `$`로 나누기만 하니 둘 다 읽는다. 손으로 짠 영숫자 뽑기는 두지 않는다
+- **벡터**(fable 6): 진짜 Django(`uv run --with django`, 6.1.2)가 만든 `pbkdf2_sha256`·`pbkdf2_sha1` 해시(1,500,000번, 명령과 버전을 주석에)와 빠른 길의 낮은 반복 수 벡터 하나. Django 벡터는 `ok, rehash`가 `true, true`(반복 수가 다르다)
+- **길이**(codex 6, fable 8): 4096은 UTF-8 바이트, 정규화하지 않는다. 길이 거절은 공격자의 입력에만 달려 계정 상태를 새지 않으므로 더미 없이 일찍 돌아간다. 4096·4097바이트와 여러 바이트 글자 경계를 시험
+- **`Iterations`**(codex 2, fable 9): 주석에 "시험·튜토리얼이 서버를 띄우기 전에 낮춘다, `main`은 건드리지 않는다". 1보다 작으면 `Hash`가 panic. 시험 바이너리마다 따로 낮춘다(4·12번 계획에)
+- `Hash`의 오류는 `ErrTooLong`과 `pbkdf2.Key`가 돌려주는 것(FIPS 전용 모드). `Check`는 오류를 깨진 해시로(fable 10)
+- **stdlib만 게이트**(fable 3): 루트의 `TestRuntimeDependencies`가 `./contrib/auth`도 본다(D-123의 약속을 시험이)
+- ARCHITECTURE §2의 "유일한 예외"(maagotest)를 "예외 둘(`maagotest`, `contrib/auth`)"로 지금 고친다(fable 11)
+- 4번에 넘김(fable 7·12): `encoded == ""`(계정 없음·쓸 수 없는 비밀번호)는 같은 비용으로 거절, `IsActive && VerifiedAt != nil`은 `Check` 뒤에(앞이면 응답 시간이 계정 상태를 말한다). 복사본도 `package auth`라 라이브러리를 부를 때 별칭(예 `authlib`)을 4번 계획에서 정한다
+- 하지 않기로 한 것에 더함: Django의 `must_update_salt`(fable 13)
+
+구현 리뷰 (ponytail·codex·fable)
+- 만들며 확인한 것: Django 6.1.2가 만든 벡터 넷(다시 만드는 명령을 주석에), `-race`, 변이 다섯(sha1의 다시 해싱 조건, 빈 소금, `Check`의 길이 검사, 반복 수 상한, 저장값 길이 상한)이 모두 잡힌다. 더미가 실제로 도는 것과 상수 시간 비교는 결과로 보이지 않아 코드의 모양으로 지킨다(계획대로)
+- ponytail(fable 4): `algorithm` 구조체 대신 이름 → 해시 함수 맵, 길이는 `h().Size()`
+- codex: 받음 — 저장값 전체 길이 상한 256바이트(1: 다만 지적의 전제는 틀렸다. 소금은 PBKDF2의 첫 블록에만 쓰여 반복마다 들지 않는다. 그래도 싸서 둔다), 반복 수가 다른 옛 해시는 첫 로그인까지 계정이 있음을 시간으로 말한다는 한계를 주석에(2: 사람이 고른 "다르면 양쪽"의 대가), `Iterations`도 1~10,000,000 밖이면 panic(3), 상한·긴 값 시험(4). 받지 않음 — 4의 더미가 도는지 세는 훅·경쟁 시험(계획: 시간·훅 없이 모양으로)
+- fable: 받음 — 가드가 없으면 통과했을 해시로 거절을 시험(1: 변이 넷이 살아남았다), 다시 만들 수 있는 벡터 명령(2), `Check` 주석의 "같은 비용"을 지금 해시에 한정(3, codex 2와 같다), 맵(4), `Check`도 panic할 수 있음을 주석에(5), 문구(6)
+
 ## 4. 쿠키 자리(코어), 세션, 로그인·로그아웃 (D-125, D-128)
 
 코어: `maago.SetCookie`(D-125), API 401의 `WWW-Authenticate: Bearer`, preflight의 `Authorization`(D-129). `contrib/auth`: 세션 쿠키·`FromSession`·`SafeNext`·시도 제한. 복사본: `Session` 쿼리, 로그인 폼·뷰, 로그아웃(POST).

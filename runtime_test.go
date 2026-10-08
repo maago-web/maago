@@ -93,6 +93,16 @@ func TestRuntimeDependencies(t *testing.T) {
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("the runtime depends on %q, want %q", got, want)
 	}
+
+	// The library the copied auth app calls is the standard library only
+	// (D-123).
+	out, err = exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", "./contrib/auth").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "github.com/maago-web/maago/contrib/auth" {
+		t.Errorf("contrib/auth depends on %q", got)
+	}
 }
 
 func TestOpt(t *testing.T) {

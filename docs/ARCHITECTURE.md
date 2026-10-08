@@ -39,7 +39,7 @@ github.com/maago-web/maago
 │                          NewApp·AppRoute·Pages·Render·Bind*·FinishForm·FormValues·JSONValues·Unprocessable·
 │                          Rule·FieldError·URLFunc·PathSegment·DateFunc …
 │                          런타임이 기대는 내부 패키지는 internal/diag·internal/project뿐(시험이 본다)
-├── maagotest/          시험 전용 도우미 (M4, D-113). 런타임 공개 API가 루트 하나라는 원칙의 유일한 예외
+├── maagotest/          시험 전용 도우미 (M4, D-113). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
 ├── contrib/
 │   ├── auth/            인증의 보안 부품(stdlib만, M5). 앱 층은 `maago add auth`가
 │   │                      프로젝트에 복사한다(D-123)                     D-50, D-51
@@ -78,7 +78,7 @@ github.com/maago-web/maago
 - **모듈은 둘.** 루트(`github.com/maago-web/maago`)는 런타임과 생성기이고 외부 의존이 없다.
   `cmd/maago`는 별도 모듈로, 루트 모듈과 DB 드라이버(SQLite는 cgo 없는 순수 Go)에 의존한다.
   라이브러리만 `go get`하는 사용자에게 드라이버가 따라가지 않는다 (D-03, D-09).
-- **런타임 공개 API는 루트 패키지 `maago` 하나.** 사용자가 import할 경로를 늘리지 않는다.
+- **런타임 공개 API는 루트 패키지 `maago` 하나.** 사용자가 import할 경로를 늘리지 않는다. 예외는 둘: 시험 전용 `maagotest`(D-113), 복사된 인증 앱이 부르는 보안 부품 `contrib/auth`(D-123, stdlib만).
 - **생성기는 모두 `internal/`.** 공개 API가 아니므로 마음대로 고칠 수 있다.
 - **방언의 SQL은 `internal/dialect/` 안에만.** DDL 쓰기, 스키마 읽기, 초안 쓰기는 방언 디렉터리에 있다. MySQL(v1)은
   디렉터리 하나를 더하는 일이 된다. 연결과 트랜잭션을 모는 곳(`practicedb`, `migrate`의 적용·기록, `build`의 방언 표)은
