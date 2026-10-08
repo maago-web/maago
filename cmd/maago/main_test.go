@@ -45,6 +45,12 @@ func TestRun(t *testing.T) {
 		{[]string{"makemigrations", "--rename", "bad", "--rename=worse"}, 1, toStderr, []string{`--rename "bad"`, `--rename "worse"`}},
 		{[]string{"showmigrations"}, 0, toStdout, []string{"no migrations"}},
 		{[]string{"migrate"}, 0, toStdout, []string{"nothing to apply"}},
+		// add takes one app; it writes into this project, so it comes last.
+		{[]string{"add"}, 2, toStderr, []string{"missing argument", "usage:"}},
+		{[]string{"add", "auth", "x"}, 2, toStderr, []string{`"x"`, "usage:"}},
+		{[]string{"add", "autth"}, 1, toStderr, []string{`unknown app "autth"`, `did you mean "auth"?`}},
+		{[]string{"add", "auth"}, 0, toStdout, []string{"wrote auth/models.go"}},
+		{[]string{"add", "auth"}, 1, toStderr, []string{"auth/models.go: something is in the way of maago add auth"}},
 		{[]string{""}, 2, toStderr, []string{`unknown command ""`, "usage:"}},
 	}
 	for _, tt := range tests {
@@ -85,6 +91,7 @@ commands:
   makemigrations write the next migration from the models; --name NAME, --rename TABLE.OLD:NEW (repeatable)
   showmigrations list the migrations and which the database has applied
   migrate        apply the migrations the database has not applied
+  add            copy contrib app APP into the project, yours from then on (apps: auth)
 `
 	if got := stdout.String(); got != want {
 		t.Errorf("usage:\n%s\nwant:\n%s", got, want)

@@ -41,7 +41,8 @@ github.com/maago-web/maago
 │                          런타임이 기대는 내부 패키지는 internal/diag·internal/project뿐(시험이 본다)
 ├── maagotest/          시험 전용 도우미 (M4, D-113). 런타임 공개 API가 루트 하나라는 원칙의 유일한 예외
 ├── contrib/
-│   ├── auth/            인증 앱 (M5)             D-50, D-51
+│   ├── auth/            인증의 보안 부품(stdlib만, M5). 앱 층은 `maago add auth`가
+│   │                      프로젝트에 복사한다(D-123)                     D-50, D-51
 │   └── admin/           admin 런타임 (M6)         D-48, D-49
 │
 ├── cmd/maago/           CLI 진입점. flag 디스패치만 한다 (D-68)
@@ -68,6 +69,8 @@ github.com/maago-web/maago
     ├── gotypes/         사용자 프로젝트의 타입 검사: go/types, export data, 메모리 생성물  M4
     │                      (D-117)
     ├── web/             라우트 표 읽기, 뷰 어댑터·폼 생성, 템플릿 검사          M4
+    ├── scaffold/        `maago add`가 프로젝트에 복사하는 contrib 앱의 앱 층       M5
+    │                      (embed한 testdata/<앱>/, D-123)
     └── admingen/        admin 코드 생성                                    M6
 ```
 
@@ -108,7 +111,7 @@ github.com/maago-web/maago
   파일 시스템이 주지 않는다. 이름 바꾸기 중 실패하면 실패한 파일을 알리고 다시 돌리라고 한다.
   디스크와 같은 파일은 건너뛰므로, 다시 돌리면 남은 파일만 쓴다.
 - 검사기는 단계에 붙는 함수다. M1부터는 새 검사기를 붙이기만 하고 파이프라인은 고치지 않는다.
-- 다른 명령은 같은 단계를 쓰고 끝만 바꾼다. `makemigrations`는 DB 검사 자리에서 초안을 쓰고 생성이 없다. 쿼리 파일은 읽지 않는다(D-112).
+- 다른 명령은 같은 단계를 쓰고 끝만 바꾼다(`add`는 단계를 쓰지 않고 루트만 찾아 파일을 복사한다, D-123). `makemigrations`는 DB 검사 자리에서 초안을 쓰고 생성이 없다. 쿼리 파일은 읽지 않는다(D-112).
   `migrate`·`showmigrations`는 모델을 읽지 않는다: `.env`와 마이그레이션 파일을 읽고 문장 검사 뒤 실제 DB에 간다(M2 9·10번).
 
 ---

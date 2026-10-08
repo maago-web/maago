@@ -17,6 +17,7 @@ import (
 	"github.com/maago-web/maago/internal/build"
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/practicedb"
+	"github.com/maago-web/maago/internal/scaffold"
 
 	// The practice database opens drivers by name (D-89, D-90).
 	"github.com/jackc/pgx/v5/pgconn"
@@ -99,16 +100,18 @@ func describePostgres(ctx context.Context, pg *pgconn.PgConn, query string) (pra
 // run once they are parsed.
 type command struct {
 	name, summary string
+	args          int // the arguments after the flags, exactly
 	setup         func(fs *flag.FlagSet) func(stdout, stderr io.Writer) int
 }
 
 // commands, in the order a project uses them.
 var commands = []command{
-	{"gen", "check the project, then write generated code", noFlags(gen)},
-	{"check", "check the project and that generated code is up to date", noFlags(check)},
-	{"makemigrations", "write the next migration from the models; --name NAME, --rename TABLE.OLD:NEW (repeatable)", cmdMakeMigrations},
-	{"showmigrations", "list the migrations and which the database has applied", noFlags(cmdShowMigrations)},
-	{"migrate", "apply the migrations the database has not applied", noFlags(cmdMigrate)},
+	{"gen", "check the project, then write generated code", 0, noFlags(gen)},
+	{"check", "check the project and that generated code is up to date", 0, noFlags(check)},
+	{"makemigrations", "write the next migration from the models; --name NAME, --rename TABLE.OLD:NEW (repeatable)", 0, cmdMakeMigrations},
+	{"showmigrations", "list the migrations and which the database has applied", 0, noFlags(cmdShowMigrations)},
+	{"migrate", "apply the migrations the database has not applied", 0, noFlags(cmdMigrate)},
+	{"add", "copy contrib app APP into the project, yours from then on (apps: " + strings.Join(scaffold.Apps(), ", ") + ")", 1, cmdAdd},
 }
 
 func noFlags(run func(stdout, stderr io.Writer) int) func(*flag.FlagSet) func(stdout, stderr io.Writer) int {
@@ -145,8 +148,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case err != nil:
 			usage(stderr)
 			return 2
-		case fs.NArg() > 0:
-			fmt.Fprintf(stderr, "maago %s: unexpected argument %q\n", c.name, fs.Arg(0))
+		case fs.NArg() > c.args:
+			fmt.Fprintf(stderr, "maago %s: unexpected argument %q\n", c.name, fs.Arg(c.args))
+			usage(stderr)
+			return 2
+		case fs.NArg() < c.args:
+			fmt.Fprintf(stderr, "maago %s: missing argument\n", c.name)
 			usage(stderr)
 			return 2
 		}
@@ -234,4 +241,20 @@ func cmdMigrate(stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "nothing to apply")
 	}
 	return 0
+}
+
+// cmdAdd copies a contrib app into the project (D-123): the files it
+// wrote on stdout, or why it wrote none.
+func cmdAdd(fs *flag.FlagSet) func(stdout, stderr io.Writer) int {
+	return func(stdout, stderr io.Writer) int {
+		written, ds := scaffold.Add(".", fs.Arg(0))
+		if len(ds) > 0 {
+			diag.Write(stderr, ds)
+			return 1
+		}
+		for _, p := range written {
+			fmt.Fprintf(stdout, "wrote %s\n", p)
+		}
+		return 0
+	}
 }

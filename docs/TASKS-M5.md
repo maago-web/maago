@@ -43,13 +43,13 @@
 - **D-128** 세션(DB, SHA-256, 쿠키 속성, `Path`는 `maago.Prefix()`), 로그인·변경·재설정 때의 세션, 일회 토큰은 지운 행 수로 한 번, 인증 전 로그인 막음, `next` 규칙, 같은 응답, 시도 제한(이메일·`RemoteAddr`, 15분 10번, `X-Forwarded-For` 불신)
 - **D-129** 개인 접근 토큰, Bearer, API 401의 `WWW-Authenticate: Bearer`, `Config.Origins`의 preflight에 `Authorization`. D-121·D-47을 고침
 - **D-130** `IsStaff`·`IsActive`만, staff 검사는 뷰의 한 줄, 권한·그룹·`IsSuperuser`는 M6, 탈퇴는 비활성, 묻지 않는 `-createsuperuser`
-- scaffold 자리(`contrib/auth/testdata/scaffold/`, embed), scaffold 시험(임시 프로젝트, 두 방언)은 2번 계획에서 확인한다
+- scaffold 자리(2번 계획에서 `internal/scaffold/testdata/<앱>/`, embed), scaffold 시험(임시 프로젝트, 두 방언)은 2번 계획에서 확인한다
 
 ## 모양
 
 ```
  이 저장소                                         사용자 프로젝트
- contrib/auth/testdata/scaffold/ ─ maago add auth ─▶ auth/  models.go(User·Session·Token·APIToken·LoginAttempt)
+ internal/scaffold/testdata/auth/ ── maago add auth ─▶ auth/  models.go(User·Session·Token·APIToken·LoginAttempt)
                                                           queries/*.sql, urls.go, views.go, forms.go, templates/, *_test.go
  contrib/auth (stdlib만) ◀──────── import ───────── auth/views.go
    Hash·Check, NewToken·HashToken, SafeNext,               main.go: Config{Apps: {board.App, auth.App},
@@ -112,8 +112,42 @@
 
 ## 2. `maago add`와 scaffold (D-123)
 
-`cmd/maago add <앱>`: embed한 scaffold를 `<앱>/`에 쓴다. 이미 있는 파일이 하나라도 있으면 아무것도 쓰지 않고 거절. 처음 scaffold는 모델(User·Session·Token·APIToken·LoginAttempt)과 최소 라우트 하나(빈 라우트 표는 오류). scaffold 시험 도구(임시 프로젝트, 두 방언).
-→ 확인: `add auth` → `makemigrations`에 인증 테이블(완료 조건 3), User에 필드를 더해도 통과, 있는 파일이면 거절
+`cmd/maago add <앱>`: embed한 scaffold를 `<앱>/`에 쓴다. 이미 있는 파일이 하나라도 있으면 아무것도 쓰지 않고 거절. 처음 scaffold는 `User` 모델 하나, 라우트 없음(세션·토큰 모델과 라우트는 그것을 쓰는 4·6·11번이 더한다). scaffold 시험 도구(임시 프로젝트, 두 방언).
+→ 확인: `add auth` → `makemigrations`에 `auth_user`(완료 조건 3의 첫 몫, 모두는 13번), User에 필드를 더해도 통과, 있는 파일이면 거절
+
+### 계획
+
+- **자리**: 루트 모듈의 `internal/scaffold`(`//go:embed testdata`, 앱마다 `testdata/<앱>/`). `cmd/maago`는 import 경로가 루트 아래라 `internal`을 쓸 수 있다(지금도 `internal/build`). `testdata`라 go 도구가 그 안의 `.go`를 컴파일하지 않고, 사용자 바이너리에 따라가지 않는다(`contrib/auth` 라이브러리와 따로). 결정의 `contrib/auth/testdata/scaffold/`를 이렇게 고친다: `cmd/maago`(다른 모듈)는 루트 모듈의 디렉터리를 embed할 수 없고, `contrib/auth`에 두면 라이브러리를 import한 사용자 바이너리가 scaffold를 싣는다
+- **`scaffold.Add(root, app string) ([]string, []diag.Diagnostic)`**: 모르는 앱은 오류(`did you mean`, 있는 앱 목록). `root/<앱>/` 아래에 쓸 파일 중 하나라도 이미 있으면 아무것도 쓰지 않고 그 파일들을 오류로(D-123). 쓰기는 모두 확인한 뒤. 쓴 파일 목록을 돌려준다. 생성 표시 없음(사람의 파일, D-67)
+- **CLI** `maago add <앱>`: 명령 표에 한 줄. 인자 없음·둘 이상은 사용법 오류(2). 쓴 파일을 한 줄씩. 루트는 `gen`처럼 작업 디렉터리에서 `go.mod`까지
+- **처음 scaffold**: `auth/models.go`의 `User` 하나(세션·토큰·API 토큰 모델은 그것을 쓰는 4·6·11번이 더한다): `ID`, `Email`(`max=254,unique,label='Email'`), `PasswordHash`, `IsActive`(`default=true`, 탈퇴·관리자가 끔, D-130), `IsStaff`(`default=false`), `VerifiedAt *time.Time`(이메일 인증, D-128. 인증 전과 탈퇴를 가른다), `CreatedAt`(`auto=create`). 라우트는 아직 없다(빈 라우트 표는 오류이고 라우트가 생기면 `main`이 `auth.App`을 써야 한다, 4번). 문구는 영어(D-06과 같은 기본, 사용자가 고친다)
+- **시험**(`cmd/maago`): 빈 프로젝트에 `add auth` → `makemigrations`에 `auth_user` → `check` 통과, 두 방언. `User`에 필드를 더한 뒤 다시 `makemigrations`·`check`(완료 조건 4의 첫 몫). 다시 `add auth`는 거절하고 아무것도 바꾸지 않음(스냅숏). 모르는 앱. CLI의 사용법 오류. scaffold의 `.go`가 gofmt인지(`gofmt -l`이 `testdata`를 보지 않으면 시험이 본다)
+
+하지 않기로 한 것
+- `--force`·덮어쓰기·`--diff`(D-123: 빈 디렉터리에 다시 `add`하고 `git diff --no-index`), 앱 이름 바꾸기(`add auth --as users`)
+
+단계
+1. `internal/scaffold`와 `User` → 확인: 단위 시험(쓰기·거절·모르는 앱)
+2. `maago add` → 확인: CLI 시험
+3. 두 방언의 `makemigrations`·`check`, 필드 더하기 → 확인: `cmd/maago` 시험
+4. 두 모듈 확인 명령
+
+계획 리뷰 (codex·fable)와 사람의 결정 — 위 계획을 이렇게 고친다
+- **사람의 결정(2026-10-07)**: `VerifiedAt *time.Time`을 둔다(D-130 고침). 로그인은 `IsActive && VerifiedAt != nil` 하나로 4·6·9번이 같이 쓰고 `createsuperuser`가 채운다. 복사본의 문구는 영어(D-123에 한 줄)
+- 자리의 근거를 고친다(codex 5, fable 8): `cmd/maago`는 중첩 모듈이어도 import 경로가 `github.com/maago-web/maago` 아래라 `internal`을 쓸 수 있다(지금도 `internal/build`). 무게는 `internal`이라는 것과 `contrib/`가 아직 없다는 것. "모양" 그림의 자리도 고친다. D-123 본문은 자리를 말하지 않아 DECISIONS는 그대로
+- `Email`의 `label='Email'`은 뺀다(기본 라벨이 필드 이름, fable 4). gofmt 시험은 뺀다: `gofmt -l .`은 `testdata`도 본다(fable 3). `TestNoReflect`는 `testdata`의 `.go`도 읽고 `TestGeneratedImports`는 생성 표시가 있는 파일만 본다(codex 6): scaffold는 올바른 Go이고 표시가 없으면 된다
+- **시험이 scaffold를 컴파일한다**(fable 1, codex 7): `add auth` 뒤 임시 프로젝트(`webProject`처럼 `go.work`)에서 `go vet ./...`. `testdata`는 go 도구가 보지 않아 이것이 없으면 import·형 오류가 사용자의 `go build`에서야 드러난다
+- **CLI**(fable 2, codex 3): 지금 `run`은 모든 명령의 위치 인자를 거절한다. `command`에 위치 인자 하나를 받는 표시를 더하고 사용법에 `add <app>`. 종료 코드: 성공 0, 인자 없음·둘 이상 2, 모르는 앱·있는 파일·쓰기 실패 1(진단은 stderr, 쓴 파일은 stdout). `TestRun`의 꼴로
+- **쓰기**(codex 2·4, fable 9): 먼저 쓸 자리마다 `Lstat`로 확인해 무엇이든(파일·디렉터리·링크) 있으면 모두 진단하고 아무것도 쓰지 않는다. 쓰기는 `O_CREATE|O_EXCL`(확인과 쓰기 사이의 경쟁). 도중에 실패하면 이번에 쓴 파일을 지우고 진단. 진단의 자리는 루트 기준 경로(D-88), fix는 D-123의 길("run maago add in an empty directory and compare with git diff --no-index"). 임시 디렉터리를 거치는 단계는 두지 않는다
+- 필드 속성은 두 방언의 `makemigrations`가 쓴 SQL에서 본다: `email` 길이·unique, `is_active` 기본 참, `is_staff` 기본 거짓, `verified_at` NULL 허용(codex 8)
+- 이미 `add`한 프로젝트에 나중 작업의 scaffold를 넣는 길은 없다(D-123의 대가, 지금 쓰는 것은 이 저장소의 시험과 12번뿐, fable 10). scaffold는 그대로 복사한다: 앱은 패키지 하나라 모듈 경로를 채울 일이 없다(fable 11). 앱 이름은 embed한 목록에 있어야 해서 경로를 넘을 수 없다(fable 12)
+- 6번에: `Email`의 unique는 대소문자를 가린다. 가입·로그인이 소문자로 바꿀지 그 계획에서(fable 13)
+
+구현 리뷰 (ponytail·codex·fable)
+- 만들며 확인한 것: scaffold에 컴파일 오류를 넣으면 `TestAddAuth`의 `go vet`이 잡는다, 두 방언의 SQL 속성, 하위 디렉터리에서 루트 찾기. 확인 명령의 `go test … | grep`이 실패 코드를 가려 `TestUsage` 실패 뒤에도 끝 줄이 나왔다: 이제 종료 코드를 따로 본다
+- ponytail(스스로·fable): 지울 것 없음. `Apps()`는 embed한 디렉터리에서(앱이 늘면 스스로 들어온다)
+- codex: 받음 — 실패하면 이번에 만든 빈 디렉터리도 지움(1: `undo`, 실패한 파일은 디렉터리만 넘긴다. 그사이 다른 것이 생겼을 수 있다), `Lstat`의 다른 오류는 "볼 수 없음"으로 따로(2). 받지 않음 — 3 여러 파일의 중간 실패·`O_EXCL` 경쟁 시험: 지금 scaffold는 파일 하나라 만들 수 없다. 파일이 늘어나는 4번에서 중간 실패 시험을 더한다. 4 실행 환경 문제
+- fable: 받음 — 거절 뒤 그 파일이 그대로인지(1), 복사되는 파일의 D-번호를 빼고 `maago add auth`를 한 줄로(3: 사용자의 프로젝트에는 DECISIONS가 없다), ARCHITECTURE §2의 `internal/scaffold`와 `contrib/auth`의 뜻·§3의 `add`(4), 사용법의 "add add"(5), "something is in the way"(6: 디렉터리·링크도). 되돌리기 코드는 둔다(2: 4번에서 시험이 생긴다)
 
 ## 3. 비밀번호 해싱 (`contrib/auth`, D-127)
 
