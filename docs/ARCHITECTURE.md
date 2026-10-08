@@ -40,10 +40,10 @@ github.com/maago-web/maago
 │                          NewApp·AppRoute·Pages·Render·Bind*·FinishForm·FormValues·JSONValues·Unprocessable·
 │                          Rule·FieldError·URLFunc·PathSegment·DateFunc …
 │                          런타임이 기대는 내부 패키지는 internal/diag·internal/project뿐(시험이 본다)
-├── maagotest/          시험 전용 도우미 (M4, D-113). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
+├── maagotest/          시험 전용 도우미: DB (M4, D-113), Mailbox (M5, D-126). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
 ├── contrib/
 │   ├── auth/            인증의 보안 부품(stdlib만, M5): Hash·Check(D-127), NewToken·HashToken·
-│   │                      SessionCookie·FromSession·SafeNext(D-128). 앱 층은 `maago add auth`가
+│   │                      SessionCookie·FromSession·SafeNext(D-128), Mail·Message·SMTP·ConsoleMail(D-126). 앱 층은 `maago add auth`가
 │   │                      프로젝트에 복사한다(D-123)                     D-50, D-51
 │   └── admin/           admin 런타임 (M6)         D-48, D-49
 │

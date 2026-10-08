@@ -258,6 +258,41 @@
 `auth.Mail`·`Message`·`SMTP`·`ConsoleMail`, `maagotest.Mailbox(t)`.
 → 확인: 가짜 SMTP 서버(`net` 리스너)로 한 통, 메일함 시험
 
+### 계획
+
+이 작업의 끝에 복사본(6·7번)이 `authlib.Mail(ctx, authlib.Message{…})`로 보내고, 시험은 `maagotest.Mailbox(t)`로 받은 것을 본다. 복사본은 아직 보내지 않는다(6번).
+
+`contrib/auth/mail.go`(stdlib만)
+- `Message{To, Subject, Body string}`: `To`는 주소 하나(`net/mail`이 읽는 것, ASCII), 본문은 글(text/plain, UTF-8)
+- `var Mail func(ctx context.Context, m Message) error`: `main`이 채운다, 시험은 `maagotest.Mailbox`. 처음 값은 오류 "auth: Mail is not set; main sets auth.Mail to auth.SMTP(addr, from, a) or auth.ConsoleMail"(조용히 버리지도 운영 로그에 토큰을 흘리지도 않는다, PHILOSOPHY 7)
+- `SMTP(addr, from string, a smtp.Auth) func(context.Context, Message) error`: `SendMail`의 순서(HELLO, 서버가 하면 STARTTLS(`ServerName`은 addr의 호스트), `a`가 있으면 AUTH, MAIL, RCPT, DATA, QUIT)를 `net.Dialer.DialContext`의 연결 위에서. 연결에는 고정 데드라인 30초(`net/smtp`는 시간 제한이 없고 요청 ctx도 대개 끝이 없다), `context.AfterFunc(ctx, conn.Close)`. ctx 때문에 실패하면 `ctx.Err()`를 돌려준다. TLS가 아닌 연결에서 AUTH는 루프백 서버에만(`PlainAuth`가 아닌 `smtp.Auth`도). `from`·`To`는 `mail.ParseAddress`로 읽어 봉투에는 주소만, 머리에는 그 `String()`. 주소가 ASCII가 아니거나 읽히지 않거나 `Subject`에 CR·LF가 있으면 연결 전에 오류. 머리: `From`·`To`·`Subject`(`mime.QEncoding`)·`Date`·`MIME-Version`·`Content-Type: text/plain; charset=utf-8`·`Content-Transfer-Encoding: quoted-printable`(서버가 `8BITMIME`을 하지 않아도 되고 홀로 선 CR도 안전). 점 스터핑과 CRLF는 `c.Data()`의 DotWriter가 한다. `ponytail:` STARTTLS만(465의 암시적 TLS 없음), `Message-ID` 없음
+- `ConsoleMail(ctx, m) error`: 표준 출력에 받는 사람·제목·본문(개발용, 시험 없음)
+
+`maagotest.Mailbox(t) *Inbox`(Go에서 함수와 타입이 한 이름을 나눌 수 없어 타입은 `Inbox`): `authlib.Mail`을 받은 것을 모으는 함수로 바꾸고 `t.Cleanup`에서 되돌린다. 받기와 `(*Inbox).Messages() []auth.Message`(복사본)는 mutex 아래(7번이 동시 요청을 보낸다). 패키지 변수라 `t.Parallel` 시험에서는 쓰지 않는다고 문서 한 줄. `maagotest`가 `contrib/auth`를 import한다(같은 모듈, 고리 없음, 런타임 의존 게이트는 그대로)
+
+시험
+- `contrib/auth`: 가짜 SMTP 서버(`net.Listen`, 광고할 확장을 시험이 고른다)로 한 통 → 봉투(`MAIL FROM`·`RCPT TO`)와 머리·본문(한글 제목, `.`로 시작하는 줄, 홀로 선 CR, 이름 있는 `from`). AUTH: `250-AUTH PLAIN` + `PlainAuth`(127.0.0.1) → `AUTH PLAIN` 줄, 루프백이 아닌 이름 + 다른 `smtp.Auth` → 거절(가짜 서버는 TLS가 없다), 서버에 AUTH가 없으면 오류. 머리 주입·이름 붙은 `To`가 아닌 깨진 주소·ASCII가 아닌 주소는 연결 전에 거절(서버가 아무것도 받지 않음). 답하지 않는 서버 + 짧은 ctx → `context.DeadlineExceeded`. 처음 `Mail`의 오류
+- `maagotest`: `Mailbox`가 동시에 받은 것(`-race`), 시험이 끝나면 원래 `Mail`로 돌아감
+
+하지 않기로 한 것: STARTTLS 시험(인증서), SMTPUTF8, HTML 메일, 첨부, 여러 받는 사람, 재시도·큐, 메일 템플릿(D-126). 6번에 넘김: 사용자 행을 넣은 뒤 메일이 실패하면 무엇이 남는지(순서는 6번 계획), `main`이 `authlib.Mail`을 채우는 모양(12번)
+
+단계
+1. `mail.go`와 시험 → 확인: `contrib/auth` 시험(`-race`)
+2. `Mailbox` → 확인: `maagotest` 시험
+3. ARCHITECTURE, 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: 8bit 본문 → quoted-printable. SMTPUTF8·주소 → `net/mail`, ASCII만, 봉투와 머리를 나눔. 평문 AUTH → 어떤 `smtp.Auth`든 루프백만. 취소 → `AfterFunc` 하나와 `ctx.Err()`. 머리 줄 길이 접기 → 받지 않음(`QEncoding`이 낱말을 나눈다, 제목은 짧다). 홀로 선 CR → quoted-printable이 맡는다. 가짜 서버의 확장 선택 → 받음, STARTTLS는 뺌. `Mailbox` 동시성 → mutex. `ConsoleMail`의 형식 → 개발용 세 줄
+- fable: 고정 데드라인(요청 ctx는 끝이 없다) → 30초. ctx 오류로 바꿔 돌려주기 → 받음. `Mailbox` mutex → 받음. DotWriter가 이미 함 → 문장 고침. AUTH 가지 시험 → 받음. 처음 `Mail`은 오류 → 그대로. 메일 실패 뒤의 행·`main`의 모양 → 6·12번. 두 번째 `Mailbox` 가드 넣지 않음. 오류 접두어 `auth:`
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. D-126의 `maagotest.Mailbox(t)`는 그대로, 돌려주는 타입은 `Inbox`(Go에서 함수와 타입이 한 이름을 나눌 수 없다)
+- codex: 머리 줄 길이 → 접지 않고 900바이트 넘으면 거절. ctx 오류 바꾸기의 경합 → `stop()`이 false일 때(ctx가 연결을 닫았을 때)만. 거절 시험의 "연결 없음" → 닫힌 포트로(연결했다면 다른 오류)
+- fable: 연결 자체에 데드라인이 없음 → `net.Dialer{Deadline}`. 가짜 서버의 줄 읽기 → `textproto.Reader`. 거절 시험 → codex와 같이. 본문이 ASCII뿐 → 한글을 넣어 quoted-printable을 시험. `Mailbox` 시험이 개수만 봄 → 받는 사람 열 개를 비교. `maagotest` 패키지 문서 → `Mailbox`와 예외 문장. ASCII 검사 → `utf8.RuneSelf`. `wait`의 시간 제한은 둔다(실패 문구가 분명하다)
+- 고친 뒤 변형 넷(ctx 오류, 머리 길이, quoted-printable, 받은 메일)이 시험에 잡힘을 확인
+
 ## 6. 비밀번호 검증기, 가입과 이메일 인증 (D-128)
 
 검증기는 Go 함수 목록(D-15: 길이, 흔한 비밀번호 작은 목록, 이메일과 비슷함). 이메일은 저장할 때도 `ToLower(TrimSpace)`(4번의 로그인이 그렇게 찾는다, codex 4번 구현 리뷰). 가입 폼(모델 폼, 이메일 중복은 뷰의 쿼리 D-119, 같은 응답), 인증 토큰 메일, 링크로 활성.

@@ -1,6 +1,7 @@
-// Package maagotest gives an app's tests a database of their own (D-113):
-// the one exception to the runtime being the root package alone, since it
-// imports testing, which the app's binary must not carry.
+// Package maagotest gives an app's tests a database of their own (D-113)
+// and a mailbox (D-126): an exception to the runtime being the root
+// package alone, since it imports testing, which the app's binary must not
+// carry.
 package maagotest
 
 import (
