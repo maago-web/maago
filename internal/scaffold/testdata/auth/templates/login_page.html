@@ -7,4 +7,4 @@
 <input type="password" id="{{.Name}}" name="{{.Name}}" autocomplete="current-password" required>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
 <button>Sign in</button>
 </form>
-<p><a href="{{url "password_reset"}}">Forgot your password?</a></p>{{end}}
+<p><a href="{{url "password_reset"}}">Forgot your password?</a> · <a href="{{url "verify_resend"}}">Verify your email</a></p>{{end}}

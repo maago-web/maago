@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -67,7 +68,13 @@ func newUser(t *testing.T, db *sql.DB, email string, change func(*NewUserInput))
 
 // do sends a request, with the session cookie if one is given.
 func do(h http.Handler, method, path, body, session string) *httptest.ResponseRecorder {
+	return doFrom(h, "192.0.2.1", method, path, body, session)
+}
+
+// doFrom sends a request from the IP ip.
+func doFrom(h http.Handler, ip, method, path, body, session string) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	r.RemoteAddr = ip + ":1234"
 	if body != "" {
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
@@ -281,6 +288,7 @@ func TestSignup(t *testing.T) {
 	}
 	l := link(t, sent[0].Body, "https://example.com/verify?token=")
 	token := strings.TrimPrefix(l, "https://example.com/verify?token=")
+	link(t, sent[0].Body, "https://example.com/password/reset")
 	if _, err := GetUser(context.Background(), db, 1); err != nil {
 		t.Fatal(err)
 	}
@@ -295,15 +303,20 @@ func TestSignup(t *testing.T) {
 	}
 	// Opening the link, even twice, uses nothing up.
 	for range 2 {
-		if w := do(h, "GET", "/verify?token="+token, "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `value="`+token+`"`) {
+		if w := do(h, "GET", "/verify?token="+token, "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `value="`+token+`"`) || !strings.Contains(w.Body.String(), `name="password"`) {
 			t.Fatalf("verify page: %d %s", w.Code, w.Body)
 		}
 	}
-	verify := url.Values{"token": {token}}.Encode()
-	if w := do(h, "POST", "/verify", verify, ""); w.Code != 303 || w.Header().Get("Location") != "/login" {
-		t.Fatalf("verify: %d %s", w.Code, w.Body)
+	resend(t, h, box, "ann@example.com") // a second link, which verifying removes
+	w = do(h, "POST", "/verify", verify(token, password), "")
+	cookies := w.Result().Cookies()
+	if w.Code != 303 || w.Header().Get("Location") != "/" || len(cookies) != 1 || whoami(h, cookies[0].Value) != "ann@example.com" {
+		t.Fatalf("verify: %d %v %s", w.Code, cookies, w.Body)
 	}
-	if w := do(h, "POST", "/verify", verify, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "This link is invalid or has expired.") {
+	if count(t, db, "SELECT count(*) FROM auth_token") != 0 {
+		t.Error("verification tokens are left")
+	}
+	if w := do(h, "POST", "/verify", verify(token, password), ""); w.Code != 200 || !strings.Contains(w.Body.String(), "This link is invalid or has expired.") {
 		t.Errorf("verify again: %d %s", w.Code, w.Body)
 	}
 	if c := login(t, h, "ann@example.com", ""); whoami(h, c.Value) != "ann@example.com" {
@@ -311,24 +324,50 @@ func TestSignup(t *testing.T) {
 	}
 }
 
+func verify(token, password string) string {
+	return url.Values{"token": {token}, "password": {password}}.Encode()
+}
+
+// resend asks for the verification mail of email again, and returns the
+// token of the mail.
+func resend(t *testing.T, h http.Handler, box *maagotest.Inbox, email string) string {
+	t.Helper()
+	before := len(box.Messages())
+	if w := do(h, "POST", "/verify/resend", url.Values{"email": {email}}.Encode(), ""); w.Code != 200 {
+		t.Fatalf("resend: %d %s", w.Code, w.Body)
+	}
+	sent := box.Messages()
+	if len(sent) != before+1 || sent[before].Subject != "Verify your email" {
+		t.Fatalf("sent %v", sent)
+	}
+	return strings.TrimPrefix(link(t, sent[before].Body, "https://example.com/verify?token="), "https://example.com/verify?token=")
+}
+
 // Signing up with an email that has an account answers the same, adds no
-// account, and tells the owner.
+// account, and tells the owner: to sign in, or, not verified yet, a new
+// link to verify, with the password unchanged.
 func TestSignupExisting(t *testing.T) {
 	h, db := site(t)
 	box := maagotest.Mailbox(t)
 	newUser(t, db, "ann@example.com", nil)
-	newUser(t, db, "new@example.com", func(in *NewUserInput) { in.VerifiedAt = nil }) // verified or not: until resending (task 8), the same
+	nu := newUser(t, db, "new@example.com", func(in *NewUserInput) { in.VerifiedAt = nil })
 	fresh := do(h, "POST", "/signup", form("bob@example.com", "a long fresh password"), "")
-	for i, email := range []string{"ANN@example.com ", "new@example.com"} {
-		again := do(h, "POST", "/signup", form(email, "a long fresh password"), "")
+	for i, c := range []struct{ email, subject, link string }{
+		{"ANN@example.com ", "You already have an account", "https://example.com/login"},
+		{"new@example.com", "Verify your email", "https://example.com/verify?token="},
+	} {
+		again := do(h, "POST", "/signup", form(c.email, "a long fresh password"), "")
 		if again.Code != fresh.Code || again.Body.String() != fresh.Body.String() {
-			t.Errorf("%s: answers differ:\n%s\n%s", email, fresh.Body, again.Body)
+			t.Errorf("%s: answers differ:\n%s\n%s", c.email, fresh.Body, again.Body)
 		}
 		sent := box.Messages()
-		if len(sent) != 2+i || sent[1+i].To != strings.ToLower(strings.TrimSpace(email)) || sent[1+i].Subject != "You already have an account" {
+		if len(sent) != 2+i || sent[1+i].To != strings.ToLower(strings.TrimSpace(c.email)) || sent[1+i].Subject != c.subject {
 			t.Fatalf("sent %v", sent)
 		}
-		link(t, sent[1+i].Body, "https://example.com/login")
+		link(t, sent[1+i].Body, c.link)
+	}
+	if got, _ := GetUser(context.Background(), db, nu.ID); got.PasswordHash != nu.PasswordHash {
+		t.Error("signing up again changed the password")
 	}
 	var n int
 	if err := db.QueryRow("SELECT count(*) FROM auth_user").Scan(&n); err != nil || n != 3 {
@@ -407,8 +446,13 @@ func TestVerifyTokens(t *testing.T) {
 	}
 	expired, old := add("verify", time.Now().Add(-time.Second))
 	reset, _ := add("reset", time.Now().Add(time.Hour))
-	for name, token := range map[string]string{"expired": expired, "reset": reset, "garbage": "x", "empty": ""} {
-		w := do(h, "POST", "/verify", url.Values{"token": {token}}.Encode(), "")
+	gone := newUser(t, db, "gone@example.com", func(in *NewUserInput) { in.VerifiedAt, in.IsActive = nil, maago.Set(false) })
+	closed, err := newToken(ctx, db, gone.ID, "verify", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, token := range map[string]string{"expired": expired, "reset": reset, "closed": closed, "garbage": "x", "empty": ""} {
+		w := do(h, "POST", "/verify", verify(token, password), "")
 		if w.Code != 200 || !strings.Contains(w.Body.String(), "This link is invalid or has expired.") {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body)
 		}
@@ -420,6 +464,13 @@ func TestVerifyTokens(t *testing.T) {
 	}
 	if u, _ := GetUser(ctx, db, ann.ID); u.VerifiedAt != nil {
 		t.Error("verified by a token that does not verify")
+	}
+	if u, _ := GetUser(ctx, db, gone.ID); u.VerifiedAt != nil || count(t, db, "SELECT count(*) FROM auth_session") != 0 {
+		t.Error("a closed account verified")
+	}
+	// A password changed since it was checked verifies nothing.
+	if n, err := VerifyUser(ctx, db, VerifyUserParams{ID: ann.ID, PasswordHash: "another", Now: time.Now()}); n != 0 || err != nil {
+		t.Errorf("verified with another password: %d %v", n, err)
 	}
 	if _, err := newToken(ctx, db, ann.ID, "verify", time.Hour); err != nil {
 		t.Fatal(err)
@@ -440,7 +491,7 @@ func TestVerifyOnce(t *testing.T) {
 	}
 	codes := make(chan int, 2)
 	for range 2 {
-		go func() { codes <- do(h, "POST", "/verify", url.Values{"token": {token}}.Encode(), "").Code }()
+		go func() { codes <- do(h, "POST", "/verify", verify(token, password), "").Code }()
 	}
 	if a, b := <-codes, <-codes; a+b != 303+200 {
 		t.Errorf("codes %d and %d, want one 303 and one 200", a, b)
@@ -464,6 +515,7 @@ func TestMailLinksPrefix(t *testing.T) {
 		t.Fatalf("sent %v", sent)
 	}
 	link(t, sent[0].Body, "https://example.com/app/verify?token=")
+	link(t, sent[0].Body, "https://example.com/app/password/reset")
 	link(t, sent[1].Body, "https://example.com/app/login")
 	do(sh, "POST", "/app/password/reset", url.Values{"email": {"ann@example.com"}}.Encode(), "")
 	if sent = box.Messages(); len(sent) != 3 {
@@ -698,5 +750,190 @@ func TestPasswordChange(t *testing.T) {
 	}
 	if w := do(h, "POST", "/login", form("ann@example.com", password), ""); w.Code != 200 {
 		t.Errorf("the old password still signs in: %d", w.Code)
+	}
+}
+
+// from posts a form from the IP ip.
+func from(h http.Handler, ip, path, body string) *httptest.ResponseRecorder {
+	return doFrom(h, ip, "POST", path, body, "")
+}
+
+// The eleventh attempt in the window is refused, for the email from any
+// IP, whether it has an account or not; signing in counts apart from
+// mails, and a sign-in does not count.
+func TestLimit(t *testing.T) {
+	h, db := site(t)
+	box := maagotest.Mailbox(t)
+	ann := newUser(t, db, "ann@example.com", nil)
+	newUser(t, db, "carol@example.com", nil)
+	tooMany := func(name string, w *httptest.ResponseRecorder) {
+		t.Helper()
+		if w.Code != 429 || w.Header().Get("Set-Cookie") != "" {
+			t.Errorf("%s: %d %v", name, w.Code, w.Header())
+		}
+	}
+
+	for i := range 10 {
+		if w := from(h, fmt.Sprintf("198.51.100.%d", i), "/login", form("ann@example.com", "wrong")); w.Code != 200 {
+			t.Fatalf("attempt %d: %d", i+1, w.Code)
+		}
+	}
+	tooMany("the eleventh", from(h, "198.51.100.99", "/login", form(" ANN@example.com ", "wrong")))
+	tooMany("the right password", from(h, "198.51.100.99", "/login", form("ann@example.com", password)))
+	token, err := newToken(context.Background(), db, ann.ID, "verify", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tooMany("verifying with the password", from(h, "198.51.100.99", "/verify", verify(token, password)))
+	if n := count(t, db, "SELECT count(*) FROM auth_attempt WHERE email = 'ann@example.com'"); n != 13 {
+		t.Errorf("%d attempts recorded, want 13 with the refused", n)
+	}
+	for range 15 { // a sign-in does not count
+		if w := from(h, "198.51.100.1", "/login", form("carol@example.com", password)); w.Code != 303 {
+			t.Fatalf("carol: %d", w.Code)
+		}
+	}
+
+	// Mails: signing up, resetting and verifying again count together,
+	// and the sign-ins above not.
+	email := url.Values{"email": {"dave@example.com"}}.Encode()
+	mails := []struct{ path, body string }{
+		{"/signup", form("dave@example.com", "a long fresh password")},
+		{"/password/reset", email},
+		{"/verify/resend", email},
+	}
+	for i := range 10 {
+		if m := mails[i%3]; from(h, "203.0.113.1", m.path, m.body).Code != 200 {
+			t.Fatalf("mail %d %s", i+1, m.path)
+		}
+	}
+	sent := len(box.Messages())
+	for _, m := range mails {
+		tooMany(m.path, from(h, "203.0.113.2", m.path, m.body))
+	}
+	if len(box.Messages()) != sent {
+		t.Errorf("a refused attempt sent mail")
+	}
+	if w := from(h, "203.0.113.2", "/password/reset", url.Values{"email": {"ann@example.com"}}.Encode()); w.Code != 200 {
+		t.Errorf("signing in refused, a reset is not: %d", w.Code)
+	}
+
+	// The window passes.
+	t.Cleanup(func() { AttemptWindow = 15 * time.Minute })
+	AttemptWindow = time.Nanosecond
+	if w := from(h, "198.51.100.99", "/login", form("ann@example.com", password)); w.Code != 303 {
+		t.Errorf("after the window: %d", w.Code)
+	}
+	if n := count(t, db, "SELECT count(*) FROM auth_attempt"); n != 0 {
+		t.Errorf("%d old attempts are left", n)
+	}
+}
+
+// One IP may make AttemptLimitIP attempts, for any emails.
+func TestLimitIP(t *testing.T) {
+	h, _ := site(t)
+	for i := range AttemptLimitIP {
+		if w := from(h, "2001:db8::1", "/login", form(fmt.Sprintf("u%d@example.com", i), "wrong")); w.Code != 200 {
+			t.Fatalf("attempt %d: %d", i+1, w.Code)
+		}
+	}
+	if w := from(h, "2001:db8::2", "/login", form("ann@example.com", "wrong")); w.Code != 429 { // the same /64
+		t.Errorf("over the limit: %d", w.Code)
+	}
+	if w := from(h, "2001:db8:0:1::1", "/login", form("ann@example.com", "wrong")); w.Code != 200 {
+		t.Errorf("another IP: %d", w.Code)
+	}
+}
+
+// Of attempts at once, no more than the limit get through.
+func TestLimitAtOnce(t *testing.T) {
+	h, _ := site(t)
+	codes := make(chan int, 20)
+	for i := range 20 {
+		go func() {
+			codes <- from(h, fmt.Sprintf("198.51.100.%d", i), "/login", form("ann@example.com", "wrong")).Code
+		}()
+	}
+	passed := 0
+	for range 20 {
+		if <-codes != 429 {
+			passed++
+		}
+	}
+	if passed > 10 { // fewer is right too: racing, it refuses more
+		t.Errorf("%d of 20 got through", passed)
+	}
+}
+
+// An account whose first mail failed is verified by sending it again; any
+// other email gets the same answer and no mail.
+func TestVerifyResend(t *testing.T) {
+	h, db := site(t)
+	old := authlib.Mail
+	authlib.Mail = func(context.Context, authlib.Message) error { return errors.New("smtp down") }
+	t.Cleanup(func() { authlib.Mail = old }) // after Mailbox's below: cleanups run last first
+	if w := do(h, "POST", "/signup", form("ann@example.com", password), ""); w.Code != 500 {
+		t.Fatalf("mail fails: %d", w.Code)
+	}
+	box := maagotest.Mailbox(t)
+	token := resend(t, h, box, " Ann@Example.com ")
+	if w := do(h, "POST", "/verify", verify(token, password), ""); w.Code != 303 || len(w.Result().Cookies()) != 1 {
+		t.Fatalf("verify: %d %s", w.Code, w.Body)
+	}
+
+	newUser(t, db, "bob@example.com", nil)
+	newUser(t, db, "gone@example.com", func(in *NewUserInput) { in.VerifiedAt, in.IsActive = nil, maago.Set(false) })
+	want := do(h, "POST", "/verify/resend", url.Values{"email": {"nobody@example.com"}}.Encode(), "")
+	for _, email := range []string{"ann@example.com", "bob@example.com", "gone@example.com"} {
+		if w := do(h, "POST", "/verify/resend", url.Values{"email": {email}}.Encode(), ""); w.Code != 200 || w.Body.String() != want.Body.String() {
+			t.Errorf("%s answers differently: %d\n%s", email, w.Code, w.Body)
+		}
+	}
+	if sent := box.Messages(); len(sent) != 1 {
+		t.Errorf("sent %v", sent)
+	}
+	if w := do(h, "GET", "/verify/resend", "", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `name="email"`) {
+		t.Errorf("form: %d", w.Code)
+	}
+	if !strings.Contains(do(h, "GET", "/login", "", "").Body.String(), `href="/verify/resend"`) {
+		t.Error("no link from the login page")
+	}
+}
+
+// Who signs up first with another's email, choosing the password, does
+// not get the account: verifying asks for the password, and the owner
+// resets it first.
+func TestSignupTakenFirst(t *testing.T) {
+	h, db := site(t)
+	box := maagotest.Mailbox(t)
+	const theirs = "mallory picked this"
+	if w := do(h, "POST", "/signup", form("ann@example.com", theirs), ""); w.Code != 200 {
+		t.Fatalf("their signup: %d", w.Code)
+	}
+	// The owner signs up too, and gets a link; the password stays theirs.
+	do(h, "POST", "/signup", form("ann@example.com", password), "")
+	sent := box.Messages()
+	if len(sent) != 2 || sent[1].Subject != "Verify your email" {
+		t.Fatalf("sent %v", sent)
+	}
+	token := strings.TrimPrefix(link(t, sent[1].Body, "https://example.com/verify?token="), "https://example.com/verify?token=")
+	tokens := count(t, db, "SELECT count(*) FROM auth_token")
+	w := do(h, "POST", "/verify", verify(token, password), "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Incorrect password.") || w.Header().Get("Set-Cookie") != "" || strings.Contains(w.Body.String(), password) {
+		t.Fatalf("verify with the owner's password: %d %v %s", w.Code, w.Header(), w.Body)
+	}
+	if count(t, db, "SELECT count(*) FROM auth_token") != tokens || count(t, db, "SELECT count(*) FROM auth_user WHERE verified_at IS NULL") != 1 {
+		t.Error("a refused verification used the token or verified")
+	}
+
+	reset := resetLink(t, h, box, "ann@example.com")
+	if w := do(h, "POST", "/password/reset/confirm", confirm(reset, password), ""); w.Code != 303 {
+		t.Fatalf("reset: %d %s", w.Code, w.Body)
+	}
+	if w := do(h, "POST", "/verify", verify(token, password), ""); w.Code != 303 || len(w.Result().Cookies()) != 1 {
+		t.Fatalf("verify after the reset: %d %s", w.Code, w.Body)
+	}
+	if w := do(h, "POST", "/login", form("ann@example.com", theirs), ""); w.Code != 200 {
+		t.Errorf("their password signs in: %d", w.Code)
 	}
 }

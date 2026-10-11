@@ -96,6 +96,26 @@ func TestDBFrom(t *testing.T) {
 	DBFrom(context.Background())
 }
 
+func TestRemoteAddrFrom(t *testing.T) {
+	var got string
+	app := NewApp("a", route("GET", "/x", false, func(w http.ResponseWriter, r *http.Request) error {
+		got = RemoteAddrFrom(r.Context())
+		return nil
+	}))
+	r := httptest.NewRequest("GET", "/x", nil)
+	r.RemoteAddr = "198.51.100.7:4321"
+	r.Header.Set("X-Forwarded-For", "203.0.113.9")
+	if serve(t, Config{Apps: []App{app}}, r); got != "198.51.100.7:4321" {
+		t.Errorf("got %q", got)
+	}
+	defer func() {
+		if p := recover(); p != "maago: RemoteAddrFrom outside a request from Handler" {
+			t.Errorf("panic %v", p)
+		}
+	}()
+	RemoteAddrFrom(context.Background())
+}
+
 func TestErrorStatus(t *testing.T) {
 	cases := []struct {
 		name     string

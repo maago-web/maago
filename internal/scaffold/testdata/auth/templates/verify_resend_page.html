@@ -1,0 +1,7 @@
+{{define "content"}}<h1>Send the verification link again</h1>
+{{if .Sent}}<p>If an account with that email needs verifying, we've sent a link.</p>{{else}}
+<form method="post" action="{{url "verify_resend_submit"}}">
+{{with .Form.Email}}<label for="{{.Name}}">Email</label>
+<input type="email" id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}" autocomplete="username" required>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+<button>Email me a link</button>
+</form>{{end}}{{end}}

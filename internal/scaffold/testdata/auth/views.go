@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"net/http"
 	"strings"
 	"time"
 
@@ -33,7 +34,12 @@ func Login(ctx context.Context, in LoginIn) (maago.Result[LoginPage], error) {
 		return maago.Show(LoginPage{f, next}), nil
 	}
 	db := maago.DBFrom(ctx)
-	u, err := UserByEmail(ctx, db, UserByEmailParams{Email: normalizeEmail(f.Email.Value)})
+	email := normalizeEmail(f.Email.Value)
+	attempt, err := limit(ctx, db, "login", email)
+	if err != nil {
+		return maago.Result[LoginPage]{}, err
+	}
+	u, err := UserByEmail(ctx, db, UserByEmailParams{Email: email})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return maago.Result[LoginPage]{}, err
 	}
@@ -61,8 +67,37 @@ func Login(ctx context.Context, in LoginIn) (maago.Result[LoginPage], error) {
 	if err != nil {
 		return maago.Result[LoginPage]{}, err
 	}
+	if err := DeleteAttempt(ctx, db, attempt); err != nil { // a sign-in is no attempt to count
+		return maago.Result[LoginPage]{}, err
+	}
 	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge))
 	return maago.SeeOther[LoginPage](authlib.SafeNext(next, maago.Prefix()+"/")), nil
+}
+
+// limit records an attempt at action, "login" or "mail", for the email
+// from the request's IP, and refuses it with 429 when the email or the
+// IP has had too many in AttemptWindow (D-128). It records first and
+// counts after: of requests at once, each counts every row recorded
+// before, so no more than the limit get through. A refused attempt stays
+// recorded. It returns the attempt's ID, for a sign-in to take back.
+func limit(ctx context.Context, db maago.DB, action, email string) (int64, error) {
+	since := time.Now().Add(-AttemptWindow)
+	if _, err := DeleteOldAttempts(ctx, db, DeleteOldAttemptsParams{Since: since}); err != nil {
+		return 0, err
+	}
+	ip := authlib.ClientIP(maago.RemoteAddrFrom(ctx))
+	a, err := InsertAttempt(ctx, db, NewAttemptInput{Action: action, Email: email, IP: ip})
+	if err != nil {
+		return 0, err
+	}
+	n, err := CountAttempts(ctx, db, CountAttemptsParams{Action: action, Email: email, IP: ip, Since: since})
+	if err != nil {
+		return 0, err
+	}
+	if n.ByEmail > AttemptLimit || n.ByIP > AttemptLimitIP {
+		return 0, maago.Status(http.StatusTooManyRequests, errors.New("too many attempts; wait a while and try again"))
+	}
+	return a.ID, nil
 }
 
 // newSession stores a new session of the user and returns its token for
@@ -115,12 +150,23 @@ func Signup(ctx context.Context, in SignupIn) (maago.Result[SignupPage], error) 
 		f.Password.Error = err.Error()
 		return maago.Show(SignupPage{Form: f}), nil
 	}
+	db := maago.DBFrom(ctx)
+	if _, err := limit(ctx, db, "mail", email); err != nil {
+		return maago.Result[SignupPage]{}, err
+	}
 	hash, err := authlib.Hash(f.Password.Value)
 	if err != nil {
 		return maago.Result[SignupPage]{}, err
 	}
-	db := maago.DBFrom(ctx)
-	switch _, err := UserByEmail(ctx, db, UserByEmailParams{Email: email}); {
+	switch u, err := UserByEmail(ctx, db, UserByEmailParams{Email: email}); {
+	case err == nil && u.IsActive && u.VerifiedAt == nil:
+		// Not verified: the mail again, with the password unchanged. If
+		// someone else signed up with this email, the owner resets the
+		// password first, as the mail says, since verifying asks for it.
+		if err := sendVerify(ctx, db, site, u); err != nil {
+			return maago.Result[SignupPage]{}, err
+		}
+		return maago.Show(SignupPage{Sent: true}), nil
 	case err == nil:
 		if err := authlib.Mail(ctx, accountExistsMail(email, site+LoginURL())); err != nil {
 			return maago.Result[SignupPage]{}, err
@@ -133,16 +179,21 @@ func Signup(ctx context.Context, in SignupIn) (maago.Result[SignupPage], error) 
 	if err != nil {
 		return maago.Result[SignupPage]{}, err
 	}
-	token, err := newToken(ctx, db, u.ID, "verify", VerifyAge)
-	if err != nil {
-		return maago.Result[SignupPage]{}, err
-	}
-	// If the mail fails, the account stays unverified: sending the mail
-	// again verifies it.
-	if err := authlib.Mail(ctx, verifyMail(email, site+VerifyURL()+"?token="+token)); err != nil {
+	// If the mail fails, the account stays unverified: VerifyResend sends
+	// it again.
+	if err := sendVerify(ctx, db, site, u); err != nil {
 		return maago.Result[SignupPage]{}, err
 	}
 	return maago.Show(SignupPage{Sent: true}), nil
+}
+
+// sendVerify mails the user a new link to verify the email.
+func sendVerify(ctx context.Context, db maago.DB, site string, u User) error {
+	token, err := newToken(ctx, db, u.ID, "verify", VerifyAge)
+	if err != nil {
+		return err
+	}
+	return authlib.Mail(ctx, verifyMail(u.Email, site+VerifyURL()+"?token="+token, site+PasswordResetURL()))
 }
 
 // newToken stores a new one-time token of the user for purpose, and
@@ -167,8 +218,10 @@ type VerifyPage struct {
 	Token string
 }
 
-// Verify draws a button on GET and verifies on POST: a mail scanner that
-// opens the link does not use the token up.
+// Verify draws the form on GET, and on POST verifies and signs in, given
+// the password: a mail scanner that opens the link does not use the
+// token up, and who signed up first with another's email, choosing the
+// password, does not get the account once its owner follows the link.
 func Verify(ctx context.Context, in VerifyIn) (maago.Result[VerifyPage], error) {
 	f := in.Form
 	if !f.Bound() {
@@ -176,33 +229,110 @@ func Verify(ctx context.Context, in VerifyIn) (maago.Result[VerifyPage], error) 
 		if in.Token != nil {
 			token = *in.Token
 		}
-		return maago.Show(VerifyPage{Token: token}), nil
+		return maago.Show(VerifyPage{Form: f, Token: token}), nil
 	}
+	page := VerifyPage{Form: f, Token: f.Token.Value}
 	if !f.Valid() {
-		f.AddError("This link is invalid or has expired.")
-		return maago.Show(VerifyPage{Form: f}), nil
+		if f.Token.Error != "" {
+			page.Form.AddError("This link is invalid or has expired.")
+		}
+		return maago.Show(page), nil
 	}
-	tx, err := maago.DBFrom(ctx).BeginTx(ctx, nil)
+	db := maago.DBFrom(ctx)
+	hash := authlib.HashToken(f.Token.Value)
+	u, err := TokenUser(ctx, db, TokenUserParams{Hash: hash, Purpose: "verify", Now: time.Now()})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return maago.Result[VerifyPage]{}, err
+	}
+	if !u.IsActive { // no user is no active one
+		page.Form.AddError("This link is invalid or has expired.")
+		return maago.Show(page), nil
+	}
+	attempt, err := limit(ctx, db, "login", u.Email)
+	if err != nil {
+		return maago.Result[VerifyPage]{}, err
+	}
+	// The password out of the transaction: the database is not held
+	// while it works.
+	if ok, _ := authlib.Check(f.Password.Value, u.PasswordHash); !ok {
+		page.Form.Password.Error = "Incorrect password."
+		return maago.Show(page), nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return maago.Result[VerifyPage]{}, err
 	}
 	defer tx.Rollback()
 	now := time.Now()
-	t, err := UseToken(ctx, tx, UseTokenParams{Hash: authlib.HashToken(f.Token.Value), Purpose: "verify", Now: now})
-	if errors.Is(err, sql.ErrNoRows) {
-		f.AddError("This link is invalid or has expired.")
-		return maago.Show(VerifyPage{Form: f}), nil
+	if _, err := UseToken(ctx, tx, UseTokenParams{Hash: hash, Purpose: "verify", Now: now}); errors.Is(err, sql.ErrNoRows) {
+		page.Form.AddError("This link is invalid or has expired.")
+		return maago.Show(page), nil
+	} else if err != nil {
+		return maago.Result[VerifyPage]{}, err
 	}
+	// Only if the password is the one checked: a reset since then makes
+	// the link ask again.
+	n, err := VerifyUser(ctx, tx, VerifyUserParams{ID: u.ID, PasswordHash: u.PasswordHash, Now: now})
 	if err != nil {
 		return maago.Result[VerifyPage]{}, err
 	}
-	if _, err := VerifyUser(ctx, tx, VerifyUserParams{ID: t.UserID, Now: now}); err != nil {
+	if n == 0 {
+		page.Form.Password.Error = "Incorrect password."
+		return maago.Show(page), nil
+	}
+	if _, err := DeleteUserTokens(ctx, tx, DeleteUserTokensParams{UserID: u.ID, Purpose: "verify"}); err != nil {
+		return maago.Result[VerifyPage]{}, err
+	}
+	token, err := newSession(ctx, tx, u.ID)
+	if err != nil {
+		return maago.Result[VerifyPage]{}, err
+	}
+	if err := DeleteAttempt(ctx, tx, attempt); err != nil {
 		return maago.Result[VerifyPage]{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return maago.Result[VerifyPage]{}, err
 	}
-	return maago.SeeOther[VerifyPage](LoginURL()), nil
+	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge))
+	return maago.SeeOther[VerifyPage](maago.Prefix() + "/"), nil
+}
+
+type VerifyResendIn struct {
+	Form VerifyResendForm `maago:"form"`
+}
+
+type VerifyResendPage struct {
+	Form VerifyResendForm
+	Sent bool
+}
+
+// VerifyResend mails a new link to verify an active account that is not
+// verified yet: one whose first mail failed or got lost. The answer is
+// the same whatever the email.
+func VerifyResend(ctx context.Context, in VerifyResendIn) (maago.Result[VerifyResendPage], error) {
+	f := in.Form
+	if !f.Valid() {
+		return maago.Show(VerifyResendPage{Form: f}), nil
+	}
+	site, err := siteURL()
+	if err != nil {
+		return maago.Result[VerifyResendPage]{}, err
+	}
+	db := maago.DBFrom(ctx)
+	email := normalizeEmail(f.Email.Value)
+	if _, err := limit(ctx, db, "mail", email); err != nil {
+		return maago.Result[VerifyResendPage]{}, err
+	}
+	u, err := UserByEmail(ctx, db, UserByEmailParams{Email: email})
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return maago.Result[VerifyResendPage]{}, err
+	}
+	if u.IsActive && u.VerifiedAt == nil { // no account is no active one
+		if err := sendVerify(ctx, db, site, u); err != nil {
+			return maago.Result[VerifyResendPage]{}, err
+		}
+	}
+	return maago.Show(VerifyResendPage{Sent: true}), nil
 }
 
 type PasswordChangeIn struct {
@@ -278,7 +408,11 @@ func PasswordReset(ctx context.Context, in PasswordResetIn) (maago.Result[Passwo
 		return maago.Result[PasswordResetPage]{}, err
 	}
 	db := maago.DBFrom(ctx)
-	u, err := UserByEmail(ctx, db, UserByEmailParams{Email: normalizeEmail(f.Email.Value)})
+	email := normalizeEmail(f.Email.Value)
+	if _, err := limit(ctx, db, "mail", email); err != nil {
+		return maago.Result[PasswordResetPage]{}, err
+	}
+	u, err := UserByEmail(ctx, db, UserByEmailParams{Email: email})
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return maago.Result[PasswordResetPage]{}, err
 	}

@@ -5,10 +5,14 @@ import authlib "github.com/maago-web/maago/contrib/auth"
 // The mails of the app. Change the words as you like; keep each link on
 // a line of its own.
 
-func verifyMail(to, link string) authlib.Message {
-	return authlib.Message{To: to, Subject: "Verify your email", Body: `Welcome! To verify your email, open this link:
+func verifyMail(to, link, resetLink string) authlib.Message {
+	return authlib.Message{To: to, Subject: "Verify your email", Body: `Welcome! To verify your email, open this link and enter your password:
 
 ` + link + `
+
+If you didn't choose the password, someone else signed up with this email. Reset the password first, then verify:
+
+` + resetLink + `
 
 If you didn't sign up, you can ignore this email.
 `}

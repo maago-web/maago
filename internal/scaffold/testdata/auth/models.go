@@ -48,3 +48,15 @@ type Token struct {
 	ExpiresAt time.Time // the token is no use after it
 	CreatedAt time.Time `maago:"auto=create"`
 }
+
+// Attempt is an attempt to sign in or to have a mail sent, by the email
+// it was for and the IP it came from: too many in a while are refused.
+type Attempt struct {
+	maago.Model `maago:"index=(Action,CreatedAt)"`
+
+	ID        int64
+	Action    string `maago:"choices=login/mail"`
+	Email     string `maago:"max=254"`
+	IP        string
+	CreatedAt time.Time `maago:"auto=create"`
+}

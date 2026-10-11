@@ -2,5 +2,8 @@
 {{range .Form.Errors}}<p class="error">{{.}}</p>{{end}}
 <form method="post" action="{{url "verify_submit"}}">
 <input type="hidden" name="token" value="{{.Token}}">
+{{with .Form.Password}}<label for="{{.Name}}">Password</label>
+<input type="password" id="{{.Name}}" name="{{.Name}}" autocomplete="current-password" required>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
 <button>Verify</button>
-</form>{{end}}
+</form>
+<p><a href="{{url "verify_resend"}}">Send the link again</a></p>{{end}}

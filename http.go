@@ -228,6 +228,7 @@ func (h *handler) serve(route *AppRoute) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ww := &written{ResponseWriter: w}
 		ctx := context.WithValue(WithDB(r.Context(), h.cfg.DB), formKey{}, h.forms)
+		ctx = context.WithValue(ctx, remoteAddrKey{}, r.RemoteAddr)
 		r = r.WithContext(context.WithValue(ctx, cookiesKey{}, ww))
 		defer func() {
 			p := recover()
@@ -399,6 +400,23 @@ func SetCookie(ctx context.Context, c *http.Cookie) {
 		panic("maago: SetCookie: " + err.Error())
 	}
 	w.cookies = append(w.cookies, c)
+}
+
+type remoteAddrKey struct{}
+
+// RemoteAddrFrom is the RemoteAddr of the request ctx belongs to, as the
+// server set it: a typed view limits attempts by it (D-128). No header is
+// read. Behind a proxy every request comes from the proxy, so main wraps
+// the Handler in middleware that sets r.RemoteAddr from the proxy's header,
+// such as X-Forwarded-For, only for a request from the proxy's own address:
+// anyone else can send that header. It panics outside a request from
+// Handler.
+func RemoteAddrFrom(ctx context.Context) string {
+	a, ok := ctx.Value(remoteAddrKey{}).(string)
+	if !ok {
+		panic("maago: RemoteAddrFrom outside a request from Handler")
+	}
+	return a
 }
 
 type dbKey struct{}

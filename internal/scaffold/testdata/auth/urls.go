@@ -10,6 +10,8 @@ var Routes = maago.Routes{
 	maago.POST("/signup", "signup_submit", Signup),
 	maago.GET("/verify", "verify", Verify),
 	maago.POST("/verify", "verify_submit", Verify),
+	maago.GET("/verify/resend", "verify_resend", VerifyResend),
+	maago.POST("/verify/resend", "verify_resend_submit", VerifyResend),
 	maago.GET("/password", "password_change", PasswordChange, maago.LoginRequired),
 	maago.POST("/password", "password_change_submit", PasswordChange, maago.LoginRequired),
 	maago.GET("/password/reset", "password_reset", PasswordReset),

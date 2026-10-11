@@ -34,7 +34,7 @@ github.com/maago-web/maago
 │                          (D-115, D-45, D-121), Result·Show·SeeOther·Status(D-116), DBFrom·WithDB,
 │                          Form·Field·Messages·Invalid·InvalidForm(D-119, D-120), UserFrom·WithUser
 │                          (D-121), Prefix(D-122).
-│                          M5가 더한 것: SetCookie(D-125).
+│                          M5가 더한 것: SetCookie(D-125), RemoteAddrFrom(D-128).
 │                          생성 코드만 부르는 것: One·Many·Exec, Placeholders,
 │                          SQLiteTime·SQLiteNullTime·ScanSQLiteTime·ScanNullSQLiteTime(D-105),
 │                          NewApp·AppRoute·Pages·Render·Bind*·FinishForm·FormValues·JSONValues·Unprocessable·
@@ -43,7 +43,7 @@ github.com/maago-web/maago
 ├── maagotest/          시험 전용 도우미: DB (M4, D-113), Mailbox (M5, D-126). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
 ├── contrib/
 │   ├── auth/            인증의 보안 부품(stdlib만, M5): Hash·Check(D-127), ValidatePassword·MinLength·NotCommon·NotSimilar(D-15), NewToken·HashToken·
-│   │                      SessionCookie·FromSession·SafeNext(D-128), Mail·Message·SMTP·ConsoleMail(D-126). 앱 층은 `maago add auth`가
+│   │                      SessionCookie·FromSession·SafeNext·ClientIP(D-128), Mail·Message·SMTP·ConsoleMail(D-126). 앱 층은 `maago add auth`가
 │   │                      프로젝트에 복사한다(D-123)                     D-50, D-51
 │   └── admin/           admin 런타임 (M6)         D-48, D-49
 │

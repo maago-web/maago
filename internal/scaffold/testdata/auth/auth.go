@@ -20,6 +20,16 @@ const (
 	ResetAge   = time.Hour
 )
 
+// AttemptLimit is how many attempts an email may have in AttemptWindow,
+// and AttemptLimitIP how many one IP may make, larger because an office
+// or a proxy is many people. Signing in and having a mail sent are
+// counted apart. The next attempt is refused with 429.
+var (
+	AttemptLimit   int64 = 10
+	AttemptLimitIP int64 = 100
+	AttemptWindow        = 15 * time.Minute
+)
+
 // SiteURL is where the site is, for the links of mails: scheme and host,
 // https://example.com. main sets it. The request's Host header would let
 // anyone send a link to another site.

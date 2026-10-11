@@ -49,11 +49,11 @@
 
 ```
  이 저장소                                         사용자 프로젝트
- internal/scaffold/testdata/auth/ ── maago add auth ─▶ auth/  models.go(User·Session·Token·APIToken·LoginAttempt)
+ internal/scaffold/testdata/auth/ ── maago add auth ─▶ auth/  models.go(User·Session·Token·Attempt·APIToken)
                                                           queries/*.sql, urls.go, views.go, forms.go, templates/, *_test.go
  contrib/auth (stdlib만) ◀──────── import ───────── auth/views.go
    Hash·Check, NewToken·HashToken, SafeNext,               main.go: Config{Apps: {board.App, auth.App},
-   SessionCookie, FromSession(…), Limit, Mail·SMTP                   Auth: auth.FromSession(…), LoginURL: …}
+   SessionCookie, FromSession(…), ClientIP, Mail·SMTP                   Auth: auth.FromSession(…), LoginURL: …}
  maago     SetCookie(ctx, c), API 401의 WWW-Authenticate, preflight의 Authorization
  maagotest Mailbox(t)
 ```
@@ -417,6 +417,57 @@
 로그인·가입·재설정 요청·인증 메일 다시 보내기에 이메일별·IP별 창. 인증 메일 다시 보내기 라우트도 여기서(6번의 사람의 결정: 메일이 실패한 인증 전 행을 살린다). 선점 가로채기(남이 먼저 만든 인증 전 행)를 계획이 다룬다(6번에서 넘김).
 → 확인: 11번째 시도 429, 창이 지나면 다시
 
+### 계획
+
+이 작업의 끝에 로그인과 메일 보내기(가입·재설정 요청·다시 보내기)의 11번째 시도가 429이고, 메일이 실패한 인증 전 계정을 다시 보내기가 살리며, 남이 먼저 만든 인증 전 행으로는 들어오지 못한다.
+
+코어(`maago`)
+- `maago.RemoteAddrFrom(ctx) string`: 요청의 `r.RemoteAddr` 그대로(`serve`가 ctx에 싣는다). `DBFrom`처럼 `Handler` 밖에서는 panic. 타입 있는 뷰는 요청을 보지 않아 IP별 창(D-128)에 길이 없다. 머리(`X-Forwarded-For`)는 보지 않는다: 프록시 뒤에서는 `main`이 **믿는 프록시에서 온 요청만** 그 머리로 `r.RemoteAddr`를 고치는 미들웨어로 `Handler`를 감싼다(문서 주석, 12번 튜토리얼)
+
+라이브러리(`contrib/auth`)
+- `ClientIP(remoteAddr string) string`: 포트를 떼고(포트 없는 맨 IP도), 영역을 떼고, IPv4에 매핑된 IPv6는 IPv4로, IPv6는 `/64`로 묶는다(흔한 한 가입자 단위라는 가정). 읽지 못하면 그대로. `net/netip`
+- 창의 셈은 복사본에 둔다(라이브러리는 복사본의 쿼리를 모른다, D-51): D-123의 "시도 제한의 창"과 M5 모양 그림을 고친다
+
+복사본
+- 모델 `Attempt{ID, Action string choices=login/mail, Email max=254, IP string, CreatedAt auto=create}`, `index=(Action,CreatedAt)`. 시도 하나가 행 하나. `IP`는 `max` 없음(읽지 못한 주소가 길어도 넣기가 실패하지 않게)
+- 쿼리: `count_attempts.sql`(`:one AttemptCounts`, `-- column: by_email int64`·`by_ip int64`, `SELECT COUNT(CASE WHEN email = :email THEN 1 END) AS by_email, COUNT(CASE WHEN ip = :ip THEN 1 END) AS by_ip FROM auth_attempt WHERE action = :action AND created_at > :since`, 두 방언에서 `int64`로 읽히는지 단계 2), `delete_old_attempts.sql`(`:exec`, `created_at <= :since`)
+- `auth.go`: `AttemptLimit = 10`(이메일별), `AttemptLimitIP = 100`(IP별: 사무실·교실·프록시를 견디게), `AttemptWindow = 15 * time.Minute`(var, 사용자가 고친다. 사람의 결정 2026-10-12)
+- `limit(ctx, db, action, email) (id int64, err error)`(`views.go`): 낡은 행 지우기 → **먼저 넣고** → 센다. 이메일별이 `AttemptLimit`나 IP별이 `AttemptLimitIP`를 넘으면 `maago.Status(429, …)`. 넣기마다 자동 커밋이라 시간 순 k번째 세기는 넣기 k개 이상을 본다: 동시 묶음은 10개 넘게 지나가지 못한다(겨루면 더 막는 쪽으로 틀린다). 429가 된 시도도 행으로 남는다: 공격이 이어지는 동안 그 이메일·IP는 계속 막힌다(받음). 행 id는 성공한 로그인이 자기 행을 지우는 데 쓴다
+- 창은 둘(사람의 결정 2026-10-12): `login`(로그인, 인증의 비밀번호), `mail`(가입·재설정 요청·다시 보내기: 한 주소로 가는 메일이 합쳐 15분 10통). 로그인이 막혀도 재설정 요청은 된다
+- 어디서: 이메일을 정규화한 뒤, 해싱·조회·메일 전. 가입은 `ValidatePassword`(순수) 뒤(약한 비밀번호 10번이 가입을 막지 않게). 형식이 틀린 폼은 세지 않는다(하는 일이 없다). 계정이 있든 없든 같은 셈이라 429가 계정의 있음을 말하지 않는다. 로그인·인증이 **성공하면 자기 행을 지운다**(정상 로그인이 창을 채우지 않는다)
+- 다시 보내기: `GET`·`POST /verify/resend`(`verify_resend`·`verify_resend_submit`, 뷰 `VerifyResend`), 폼 `VerifyResendForm{Email max=254}`. `siteURL` → 정규화 → `limit(mail)` → 있고 활성이고 인증 전이면 새 인증 토큰 + `verifyMail`, 아니면 아무것도 보내지 않는다(재설정 요청과 같은 모양). 응답은 늘 "If an account with that email needs verifying, we've sent a link." 로그인 페이지의 인증 안내 옆과 인증 페이지에 링크
+- 선점 가로채기(6번에서 넘김, 사람의 결정 2026-10-12): **인증 POST가 비밀번호도 묻고, 맞으면 로그인한다.**
+  - `VerifyForm{Token max=64, Password max=4096}`. 트랜잭션 밖에서 `token_user.sql`(`:one User`, `JOIN auth_token … WHERE t.hash = :hash AND t.purpose = 'verify' AND t.expires_at > :now`) → 없거나 비활성이면 "This link is invalid or has expired." → `limit(login, u.Email)` → `authlib.Check`(트랜잭션 밖, 7번처럼 DB를 붙들지 않는다), 틀리면 "Incorrect password."(토큰은 그대로)
+  - 트랜잭션: `UseToken`(`ErrNoRows`면 무효, 동시 요청은 이것이 가른다) → `VerifyUser`(`WHERE id = :id AND password_hash = :hash`, 0행이면 그사이 비밀번호가 바뀐 것: 무효) → `DeleteUserTokens(verify)` → `newSession` → 커밋 → 시도 행 지우기 → `SetCookie` → `SeeOther` `Prefix()+"/"`
+  - 남이 만든 행의 주인은 비밀번호를 모르니 인증하지 못하고, 재설정(인증 전 계정도 받는다, 7번)으로 자기 비밀번호를 정한 뒤 같은 링크로 인증한다
+  - 가입이 **인증 전** 계정을 만나면 다시 보내기처럼 새 인증 메일을 보낸다(인증된 계정은 지금처럼 "이미 계정" 메일). `verifyMail`에 "If you didn't choose the password, reset it first: <재설정 링크>" 한 줄. 피해자가 갈 길이 메일에 있다
+  - 6번의 "가입 뒤 자동 로그인 안 함"은 그대로(가입은 비밀번호만 받았다), 인증은 토큰과 비밀번호를 함께 증명해 로그인한다. D-128 고침
+- 시험(복사본):
+  - 창: 같은 이메일 10번은 지나고 11번째 429(로그인, `mail` 셋이 한 창). 없는 이메일도 같다. 대문자·공백 섞은 이메일도 같은 창. 다른 IP·같은 이메일(`RemoteAddr`를 요청마다 바꿔) 11번째 429. 같은 IP·다른 이메일 101번째 429. 로그인이 막혀도 재설정 요청은 됨. 성공한 로그인은 창을 채우지 않음. 429에 `Set-Cookie`·메일 없음, 429도 행으로 남음. 창이 지나면: `AttemptWindow`를 1ns로 두면 다시 됨(sleep 없음). 동시 20개 묶음에서 429 아닌 것 ≤ 10. 낡은 행이 지워짐
+  - 다시 보내기: 메일 실패로 남은 인증 전 행 → 다시 보내기의 링크로 인증·로그인. 인증된·비활성·없는 이메일은 같은 응답, 메일 없음
+  - 선점: 남이 피해자 이메일로 가입 → 피해자가 다시 가입해도 행·비밀번호 그대로, 새 인증 메일 → 피해자의 비밀번호로 인증 거절, 토큰·`verified_at`·쿠키 그대로 → 재설정 → 같은 링크로 인증·로그인 → 남의 비밀번호로 로그인 거절
+  - 6번의 인증 시험을 비밀번호와 함께로 고침(인증 뒤 세션 쿠키, 다른 인증 토큰이 지워짐, 비활성은 무효)
+- 라이브러리 단위 시험: `ClientIP` 표(IPv4·포트, 맨 IP, IPv6 /64 둘이 같음, 영역, 매핑된 IPv4, 쓰레기). 코어: `Handler` 아래의 `RemoteAddrFrom`, 밖은 panic
+
+하지 않기로 한 것: 비밀번호 변경의 옛 비밀번호 제한(세션이 이미 계정이다), 재설정 확인의 제한(토큰이 문), `Retry-After`, 429 페이지(평문 그대로), 메모리 창(프로세스마다 갈리고 재시작에 사라짐), 형식이 틀린 폼 세기, 이메일·IP 인덱스(창이 15분 깊이)
+
+단계
+1. 코어 `RemoteAddrFrom`, 라이브러리 `ClientIP` → 확인: 단위 시험
+2. `Attempt`·쿼리·`limit`·로그인과 메일 셋 → 확인: `TestAddAuth`(두 방언), 변형(먼저 넣기→나중 넣기, IP 키 빼기, 성공 행 지우기 빼기)
+3. 다시 보내기, 인증의 비밀번호, 가입의 인증 전 분기 → 확인: 복사본 시험, 변형(`password_hash` 조건 빼기, 비활성 검사 빼기)
+4. D-123·D-128·ARCHITECTURE·README, 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: ★창이 동작별인지 → 사람의 결정: `login`·`mail` 둘. 인증의 비밀번호 검사와 동시 재설정 → `VerifyUser`가 `password_hash`를 조건으로, 0행이면 무효. 인증 성공은 토큰 쓰기·인증·인증 토큰 지우기·세션을 한 트랜잭션, 쿠키는 커밋 뒤, 틀린 비밀번호는 토큰 그대로를 시험. 형식이 틀린 POST는 세지 않음(하는 일이 없다, 받음). 먼저 넣고 세기의 동시성 → 자동 커밋 넣기 뒤의 세기라 PG READ COMMITTED에서도 묶음은 10개 넘게 지나지 않음, 동시 시험 하나. 429 행의 쓰기 → 받음. `IP max=64` 넘침 → `max` 없음. 프록시 미들웨어는 믿는 프록시만 → 주석·튜토리얼. 예약어 → 두 방언 시험이 본다. 계정 유무의 같은 셈 → 없는 이메일 시험. /64 → 가정이라고 적음
+- fable: D-123의 창 자리 → 셈은 복사본, D-123·모양 고침. ★인증 뒤 로그인 → 사람의 결정(선점 질문과 함께). ★프록시 뒤 전체 잠금 → 사람의 결정: IP 한도 100 따로. 성공 세기 → 성공하면 자기 행을 지움. 이메일 정규화 뒤에, 가입은 `ValidatePassword` 뒤. 인증 POST가 비밀번호 오라클 → `login` 창. PBKDF2를 트랜잭션 안에서 → `token_user.sql`로 밖에서 읽고 검사. 인증의 `IsActive`. ★피해자의 길 → 가입이 인증 전 계정이면 인증 메일, 메일에 재설정 한 줄. 인증이 비밀번호를 정하는 대안 → 사람이 묻는 쪽을 골랐다. API 토큰 문장 → 뺌(남은 로그인한 적이 없다). `RemoteAddrFrom`과 panic(`DBFrom`과 같게). `CreatedAt` 단독 인덱스 뺌, 결과 이름 `AttemptCounts`. 창 시험은 sleep 없이, 429 기록·정규화·비활성·틀린 비밀번호 뒤 그대로·낡은 행 시험
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 변형으로 확인: 나중 넣기(동시 20개 중 15개 통과), IP 한도·이메일 한도 빼기, 성공 행 지우기 빼기, 낡은 행 지우기 빼기, 인증의 비활성·비밀번호 검사·남은 인증 토큰 지우기 빼기, 가입의 인증 전 분기, 다시 보내기의 인증된 계정, 인증의 `login` 창
+- codex: 다시 보내기의 메일 실패가 500이라 계정의 있음이 드러남 → 받음(6번 가입·7번 재설정 요청과 같은 모양, 메일이 실패하는 동안만). 형식이 틀린 이메일도 IP 창을 씀 → 받음(그 IP만 막힌다)
+- fable: ★없음. 인증 GET이 폼을 넘기지 않아 비밀번호 칸의 `name`이 비어 처음 제출이 늘 막힘 → `Form: f`, 시험이 `name="password"`를 봄. `password_hash` 조건을 잡는 시험 → `VerifyUser`를 다른 해시로 직접(변형으로 확인). 동시 시험의 하한 0 → 뺌(겨루면 더 막는다). 메일 바꿔치기 되돌리기 → `t.Cleanup`. 파라미터 이름 `password_hash`. `from`은 `doFrom`을 부름. `AttemptLimit` 주석 문구
+
 ## 9. staff·비활성·탈퇴·`createsuperuser` (D-130)
 
 `IsStaff`·`IsActive`, 뷰의 staff 검사 예, 탈퇴(비활성 + 세션·토큰), `-createsuperuser`.
@@ -431,7 +482,7 @@
 
 ## 12. 게시판 튜토리얼의 M5 단계 (D-103)
 
-`Secure` 쿠키는 Safari가 `http://localhost`에서 받지 않으니 튜토리얼은 그것을 한 줄 말한다(fable 4번 리뷰). `maago add auth`(그 뒤 `maago gen`이 `auth.App`을 쓰라고 막는 것까지 단계의 글), `main`(`auth.App`·`Auth`·`LoginURL`·메일·`-createsuperuser`), `Post.AuthorID fk=auth.User`(마이그레이션), 로그인 필수 쓰기, 작성자만 고치고 지우기(뷰의 Go 코드, 아니면 403), 지우기는 댓글이 없으면 진짜 지우기·있으면 숨기기(D-84), 가입·로그인 화면. 시험은 낮은 반복 수와 메일함. 댓글의 작성자는 계획에서.
+`Secure` 쿠키는 Safari가 `http://localhost`에서 받지 않으니 튜토리얼은 그것을 한 줄 말한다(fable 4번 리뷰). 프록시 뒤에서는 `main`이 믿는 프록시에서 온 요청만 그 머리로 `r.RemoteAddr`를 고치는 미들웨어로 감싼다는 것도 한 줄(8번, `maago.RemoteAddrFrom`의 주석). `maago add auth`(그 뒤 `maago gen`이 `auth.App`을 쓰라고 막는 것까지 단계의 글), `main`(`auth.App`·`Auth`·`LoginURL`·메일·`-createsuperuser`), `Post.AuthorID fk=auth.User`(마이그레이션), 로그인 필수 쓰기, 작성자만 고치고 지우기(뷰의 Go 코드, 아니면 403), 지우기는 댓글이 없으면 진짜 지우기·있으면 숨기기(D-84), 가입·로그인 화면. 시험은 낮은 반복 수와 메일함. 댓글의 작성자는 계획에서.
 → 확인: `TestBoardTutorial`(SQLite)
 
 ## 13. 완료 조건 종단 테스트와 문서
