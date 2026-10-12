@@ -1,0 +1,37 @@
+{{.Marker}}
+
+// The admin's view of the models (D-131). Its columns, its search and
+// what it hides come from the models' admin tags (D-132): change the
+// tags, then run maago gen.
+
+package {{.Package}}
+
+import (
+{{range .Imports}}{{if .}}	"{{.}}"{{end}}
+{{end}})
+
+var Admin = []admin.Model{
+{{range .Models}}	{
+		App:  "{{$.Package}}",
+		Name: "{{.Name}}",
+		Fields: []admin.Field{
+{{range .Fields}}			{Name: "{{.Name}}", Label: {{printf "%q" .Label}}{{if .Help}}, Help: {{printf "%q" .Help}}{{end}}{{if .ReadOnly}}, ReadOnly: true{{end}}{{if .FK}}, FK: "{{.FK}}"{{end}}},
+{{end}}		},
+		List: []string{ {{range $i, $n := .List}}{{if $i}}, {{end}}"{{$n}}"{{end}} },
+		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
+			vs, err := maago.Many(ctx, db, scan{{.Name}}, {{.ListSQL}}, q.Limit, q.Offset)
+			if err != nil {
+				return nil, err
+			}
+			rows := make([]admin.Row, len(vs))
+			for i, v := range vs {
+				rows[i] = admin.Row{ID: v.ID, Cells: []any{ {{range $i, $n := .List}}{{if $i}}, {{end}}v.{{$n}}{{end}} }}
+			}
+			return rows, nil
+		},
+		Count: func(ctx context.Context, db maago.DB, q admin.Query) (n int64, err error) {
+			err = db.QueryRowContext(ctx, {{.CountSQL}}).Scan(&n)
+			return n, err
+		},
+	},
+{{end}}}

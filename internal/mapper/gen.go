@@ -97,7 +97,7 @@ type inputField struct{ Name, Type, Default string }
 
 func (g *gen) model(c CRUD) modelView {
 	m := c.Model
-	v := modelView{Name: m.Name, Get: goString(c.Get.SQL), Insert: goString(c.Insert.SQL), Delete: goString(c.Delete.SQL)}
+	v := modelView{Name: m.Name, Get: GoString(c.Get.SQL), Insert: GoString(c.Insert.SQL), Delete: GoString(c.Delete.SQL)}
 	fields := map[string]*model.Field{}
 	var dests []string
 	for _, f := range m.Fields {
@@ -131,7 +131,7 @@ func (g *gen) model(c CRUD) modelView {
 		v.InsertArgs = append(v.InsertArgs, g.arg("o."+a, fields[a].Type, fields[a].Pointer))
 	}
 	if c.Update != nil {
-		v.Update = goString(c.Update.SQL)
+		v.Update = GoString(c.Update.SQL)
 		for _, a := range c.Update.Args {
 			x := "o." + a
 			if fields[a].Auto == "update" {
@@ -354,7 +354,7 @@ func (g *gen) sql(v Variant) string {
 		switch {
 		case p.Slice != "":
 			if s.Len() > 0 {
-				parts = append(parts, goString(s.String()))
+				parts = append(parts, GoString(s.String()))
 				s.Reset()
 			}
 			first := strconv.Itoa(len(v.Args) + 1)
@@ -369,7 +369,7 @@ func (g *gen) sql(v Variant) string {
 		}
 	}
 	if s.Len() > 0 {
-		parts = append(parts, goString(s.String()))
+		parts = append(parts, GoString(s.String()))
 	}
 	return strings.Join(parts, " + ")
 }
@@ -421,9 +421,9 @@ func (g *gen) dest(x string, t model.Type, pointer bool) string {
 	return "maago.ScanSQLiteTime(&" + x + ")"
 }
 
-// goString is a Go literal of s: a raw string, which keeps SQL readable,
+// GoString is a Go literal of s: a raw string, which keeps SQL readable,
 // unless s has what a raw string cannot hold.
-func goString(s string) string {
+func GoString(s string) string {
 	if strings.ContainsAny(s, "`\r") {
 		return strconv.Quote(s)
 	}

@@ -330,7 +330,7 @@ type Author struct {
 		t.Errorf("Author: %v %v", author.AdminHidden, author.AdminList)
 	}
 	for name, want := range map[string]string{"Title": "", "Password": "", "Token": "hidden", "Views": "readonly", "CreatedAt": "readonly"} {
-		if got := post.field(name).Admin; got != want {
+		if got := post.Field(name).Admin; got != want {
 			t.Errorf("%s: admin %q, want %q", name, got, want)
 		}
 	}

@@ -8,12 +8,12 @@ import (
 type Status string
 
 type Post struct {
-	m.Model `maago:"ordering=(-PublishedAt,Title),unique=(AuthorID,Slug),index=(Status)"`
+	m.Model `maago:"ordering=(-PublishedAt,Title),unique=(AuthorID,Slug),index=(Status),admin_list=(Title,Status,PublishedAt)"`
 
 	ID           int64    `maago:"label='번호'"`
 	AuthorID     int64    `maago:"fk=Author"`
 	Title        string   `maago:"max=200,label='제목',help='Shown in lists'"`
-	Slug         string   `maago:"max=100,unique"`
+	Slug         string   `maago:"max=100,unique,admin=readonly"`
 	Status       string   `maago:"choices=draft/published,default='draft'"`
 	Views, Likes int32    `maago:"default=0"`
 	Score        *float64 `maago:"default=1.50"`
@@ -41,7 +41,7 @@ type Author struct {
 	EditorID   int64  `maago:"fk=Author,unique"`
 	ReviewerID *int64 `maago:"fk=Author,index"`
 	// The same columns may be both unique and indexed.
-	Code string `maago:"unique,index"`
+	Code string `maago:"unique,index,admin=hidden"`
 	// A reserved word as a column, and a default written unusually.
 	Order int32 `maago:"default=007"`
 	Admin bool  `maago:"default=false"`

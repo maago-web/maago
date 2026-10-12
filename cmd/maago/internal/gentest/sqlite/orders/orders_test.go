@@ -13,6 +13,7 @@ import (
 
 	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/cmd/maago/internal/gentest"
+	"github.com/maago-web/maago/contrib/admin"
 )
 
 const fixture = "internal/testdata/orders"
@@ -273,5 +274,39 @@ func TestTx(t *testing.T) {
 	}
 	if _, err := GetCustomer(ctx, db, c.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("after rollback: %v", err)
+	}
+}
+
+// The admin's list of orders (D-132, D-134): by CustomerID, NULL last in
+// both dialects, then the newest ID; an empty table counts 0.
+func TestAdmin(t *testing.T) {
+	ctx, db := gentest.Open(t, fixture)
+	order := Admin[1]
+	if n, err := order.Count(ctx, db, admin.Query{}); err != nil || n != 0 {
+		t.Errorf("count of none: %d %v", n, err)
+	}
+	var cs []int64
+	for _, name := range []string{"lee", "kim"} {
+		c, err := InsertCustomer(ctx, db, NewCustomerInput{Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs = append(cs, c.ID)
+	}
+	var ids []int64
+	for _, c := range []*int64{nil, &cs[1], &cs[1], &cs[0]} {
+		o, err := InsertOrder(ctx, db, NewOrderInput{CustomerID: c, Amount: 1, CreatedAt: t0})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, o.ID)
+	}
+	rows, err := order.Rows(ctx, db, admin.Query{Limit: 10})
+	var got []int64
+	for _, r := range rows {
+		got = append(got, r.ID)
+	}
+	if want := []int64{ids[3], ids[2], ids[1], ids[0]}; err != nil || !slices.Equal(got, want) {
+		t.Errorf("rows: %v %v, want %v", got, err, want)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maago-web/maago/internal/admingen"
 	"github.com/maago-web/maago/internal/mapper"
 	"github.com/maago-web/maago/internal/pipeline"
 	"github.com/maago-web/maago/internal/web"
@@ -93,6 +94,7 @@ func TestGeneratedImportsGate(t *testing.T) {
 		"a/os_gen.go":       pipeline.Marker + "\n\npackage a\n\nimport _ \"os\"\n", // allowed nowhere, not only forbidden
 		"a/web_gen.go":      pipeline.Marker + "\n\npackage a\n\nimport (\n\t_ \"net/http\"\n\t_ \"strconv\"\n)\n",
 		"a/ok_gen.go":       pipeline.Marker + "\n\npackage a\n\nimport (\n\t_ \"context\"\n\t_ \"github.com/maago-web/maago\"\n)\n",
+		"a/admin_gen.go":    pipeline.Marker + "\n\npackage a\n\nimport _ \"github.com/maago-web/maago/contrib/admin\"\n",
 	}
 	for p, src := range files {
 		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(p)), 0o755); err != nil {
@@ -116,7 +118,7 @@ func TestGeneratedImportsGate(t *testing.T) {
 // file that imports what the generators may not, or cannot be read, and
 // for each generator template that mentions text/template or reflect.
 func generatedImports(root string) []string {
-	const fix = "fix: generated code may import only mapper.Imports and web.Imports; never text/template or reflect (D-66)"
+	const fix = "fix: generated code may import only mapper.Imports, web.Imports and admingen.Imports; never text/template or reflect (D-66)"
 	var problems []string
 	fset := token.NewFileSet()
 	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -140,7 +142,7 @@ func generatedImports(root string) []string {
 				return nil
 			}
 			for _, imp := range f.Imports {
-				if p, _ := strconv.Unquote(imp.Path.Value); !slices.Contains(mapper.Imports, p) && !slices.Contains(web.Imports, p) {
+				if p, _ := strconv.Unquote(imp.Path.Value); !slices.Contains(mapper.Imports, p) && !slices.Contains(web.Imports, p) && !slices.Contains(admingen.Imports, p) {
 					problems = append(problems, fmt.Sprintf("%s: generated code imports %q\n  %s", fset.Position(imp.Path.Pos()), p, fix))
 				}
 			}

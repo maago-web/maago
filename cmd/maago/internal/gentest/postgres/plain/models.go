@@ -5,7 +5,7 @@ package plain
 import "github.com/maago-web/maago"
 
 type Note struct {
-	maago.Model `maago:"table=notes"`
+	maago.Model `maago:"table=notes,admin=hidden"`
 
 	ID   int64
 	Body string

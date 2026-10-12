@@ -43,7 +43,7 @@ func generate(t *testing.T, files map[string]string) (string, map[string][]byte)
 		t.Fatal(text(ds))
 	}
 	fset := token.NewFileSet()
-	apps, ds := Read(fset, root, gofiles, mod)
+	apps, ds := Read(fset, Parse(fset, root, gofiles), mod)
 	if ds == nil {
 		ds = append(Check(fset, apps), Views(fset, apps)...)
 		pkgs, mds := model.Read(fset, root, gofiles)

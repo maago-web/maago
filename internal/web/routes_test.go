@@ -34,7 +34,7 @@ func load(t *testing.T, files map[string]string) (*token.FileSet, []*App, string
 		t.Fatal(ds)
 	}
 	fset := token.NewFileSet()
-	apps, ds := Read(fset, root, gofiles, mod)
+	apps, ds := Read(fset, Parse(fset, root, gofiles), mod)
 	if len(ds) == 0 {
 		ds = Check(fset, apps)
 	}

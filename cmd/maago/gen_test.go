@@ -7,6 +7,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/maago-web/maago/internal/admingen"
 	"github.com/maago-web/maago/internal/dialect"
 	"github.com/maago-web/maago/internal/dialect/postgres"
 	"github.com/maago-web/maago/internal/dialect/sqlite"
@@ -46,6 +47,7 @@ func TestGenerated(t *testing.T) {
 					t.Fatalf("names:\n%s", text(ds))
 				}
 				golden.Check(t, out+"/models_gen.go", mapper.ModelsFile(d, app))
+				golden.Check(t, out+"/admin_gen.go", admingen.File(d, app, apps))
 				if qs != nil {
 					golden.Check(t, out+"/queries_gen.go", mapper.QueriesFile(d, app.Name, qs))
 				} else if _, err := os.Stat(out + "/queries_gen.go"); err == nil {

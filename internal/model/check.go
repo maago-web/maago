@@ -488,7 +488,7 @@ func (c *checker) modelOptions(m *Model, opts []Option) {
 			}
 			var names []string
 			for j, v := range o.Values {
-				if c.item(o, j, v, m.Name, columns) && c.adminItem(o, j, m.field(v), m.Name) {
+				if c.item(o, j, v, m.Name, columns) && c.adminItem(o, j, m.Field(v), m.Name) {
 					names = append(names, v)
 				}
 			}
@@ -524,8 +524,8 @@ func (c *checker) adminItem(o *Option, j int, f *Field, model string) bool {
 	return ok
 }
 
-// field is the column field named name, which exists.
-func (m *Model) field(name string) *Field {
+// Field is the column field named name, which exists.
+func (m *Model) Field(name string) *Field {
 	for _, f := range m.Fields {
 		if f.Name == name {
 			return f

@@ -16,7 +16,7 @@ type Customer struct {
 }
 
 type Order struct {
-	maago.Model `maago:"table=orders"`
+	maago.Model `maago:"table=orders,ordering=(CustomerID)"`
 
 	ID         int64
 	CustomerID *int64 `maago:"fk=Customer"`

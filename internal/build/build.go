@@ -5,12 +5,14 @@ package build
 
 import (
 	"context"
+	"go/ast"
 	"go/token"
 	"maps"
 	"os"
 	"path"
 	"slices"
 
+	"github.com/maago-web/maago/internal/admingen"
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/dialect"
 	"github.com/maago-web/maago/internal/dialect/postgres"
@@ -65,13 +67,17 @@ func checking(root string) [][]pipeline.Step {
 		if len(mds) > 0 {
 			return append(ds, mds...)
 		}
-		apps, wds := web.Read(s.fset, s.root, s.files, mod)
+		s.mod, s.parsed = mod, web.Parse(s.fset, s.root, s.files)
+		apps, wds := web.Read(s.fset, s.parsed, mod)
 		s.web = apps
 		return append(ds, wds...)
 	}
 	early := func() (ds []diag.Diagnostic) { // what makemigrations does not need
 		ds = append(web.Check(s.fset, s.web), web.Views(s.fset, s.web)...)
 		ds = append(ds, web.Forms(s.fset, s.web, s.app)...)
+		var ads []diag.Diagnostic
+		s.admin, ads = admingen.Use(s.fset, s.parsed, s.mod, s.apps, s.web)
+		ds = append(ds, ads...)
 		s.checked, s.pkgs = map[string][]mapper.Checked{}, map[string]string{}
 		for _, qa := range s.queries {
 			for _, q := range qa.Queries {
@@ -100,6 +106,18 @@ func checking(root string) [][]pipeline.Step {
 		for _, app := range s.web {
 			dirs[app.Dir], routes[app.Dir] = true, web.More(s.fset, app)
 		}
+		if s.admin { // admin_gen.go declares Admin in each app with models
+			for _, app := range s.apps {
+				more := routes[app.Dir]
+				if more == nil {
+					more = &mapper.More{}
+					routes[app.Dir] = more
+				}
+				more.Names = append(more.Names, mapper.Name{Name: "Admin", By: "the admin", Pos: s.fset.Position(app.Models[0].Pos),
+					Fix: "rename what your code declares as Admin; maago generates it for the admin (D-131)"})
+				more.Imports = append(more.Imports, admingen.Path)
+			}
+		}
 		for _, dir := range slices.Sorted(maps.Keys(dirs)) {
 			ds = append(ds, mapper.Names(s.fset, s.root, dir, s.app(dir), queries[dir], routes[dir])...)
 		}
@@ -109,6 +127,9 @@ func checking(root string) [][]pipeline.Step {
 		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic {
 			for _, app := range s.apps {
 				r.Files[path.Join(app.Dir, "models_gen.go")] = mapper.ModelsFile(s.d, app)
+				if s.admin {
+					r.Files[path.Join(app.Dir, "admin_gen.go")] = admingen.File(s.d, app, s.apps)
+				}
 			}
 			for dir, qs := range s.checked {
 				r.Files[path.Join(dir, "queries_gen.go")] = mapper.QueriesFile(s.d, s.pkgs[dir], qs)
@@ -153,6 +174,9 @@ type state struct {
 	checked    map[string][]mapper.Checked // each app's queries, by directory
 	pkgs       map[string]string           // the package of each app with queries
 	files      []string                    // the project's Go files
+	mod        string                      // the module path
+	parsed     map[string][]*ast.File      // the Go files that are neither tests nor generated, by directory
+	admin      bool                        // a file imports contrib/admin (D-131)
 	web        []*web.App                  // the apps with routes; nil for makemigrations
 }
 
@@ -241,9 +265,9 @@ func checkDatabase(s *state) []diag.Diagnostic {
 // checkQueries prepares every query on a, the practice database that
 // matches the models, and works out the result types (rule 5, D-23).
 // Each query's errors are its own, so all of them are reported, unless
-// the connection fails. Then the CRUD's SQL is prepared: it fails only
-// through a bug of maago, which TestCRUDPrepares pins down, so this is a
-// seat belt.
+// the connection fails. Then the SQL of the CRUD and of the
+// admin (D-134) is prepared: it fails only through a bug of maago, which
+// TestCRUDPrepares and the gentest tests pin down, so this is a seat belt.
 func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagnostic {
 	var ds []diag.Diagnostic
 	for dir, checked := range s.checked {
@@ -266,20 +290,29 @@ func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagno
 	if len(ds) > 0 {
 		return ds
 	}
+	var sqls []string
 	for _, app := range s.apps {
 		for _, c := range mapper.CRUDs(app, s.d) {
 			for _, st := range []*mapper.Statement{&c.Get, &c.Insert, c.Update, &c.Delete} {
-				if st == nil {
-					continue
-				}
-				_, err, fatal := a.Describe(ctx, st.SQL)
-				if fatal != nil {
-					return fatal
-				}
-				if err != nil {
-					return dialect.Bug(err)
+				if st != nil {
+					sqls = append(sqls, st.SQL)
 				}
 			}
+		}
+		for _, m := range app.Models {
+			if s.admin && !m.AdminHidden {
+				st := admingen.Statements(m, s.d)
+				sqls = append(sqls, st.List, st.Count)
+			}
+		}
+	}
+	for _, sql := range sqls {
+		_, err, fatal := a.Describe(ctx, sql)
+		if fatal != nil {
+			return fatal
+		}
+		if err != nil {
+			return dialect.Bug(err)
 		}
 	}
 	return nil

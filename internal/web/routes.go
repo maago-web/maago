@@ -62,21 +62,19 @@ var (
 	options = []string{"LoginRequired", "API", "Block"}
 )
 
-// Read finds the route tables of the project and checks their shape: a
-// top-level var Routes = maago.Routes{…} whose lines are calls with
-// literal paths and names, and views and options named plainly. What the
-// names mean, Check judges. Tests and maago's generated files are not
-// read. files are the project's Go files; the models' reading has
-// reported any syntax error before.
-func Read(fset *token.FileSet, root string, files []string, modulePath string) ([]*App, []diag.Diagnostic) {
-	byDir := map[string][]*ast.File{} // the parsed files of each package
+// Parse parses the project's Go files by directory, for Read and the
+// admin's checks. Tests and maago's generated files are left out. files
+// are the project's Go files; the models' reading has reported any
+// syntax error or unreadable file before.
+func Parse(fset *token.FileSet, root string, files []string) map[string][]*ast.File {
+	byDir := map[string][]*ast.File{}
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
 		}
 		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f)))
 		if err != nil || pipeline.IsGenerated(src) {
-			continue // an unreadable file was reported with the models
+			continue
 		}
 		af, err := parser.ParseFile(fset, f, src, parser.SkipObjectResolution)
 		if err != nil {
@@ -84,10 +82,18 @@ func Read(fset *token.FileSet, root string, files []string, modulePath string) (
 		}
 		byDir[path.Dir(f)] = append(byDir[path.Dir(f)], af)
 	}
+	return byDir
+}
+
+// Read finds the route tables of the project and checks their shape: a
+// top-level var Routes = maago.Routes{…} whose lines are calls with
+// literal paths and names, and views and options named plainly. What the
+// names mean, Check judges. byDir is what Parse returns.
+func Read(fset *token.FileSet, byDir map[string][]*ast.File, modulePath string) ([]*App, []diag.Diagnostic) {
 	var apps []*App
 	var ds []diag.Diagnostic
 	for _, dir := range slices.Sorted(maps.Keys(byDir)) {
-		app, ads := readApp(fset, dir, byDir[dir], importPath(modulePath, dir))
+		app, ads := readApp(fset, dir, byDir[dir], ImportPath(modulePath, dir))
 		ds = append(ds, ads...)
 		if app != nil {
 			apps = append(apps, app)
@@ -97,7 +103,8 @@ func Read(fset *token.FileSet, root string, files []string, modulePath string) (
 	return apps, ds
 }
 
-func importPath(modulePath, dir string) string { return path.Join(modulePath, dir) }
+// ImportPath is the import path of the package at dir.
+func ImportPath(modulePath, dir string) string { return path.Join(modulePath, dir) }
 
 // readApp returns the app of p, or nil if p has no route table.
 func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath string) (*App, []diag.Diagnostic) {
@@ -255,40 +262,60 @@ func maagoNames(f *ast.File) (names []string, dot bool) {
 }
 
 // markUsed marks the apps whose App another package uses, and rejects a
-// dot import of an app, which would hide that use.
+// dot import of an app.
 func markUsed(fset *token.FileSet, byDir map[string][]*ast.File, apps []*App) []diag.Diagnostic {
-	byPath := map[string]*App{}
+	names := map[string]string{}
 	for _, a := range apps {
-		byPath[a.ImportPath] = a
+		names[a.ImportPath] = a.Name
 	}
+	used := Uses(byDir, names, "App")
 	var ds []diag.Diagnostic
+	for _, a := range apps {
+		a.Used = used[a.ImportPath]
+	}
 	for _, files := range byDir {
 		for _, f := range files {
-			names := map[string]*App{}
 			for _, imp := range f.Imports {
 				ip, _ := strconv.Unquote(imp.Path.Value)
-				a := byPath[ip]
+				if name, ok := names[ip]; ok && imp.Name != nil && imp.Name.Name == "." {
+					ds = append(ds, diag.New(fset.Position(imp.Pos()), "app "+name+" is dot-imported", "import it by name and use "+name+".App"))
+				}
+			}
+		}
+	}
+	return ds
+}
+
+// Uses reports which of the packages names holds (import path → package
+// name) the files use as pkg.sel, imported by name: a dot or blank import
+// uses none.
+func Uses(byDir map[string][]*ast.File, names map[string]string, sel string) map[string]bool {
+	used := map[string]bool{}
+	for _, files := range byDir {
+		for _, f := range files {
+			local := map[string]string{} // the file's name for each package → its path
+			for _, imp := range f.Imports {
+				ip, _ := strconv.Unquote(imp.Path.Value)
+				name, ok := names[ip]
 				switch {
-				case a == nil:
+				case !ok:
 				case imp.Name == nil:
-					names[a.Name] = a
-				case imp.Name.Name == ".":
-					ds = append(ds, diag.New(fset.Position(imp.Pos()), "app "+a.Name+" is dot-imported", "import it by name and use "+a.Name+".App"))
-				case imp.Name.Name != "_":
-					names[imp.Name.Name] = a
+					local[name] = ip
+				case imp.Name.Name != "." && imp.Name.Name != "_":
+					local[imp.Name.Name] = ip
 				}
 			}
 			ast.Inspect(f, func(n ast.Node) bool {
-				if s, ok := n.(*ast.SelectorExpr); ok && s.Sel.Name == "App" {
-					if x, ok := s.X.(*ast.Ident); ok && names[x.Name] != nil {
-						names[x.Name].Used = true
+				if s, ok := n.(*ast.SelectorExpr); ok && s.Sel.Name == sel {
+					if x, ok := s.X.(*ast.Ident); ok && local[x.Name] != "" {
+						used[local[x.Name]] = true
 					}
 				}
 				return true
 			})
 		}
 	}
-	return ds
+	return used
 }
 
 // name is the form of a route name: lower-case words joined by single
