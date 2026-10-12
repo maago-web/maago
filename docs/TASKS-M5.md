@@ -656,7 +656,7 @@
   7. API 라우트를 토큰으로: `site`의 `TestAPIToken`(다른 출처의 preflight, Bearer 200, 지운 토큰 401과 `WWW-Authenticate`), 복사본 `TestAPITokens`·`TestAPITokensEnd`
 - [x] MILESTONES.md의 M5 체크박스 갱신
 - [x] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인: 실행 38271060081(postgres:18 서비스) 통과. `CI`가 있으면 PG 시험은 건너뛰지 않고 실패한다(D-91) (2026-10-13)
-- [ ] TASKS-M6 초안
+- [x] TASKS-M6 초안 (2026-10-13)
 
 ## 초안 리뷰 (2026-10-05)
 
