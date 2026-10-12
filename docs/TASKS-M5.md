@@ -645,8 +645,8 @@
 
 ## M5 끝
 
-- [ ] 1~13 완료
-- [ ] 위 M5 완료 조건을 실제로 돌려 확인(PG는 `MAAGO_TEST_PG_URL`로). 조건마다의 시험(복사본 시험과 `site` 앱의 시험은 `cmd/maago`의 `TestAddAuth`가 두 방언에서, `User`에 필드를 더하기 전과 뒤에 돌린다)
+- [x] 1~13 완료 (2026-10-13, 10번은 9번에 합침)
+- [x] 위 M5 완료 조건을 실제로 돌려 확인(PG는 로컬 서버의 `MAAGO_TEST_PG_URL`로 돌렸다). 조건마다의 시험(복사본 시험과 `site` 앱의 시험은 `cmd/maago`의 `TestAddAuth`가 두 방언에서, `User`에 필드를 더하기 전과 뒤에 돌린다)
   1. 튜토리얼의 M5 커밋(0019~0022): `TestBoardTutorial`(끝에서 `-createsuperuser`도), 망가진 단계는 `TestBoardTutorialCatches`(트레일러 빼기·모르는 트레일러·작성자 검사 빼기). SQLite(D-103)
   2. 가입 → 인증 메일 링크 → 로그인 → 재설정: 복사본 `TestSignup`(한 사슬), 실패 경로는 `TestVerifyTokens`·`TestVerifyOnce`·`TestPasswordResetRefuses`·`TestPasswordResetOnce`·`TestSignupTakenFirst`
   3. 인증 표 다섯이 `makemigrations`에: `TestAddAuth`의 마이그레이션 검사(두 방언)
@@ -654,8 +654,8 @@
   5. 옛 해시의 재해싱(다른 접두어·적은 반복 수): 복사본 `TestRehash`, 틀린 비밀번호는 바꾸지 않음 `TestLoginFails`, 라이브러리 `TestCheckDjango`
   6. 로그인하면 세션 ID가 바뀜: 복사본 `TestSessions`(심은 쿠키, 다시 로그인)
   7. API 라우트를 토큰으로: `site`의 `TestAPIToken`(다른 출처의 preflight, Bearer 200, 지운 토큰 401과 `WWW-Authenticate`), 복사본 `TestAPITokens`·`TestAPITokensEnd`
-- [ ] MILESTONES.md의 M5 체크박스 갱신
-- [ ] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인
+- [x] MILESTONES.md의 M5 체크박스 갱신
+- [x] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인: 실행 38271060081(postgres:18 서비스) 통과. `CI`가 있으면 PG 시험은 건너뛰지 않고 실패한다(D-91) (2026-10-13)
 - [ ] TASKS-M6 초안
 
 ## 초안 리뷰 (2026-10-05)
