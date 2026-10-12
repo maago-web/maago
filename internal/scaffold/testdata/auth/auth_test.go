@@ -937,3 +937,127 @@ func TestSignupTakenFirst(t *testing.T) {
 		t.Errorf("their password signs in: %d", w.Code)
 	}
 }
+
+func TestRequireStaff(t *testing.T) {
+	ctx := context.Background()
+	if _, err := RequireStaff(ctx); err == nil {
+		t.Error("nobody passed")
+	}
+	if _, err := RequireStaff(maago.WithUser(ctx, User{ID: 1})); err == nil {
+		t.Error("a user not staff passed")
+	}
+	if u, err := RequireStaff(maago.WithUser(ctx, User{ID: 2, IsStaff: true})); err != nil || u.ID != 2 {
+		t.Errorf("staff: %v %v", u, err)
+	}
+}
+
+func TestAccountClose(t *testing.T) {
+	h, db := site(t)
+	box := maagotest.Mailbox(t)
+	ctx := context.Background()
+	ann := newUser(t, db, "ann@example.com", nil)
+	newUser(t, db, "bob@example.com", nil)
+	bob := login(t, h, "bob@example.com", "")
+	if w := do(h, "GET", "/account/close", "", ""); w.Code != 303 {
+		t.Errorf("GET without a session: %d", w.Code)
+	}
+	closing := url.Values{"password": {password}}.Encode()
+	if w := do(h, "POST", "/account/close", closing, ""); w.Code != 401 {
+		t.Errorf("POST without a session: %d", w.Code)
+	}
+	here := login(t, h, "ann@example.com", "")
+	there := login(t, h, "ann@example.com", "")
+	reset := resetLink(t, h, box, "ann@example.com")
+	if _, err := newToken(ctx, db, ann.ID, "verify", VerifyAge); err != nil {
+		t.Fatal(err)
+	}
+	if w := do(h, "GET", "/account/close", "", here.Value); w.Code != 200 || !strings.Contains(w.Body.String(), `name="password"`) {
+		t.Errorf("form: %d %s", w.Code, w.Body)
+	}
+	if !strings.Contains(do(h, "GET", "/password", "", here.Value).Body.String(), `href="/account/close"`) {
+		t.Error("no link from the password page")
+	}
+
+	w := do(h, "POST", "/account/close", url.Values{"password": {"wrong"}}.Encode(), here.Value)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "Your password is incorrect.") || w.Header().Get("Set-Cookie") != "" {
+		t.Errorf("wrong password: %d %v %s", w.Code, w.Header(), w.Body)
+	}
+	if u, _ := GetUser(ctx, db, ann.ID); !u.IsActive || whoami(h, there.Value) == "" {
+		t.Error("a wrong password closed something")
+	}
+
+	w = do(h, "POST", "/account/close", closing, here.Value)
+	gone := w.Result().Cookies()
+	if w.Code != 303 || w.Header().Get("Location") != "/login" || len(gone) != 1 || gone[0].MaxAge != -1 {
+		t.Fatalf("close: %d %v", w.Code, w.Header())
+	}
+	if u, err := GetUser(ctx, db, ann.ID); err != nil || u.IsActive {
+		t.Errorf("after closing: %v %v", u, err)
+	}
+	if n := count(t, db, fmt.Sprintf("SELECT count(*) FROM auth_session WHERE user_id = %d", ann.ID)); n != 0 {
+		t.Errorf("%d sessions left", n)
+	}
+	if n := count(t, db, fmt.Sprintf("SELECT count(*) FROM auth_token WHERE user_id = %d", ann.ID)); n != 0 {
+		t.Errorf("%d tokens left", n)
+	}
+	if w := do(h, "POST", "/password/reset/confirm", confirm(reset, "a fresh secret phrase"), ""); !strings.Contains(w.Body.String(), "This link is invalid or has expired.") {
+		t.Errorf("the reset link from before: %d", w.Code)
+	}
+	if whoami(h, bob.Value) != "bob@example.com" {
+		t.Error("closing ann signed bob out")
+	}
+
+	// Its email answers as one with no account, and gets no mail.
+	sent := len(box.Messages())
+	for _, c := range []struct{ path, body string }{
+		{"/login", form("ann@example.com", password)},
+		{"/signup", form("ann@example.com", "a long fresh password")},
+		{"/password/reset", url.Values{"email": {"ann@example.com"}}.Encode()},
+		{"/verify/resend", url.Values{"email": {"ann@example.com"}}.Encode()},
+	} {
+		want := do(h, "POST", c.path, strings.ReplaceAll(c.body, "ann%40", "nobody%40"), "")
+		if w := do(h, "POST", c.path, c.body, ""); w.Code != want.Code || w.Body.String() != strings.ReplaceAll(want.Body.String(), "nobody", "ann") { // the form draws the email back
+			t.Errorf("%s: %d\n%s", c.path, w.Code, w.Body)
+		}
+	}
+	for _, m := range box.Messages()[sent:] {
+		if m.To == "ann@example.com" {
+			t.Errorf("sent %s to the closed account", m.Subject)
+		}
+	}
+
+	// Opened again by hand, the account has none of its old sessions.
+	ann.IsActive = true
+	if err := UpdateUser(ctx, db, &ann); err != nil {
+		t.Fatal(err)
+	}
+	if whoami(h, here.Value) != "" || whoami(h, there.Value) != "" {
+		t.Error("an old session came back")
+	}
+}
+
+func TestCreateSuperuser(t *testing.T) {
+	h, db := site(t)
+	ctx := context.Background()
+	u, err := CreateSuperuser(ctx, db, " Boss@Example.com ", password)
+	if err != nil || u.Email != "boss@example.com" || !u.IsStaff || u.VerifiedAt == nil {
+		t.Fatalf("%+v %v", u, err)
+	}
+	if c := login(t, h, "boss@example.com", ""); whoami(h, c.Value) != "boss@example.com" {
+		t.Error("cannot sign in")
+	}
+	for _, c := range []struct{ email, password, want string }{
+		{"BOSS@example.com", "another long phrase", "has an account already"},
+		{"not an email", password, "is not a valid email address"},
+		{"new@example.com", "tiny7", "This password is too short."},
+		{"newton@example.com", "newton rides a bike", "This password is too similar to your email."},
+	} {
+		_, err := CreateSuperuser(ctx, db, c.email, c.password)
+		if err == nil || !strings.Contains(err.Error(), c.want) || strings.Contains(err.Error(), c.password) {
+			t.Errorf("%s: %v", c.email, err)
+		}
+	}
+	if n := count(t, db, "SELECT count(*) FROM auth_user"); n != 1 {
+		t.Errorf("%d users", n)
+	}
+}

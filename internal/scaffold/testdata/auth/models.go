@@ -1,6 +1,23 @@
 // Package auth is the accounts of the project: who may sign in.
 // "maago add auth" wrote it, and it is yours now: add fields to User as
 // the project needs.
+//
+// The first staff account comes from main, given -createsuperuser, with
+// the email and password in the environment of the shell (not .env, and
+// no flag: a flag stays in ps and the shell's history), once maago
+// migrate has run:
+//
+//	createSuperuser := flag.Bool("createsuperuser", false, "create a staff account from MAAGO_SUPERUSER_EMAIL and MAAGO_SUPERUSER_PASSWORD")
+//	flag.Parse()
+//	// … open db …
+//	if *createSuperuser {
+//		u, err := auth.CreateSuperuser(ctx, db, os.Getenv("MAAGO_SUPERUSER_EMAIL"), os.Getenv("MAAGO_SUPERUSER_PASSWORD"))
+//		if err != nil {
+//			log.Fatal(err)
+//		}
+//		log.Printf("created %s", u.Email)
+//		return
+//	}
 package auth
 
 import (

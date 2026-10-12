@@ -18,4 +18,6 @@ var Routes = maago.Routes{
 	maago.POST("/password/reset", "password_reset_submit", PasswordReset),
 	maago.GET("/password/reset/confirm", "password_reset_confirm", PasswordResetConfirm),
 	maago.POST("/password/reset/confirm", "password_reset_confirm_submit", PasswordResetConfirm),
+	maago.GET("/account/close", "account_close", AccountClose, maago.LoginRequired),
+	maago.POST("/account/close", "account_close_submit", AccountClose, maago.LoginRequired),
 }

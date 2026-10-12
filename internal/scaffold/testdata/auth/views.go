@@ -53,10 +53,13 @@ func Login(ctx context.Context, in LoginIn) (maago.Result[LoginPage], error) {
 		return maago.Show(LoginPage{f, next}), nil
 	}
 	if rehash {
-		if u.PasswordHash, err = authlib.Hash(f.Password.Value); err != nil {
+		hash, err := authlib.Hash(f.Password.Value)
+		if err != nil {
 			return maago.Result[LoginPage]{}, err
 		}
-		if err := UpdateUser(ctx, db, &u); err != nil {
+		// The hash alone: writing the row read before hashing would undo
+		// what changed meanwhile, such as a closed account.
+		if _, err := SetPassword(ctx, db, SetPasswordParams{ID: u.ID, Hash: hash}); err != nil {
 			return maago.Result[LoginPage]{}, err
 		}
 	}
@@ -159,7 +162,9 @@ func Signup(ctx context.Context, in SignupIn) (maago.Result[SignupPage], error) 
 		return maago.Result[SignupPage]{}, err
 	}
 	switch u, err := UserByEmail(ctx, db, UserByEmailParams{Email: email}); {
-	case err == nil && u.IsActive && u.VerifiedAt == nil:
+	case err == nil && !u.IsActive: // closed: nothing to send
+		return maago.Show(SignupPage{Sent: true}), nil
+	case err == nil && u.VerifiedAt == nil:
 		// Not verified: the mail again, with the password unchanged. If
 		// someone else signed up with this email, the owner resets the
 		// password first, as the mail says, since verifying asks for it.
@@ -506,4 +511,49 @@ func PasswordResetConfirm(ctx context.Context, in PasswordResetConfirmIn) (maago
 		return maago.Result[PasswordResetConfirmPage]{}, err
 	}
 	return maago.SeeOther[PasswordResetConfirmPage](LoginURL()), nil
+}
+
+type AccountCloseIn struct {
+	Form AccountCloseForm `maago:"form"`
+}
+
+type AccountClosePage struct {
+	Form AccountCloseForm
+}
+
+// AccountClose closes the account of the signed-in user, given the
+// password again: it may not sign in, and its sessions and tokens end.
+// The row stays, as do the rows that point to it.
+func AccountClose(ctx context.Context, in AccountCloseIn) (maago.Result[AccountClosePage], error) {
+	f := in.Form
+	if !f.Valid() {
+		return maago.Show(AccountClosePage{f}), nil
+	}
+	u, _ := maago.UserFrom[User](ctx) // the route requires login
+	if ok, _ := authlib.Check(f.Password.Value, u.PasswordHash); !ok {
+		f.Password.Error = "Your password is incorrect."
+		return maago.Show(AccountClosePage{f}), nil
+	}
+	tx, err := maago.DBFrom(ctx).BeginTx(ctx, nil)
+	if err != nil {
+		return maago.Result[AccountClosePage]{}, err
+	}
+	defer tx.Rollback()
+	if _, err := CloseUser(ctx, tx, CloseUserParams{ID: u.ID}); err != nil {
+		return maago.Result[AccountClosePage]{}, err
+	}
+	// The sessions go too: opened again, the account does not get them back.
+	if _, err := DeleteUserSessions(ctx, tx, DeleteUserSessionsParams{UserID: u.ID}); err != nil {
+		return maago.Result[AccountClosePage]{}, err
+	}
+	for _, purpose := range []string{"verify", "reset"} {
+		if _, err := DeleteUserTokens(ctx, tx, DeleteUserTokensParams{UserID: u.ID, Purpose: purpose}); err != nil {
+			return maago.Result[AccountClosePage]{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return maago.Result[AccountClosePage]{}, err
+	}
+	maago.SetCookie(ctx, authlib.SessionCookie("", cookiePath(), -1))
+	return maago.SeeOther[AccountClosePage](LoginURL()), nil
 }

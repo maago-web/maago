@@ -1,0 +1,7 @@
+{{define "content"}}<h1>Close your account</h1>
+<p>You won't be able to sign in again. Enter your password to close it.</p>
+<form method="post" action="{{url "account_close_submit"}}">
+{{with .Form.Password}}<label for="{{.Name}}">Password</label>
+<input type="password" id="{{.Name}}" name="{{.Name}}" autocomplete="current-password" required>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+<button>Close my account</button>
+</form>{{end}}

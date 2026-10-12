@@ -473,11 +473,51 @@
 `IsStaff`·`IsActive`, 뷰의 staff 검사 예, 탈퇴(비활성 + 세션·토큰), `-createsuperuser`.
 → 확인: staff만 들어가는 화면(완료 조건 4의 몫), 비활성 사용자는 로그인 못 함
 
+### 계획
+
+이 작업의 끝에 뷰가 한 줄로 staff만 들이고, 사용자가 탈퇴하며, `main`이 `-createsuperuser`로 첫 staff 계정을 만든다. 비활성 사용자의 로그인 거절은 4번이 이미 한다(`TestLoginFails`의 "not active", `TestSessions`의 세션). 재설정 요청·다시 보내기·인증 링크·재설정 확인도 이미 비활성에는 아무것도 하지 않는다(7·8번)
+
+복사본(`auth`)
+- `RequireStaff(ctx) (User, error)`(`auth.go`): 로그인한 staff면 그 사용자, 아니면 `maago.Status(403, …)`(사용자가 없어도 403: 라우트가 `LoginRequired`면 그 전에 로그인으로 간다). 뷰의 한 줄 `u, err := auth.RequireStaff(ctx)`(D-130). 라우트 옵션은 M6
+- 탈퇴: `GET`·`POST /account/close`(`account_close`·`account_close_submit`, `LoginRequired`), `AccountCloseForm{Password max=4096}`(남이 연 세션으로 닫지 못하게 비밀번호를 다시 묻는다. 시도 제한은 걸지 않는다: 8번의 비밀번호 변경과 같이 세션이 이미 계정이다). `authlib.Check`는 트랜잭션 밖(7·8번처럼), 틀리면 "Your password is incorrect." 맞으면 트랜잭션: `close_user.sql`(`:exec`, `UPDATE auth_user SET is_active = FALSE WHERE id = :id`, SQLite의 정수 칸도 `FALSE`를 0으로 받는다) → `DeleteUserSessions` → `DeleteUserTokens`를 verify·reset으로 두 번(11번이 API 토큰을 더한다) → 커밋 → `Logout`의 끝 두 줄(지우는 쿠키, `SeeOther` 로그인). 행은 남는다(D-130). 이메일도 그대로 쓰여 있다(다시 열기는 DB나 M6 admin). 세션을 지우는 까닭은 다시 열 때 옛 세션이 되살아나지 않게(세션 조회는 이미 `is_active`를 거른다)
+- 동시의 비밀번호 변경이 탈퇴 뒤에 커밋되면 새 세션이 하나 남는다: 비활성이라 쓰이지 않고, 다시 열면 그 세션이 산다(받음)
+- 로그인의 재해싱이 행 전체를 쓴다(`UpdateUser`, 4번): 해싱 중 탈퇴가 끼면 읽어 둔 `IsActive`가 되살린다 → 7번의 `SetPassword`로 바꾼다(한 줄)
+- 가입: 닫힌 계정에는 아무것도 보내지 않는다(`case err == nil && !u.IsActive`를 앞에, 지금은 "이미 계정" 메일). 응답은 모든 가입과 같은 "Check your email" 페이지
+- `CreateSuperuser(ctx, db maago.DB, email, password string) (User, error)`(`auth.go`): 정규화 → `validEmail`(가입 폼의 검사를 꺼낸 함수, 정규화된 주소를 받는다, 둘이 쓴다) → `ValidatePassword(password, []string{email}, PasswordRules...)` → 해시 → 있는 이메일은 오류(사람의 결정 2026-10-12, Django처럼) → `InsertUser{IsStaff: maago.Set(true), VerifiedAt: now}`(D-130: `createsuperuser`가 인증을 채운다). 오류는 무엇이 틀렸는지 말하고 비밀번호는 담지 않는다
+- `main`의 모양(패키지 문서 주석에, 12번 튜토리얼이 쓴다): `-createsuperuser` 플래그면 프로세스 환경 변수 `MAAGO_SUPERUSER_EMAIL`·`MAAGO_SUPERUSER_PASSWORD`로 `auth.CreateSuperuser`를 부르고 끝낸다(묻지 않는다. 비밀번호는 플래그로 받지 않는다: `ps`와 셸 기록에 남는다). `.env`가 아니라 셸의 변수이고, `maago migrate` 뒤에. D-130의 "플래그·환경 변수"를 이것으로 좁힌다. CLI `maago`는 User를 모르니 하지 않는다(D-123)
+- 템플릿 `account_close_page.html`, 비밀번호 변경 페이지에 탈퇴 링크
+
+시험
+- 복사본 `auth_test.go`:
+  - `TestRequireStaff`: `maago.WithUser`로 사용자 없음·staff 아님 → 오류, staff → 사용자(403 응답은 아래 staff 화면이 본다: 상태 오류 타입은 코어 밖에서 보이지 않는다)
+  - `TestAccountClose`: 세션 없는 GET 303·POST 401 → 두 기기 로그인 → GET 폼 → 틀린 비밀번호(아무것도 안 바뀜, 쿠키 없음) → 맞으면 303 로그인·지우는 쿠키, 그 사용자의 세션 행 0·토큰 행 0, `IsActive` 거짓·행 남음 → 미리 받은 재설정 링크 무효 → 그 이메일로 로그인·재설정 요청·다시 보내기·가입이 다른 이메일과 같은 응답에 메일 없음 → DB로 다시 열면 옛 쿠키는 여전히 로그인 아님. 남의 계정은 그대로
+  - `TestCreateSuperuser`: 만든 계정이 바로 로그인되고 `IsStaff`·`VerifiedAt`. 이메일 정규화. 있는 이메일(대소문자 달리)·깨진 이메일·약한 비밀번호·이메일과 닮은 비밀번호는 오류(비밀번호를 담지 않음)이고 행 없음
+- `cmd/maago`의 `TestAddAuth`: 임시 프로젝트에 앱 `site`(사람의 결정 2026-10-12): `GET /staff` `LoginRequired`, 뷰는 `auth.RequireStaff` 한 줄, 템플릿 하나, 시험은 staff(`auth.CreateSuperuser`로 만듦) 200·staff 아님 403·로그인 없음 303. `User`에 `Nickname`을 더한 뒤에도 돈다(완료 조건 4). `authMain`의 `-createsuperuser` 분기는 `expect`의 타입 검사가 본다(실제로 돌리는 것은 12번 튜토리얼)
+
+하지 않기로 한 것: staff 라우트 옵션·`IsSuperuser`·권한(M6), 계정 다시 열기 화면(M6 admin), 탈퇴 확인 메일, 행 지우기(D-130), CLI `maago createsuperuser`(D-123, MILESTONES·TUTORIAL-FUTURE의 문구는 13번), 탈퇴 트랜잭션 중간 실패의 시험(트랜잭션이 보장)
+
+단계
+1. `RequireStaff`·`CreateSuperuser`·`validEmail` → 확인: 복사본 시험(두 방언)
+2. 탈퇴, 가입의 닫힌 계정 분기, 재해싱의 `SetPassword` → 확인: 복사본 시험, 변형(세션 지우기 빼기, 비밀번호 확인 빼기, 가입 분기)
+3. `TestAddAuth`의 앱 `site`와 `authMain` → 확인: 두 방언, 변형(`RequireStaff`가 늘 사용자)
+4. D-130·ARCHITECTURE·README, 11번 머리말(탈퇴가 API 토큰도 지운다), 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: `Check`는 트랜잭션 밖 → 적음. 동시 비밀번호 변경 → 남는 세션은 비활성이라 쓰이지 않음(받음). ★환경 변수의 비밀번호 → D-130 그대로(Django의 `DJANGO_SUPERUSER_PASSWORD`와 같은 길, 플래그는 아님), 오류에 비밀번호 없음을 시험. 분기를 실제로 돌리기 → 12번 튜토리얼, 여기서는 타입 검사와 `CreateSuperuser` 시험. 토큰 정리 → verify·reset 두 번, API 토큰은 11번 머리말. 닫힌 계정 가입의 같은 응답 → 모든 가입과 같은 페이지, 메일 없음. `FALSE` → 두 방언 시험. 롤백 시험 → 트랜잭션이 보장(받음). D-84 인용 → D-130으로 고침
+- fable: ★staff 화면의 자리 → 사람의 결정: cmd 임시 프로젝트의 앱 `site`. ★있는 이메일 → 사람의 결정: 오류. `errors.As`는 비공개 타입이라 안 됨 → 오류냐 사용자냐만, 403은 `site`. `.env`가 아님·`migrate` 뒤 → 문서 주석. 세션 지우기 변형이 살아남음 → 세션 행 수와 다시 연 뒤의 옛 쿠키. 가입 분기의 자리. 재해싱의 행 전체 쓰기 → `SetPassword`. 빈칸(`DeleteUserTokens` 두 번, `Logout`의 끝, `maago.Set(true)`, 정규화 뒤 `validEmail`, 시도 제한 없음). `authMain`은 `expect`가 타입 검사. CLI 문구는 13번. 빠진 시험(세션 없는 GET, 미리 받은 재설정 링크, 이메일과 닮은 비밀번호, 대소문자 다른 이메일)
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 변형으로 확인: `RequireStaff`가 늘 사용자(`site`의 403과 단위 시험), 탈퇴의 세션 지우기·비밀번호 확인·토큰 지우기, 가입의 닫힌 계정 분기, superuser의 staff. `TestAddCannotWrite`가 첫 템플릿을 `base.html`로 가정 → 접두어만. ARCHITECTURE는 바꿀 것 없음(복사된 앱은 13번의 §5)
+- codex: ★동시 로그인이 탈퇴 뒤에 세션을 넣음 → 받음(비활성이라 쓰이지 않고, 손으로 다시 열 때만 산다. 계획의 동시 비밀번호 변경과 같은 경우). 재해싱 회귀 시험 → 동시성 없이는 드러나지 않음(받음). `-createsuperuser` 실제 실행 → 12번(계획대로). CLI 문구 → 13번
+- fable: 탈퇴의 verify 토큰 지우기를 시험이 못 잡음(ann에게 verify 토큰이 없었다) → 넣음. 변경 기록 순서. 오류 문구의 "the password" 겹침, `RequireStaff` 주석. `CreateSuperuser`는 있는 이메일을 해시 전에(CLI라 시간 균일이 필요 없다)
+
 ## 10. (9번에 합침)
 
 ## 11. API 토큰 (D-129)
 
-토큰 만들기(평문 한 번)·지우기 화면, Bearer, 다른 출처 프런트엔드의 preflight와 실제 요청.
+토큰 만들기(평문 한 번)·지우기 화면, Bearer, 다른 출처 프런트엔드의 preflight와 실제 요청. 탈퇴(9번)와 재설정이 API 토큰을 어떻게 하는지도(탈퇴는 지운다).
 → 확인: 토큰으로 API 라우트(완료 조건 7), 지운 토큰은 401과 `WWW-Authenticate`
 
 ## 12. 게시판 튜토리얼의 M5 단계 (D-103)
@@ -487,7 +527,7 @@
 
 ## 13. 완료 조건 종단 테스트와 문서
 
-`TestM5Done`(두 방언): 완료 조건마다 성공과 실패 경로. DECISIONS(초안의 D-123~D-130에서 만들며 바뀐 것), ARCHITECTURE §2(둘째 예외)·§5(복사된 앱), TUTORIAL-FUTURE §5(`maago add auth`, `-createsuperuser`), MILESTONES(할일을 D-번호 한 줄로, M8 표의 JWT·contrib User 줄, M6의 "모델별 권한(M5)").
+`TestM5Done`(두 방언): 완료 조건마다 성공과 실패 경로. DECISIONS(초안의 D-123~D-130에서 만들며 바뀐 것), ARCHITECTURE §2(둘째 예외)·§5(복사된 앱), TUTORIAL-FUTURE §5(`maago add auth`, CLI `maago createsuperuser`를 `main`의 `-createsuperuser`로, 215·452줄), MILESTONES(106줄의 `maago createsuperuser`, 할일을 D-번호 한 줄로, M8 표의 JWT·contrib User 줄, M6의 "모델별 권한(M5)").
 → 확인: 완료 조건마다 시험 이름, CI에서 PG
 
 ---

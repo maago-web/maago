@@ -25,11 +25,15 @@ type SignupForm struct {
 // Validate wants one plain ASCII address: a name, a list, or non-ASCII is
 // not one a mail goes to.
 func (f *SignupForm) Validate() {
-	email := normalizeEmail(f.Email.Value)
-	a, err := mail.ParseAddress(email)
-	if err != nil || a.Address != email || strings.ContainsFunc(email, func(r rune) bool { return r >= utf8.RuneSelf }) {
+	if !validEmail(normalizeEmail(f.Email.Value)) {
 		f.Email.Error = "Enter a valid email address."
 	}
+}
+
+// validEmail reports whether email, normalized, is one plain ASCII address.
+func validEmail(email string) bool {
+	a, err := mail.ParseAddress(email)
+	return err == nil && a.Address == email && !strings.ContainsFunc(email, func(r rune) bool { return r >= utf8.RuneSelf })
 }
 
 // VerifyForm carries the token of a verification link, and the password:
@@ -51,6 +55,12 @@ type PasswordChangeForm struct {
 	maago.Form
 	OldPassword maago.Field[string] `maago:"max=4096"`
 	NewPassword maago.Field[string] `maago:"max=4096"`
+}
+
+// AccountCloseForm closes the account of the signed-in user.
+type AccountCloseForm struct {
+	maago.Form
+	Password maago.Field[string] `maago:"max=4096"`
 }
 
 // PasswordResetForm asks for a link to reset the password.

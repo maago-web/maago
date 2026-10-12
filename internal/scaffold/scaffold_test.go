@@ -135,7 +135,7 @@ func TestAddCannotWrite(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Chmod(dir, 0o755) })
 	written, ds := Add(root, "auth")
-	if written != nil || !strings.HasPrefix(text(ds), "auth/templates/base.html: cannot write the file: ") {
+	if got := text(ds); written != nil || !strings.HasPrefix(got, "auth/templates/") || !strings.Contains(got, ".html: cannot write the file: ") {
 		t.Errorf("%v\n%s", written, text(ds))
 	}
 	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
