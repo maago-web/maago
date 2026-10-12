@@ -48,6 +48,12 @@ type Model struct {
 	Indexes     [][]string // column names; from index on fields and models, and FKs (D-85)
 	Fields      []*Field   // columns, in declaration order; ID is one of them
 	Unsupported []Unsupported
+
+	// The admin's options (D-132), as written: Go field names. An empty
+	// AdminList leaves the admin its default columns; empty AdminSearch
+	// and AdminFilter mean no search box and no filters.
+	AdminHidden                         bool
+	AdminList, AdminSearch, AdminFilter []string
 }
 
 type Order struct {
@@ -68,6 +74,7 @@ type Field struct {
 	Label, Help string
 	FK          string // the table of the model it refers to (D-124)
 	Auto        string // "create" or "update": generated CRUD fills it with the time (D-102)
+	Admin       string // "hidden" or "readonly" in the admin (D-132), or ""
 }
 
 // Unsupported is a field that is not a column, and why (D-18, D-82).
@@ -78,8 +85,8 @@ type Unsupported struct {
 }
 
 var (
-	modelKeys = []string{"table", "ordering", "unique", "index"}
-	fieldKeys = []string{"max", "unique", "index", "default", "choices", "label", "help", "fk", "auto"}
+	modelKeys = []string{"table", "ordering", "unique", "index", "admin", "admin_list", "admin_search", "admin_filter"}
+	fieldKeys = []string{"max", "unique", "index", "default", "choices", "label", "help", "fk", "auto", "admin"}
 	tableName = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 )
 
@@ -338,6 +345,14 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, app *App) 
 			default:
 				f.Auto = first(o)
 			}
+		case "admin":
+			switch {
+			case !c.shape(o, where, Bare, 1, "write admin=hidden or admin=readonly"):
+			case first(o) != "hidden" && first(o) != "readonly":
+				c.unknown(o.ValuePos[0], "admin value", first(o), where, []string{"hidden", "readonly"})
+			default:
+				f.Admin = first(o)
+			}
 		}
 	}
 	if defaultOpt != nil {
@@ -418,7 +433,7 @@ func (c *checker) modelOptions(m *Model, opts []Option) {
 			c.unknown(o.KeyPos, "tag key", o.Key, m.Name, modelKeys)
 			continue
 		}
-		if (o.Key == "table" || o.Key == "ordering") && seen[o.Key] {
+		if o.Key != "unique" && o.Key != "index" && seen[o.Key] {
 			c.errf(o.KeyPos, "keep one of them", "tag key %q given twice in %s", o.Key, m.Name)
 			continue
 		}
@@ -459,8 +474,64 @@ func (c *checker) modelOptions(m *Model, opts []Option) {
 			} else {
 				c.idx = append(c.idx, decl{o.Values, o.KeyPos})
 			}
+		case "admin":
+			switch {
+			case !c.shape(o, m.Name, Bare, 1, "write admin=hidden"):
+			case first(o) != "hidden":
+				c.unknown(o.ValuePos[0], "admin value", first(o), m.Name, []string{"hidden"})
+			default:
+				m.AdminHidden = true
+			}
+		case "admin_list", "admin_search", "admin_filter":
+			if !c.shape(o, m.Name, Group, -1, "list fields in parentheses, like "+o.Key+"=(Title)") {
+				continue
+			}
+			var names []string
+			for j, v := range o.Values {
+				if c.item(o, j, v, m.Name, columns) && c.adminItem(o, j, m.field(v), m.Name) {
+					names = append(names, v)
+				}
+			}
+			switch o.Key {
+			case "admin_list":
+				m.AdminList = names
+			case "admin_search":
+				m.AdminSearch = names
+			default:
+				m.AdminFilter = names
+			}
 		}
 	}
+}
+
+// adminItem checks that f fits the admin option o: not hidden, a string
+// to search, and a field with a few values to filter by. Each is
+// reported on its own (D-61).
+func (c *checker) adminItem(o *Option, j int, f *Field, model string) bool {
+	where, ok := model+"."+f.Name, true
+	if f.Admin == "hidden" {
+		c.errf(o.ValuePos[j], "remove it from "+o.Key+", or remove admin=hidden", "%s is admin=hidden, but %s of %s lists it", where, o.Key, model)
+		ok = false
+	}
+	if o.Key == "admin_search" && f.Type != String {
+		c.errf(o.ValuePos[j], "remove it from admin_search, or make the field a string", "admin_search applies to strings, but %s is %s", where, f.Type)
+		ok = false
+	}
+	if o.Key == "admin_filter" && len(f.Choices) == 0 && f.Type != Bool && f.FK == "" {
+		c.errf(o.ValuePos[j], "filter by a field with choices, a bool, or an fk field", "%s in admin_filter has no choices, and is neither a bool nor an fk field", where)
+		ok = false
+	}
+	return ok
+}
+
+// field is the column field named name, which exists.
+func (m *Model) field(name string) *Field {
+	for _, f := range m.Fields {
+		if f.Name == name {
+			return f
+		}
+	}
+	panic("model: no field " + name)
 }
 
 // item checks one field name in ordering, unique or index.

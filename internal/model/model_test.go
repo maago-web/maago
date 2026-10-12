@@ -5,6 +5,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -60,7 +61,7 @@ type Post struct {
 	Title string ` + "`" + `maago:"maxlen=200"` + "`" + `
 }
 `})
-	want := "blog/models.go:9:23: unknown tag key \"maxlen\" in Post.Title\n  fix: did you mean \"max\"? allowed: max, unique, index, default, choices, label, help, fk, auto\n"
+	want := "blog/models.go:9:23: unknown tag key \"maxlen\" in Post.Title\n  fix: did you mean \"max\"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin\n"
 	if errs != want {
 		t.Errorf("got:\n%s\nwant:\n%s", errs, want)
 	}
@@ -133,6 +134,23 @@ type Nullable struct {
 	maago.Model
 
 	ID *int64
+}
+
+type Adm struct {
+	maago.Model ` + q + `maago:"admin=shown,admin_search=Title,admin_filter=(Title,Views,Secret,Nope),admin_list=(Title,Title,Secret),admin_list=(Title)"` + q + `
+
+	ID     int64  ` + q + `maago:"admin=hidden"` + q + `
+	Title  string ` + q + `maago:"admin=hiden"` + q + `
+	Views  int32  ` + q + `maago:"admin"` + q + `
+	Secret string ` + q + `maago:"admin=hidden"` + q + `
+}
+
+type Adm2 struct {
+	maago.Model ` + q + `maago:"admin_search=(Views,Code)"` + q + `
+
+	ID    int64
+	Views int32
+	Code  int32 ` + q + `maago:"admin=hidden"` + q + `
 }
 `,
 		"shop/models.go": `package blog
@@ -261,6 +279,59 @@ type Post struct {
 	for _, f := range apps[0].Models[0].Fields {
 		if f.FK != "" {
 			t.Errorf("%s has FK %q", f.Name, f.FK)
+		}
+	}
+}
+
+// The admin's tags are kept as written (D-132). A field named Password
+// is shown like any other: no name hides it, only admin=hidden (D-49).
+func TestAdminTags(t *testing.T) {
+	q := "`"
+	apps, errs, _ := load(t, map[string]string{
+		"blog/models.go": `package blog
+
+import (
+	"time"
+
+	"github.com/maago-web/maago"
+)
+
+type Post struct {
+	maago.Model ` + q + `maago:"admin_list=(Title,Status),admin_search=(Title,Note),admin_filter=(Status,Draft,AuthorID,Shown)"` + q + `
+
+	ID        int64
+	Title     string
+	Note      *string
+	Status    *string    ` + q + `maago:"choices=draft/published"` + q + `
+	Draft     bool
+	Shown     *bool
+	AuthorID  *int64     ` + q + `maago:"fk=Author"` + q + `
+	Password  string
+	Token     string     ` + q + `maago:"admin=hidden"` + q + `
+	Views     int64      ` + q + `maago:"admin=readonly"` + q + `
+	CreatedAt time.Time  ` + q + `maago:"auto=create,admin=readonly"` + q + `
+}
+
+type Author struct {
+	maago.Model ` + q + `maago:"admin=hidden,admin_list=(Name)"` + q + `
+
+	ID   int64
+	Name string
+}
+`})
+	if errs != "" {
+		t.Fatal(errs)
+	}
+	post, author := apps[0].Models[0], apps[0].Models[1]
+	if post.AdminHidden || !slices.Equal(post.AdminList, []string{"Title", "Status"}) || !slices.Equal(post.AdminSearch, []string{"Title", "Note"}) || !slices.Equal(post.AdminFilter, []string{"Status", "Draft", "AuthorID", "Shown"}) {
+		t.Errorf("Post: %v %v %v %v", post.AdminHidden, post.AdminList, post.AdminSearch, post.AdminFilter)
+	}
+	if !author.AdminHidden || !slices.Equal(author.AdminList, []string{"Name"}) {
+		t.Errorf("Author: %v %v", author.AdminHidden, author.AdminList)
+	}
+	for name, want := range map[string]string{"Title": "", "Password": "", "Token": "hidden", "Views": "readonly", "CreatedAt": "readonly"} {
+		if got := post.field(name).Admin; got != want {
+			t.Errorf("%s: admin %q, want %q", name, got, want)
 		}
 	}
 }

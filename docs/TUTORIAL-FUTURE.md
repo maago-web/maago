@@ -105,7 +105,7 @@ maago gen
 
 ```
 blog/models.go:15:33: unknown tag key "maxlen" in Post.Title
-  fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto
+  fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin
 ```
 
 Maago의 오류는 언제나 이 모양입니다. **위치, 무엇이 틀렸는지, 어떻게 고치는지.** 경고는 없고

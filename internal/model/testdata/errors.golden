@@ -1,5 +1,5 @@
 blog/models.go:9:22: unknown tag key "tabel" in Post
-  fix: did you mean "table"? allowed: table, ordering, unique, index
+  fix: did you mean "table"? allowed: table, ordering, unique, index, admin, admin_list, admin_search, admin_filter
 blog/models.go:9:43: unknown column field "Titel" in Post
   fix: did you mean "Title"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
 blog/models.go:9:64: field Title appears twice in unique of Post
@@ -13,7 +13,7 @@ blog/models.go:9:95: unknown column field "Bar" in Post
 blog/models.go:12:33: max in Post.Title is "0", not a positive whole number
   fix: use a positive whole number, like max=200
 blog/models.go:12:35: unknown tag key "uniqe" in Post.Title
-  fix: did you mean "unique"? allowed: max, unique, index, default, choices, label, help, fk, auto
+  fix: did you mean "unique"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin
 blog/models.go:12:41: label in Post.Title is not written as expected
   fix: write text in quotes, like label='Title'
 blog/models.go:13:41: choice "a" appears twice in Post.Status
@@ -41,7 +41,7 @@ blog/models.go:19:51: tag key "label" given twice in Post.Name
 blog/models.go:20:37: default "x" of Post.Mood is not one of its choices
   fix: use one of: a, b
 blog/models.go:21:32: unknown model "Autor" in Post.AuthorID
-  fix: did you mean "Author"? allowed: Post, Author, Tag, Dup, Nullable
+  fix: did you mean "Author"? allowed: Post, Author, Tag, Dup, Nullable, Adm, Adm2
 blog/models.go:22:29: Post.OwnerID refers to Post by ID, so it must be int64, not string
   fix: declare the field as int64, or *int64 to allow NULL
 blog/models.go:23:29: Post.Legacy is not a column (type int is not supported), so its maago options would be ignored
@@ -71,7 +71,7 @@ blog/models.go:34:30: fk in Post.DotID is not written as expected
 blog/models.go:35:30: Post.BothID refers to Nope by ID, so it must be int64, not string
   fix: declare the field as int64, or *int64 to allow NULL
 blog/models.go:35:33: unknown model "Nope" in Post.BothID
-  fix: allowed: Post, Author, Tag, Dup, Nullable
+  fix: allowed: Post, Author, Tag, Dup, Nullable, Adm, Adm2
 blog/models.go:40:28: table name "Blog-Authors" of Author is not a plain SQL name
   fix: use lowercase letters, digits and _, like table=blog_posts
 blog/models.go:42:2: Author.ID is the primary key and must be int64, not string
@@ -92,6 +92,38 @@ blog/models.go:58:2: fields AuthorID and AuthorId of Dup both become column "aut
   fix: rename one of them
 blog/models.go:64:2: Nullable.ID is the primary key and must be int64, not *int64
   fix: declare it as ID int64 (D-74)
+blog/models.go:68:28: unknown admin value "shown" in Adm
+  fix: allowed: hidden
+blog/models.go:68:34: admin_search in Adm is not written as expected
+  fix: list fields in parentheses, like admin_search=(Title)
+blog/models.go:68:67: Adm.Title in admin_filter has no choices, and is neither a bool nor an fk field
+  fix: filter by a field with choices, a bool, or an fk field
+blog/models.go:68:73: Adm.Views in admin_filter has no choices, and is neither a bool nor an fk field
+  fix: filter by a field with choices, a bool, or an fk field
+blog/models.go:68:79: Adm.Secret in admin_filter has no choices, and is neither a bool nor an fk field
+  fix: filter by a field with choices, a bool, or an fk field
+blog/models.go:68:79: Adm.Secret is admin=hidden, but admin_filter of Adm lists it
+  fix: remove it from admin_filter, or remove admin=hidden
+blog/models.go:68:86: unknown column field "Nope" in Adm
+  fix: allowed: ID, Title, Views, Secret
+blog/models.go:68:110: field Title appears twice in admin_list of Adm
+  fix: remove the repeated field
+blog/models.go:68:116: Adm.Secret is admin=hidden, but admin_list of Adm lists it
+  fix: remove it from admin_list, or remove admin=hidden
+blog/models.go:68:124: tag key "admin_list" given twice in Adm
+  fix: keep one of them
+blog/models.go:70:24: Adm.ID is the primary key and cannot have "admin"
+  fix: remove it; ID may only have label and help
+blog/models.go:71:30: unknown admin value "hiden" in Adm.Title
+  fix: did you mean "hidden"? allowed: hidden, readonly
+blog/models.go:72:24: admin in Adm.Views is not written as expected
+  fix: write admin=hidden or admin=readonly
+blog/models.go:77:36: admin_search applies to strings, but Adm2.Views is int32
+  fix: remove it from admin_search, or make the field a string
+blog/models.go:77:42: Adm2.Code is admin=hidden, but admin_search of Adm2 lists it
+  fix: remove it from admin_search, or remove admin=hidden
+blog/models.go:77:42: admin_search applies to strings, but Adm2.Code is int32
+  fix: remove it from admin_search, or make the field a string
 shop/models.go:5:6: table "blog_post" of shop: Post is also the table of blog: Post
   fix: give one of them another name with table=…
 shop/models.go:8:19: Post.ID is the primary key and cannot have "unique"

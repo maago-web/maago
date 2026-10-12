@@ -133,7 +133,7 @@ func Write(w io.Writer, ds []Diagnostic) error          // 정렬, 중복 제거
 
 ```
 blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
-  fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto
+  fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin
 ```
 
 - 고치는 법이 빈 진단은 만들 수 없게 생성자에서 막는다 (D-62). 필드가 비공개라 다른 패키지는 생성자로만 채울 수 있다.
