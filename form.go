@@ -77,6 +77,7 @@ type Messages struct {
 	NotChoice string // the text is not one of the choices
 	BadBool   string // a checkbox sent what it cannot send
 	BadTime   string // the text is not a date and time
+	NoRow     string // the number is of no row: an fk field in the admin
 }
 
 // DefaultMessages are the messages a project has not replaced.
@@ -90,6 +91,7 @@ var DefaultMessages = Messages{
 	NotChoice: "Select one of the choices.",
 	BadBool:   "Check the box or leave it.",
 	BadTime:   "Enter a date and time.",
+	NoRow:     "Select a row that exists.",
 }
 
 // formSettings are the Config values forms read, put in each request's
@@ -106,6 +108,7 @@ func newFormSettings(m Messages, tz *time.Location) *formSettings {
 	m.Required, m.NotNumber, m.TooSmall = cmp.Or(m.Required, d.Required), cmp.Or(m.NotNumber, d.NotNumber), cmp.Or(m.TooSmall, d.TooSmall)
 	m.TooLarge, m.TooShort, m.TooLong = cmp.Or(m.TooLarge, d.TooLarge), cmp.Or(m.TooShort, d.TooShort), cmp.Or(m.TooLong, d.TooLong)
 	m.NotChoice, m.BadBool, m.BadTime = cmp.Or(m.NotChoice, d.NotChoice), cmp.Or(m.BadBool, d.BadBool), cmp.Or(m.BadTime, d.BadTime)
+	m.NoRow = cmp.Or(m.NoRow, d.NoRow)
 	if tz == nil {
 		tz = time.UTC
 	}
@@ -264,7 +267,8 @@ func BindBool(ctx context.Context, vals url.Values, f *Field[bool], rule Rule) {
 }
 
 // BindTime reads a time field as an <input type="datetime-local"> sends
-// it, 2006-01-02T15:04 or with seconds, in Config.TimeZone, or as RFC 3339 with its offset.
+// it, 2006-01-02T15:04 or with seconds, which may have a fraction (time.Parse
+// takes one after the seconds), in Config.TimeZone, or as RFC 3339 with its offset.
 func BindTime(ctx context.Context, vals url.Values, f *Field[time.Time], rule Rule) {
 	if !bind(ctx, vals, f, rule) {
 		return
@@ -283,6 +287,10 @@ func BindTime(ctx context.Context, vals url.Values, f *Field[time.Time], rule Ru
 	f.Error = s.msgs.BadTime
 }
 
+// NoRow marks f, whose number is of no row, with Messages.NoRow. Only
+// generated code calls it.
+func NoRow[T any](ctx context.Context, f *Field[T]) { f.Error = settings(ctx).msgs.NoRow }
+
 // check reports a message whose verbs do not fit what fills it, which
 // would show people %!s(int=10).
 func (m Messages) check() error {
@@ -291,7 +299,7 @@ func (m Messages) check() error {
 		args      []any
 	}{
 		{"Required", m.Required, nil}, {"NotNumber", m.NotNumber, nil}, {"NotChoice", m.NotChoice, nil},
-		{"BadBool", m.BadBool, nil}, {"BadTime", m.BadTime, nil},
+		{"BadBool", m.BadBool, nil}, {"BadTime", m.BadTime, nil}, {"NoRow", m.NoRow, nil},
 		{"TooSmall", m.TooSmall, []any{"1"}}, {"TooLarge", m.TooLarge, []any{"1"}},
 		{"TooShort", m.TooShort, []any{1}}, {"TooLong", m.TooLong, []any{1}},
 	} {

@@ -198,7 +198,6 @@ func More(fset *token.FileSet, app *App) *mapper.More {
 // formsData is what views.go.tmpl needs of the forms an In reads: each
 // field's Bind function and Rule (D-119).
 func formsData(app *App) []map[string]any {
-	binds := map[string]string{"string": "BindString", "int64": "BindInt64", "int32": "BindInt32", "float64": "BindFloat64", "bool": "BindBool", "time.Time": "BindTime"}
 	var fs []map[string]any
 	for _, name := range slices.Sorted(maps.Keys(app.forms)) {
 		f := app.forms[name]
@@ -212,6 +211,20 @@ func formsData(app *App) []map[string]any {
 		fs = append(fs, map[string]any{"Name": name, "Validate": f.validate, "Fields": fields, "API": f.api})
 	}
 	return fs
+}
+
+// binds are the Bind functions of the form field types.
+var binds = map[string]string{"string": "BindString", "int64": "BindInt64", "int32": "BindInt32", "float64": "BindFloat64", "bool": "BindBool", "time.Time": "BindTime"}
+
+// ModelRule is the Bind function and the maago.Rule, as Go, of a model
+// form's field for mf: the rules a model form takes from its model
+// (D-119), for the admin's forms (D-131).
+func ModelRule(mf *model.Field, optional bool) (bind, rule string) {
+	ff := formField{name: mf.Name, typ: mf.Type.String(), label: mf.Name, help: mf.Help, choices: mf.Choices, max: mf.Max, optional: optional}
+	if mf.Label != "" {
+		ff.label = mf.Label
+	}
+	return binds[ff.typ], ruleLit(ff)
 }
 
 // ruleLit is ff's maago.Rule as Go: only the parts it has.

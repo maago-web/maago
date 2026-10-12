@@ -10,6 +10,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/token"
+	"slices"
 	"strconv"
 	"strings"
 	"text/template"
@@ -28,7 +29,7 @@ import (
 const Path = "github.com/maago-web/maago/contrib/admin"
 
 // Imports are the packages admin_gen.go may import (D-66).
-var Imports = []string{"context", "github.com/maago-web/maago", Path}
+var Imports = []string{"context", "net/url", "time", "github.com/maago-web/maago", Path}
 
 //go:embed templates/admin.go.tmpl
 var text string
@@ -38,7 +39,9 @@ var tmpl = template.Must(template.New("admin").Parse(text))
 // SQL is the SQL of a model's list in the admin: its rows, a page at a
 // time, and how many there are (D-134).
 type SQL struct {
-	List, Count string // List takes the limit and the offset
+	List, Count string   // List takes the limit and the offset
+	Update      string   // the form's, or "" when it changes nothing (D-132)
+	Exists      []string // the check of each fk field the form changes
 }
 
 // Statements is the SQL of m's list. The rows are in m's ordering, or
@@ -71,9 +74,18 @@ func Statements(m *model.Model, d project.Dialect) SQL {
 		limit, offset = "?", "?"
 	}
 	table := dialect.Quote(m.Table)
+	update, _ := updateSQL(m, d)
+	var exists []string
+	for _, f := range m.Fields {
+		if editable(f) && f.FK != "" {
+			exists = append(exists, existsSQL(f, d))
+		}
+	}
 	return SQL{
-		List:  "SELECT " + strings.Join(cols, ", ") + " FROM " + table + " ORDER BY " + strings.Join(order, ", ") + " LIMIT " + limit + " OFFSET " + offset,
-		Count: "SELECT COUNT(*) FROM " + table,
+		List:   "SELECT " + strings.Join(cols, ", ") + " FROM " + table + " ORDER BY " + strings.Join(order, ", ") + " LIMIT " + limit + " OFFSET " + offset,
+		Count:  "SELECT COUNT(*) FROM " + table,
+		Update: update,
+		Exists: exists,
 	}
 }
 
@@ -89,6 +101,8 @@ func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
 		Fields            []field
 		List              []string
 		ListSQL, CountSQL string
+		Form              string
+		Add, Edit         bool
 	}
 	models := map[string]string{} // each table's model, as "app.Model"
 	for _, a := range apps {
@@ -97,12 +111,19 @@ func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
 		}
 	}
 	var ms []modelView
+	var noAdd []string
+	imports := map[string]bool{}
 	for _, m := range app.Models {
 		if m.AdminHidden {
 			continue
 		}
 		sql := Statements(m, d)
-		v := modelView{Name: m.Name, List: m.AdminList, ListSQL: mapper.GoString(sql.List), CountSQL: mapper.GoString(sql.Count)}
+		why := blocks(m)
+		if why != "" {
+			noAdd = append(noAdd, why)
+		}
+		v := modelView{Name: m.Name, List: m.AdminList, ListSQL: mapper.GoString(sql.List), CountSQL: mapper.GoString(sql.Count),
+			Form: formCode(m, d, models, imports), Add: why == "", Edit: slices.ContainsFunc(m.Fields, editable)}
 		for _, f := range m.Fields {
 			if f.Admin == "hidden" {
 				continue
@@ -119,12 +140,16 @@ func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
 		}
 		ms = append(ms, v)
 	}
-	imports := []string{Path}
+	paths := []string{Path}
 	if ms != nil {
-		imports = []string{"context", "", "github.com/maago-web/maago", Path}
+		paths = []string{"context", "net/url"}
+		if imports["time"] {
+			paths = append(paths, "time")
+		}
+		paths = append(paths, "", "github.com/maago-web/maago", Path)
 	}
 	var b bytes.Buffer
-	err := tmpl.Execute(&b, map[string]any{"Marker": pipeline.Marker, "Package": app.Name, "Imports": imports, "Models": ms})
+	err := tmpl.Execute(&b, map[string]any{"Marker": pipeline.Marker, "Package": app.Name, "Imports": paths, "Models": ms, "NoAdd": noAdd})
 	if err != nil {
 		panic(err)
 	}

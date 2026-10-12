@@ -146,7 +146,7 @@ func TestCan(t *testing.T) {
 		{"ed", "/admin/blog/Nope/", 403},
 		{"root", "/admin/blog/Nope/", 404},
 		{"root", "/admin/blog/post/", 404},
-		{"root", "/admin/blog/Post/1/", 404},
+		{"root", "/admin/blog/Post/1/x/", 404},
 		{"root", "/admin", 307},
 	} {
 		if w := get(h, c.user, c.target); w.Code != c.code {
@@ -173,7 +173,7 @@ func TestList(t *testing.T) {
 	h := handler(t, Config{Models: [][]Model{{post}}}, "", map[string][]string{"ed": {"*"}})
 
 	body := get(h, "ed", "/admin/blog/Post/").Body.String()
-	for _, want := range []string{"<th>제목</th>", "<th>Note</th>", "<td>&lt;b&gt;0&lt;/b&gt;</td><td>set</td><td>7</td><td>yes</td><td>2026-10-13 09:30</td><td>(3 bytes)</td><td></td><td>1000000</td><td>(1 bytes)</td>",
+	for _, want := range []string{"<th>제목</th>", "<th>Note</th>", `<td><a href="/admin/blog/Post/1/">&lt;b&gt;0&lt;/b&gt;</a></td><td>set</td><td>7</td><td>yes</td><td>2026-10-13 09:30</td><td>(3 bytes)</td><td></td><td>1000000</td><td>(1 bytes)</td>`,
 		"Rows: 51", "Page 1 of 2", `href="/admin/blog/Post/?page=2">Next`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page 1 lacks %q:\n%s", want, body)

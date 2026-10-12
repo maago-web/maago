@@ -118,16 +118,23 @@ func TestBindSettings(t *testing.T) {
 	if s.Error != "필수 항목입니다." || n.Error != "Enter a number." {
 		t.Errorf("replaced message %q, kept default %q", s.Error, n.Error)
 	}
-	for raw, want := range map[string]string{"2026-10-01T09:30": "2026-10-01T00:30:00Z", "2026-10-01T09:30:15": "2026-10-01T00:30:15Z", "2026-10-01": ""} {
+	for raw, want := range map[string]string{"2026-10-01T09:30": "2026-10-01T00:30:00Z", "2026-10-01T09:30:15": "2026-10-01T00:30:15Z",
+		"2026-10-01T09:30:15.123456": "2026-10-01T00:30:15.123456Z", "2026-10-01": ""} {
 		var f Field[time.Time]
 		BindTime(ctx, url.Values{"t": {raw}}, &f, Rule{Name: "t"})
 		got := ""
 		if f.Error == "" {
-			got = f.Value.UTC().Format(time.RFC3339)
+			got = f.Value.UTC().Format(time.RFC3339Nano)
 		}
 		if got != want {
 			t.Errorf("time %q in Seoul: %q (%q), want %q", raw, got, f.Error, want)
 		}
+	}
+	var fk Field[int64]
+	NoRow(ctx, &fk)
+	NoRow(context.WithValue(context.Background(), formKey{}, newFormSettings(Messages{NoRow: "없는 행입니다."}, nil)), &n)
+	if fk.Error != "Select a row that exists." || n.Error != "없는 행입니다." {
+		t.Errorf("NoRow: %q, replaced %q", fk.Error, n.Error)
 	}
 	var utc Field[time.Time] // no settings: UTC
 	BindTime(context.Background(), url.Values{"t": {"2026-10-01T09:30"}}, &utc, Rule{Name: "t"})
@@ -197,7 +204,7 @@ func TestMessagesCheck(t *testing.T) {
 	if err := newFormSettings(Messages{TooLong: "%d자 이하로"}, nil).msgs.check(); err != nil {
 		t.Errorf("a fitting message: %v", err)
 	}
-	for _, m := range []Messages{{TooLong: "at most %s"}, {Required: "%d required"}, {TooSmall: "%s and %s"}} {
+	for _, m := range []Messages{{TooLong: "at most %s"}, {Required: "%d required"}, {NoRow: "%s"}, {TooSmall: "%s and %s"}} {
 		if err := newFormSettings(m, nil).msgs.check(); err == nil {
 			t.Errorf("%+v: no error", m)
 		}

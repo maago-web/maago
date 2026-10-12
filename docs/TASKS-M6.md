@@ -232,6 +232,64 @@ func App(cfg Config) maago.App // main의 Config.Apps에: admin.App(admin.Config
 
 ---
 
+## 4. 추가·고치기 (D-131, D-132)
+
+### 계획
+
+나누기(★사람의 결정: 바인딩은 생성물, D-131의 원래 뜻): 모델 타입에 닿는 일(행 읽기, 글→값 바인딩, 넣기, 고치기, FK 대상 확인)은 **생성물**이 `web`의 모델 폼처럼 타입 있는 Go로 쓰고(`maago.Field[T]`와 `maago.Bind*`, 규칙 글은 `web`의 `ruleLit`·`modelRules`와 하나, D-119), 그리는 일(입력 꼴, 값→글, 링크, 쪽)은 **런타임**. 칸 순서·타입이 어긋나면 컴파일 오류다(`[]any`로 주고받지 않는다)
+
+생성물에 더하는 것(`admin.Model`)
+```go
+Form func(ctx context.Context, db maago.DB, id int64, vals url.Values) (Form, error)
+Add  bool // 추가 화면이 있다
+Edit bool // 고칠 칸이 하나라도 있다
+```
+`id`가 0이면 추가, `vals`가 nil이면 GET(그리기만). 돌려주는 `admin.Form{Inputs []Input, Saved bool}`, `Input{Name, Label, Help, Kind, Raw, Error, Choices, FK, Required}`(`Kind`: `text`·`number`·`checkbox`·`select`·`datetime-local`·`readonly`). 고치기에서 행이 없으면 `sql.ErrNoRows`(→ `Handler`가 404, GET과 POST 사이에 지워진 행도)
+- 고칠 수 있는 칸: 숨김·`admin=readonly`·`ID`·`auto`·`[]byte`(v0은 고치지 않는다)가 아닌 것. 나머지 보이는 칸은 `readonly` 입력(값은 3번의 `cell`)
+- 바인딩: 포인터는 선택(빈 입력이 nil), `*bool`은 세 값 `select`(빈·yes·no), 선택지 있는 `*string`의 `select`엔 빈 항목, bool은 체크 상자, 그 밖은 필수(D-119). `Max`·`Choices`는 모델에서
+- FK: 생성물이 FK마다 `SELECT 1 FROM 대상표 WHERE "id" = ?`(D-124, `checkQueries`로 prepare)로 있는지 보고 없으면 그 칸의 오류. 문구는 `maago.Messages`에 한 줄(`NoRow: "Select a row that exists."`, D-119의 바꿀 수 있는 문구). 확인과 저장 사이에 대상이 지워지면 DB가 막아 500(D-135와 같은 받음). 화면은 번호 입력과 대상의 한 행 링크(대상이 `Config.Models`에 있고 `Can(View)`일 때만)
+- 넣기: `InsertX(NewXInput{…})`. 고칠 수 있는 칸은 보낸 값(기본값이 있는 칸은 `maago.Set`), 그 밖은 비워 둬 기본값·nil. 추가 화면의 기본값 칸은 모델의 `default` 글로 미리 채운다(fable 6)
+- 추가 없음(D-132, ★사람의 결정: 읽기 전용도 막음): 숨김·읽기 전용·`[]byte` 칸 가운데 `ID`·`auto`·포인터·`default`가 아닌 것이 있으면 `Add`가 거짓. 그 까닭을 `admin_gen.go` 머리에 D-18처럼 적는다("Post: no adding: Slug is admin=readonly, with no default"). D-132 문장을 고친다
+- 고치기: `UpdateX`를 쓰지 않는다(행 전체를 써서 그사이 바뀐 숨긴 칸, 복사본 `User.PasswordHash`를 되돌린다). admingen이 **고칠 수 있는 칸과 `auto=update`만** 쓰는 `UPDATE t SET … WHERE "id" = ?`를 만든다(두 방언, SQLite 시간 인자 D-105, prepare). 숨긴·읽기 전용 칸은 문장에 없어 요청에 실어도 바뀌지 않는다. 고칠 칸이 없으면 `Edit`이 거짓이고 화면은 읽기만
+- 동시 고침(★사람의 결정: 나중 저장이 이김, Django와 같다): 고칠 수 있는 칸만 쓰므로 숨긴 칸은 되돌리지 않는다. 충돌 검출은 v1(문서에)
+- 시간(★사람의 결정: 마이크로초까지, 구현 리뷰 뒤 글 입력으로): `type="text"`에 `2006-01-02T15:04:05.999999`(`Config.TimeZone`)로 그리고 `maago.BindTime`이 소수 초도 읽는다(`time.Parse`가 받는다). 손대지 않은 칸이 저장 때 깎이지 않는다. 실수는 `'f', -1`이 정확히 왕복한다. "그린 글과 같으면 원래 값" 분기는 두지 않는다
+- 값→글(GET의 `Raw`)은 런타임 함수 `admin.Raw`(닫힌 type switch, 3번의 `cell`과 짝), `Input`을 만드는 것은 제네릭 `admin.Input…` 도우미: 생성물은 짧은 호출만
+
+런타임(`contrib/admin`)
+- 라우트 넷 더함(모두 `LoginRequired`). `Can` 먼저→없는 모델 404를 `s.model(r, action)` 하나로(3번 리뷰):
+  - `GET·POST /admin/{app}/{model}/add/{$}`: `Can(Add)`, `Add`가 거짓이면 404. 리터럴 `add`가 `{id}`보다 앞선다(`ServeMux`의 더 구체적인 쪽, 시험 한 줄)
+  - `GET·POST /admin/{app}/{model}/{id}/{$}`: GET은 `Can(View)`, POST는 `Can(Change)`. `id`가 정수가 아니면 404. `Change`가 없거나 `Edit`이 거짓이면 읽기만(입력 `disabled`, 저장 단추 없음)
+- 성공은 303으로 목록, 실패는 같은 화면을 오류와 함께(200, 보낸 글 그대로). 폼 전체 오류와 DB 제약(unique 등)의 문구는 v1: 드라이버 오류는 500(받음, 문서에)
+- 목록: 첫 칸이 한 행 링크, `Add`이고 `Can(Add)`면 "Add" 링크
+
+시험
+- gentest(두 방언) `TestAdminForm`: 실제 생성물에 `admin.App`+`httptest`로(fable 1의 이음새): `orders`의 추가 POST(기본값 칸·포인터 FK의 빈 입력 nil·없는 FK 번호의 오류·`auto` 시간), 고치기 GET의 값(마이크로초 시간)과 손대지 않은 POST 뒤 같은 값, `blog`의 고치기가 고칠 수 있는 칸만 쓰고 숨긴 `Author.Code`·읽기 전용 `Post.Slug`·`CreatedAt`을 POST에 실어도 그대로(DB 행으로 확인), `UpdatedAt`은 바뀜, 지워진 행의 POST 404, `Post`·`Author`는 추가 404
+- 골든: 세 픽스처의 `admin_gen.go`(폼, `Update`·FK SQL, 추가 없음의 머리 주석)
+- `admingen` 단위: 추가 없음의 판정(숨김·읽기 전용·`[]byte`, 포인터·`default`·`auto`·`ID`는 막지 않음), 고칠 칸 없는 모델의 `Edit` 거짓
+- 런타임(손으로 만든 `Model`): 입력 꼴 다섯과 `readonly`, `Can`이 받은 `"add"`·`"change"`, `Change` 없는 사용자의 POST 403과 GET 읽기만, `Add` 없음 403, 추가 없는 모델의 add 404, `add`와 `{id}`, 다른 출처의 POST 403(`Handler`가 사용자보다 먼저), 성공 303
+- `maago.BindTime`의 소수 초, `Messages.NoRow`(기본값과 바꾼 값, `check`)
+- 완료 조건 2의 폼 쪽: 태그 없는 `Password` 칸이 고치기 화면에 입력으로 있다(`admingen` 단위와 런타임)
+
+하지 않기로 한 것: 지우기(6번), 권한 행렬 전체(5번), FK 고르는 상자(v1), `[]byte` 고치기, 폼 전체 오류와 DB 제약 오류의 문구(v1), 충돌 검출(v1), 모델 수준 검증(D-135), 고친 이력
+
+단계
+1. 코어: `BindTime`의 소수 초, `Messages.NoRow` → 확인: 코어 시험
+2. admingen·`contrib/admin` 타입: 폼·넣기·고치기·FK 확인과 그 SQL, 추가 없음, prepare → 확인: 골든, `admingen` 단위
+3. 런타임: 라우트 넷, 폼 그리기, 목록 링크 → 확인: 런타임 시험, gentest `TestAdminForm` 두 방언, 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: ★동시 고침 → 사람의 결정: 나중 저장이 이김(고칠 칸만 쓰므로 숨긴 칸은 안전). ★시간 비교 → 사람의 결정: 마이크로초까지 그려 비교 분기 없음. ★읽기 전용과 추가 → 사람의 결정: 막음. FK 확인과 저장의 경쟁 → 500 받음(D-135처럼). `[]byte`·`Opt[*T]`·시간대의 넣기 시험 → `TestAdminForm`. 권한 순서(`Can` 먼저) → `s.model`. `add`와 `{id}` → 시험 한 줄. 다른 출처 POST가 사용자보다 먼저 403
+- fable: ★`[]any`의 두 순서가 어긋나면 열이 조용히 바뀜, 계획이 D-131("폼과 바인딩은 생성")과 어긋남 → 사람의 결정: 바인딩은 생성물. 실제 생성물에 HTTP로 넣는 통합 시험 → gentest `TestAdminForm`. 추가 없는 까닭을 생성물 주석에, `ID`는 규칙 밖, `[]byte{}`의 예외 없앰. `*bool`은 세 값 select. 기본값 칸을 미리 채움. FK 확인은 생성된 `SELECT 1`(숨긴 대상·존재 누설 없음), 문구는 `Messages`에. 고칠 칸 없는 모델은 읽기만. 선택지 있는 포인터의 빈 항목. 지워진 행의 POST 404. 생성물에 자리 주석이 필요 없게 이름으로
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 계획과 다른 것: gentest의 `TestAdminForm`은 HTTP가 아니라 생성된 `Form`을 직접 부른다(`gentest.Open`이 연결 하나라 `Handler`에 못 넣는다. 바인딩이 생성물로 가 칸 순서는 컴파일러가 잡고, 그리기는 런타임 시험이 본다). `BindTime`의 레이아웃은 바꾸지 않았다(`time.Parse`가 초 뒤의 소수를 받는다, 바꾼 변형이 살아남아 알았다, 시험으로 고정). 변형으로 확인(15개 중 14개, 나머지 하나가 위의 것): UPDATE 칸, 고칠 칸의 정의, `NoRow`, 추가 막음, `Opt`, `Raw`의 정밀도, `Ptr`, 권한 넷, `Add`·`Edit` 검사, FK 링크의 `Can`, 목록의 Add 링크. 리뷰 뒤 템플릿 변형 셋(`checked`, 필수 select의 빈 항목, `selected`)도 잡힘
+- codex: 같은 키 두 번의 POST가 첫 값으로 저장 → 400(admin의 입력은 키가 하나씩). 추가 없는 모델의 생성된 `Form`이 `id == 0`에 panic → `admin.NoAdding`(404). 따옴표·HTML이 든 값의 이스케이프 시험 → 더함. UPDATE 자리표·인자 순서, SQLite 시간, 숨김·읽기 전용 빠짐, FK 확인, 권한 순서, 303의 접두어는 맞음. 시험을 돌리지 못함(샌드박스)
+- fable: ★`datetime-local`은 소수 초를 세 자리까지만 받아 마이크로초 값은 빈칸으로 그려진다(HTML 표준, 브라우저 없는 시험이 못 봄) → 사람의 결정: 글 입력(`type="text"`, `2006-01-02T15:04:05.999999`, Django처럼 고르는 창 없음). 고칠 칸이 없는데 추가가 있는 모델의 POST가 아무것도 안 함 → `InsertX(NewXInput{})`(단위 시험 단언). 입력 꼴(select·checkbox·글 시간·readonly)의 HTML을 그리는 시험이 없음 → 더함. `*bool` 경로의 생성물 시험 → `TestNullBool`. ARCHITECTURE의 `admin_gen.go` 설명과 `NoRow` → 고침. 추가 없음의 까닭을 모두 적음. 정수 칸은 `step="1"`(`integer`). 값 없는 필수 select엔 빈 항목. 그대로 둠: 연속한 `if id != 0` 둘, 첫 칸이 빈 글이면 링크가 안 보임(v0)
+
+---
+
 ## M6 끝
 
 - [ ] 1~10 완료

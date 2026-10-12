@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"net/url"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/cmd/maago/internal/gentest"
 	"github.com/maago-web/maago/contrib/admin"
 )
@@ -124,5 +126,104 @@ func TestAdmin(t *testing.T) {
 	rows, err = author.Rows(ctx, db, admin.Query{Limit: 1})
 	if err != nil || len(rows) != 1 || len(rows[0].Cells) != len(author.List) || slices.Contains(author.List, "Code") {
 		t.Errorf("author: %v %v, list %v", rows, err, author.List)
+	}
+}
+
+// input is the input of f named name.
+func input(t *testing.T, f admin.Form, name string) admin.Input {
+	t.Helper()
+	for _, in := range f.Inputs {
+		if in.Name == name {
+			return in
+		}
+	}
+	t.Fatalf("no input %s in %+v", name, f.Inputs)
+	return admin.Input{}
+}
+
+// sent is what a browser sends of f drawn: each input's text, a checkbox
+// only when checked.
+func sent(f admin.Form) url.Values {
+	vals := url.Values{}
+	for _, in := range f.Inputs {
+		if in.Kind != "readonly" && (in.Kind != "checkbox" || in.Raw != "") {
+			vals.Set(in.Name, in.Raw)
+		}
+	}
+	return vals
+}
+
+// The admin's forms of the shared example (D-132): a form sent back
+// untouched keeps every value, a time to the microsecond; a change writes
+// only the fields the form changes, whatever else the request sends; an
+// fk number of no row is the field's error; neither model has adding.
+func TestAdminForm(t *testing.T) {
+	ctx, db := gentest.Open(t, "internal/testdata/example")
+	post, author := Admin[0], Admin[1]
+	if post.Add || author.Add || !post.Edit || !author.Edit {
+		t.Errorf("Add %t %t, Edit %t %t", post.Add, author.Add, post.Edit, author.Edit)
+	}
+	a, err := InsertAuthor(ctx, db, NewAuthorInput{Name: "kim", EditorID: 1, Code: "c1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 9, 28, 9, 0, 0, 123_456_000, time.UTC)
+	p, err := InsertPost(ctx, db, NewPostInput{AuthorID: a.ID, Title: "t", Slug: "s", Body: []byte{}, PublishedAt: &at, Score: maago.Set(maago.Ptr(0.1))})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := post.Form(ctx, db, p.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if in := input(t, f, "published_at"); in.Raw != "2026-09-28T09:00:00.123456" || in.Kind != "datetime" {
+		t.Errorf("published_at: %+v", in)
+	}
+	vals := sent(f)
+	vals.Set("slug", "hacked") // readonly: not the form's
+	if f, err := post.Form(ctx, db, p.ID, vals); err != nil || !f.Saved {
+		t.Fatalf("untouched: %v %+v", err, f)
+	}
+	got, err := GetPost(ctx, db, p.ID)
+	if err != nil || got.Slug != "s" || got.PublishedAt == nil || !got.PublishedAt.Equal(at) || *got.Score != 0.1 || got.Title != "t" {
+		t.Errorf("after an untouched form: %+v %v", got, err)
+	}
+
+	vals.Set("author_id", "999")
+	if f, err := post.Form(ctx, db, p.ID, vals); err != nil || f.Saved || input(t, f, "author_id").Error != "Select a row that exists." {
+		t.Errorf("an fk of no row: %v %+v", err, f)
+	}
+	vals.Set("author_id", "x")
+	if f, err := post.Form(ctx, db, p.ID, vals); err != nil || f.Saved || input(t, f, "author_id").Error != "Enter a number." {
+		t.Errorf("an fk that is not a number: %v %+v", err, f)
+	}
+
+	af, err := author.Form(ctx, db, a.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vals = sent(af)
+	vals.Set("name", "lee")
+	vals.Set("code", "hacked") // hidden
+	vals.Set("created_at", "2000-01-01T00:00")
+	if f, err := author.Form(ctx, db, a.ID, vals); err != nil || !f.Saved {
+		t.Fatalf("author: %v %+v", err, f)
+	}
+	ga, err := GetAuthor(ctx, db, a.ID)
+	if err != nil || ga.Name != "lee" || ga.Code != "c1" || !ga.CreatedAt.Equal(a.CreatedAt) || !ga.UpdatedAt.After(a.UpdatedAt) {
+		t.Errorf("author after the form: %+v %v, was %+v", ga, err, a)
+	}
+	for _, in := range af.Inputs {
+		if in.Name == "code" || in.Label == "Code" {
+			t.Errorf("the hidden Code is in the form: %+v", in)
+		}
+	}
+
+	if _, err := post.Form(ctx, db, p.ID+100, nil); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("no row: %v", err)
+	}
+	if _, err := post.Form(ctx, db, p.ID+100, vals); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("no row, sent: %v", err)
 	}
 }

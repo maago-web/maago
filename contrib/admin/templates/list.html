@@ -1,13 +1,13 @@
 {{define "title"}}{{.App}}.{{.Name}} · Admin{{end}}
 {{define "content"}}
 <h1>{{.App}}.{{.Name}}</h1>
-<p>Rows: {{.Count}}</p>
+<p>Rows: {{.Count}}{{if .Add}} · <a href="{{.Add}}">Add</a>{{end}}</p>
 {{if .Rows}}
 <div class="table">
 <table>
 <thead><tr>{{range .Heads}}<th>{{.}}</th>{{end}}</tr></thead>
 <tbody>
-{{range .Rows}}<tr>{{range .Cells}}<td>{{cell .}}</td>{{end}}</tr>
+{{range .Rows}}<tr>{{$url := .URL}}{{range $i, $c := .Cells}}<td>{{if eq $i 0}}<a href="{{$url}}">{{cell $c}}</a>{{else}}{{cell $c}}{{end}}</td>{{end}}</tr>
 {{end}}</tbody>
 </table>
 </div>

@@ -11,3 +11,8 @@ th, td { border-bottom: 1px solid #ddd; padding: .35rem .7rem; text-align: left;
 th { background: #f0f0f0; }
 nav.pages { margin-top: .8rem; display: flex; gap: 1rem; align-items: baseline; }
 .empty { color: #777; }
+.field { margin: .5rem 0; }
+.field label, .field .label { display: inline-block; min-width: 9rem; font-weight: 600; }
+.field small { color: #666; margin-left: .5rem; }
+.error { color: #b00020; margin: .2rem 0 0 9rem; }
+button { margin-top: .8rem; padding: .3rem 1rem; }

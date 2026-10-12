@@ -1,0 +1,143 @@
+package admin
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/maago-web/maago"
+)
+
+// The functions of this file are what admin_gen.go calls (D-131): what
+// the generated forms need beside maago's Bind functions. Only generated
+// code uses them.
+
+// In is the input of f, an fk field's when fk is the model it refers to.
+func In[T any](f *maago.Field[T], required bool, fk string) Input {
+	in := Input{Name: f.Name, Label: f.Label, Help: f.Help, Raw: f.Raw, Error: f.Error, Choices: f.Choices, Required: required, FK: fk}
+	switch any(f).(type) {
+	case *maago.Field[bool]:
+		in.Kind = "checkbox"
+	case *maago.Field[time.Time]:
+		in.Kind = "datetime" // text: <input type="datetime-local"> holds only milliseconds
+	case *maago.Field[int64], *maago.Field[int32]:
+		in.Kind = "integer"
+	case *maago.Field[float64]:
+		in.Kind = "number"
+	default:
+		in.Kind = "text"
+		if f.Choices != nil {
+			in.Kind = "select"
+		}
+	}
+	return in
+}
+
+// Show is the input of a field the form does not change: its value as
+// the list shows it.
+func Show(label string, v any) Input {
+	text, err := cell(v)
+	if err != nil {
+		panic(err) // the generated code passes a column's value
+	}
+	return Input{Label: label, Kind: "readonly", Raw: text}
+}
+
+// Raw is v as its input draws it: a time to the microsecond in
+// Config.TimeZone, as the database keeps it (D-105), so that a field left
+// alone is saved as it was; a bool as a checkbox sends it; a *bool as
+// its select's choice; nil as an empty input.
+func Raw(v any) string {
+	switch v := v.(type) {
+	case string:
+		return v
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case int32:
+		return strconv.FormatInt(int64(v), 10)
+	case float64:
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	case bool:
+		if v {
+			return "on"
+		}
+		return ""
+	case time.Time:
+		s, _ := maago.DateFunc("2006-01-02T15:04:05.999999", v)
+		return s
+	case *string:
+		return raw(v)
+	case *int64:
+		return raw(v)
+	case *int32:
+		return raw(v)
+	case *float64:
+		return raw(v)
+	case *time.Time:
+		return raw(v)
+	case *bool:
+		switch {
+		case v == nil:
+			return ""
+		case *v:
+			return "yes"
+		}
+		return "no"
+	}
+	panic(fmt.Sprintf("admin: Raw of a %T; this is a bug in maago", v))
+}
+
+func raw[T any](p *T) string {
+	if p == nil {
+		return ""
+	}
+	return Raw(*p)
+}
+
+// Ptr is f's value for a pointer field: nil when nothing was given.
+func Ptr[T any](f maago.Field[T]) *T {
+	if !f.Given {
+		return nil
+	}
+	v := f.Value
+	return &v
+}
+
+// Bool is a *bool field's value, read from its select of yes and no.
+func Bool(f maago.Field[string]) *bool {
+	if !f.Given {
+		return nil
+	}
+	v := f.Value == "yes"
+	return &v
+}
+
+// Exists reports whether query, SELECT 1 … WHERE "id" = ?, finds the row
+// of id: an fk field's check.
+func Exists(ctx context.Context, db maago.DB, query string, id int64) (bool, error) {
+	var one int
+	err := db.QueryRowContext(ctx, query, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// NoAdding is the error of the form of a new row of a model that has no
+// adding (D-132): the add page is not there.
+func NoAdding(model string) error {
+	return maago.Status(http.StatusNotFound, fmt.Errorf("admin: %s has no adding", model))
+}
+
+// Updated is the error of an UPDATE of one row that changed n rows:
+// sql.ErrNoRows when there was none.
+func Updated(n int64, err error) error {
+	if err == nil && n == 0 {
+		return sql.ErrNoRows
+	}
+	return err
+}

@@ -40,7 +40,7 @@ const pageSize = 50
 //go:embed templates admin.css
 var files embed.FS
 
-var pages = maago.Pages(files, template.FuncMap{"cell": cell, "css": css}, "index.html", "list.html")
+var pages = maago.Pages(files, template.FuncMap{"cell": cell, "css": css}, "index.html", "list.html", "form.html")
 
 // App is the admin's routes, under Prefix, for main's Config.Apps: each
 // requires login (D-121). It panics on a Config that cannot work, as main
@@ -70,9 +70,16 @@ func App(cfg Config) maago.App {
 	if len(s.models) == 0 {
 		panic("admin: Config.Models has no model; add each app's Admin, such as board.Admin (a model with admin=hidden is not there)")
 	}
+	route := func(method, path, name string, serve func(http.ResponseWriter, *http.Request) error) maago.AppRoute {
+		return maago.AppRoute{Method: method, Path: Prefix + path, Name: name, LoginRequired: true, Serve: serve}
+	}
 	return maago.NewApp("admin",
-		maago.AppRoute{Method: "GET", Path: Prefix + "{$}", Name: "admin_index", LoginRequired: true, Serve: s.index},
-		maago.AppRoute{Method: "GET", Path: Prefix + "{app}/{model}/{$}", Name: "admin_list", LoginRequired: true, Serve: s.list})
+		route("GET", "{$}", "admin_index", s.index),
+		route("GET", "{app}/{model}/{$}", "admin_list", s.list),
+		route("GET", "{app}/{model}/add/{$}", "admin_add", s.add), // the literal add is more specific than {id}
+		route("POST", "{app}/{model}/add/{$}", "admin_add_submit", s.add),
+		route("GET", "{app}/{model}/{id}/{$}", "admin_row", s.row),
+		route("POST", "{app}/{model}/{id}/{$}", "admin_row_submit", s.row))
 }
 
 type site struct {
@@ -86,6 +93,8 @@ type site struct {
 func home() string { return maago.Prefix() + Prefix }
 
 func listURL(m *Model) string { return home() + m.App + "/" + m.Name + "/" }
+
+func rowURL(m *Model, id int64) string { return listURL(m) + strconv.FormatInt(id, 10) + "/" }
 
 type link struct{ Name, URL string }
 
@@ -116,13 +125,10 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) error {
 // learns nothing of which models there are. A page past the last is
 // empty (D-134), and no rows are read for it.
 func (s *site) list(w http.ResponseWriter, r *http.Request) error {
-	ctx, app, name := r.Context(), r.PathValue("app"), r.PathValue("model")
-	if !s.can(ctx, app, name, View) {
-		return maago.Status(http.StatusForbidden, fmt.Errorf("admin: the user may not view %s.%s", app, name))
-	}
-	m := s.byKey[app+"."+name]
-	if m == nil {
-		return maago.Status(http.StatusNotFound, fmt.Errorf("admin: no model %s.%s", app, name))
+	ctx := r.Context()
+	m, err := s.model(r, View)
+	if err != nil {
+		return err
 	}
 	q, err := maago.ParseQuery(r)
 	if err != nil {
@@ -145,6 +151,18 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 			return err
 		}
 	}
+	type rowView struct {
+		URL   string
+		Cells []any
+	}
+	views := make([]rowView, len(rows))
+	for i, row := range rows {
+		views[i] = rowView{rowURL(m, row.ID), row.Cells}
+	}
+	addURL := ""
+	if m.Add && s.can(ctx, m.App, m.Name, Add) {
+		addURL = listURL(m) + "add/"
+	}
 	at := func(p int64) string {
 		if p < 1 || p > last {
 			return ""
@@ -152,8 +170,101 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 		return listURL(m) + "?page=" + strconv.FormatInt(p, 10)
 	}
 	return maago.Render(w, pages, "list.html", "", map[string]any{
-		"Home": home(), "App": m.App, "Name": m.Name, "Heads": s.heads[m], "Rows": rows,
+		"Home": home(), "App": m.App, "Name": m.Name, "Heads": s.heads[m], "Rows": views, "Add": addURL,
 		"Count": n, "Page": page, "Pages": last, "Prev": at(min(page, last+1) - 1), "Next": at(page + 1),
+	})
+}
+
+// model is the model of r's path, if Can lets the user do action to it.
+// Can comes first, so a user it refuses learns nothing of which models
+// there are: 403 whether the model is there or not, then 404.
+func (s *site) model(r *http.Request, action string) (*Model, error) {
+	app, name := r.PathValue("app"), r.PathValue("model")
+	if !s.can(r.Context(), app, name, action) {
+		return nil, maago.Status(http.StatusForbidden, fmt.Errorf("admin: the user may not %s %s.%s", action, app, name))
+	}
+	m := s.byKey[app+"."+name]
+	if m == nil {
+		return nil, maago.Status(http.StatusNotFound, fmt.Errorf("admin: no model %s.%s", app, name))
+	}
+	return m, nil
+}
+
+// add is the form of a new row; a valid POST makes it and goes to the
+// list.
+func (s *site) add(w http.ResponseWriter, r *http.Request) error {
+	m, err := s.model(r, Add)
+	if err != nil {
+		return err
+	}
+	if !m.Add {
+		return maago.Status(http.StatusNotFound, fmt.Errorf("admin: %s.%s has no adding", m.App, m.Name))
+	}
+	return s.form(w, r, m, 0, true)
+}
+
+// row is the form of the row of the path's id: to read with View, to
+// save with Change. Without Change, or with nothing to change, it is
+// drawn to read only.
+func (s *site) row(w http.ResponseWriter, r *http.Request) error {
+	action := View
+	if r.Method == http.MethodPost {
+		action = Change
+	}
+	m, err := s.model(r, action)
+	if err != nil {
+		return err
+	}
+	id, err := maago.Path(r, "id", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) })
+	if err != nil {
+		return err
+	}
+	save := m.Edit && (action == Change || s.can(r.Context(), m.App, m.Name, Change))
+	if action == Change && !m.Edit {
+		return maago.Status(http.StatusForbidden, fmt.Errorf("admin: %s.%s has nothing to change", m.App, m.Name))
+	}
+	return s.form(w, r, m, id, save)
+}
+
+// form reads, saves and draws m's form of the row with id, or of a new
+// row when id is 0.
+func (s *site) form(w http.ResponseWriter, r *http.Request, m *Model, id int64, save bool) error {
+	ctx := r.Context()
+	vals, err := maago.FormValues(r)
+	if err != nil {
+		return err
+	}
+	for k, vs := range vals { // no input of the admin's sends a key twice: the value would be unclear
+		if len(vs) > 1 {
+			return maago.Status(http.StatusBadRequest, fmt.Errorf("form key %q is given %d times", k, len(vs)))
+		}
+	}
+	f, err := m.Form(ctx, maago.DBFrom(ctx), id, vals)
+	if err != nil {
+		return err
+	}
+	if f.Saved {
+		http.Redirect(w, r, listURL(m), http.StatusSeeOther)
+		return nil
+	}
+	type inputView struct {
+		Input
+		Link string // the row an fk field's number is of, when the user may view it
+	}
+	inputs := make([]inputView, len(f.Inputs))
+	for i, in := range f.Inputs {
+		inputs[i].Input = in
+		target := s.byKey[in.FK]
+		if n, err := strconv.ParseInt(in.Raw, 10, 64); target != nil && err == nil && in.Error == "" && s.can(ctx, target.App, target.Name, View) {
+			inputs[i].Link = rowURL(target, n)
+		}
+	}
+	title := "Add " + m.Name
+	if id != 0 {
+		title = m.Name + " " + strconv.FormatInt(id, 10)
+	}
+	return maago.Render(w, pages, "form.html", "", map[string]any{
+		"Home": home(), "App": m.App, "Name": m.Name, "List": listURL(m), "Title": title, "Inputs": inputs, "Save": save,
 	})
 }
 

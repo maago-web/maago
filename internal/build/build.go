@@ -303,6 +303,10 @@ func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagno
 			if s.admin && !m.AdminHidden {
 				st := admingen.Statements(m, s.d)
 				sqls = append(sqls, st.List, st.Count)
+				if st.Update != "" {
+					sqls = append(sqls, st.Update)
+				}
+				sqls = append(sqls, st.Exists...)
 			}
 		}
 	}

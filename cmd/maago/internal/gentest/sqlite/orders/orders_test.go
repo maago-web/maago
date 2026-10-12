@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -308,5 +310,45 @@ func TestAdmin(t *testing.T) {
 	}
 	if want := []int64{ids[3], ids[2], ids[1], ids[0]}; err != nil || !slices.Equal(got, want) {
 		t.Errorf("rows: %v %v, want %v", got, err, want)
+	}
+}
+
+// The admin's form of a new order: the defaults drawn, a cleared pointer
+// field is NULL and not its default, the auto time is set, and an fk
+// number of no row is the field's error (D-132).
+func TestAdminForm(t *testing.T) {
+	ctx, db := gentest.Open(t, fixture)
+	order := Admin[1]
+	if !order.Add || !order.Edit {
+		t.Fatalf("Add %t, Edit %t", order.Add, order.Edit)
+	}
+	f, err := order.Form(ctx, db, 0, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raws := map[string]string{}
+	for _, in := range f.Inputs {
+		raws[in.Name] = in.Raw
+	}
+	if want := map[string]string{"customer_id": "", "status": "new", "amount": "", "priority": "10", "created_at": ""}; !maps.Equal(raws, want) {
+		t.Errorf("new order's inputs: %v, want %v", raws, want)
+	}
+
+	vals := url.Values{"customer_id": {"999"}, "status": {"paid"}, "amount": {"5"}, "priority": {""}, "created_at": {"2026-10-13T09:30"}}
+	if f, err := order.Form(ctx, db, 0, vals); err != nil || f.Saved {
+		t.Errorf("an fk of no row: %v %+v", err, f)
+	}
+	vals.Set("customer_id", "")
+	if f, err := order.Form(ctx, db, 0, vals); err != nil || !f.Saved {
+		t.Fatalf("add: %v %+v", err, f)
+	}
+	rows, err := order.Rows(ctx, db, admin.Query{Limit: 10})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows: %v %v", rows, err)
+	}
+	o, err := GetOrder(ctx, db, rows[0].ID)
+	if err != nil || o.CustomerID != nil || o.Priority != nil || o.Status != "paid" || o.Amount != 5 || o.UpdatedAt.IsZero() ||
+		!o.CreatedAt.Equal(time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)) {
+		t.Errorf("the new order: %s %v", show(o), err)
 	}
 }

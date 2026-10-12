@@ -8,6 +8,8 @@ package orders
 
 import (
 	"context"
+	"net/url"
+	"time"
 
 	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/contrib/admin"
@@ -37,6 +39,40 @@ var Admin = []admin.Model{
 			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "customers"`).Scan(&n)
 			return n, err
 		},
+		Form: func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {
+			var o Customer
+			if id != 0 {
+				var err error
+				if o, err = GetCustomer(ctx, db, id); err != nil {
+					return admin.Form{}, err
+				}
+			}
+			var f struct {
+				Name maago.Field[string]
+			}
+			maago.BindString(ctx, vals, &f.Name, maago.Rule{Name: "name", Label: "Name", Max: 100})
+			if vals == nil && id != 0 {
+				f.Name.Raw = admin.Raw(o.Name)
+			}
+			var in []admin.Input
+			if id != 0 {
+				in = append(in, admin.Show("ID", o.ID))
+			}
+			in = append(in, admin.In(&f.Name, true, ""))
+			if vals == nil || !(f.Name.Error == "") {
+				return admin.Form{Inputs: in}, nil
+			}
+			if id == 0 {
+				_, err := InsertCustomer(ctx, db, NewCustomerInput{
+					Name: f.Name.Value,
+				})
+				return admin.Form{Inputs: in, Saved: err == nil}, err
+			}
+			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "customers" SET "name" = ? WHERE "id" = ?`, f.Name.Value, id))
+			return admin.Form{Inputs: in, Saved: err == nil}, err
+		},
+		Add:  true,
+		Edit: true,
 	},
 	{
 		App:  "orders",
@@ -66,5 +102,73 @@ var Admin = []admin.Model{
 			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "orders"`).Scan(&n)
 			return n, err
 		},
+		Form: func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {
+			var o Order
+			if id != 0 {
+				var err error
+				if o, err = GetOrder(ctx, db, id); err != nil {
+					return admin.Form{}, err
+				}
+			}
+			var f struct {
+				CustomerID maago.Field[int64]
+				Status     maago.Field[string]
+				Amount     maago.Field[int64]
+				Priority   maago.Field[int32]
+				CreatedAt  maago.Field[time.Time]
+			}
+			maago.BindInt64(ctx, vals, &f.CustomerID, maago.Rule{Name: "customer_id", Label: "CustomerID", Optional: true})
+			maago.BindString(ctx, vals, &f.Status, maago.Rule{Name: "status", Label: "Status", Max: 20})
+			maago.BindInt64(ctx, vals, &f.Amount, maago.Rule{Name: "amount", Label: "Amount"})
+			maago.BindInt32(ctx, vals, &f.Priority, maago.Rule{Name: "priority", Label: "Priority", Optional: true})
+			maago.BindTime(ctx, vals, &f.CreatedAt, maago.Rule{Name: "created_at", Label: "CreatedAt"})
+			if vals == nil && id != 0 {
+				f.CustomerID.Raw = admin.Raw(o.CustomerID)
+				f.Status.Raw = admin.Raw(o.Status)
+				f.Amount.Raw = admin.Raw(o.Amount)
+				f.Priority.Raw = admin.Raw(o.Priority)
+				f.CreatedAt.Raw = admin.Raw(o.CreatedAt)
+			} else if vals == nil { // a new row: the defaults
+				f.Status.Raw = "new"
+				f.Priority.Raw = "10"
+			}
+			if vals != nil && f.CustomerID.Error == "" && f.CustomerID.Given {
+				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "customers" WHERE "id" = ?`, f.CustomerID.Value); err != nil {
+					return admin.Form{}, err
+				} else if !found {
+					maago.NoRow(ctx, &f.CustomerID)
+				}
+			}
+			var in []admin.Input
+			if id != 0 {
+				in = append(in, admin.Show("ID", o.ID))
+			}
+			in = append(in, admin.In(&f.CustomerID, false, "orders.Customer"))
+			in = append(in, admin.In(&f.Status, true, ""))
+			in = append(in, admin.In(&f.Amount, true, ""))
+			in = append(in, admin.In(&f.Priority, false, ""))
+			in = append(in, admin.In(&f.CreatedAt, true, ""))
+			if id != 0 {
+				in = append(in, admin.Show("UpdatedAt", o.UpdatedAt))
+			}
+			if vals == nil || !(f.CustomerID.Error == "" && f.Status.Error == "" && f.Amount.Error == "" && f.Priority.Error == "" && f.CreatedAt.Error == "") {
+				return admin.Form{Inputs: in}, nil
+			}
+			if id == 0 {
+				_, err := InsertOrder(ctx, db, NewOrderInput{
+					CustomerID: admin.Ptr(f.CustomerID),
+					Status:     maago.Set(f.Status.Value),
+					Amount:     f.Amount.Value,
+					Priority:   maago.Set(admin.Ptr(f.Priority)),
+					CreatedAt:  f.CreatedAt.Value,
+				})
+				return admin.Form{Inputs: in, Saved: err == nil}, err
+			}
+			now := time.Now().Truncate(time.Microsecond)
+			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = ?, "status" = ?, "amount" = ?, "priority" = ?, "created_at" = ?, "updated_at" = ? WHERE "id" = ?`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), maago.SQLiteTime(f.CreatedAt.Value), maago.SQLiteTime(now), id))
+			return admin.Form{Inputs: in, Saved: err == nil}, err
+		},
+		Add:  true,
+		Edit: true,
 	},
 }

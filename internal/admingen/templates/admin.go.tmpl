@@ -3,6 +3,14 @@
 // The admin's view of the models (D-131). Its columns, its search and
 // what it hides come from the models' admin tags (D-132): change the
 // tags, then run maago gen.
+{{- if .NoAdd}}
+//
+// Models with no adding in the admin (D-132):
+//
+{{- range .NoAdd}}
+//   - {{.}}
+{{- end}}
+{{- end}}
 
 package {{.Package}}
 
@@ -33,5 +41,12 @@ var Admin = []admin.Model{
 			err = db.QueryRowContext(ctx, {{.CountSQL}}).Scan(&n)
 			return n, err
 		},
+		Form: {{.Form}},
+{{- if .Add}}
+		Add: true,
+{{- end}}
+{{- if .Edit}}
+		Edit: true,
+{{- end}}
 	},
 {{end}}}
