@@ -49,8 +49,8 @@ func TestAddAuth(t *testing.T) {
 
 			initial := readFile(t, filepath.Join(root, makeMigrations(t, root, "")))
 			want := map[project.Dialect][]string{
-				project.SQLite:   {`"email" TEXT NOT NULL CHECK (length("email") <= 254)`, `"is_active" INTEGER NOT NULL DEFAULT 1`, `"is_staff" INTEGER NOT NULL DEFAULT 0`, `"verified_at" TEXT,`, `CREATE UNIQUE INDEX "auth_user_email_key"`},
-				project.Postgres: {`"email" VARCHAR(254) NOT NULL`, `"is_active" BOOLEAN NOT NULL DEFAULT true`, `"is_staff" BOOLEAN NOT NULL DEFAULT false`, `"verified_at" TIMESTAMPTZ,`, `CONSTRAINT "auth_user_email_key" UNIQUE ("email")`},
+				project.SQLite:   {`CREATE TABLE "auth_user"`, `CREATE TABLE "auth_session"`, `CREATE TABLE "auth_token"`, `CREATE TABLE "auth_attempt"`, `CREATE TABLE "auth_api_token"`, `"email" TEXT NOT NULL CHECK (length("email") <= 254)`, `"is_active" INTEGER NOT NULL DEFAULT 1`, `"is_staff" INTEGER NOT NULL DEFAULT 0`, `"verified_at" TEXT,`, `CREATE UNIQUE INDEX "auth_user_email_key"`},
+				project.Postgres: {`CREATE TABLE "auth_user"`, `CREATE TABLE "auth_session"`, `CREATE TABLE "auth_token"`, `CREATE TABLE "auth_attempt"`, `CREATE TABLE "auth_api_token"`, `"email" VARCHAR(254) NOT NULL`, `"is_active" BOOLEAN NOT NULL DEFAULT true`, `"is_staff" BOOLEAN NOT NULL DEFAULT false`, `"verified_at" TIMESTAMPTZ,`, `CONSTRAINT "auth_user_email_key" UNIQUE ("email")`},
 			}[dd.d]
 			for _, w := range want {
 				if !strings.Contains(initial, w) {

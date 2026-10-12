@@ -128,7 +128,7 @@ func TestLogin(t *testing.T) {
 // A sign-in that fails says the same, whatever failed, and sets nothing.
 func TestLoginFails(t *testing.T) {
 	h, db := site(t)
-	newUser(t, db, "ann@example.com", nil)
+	ann := newUser(t, db, "ann@example.com", nil)
 	newUser(t, db, "new@example.com", func(in *NewUserInput) { in.VerifiedAt = nil })
 	newUser(t, db, "gone@example.com", func(in *NewUserInput) { in.IsActive = maago.Set(false) })
 	for name, body := range map[string]string{
@@ -145,6 +145,9 @@ func TestLoginFails(t *testing.T) {
 		if strings.Contains(b, "wrong") || strings.Contains(b, password) {
 			t.Errorf("%s: the password is drawn back:\n%s", name, b)
 		}
+	}
+	if got, _ := GetUser(context.Background(), db, ann.ID); got.PasswordHash != ann.PasswordHash {
+		t.Error("a wrong password changed the hash")
 	}
 }
 
@@ -239,6 +242,17 @@ func TestRehash(t *testing.T) {
 	if !strings.HasPrefix(got.PasswordHash, "pbkdf2_sha256$1000$") {
 		t.Errorf("hash %q", got.PasswordHash)
 	}
+
+	// Another algorithm's hash, as Django's PBKDF2-SHA1, is redone too.
+	bob := newUser(t, db, "bob@example.com", func(in *NewUserInput) {
+		in.PasswordHash = "pbkdf2_sha1$1000$lowsalt1234567890ab$FCbA1J14Exq3OYBLrlM69kCJN9w=" // of "low"
+	})
+	if w := do(h, "POST", "/login", form("bob@example.com", "low"), ""); w.Code != 303 {
+		t.Fatalf("sign in with the SHA1 hash: %d", w.Code)
+	}
+	if got, _ := GetUser(context.Background(), db, bob.ID); !strings.HasPrefix(got.PasswordHash, "pbkdf2_sha256$1000$") {
+		t.Errorf("hash %q", got.PasswordHash)
+	}
 }
 
 // After sign-in the browser goes to next, if it is a path of this site.
@@ -321,6 +335,19 @@ func TestSignup(t *testing.T) {
 	}
 	if c := login(t, h, "ann@example.com", ""); whoami(h, c.Value) != "ann@example.com" {
 		t.Error("not signed in")
+	}
+
+	// On to a reset, the whole way of an account in one chain.
+	reset := resetLink(t, h, box, "ann@example.com")
+	const fresh = "a fresh secret phrase"
+	if w := do(h, "POST", "/password/reset/confirm", confirm(reset, fresh), ""); w.Code != 303 {
+		t.Fatalf("reset: %d %s", w.Code, w.Body)
+	}
+	if w := do(h, "POST", "/login", form("ann@example.com", password), ""); w.Code != 200 {
+		t.Errorf("the old password after the reset: %d", w.Code)
+	}
+	if w := do(h, "POST", "/login", form("ann@example.com", fresh), ""); w.Code != 303 {
+		t.Errorf("the new password after the reset: %d", w.Code)
 	}
 }
 

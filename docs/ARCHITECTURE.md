@@ -146,7 +146,7 @@ blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
 
 ## 5. 사용자 프로젝트와 생성 코드
 
-사용자 프로젝트의 모양 (M1~M4에 걸쳐 채워진다):
+사용자 프로젝트의 모양 (M1~M5에 걸쳐 채워진다):
 
 ```
 myapp/
@@ -159,6 +159,7 @@ myapp/
 │   ├── views.go           뷰                           사람
 │   ├── templates/*.html   html/template                 사람
 │   └── *_gen.go           생성 코드                      maago
+├── auth/                  maago add auth가 쓴 앱          처음은 maago, 그 뒤 사람
 └── migrations/
     └── 0001_initial.sql   초안은 maago, 고치는 건 사람
 ```
@@ -166,6 +167,10 @@ myapp/
 - **앱 찾기**: 등록 파일은 없다. 생성기는 모듈 안의 패키지를 훑어 `maago.Model`을 임베드한 struct, `queries/`
   디렉터리, `maago.Routes` 값이 있는 패키지를 앱으로 본다. 서버에 올리는 것은 `main`이 `Config.Apps`에
   적는다(D-114). 라우트가 있는 앱의 `App`을 아무 패키지도 쓰지 않으면 생성 오류다.
+- **복사된 앱**(D-123): `maago add auth`는 이 저장소에 담긴 앱을 `auth/`에 한 번 쓴다. 생성물과 달리 사람의
+  것이다: 표시 줄이 없고, maago가 다시 쓰지 않으며, 사용자가 `User`에 필드를 더하고 문구를 고친다. 보안의 모양을
+  가진 부품은 라이브러리 `contrib/auth`에 있어 복사본이 부른다. 튜토리얼은 이 파일을 패치에 담지 않고
+  `Maago-Run:`으로 명령을 다시 돌린다(D-103).
 - **생성 파일 이름**: 관심사마다 하나. `models_gen.go`, `queries_gen.go`, `urls_gen.go`(URL 함수와 `App`),
   `views_gen.go`(뷰 어댑터와 폼 읽기), `admin_gen.go`. 파일 하나가 끝없이 커지지 않고, diff가 어느 기능의
   변화인지 보인다.

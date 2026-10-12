@@ -50,6 +50,16 @@ MAAGO_DATABASE_URL=sqlite:app.db
 
 ## 3. 앱 만들기 — 모델
 
+글은 쓴 사람, 곧 계정을 가리킵니다. 계정 앱은 Maago가 가진 것을 복사해 들여옵니다.
+
+```sh
+maago add auth
+```
+
+`auth/`에 `User` 모델과 로그인·가입 화면, 그 시험이 생깁니다. 이제 이 프로젝트의 코드입니다:
+`User`에 필드를 더하고 문구를 고쳐 씁니다. 비밀번호 해싱 같은 보안 부품은 라이브러리에 있어서
+maago를 올리면(`go get -u`) 고친 것이 따라옵니다.
+
 Maago의 앱은 Go 패키지 하나입니다. 등록 파일은 없습니다. `blog/` 디렉터리를 만들고 모델을 씁니다.
 
 ```go
@@ -77,7 +87,7 @@ type Post struct {
 읽는 법:
 - 모든 설정은 `maago:"…"` 태그 안에 있습니다. 옵션은 `,`로 나누고, 문자열은 `'…'`로 감쌉니다.
 - 테이블 이름이나 정렬처럼 모델 전체에 대한 설정은 임베드한 `maago.Model`의 태그에 씁니다.
-- 관계는 객체가 아니라 **ID 필드 + `fk=모델`** 입니다. 글쓴이의 이름이 필요하면 SQL에서 JOIN합니다.
+- 관계는 객체가 아니라 **ID 필드 + `fk=모델`**(다른 앱의 모델은 `fk=앱.모델`) 입니다. 글쓴이의 이름이 필요하면 SQL에서 JOIN합니다.
   몰래 나가는 쿼리는 없습니다.
 - `choices=draft/published`처럼 선택지는 `/`로 나눕니다.
 
@@ -180,26 +190,41 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/contrib/admin"
-	"github.com/maago-web/maago/contrib/auth"
+	authlib "github.com/maago-web/maago/contrib/auth"
 	_ "modernc.org/sqlite" // DB 드라이버는 앱이 import한다
 
+	"example.com/myblog/auth"
 	"example.com/myblog/blog"
 )
 
 func main() {
-	db, err := maago.OpenDB(context.Background(), maago.DBConfig{}) // 주소는 .env의 MAAGO_DATABASE_URL
+	createSuperuser := flag.Bool("createsuperuser", false, "create a staff account from the environment")
+	flag.Parse()
+	ctx := context.Background()
+	db, err := maago.OpenDB(ctx, maago.DBConfig{}) // 주소는 .env의 MAAGO_DATABASE_URL
 	if err != nil {
 		log.Fatal(err)
 	}
+	if *createSuperuser {
+		if _, err := auth.CreateSuperuser(ctx, db, os.Getenv("MAAGO_SUPERUSER_EMAIL"), os.Getenv("MAAGO_SUPERUSER_PASSWORD")); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+	auth.SiteURL = "http://localhost:8000" // 메일 링크의 앞
+	authlib.Mail = authlib.ConsoleMail     // 메일은 로그로
 	h, err := maago.Handler(maago.Config{
-		DB:   db,
-		Apps: []maago.App{blog.App, auth.App, admin.App}, // 🔮 auth·admin
-		Auth: auth.FromSession,                           // 🔮 요청의 세션에서 사용자를 찾는 함수
+		DB:       db,
+		Apps:     []maago.App{blog.App, auth.App, admin.App}, // 🔮 admin
+		Auth:     auth.Current,                               // 요청의 세션(또는 API 토큰)의 사용자
+		LoginURL: "/login",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -212,9 +237,12 @@ func main() {
 `maago gen`이 알려 줍니다. 관리자 계정을 만들고 서버를 켭니다.
 
 ```sh
-maago createsuperuser   # 🔮
+MAAGO_SUPERUSER_EMAIL=me@example.com MAAGO_SUPERUSER_PASSWORD='…' go run . -createsuperuser
 go run .
 ```
+
+관리자 계정은 묻지 않고 셸의 환경 변수로 받습니다. 비밀번호를 플래그로 받지 않는 것은 `ps`와 셸 기록에
+남기 때문입니다.
 
 <http://localhost:8000/admin/>에서 로그인하면 글 목록·쓰기·고치기·지우기가 됩니다.
 
@@ -447,7 +475,5 @@ maago check
 | 어디 | 가정 | 관련 |
 |---|---|---|
 | 3 | 모델 태그 `ordering=-PublishedAt`의 `-`가 내림차순 | D-13 |
-| 4 | auth 사용자 테이블 이름 `auth_user`, `fk=auth.User` 표기 | U-06 |
-| 5 | auth·admin의 `App` 값, `Config.Auth`에 넘길 함수 `auth.FromSession` | D-50, D-121 |
-| 5 | `maago createsuperuser` 명령 | D-50 |
+| 5 | admin의 `App` 값(`contrib/admin`) | D-50 |
 | 7 | 모든 오류 문구(3·6·8의 문구는 실제 출력) | D-62 |

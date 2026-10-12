@@ -53,7 +53,7 @@
                                                           queries/*.sql, urls.go, views.go, forms.go, templates/, *_test.go
  contrib/auth (stdlib만) ◀──────── import ───────── auth/views.go
    Hash·Check, NewToken·HashToken, SafeNext,               main.go: Config{Apps: {board.App, auth.App},
-   SessionCookie, FromSession(…), ClientIP, Mail·SMTP                   Auth: auth.FromSession(…), LoginURL: …}
+   SessionCookie, FromSession(…), ClientIP, Mail·SMTP                   Auth: auth.Current, LoginURL: …}
  maago     SetCookie(ctx, c), API 401의 WWW-Authenticate, preflight의 Authorization
  maagotest Mailbox(t)
 ```
@@ -605,15 +605,55 @@
 
 ## 13. 완료 조건 종단 테스트와 문서
 
-`TestM5Done`(두 방언): 완료 조건마다 성공과 실패 경로. DECISIONS(초안의 D-123~D-130에서 만들며 바뀐 것), ARCHITECTURE §2(둘째 예외)·§5(복사된 앱), TUTORIAL-FUTURE §5(`maago add auth`, CLI `maago createsuperuser`를 `main`의 `-createsuperuser`로, 215·452줄), MILESTONES(106줄의 `maago createsuperuser`, 할일을 D-번호 한 줄로, M8 표의 JWT·contrib User 줄, M6의 "모델별 권한(M5)").
+`TestM5Done`(두 방언): 완료 조건마다 성공과 실패 경로(계획에서 만들지 않기로 했다: 조건마다 이미 도는 시험의 이름을 "M5 끝"에). DECISIONS(초안의 D-123~D-130에서 만들며 바뀐 것), ARCHITECTURE §2(둘째 예외)·§5(복사된 앱), TUTORIAL-FUTURE §5(`maago add auth`, CLI `maago createsuperuser`를 `main`의 `-createsuperuser`로, 215·452줄), MILESTONES(106줄의 `maago createsuperuser`, 할일을 D-번호 한 줄로, M8 표의 JWT·contrib User 줄, M6의 "모델별 권한(M5)").
 → 확인: 완료 조건마다 시험 이름, CI에서 PG
+
+### 계획
+
+이 작업의 끝에 M5의 완료 조건마다 시험 이름이 있고, 문서가 M5에서 정한 것과 맞는다.
+
+`TestM5Done`은 만들지 않는다(사람의 결정 2026-10-13): 조건마다 이미 두 방언에서 도는 시험이 있다. 복사본 시험은 `TestAddAuth`가 `Nickname`을 더하기 전과 뒤에 돌린다. `site` 앱의 `TestStaff`·`TestAPIToken`도 그렇다. "M5 끝"에 조건마다 그 이름을 적는다(M4 끝의 모양). 빈틈 셋만 메운다.
+- 조건 2 "가입 → 인증 → 로그인 → 재설정"을 한 사슬로: 복사본 `TestSignup`의 끝에 재설정 요청 → 링크 → 새 비밀번호 → 옛 비밀번호 거절·새 비밀번호 로그인
+- 조건 3 "인증 표": `TestAddAuth`의 마이그레이션 검사에 `auth_session`·`auth_token`·`auth_attempt`·`auth_api_token`의 `CREATE TABLE`
+- 조건 5 "다른 접두어": 복사본 `TestRehash`에 `pbkdf2_sha1` 해시의 사용자 → 로그인 → `pbkdf2_sha256$1000$`. `TestLoginFails`에 틀린 비밀번호는 해시를 바꾸지 않음
+
+문서(낡은 문구, 리뷰가 모은 목록)
+- DECISIONS: D-113(`maagotest`는 첫째 예외, 메일함은 D-126), D-121(API 401의 `Bearer`는 끝남), D-123(라이브러리의 몫: 더미 해시·상수 시간 비교, 같은 응답은 뷰), D-128(`next`의 `%2f`·`%5c`, 인증·토큰 만들기 성공도 제 시도를 지움), D-130(탈퇴는 세션·일회 토큰·API 토큰, 행은 남는다(FK, D-84)), 변경 기록 13번
+- ARCHITECTURE §5: "M1~M5", 그림에 `auth/`(`maago add`가 쓴 앱, 사람의 것)
+- MILESTONES: M5 할일을 "정했다: D-…" 한 줄로(M4 모양), M6의 "모델별 권한(M5)" → M6, M8 표의 User·`fk=auth.User`·메일·JWT·탈퇴 줄
+- TUTORIAL-FUTURE: §5 앞에 `maago add auth`, `main`의 `auth.Current`·`LoginURL`·`SiteURL`·`authlib.Mail`, `maago createsuperuser` → `-createsuperuser`, 가정 목록의 U-06·`auth.FromSession`
+- README: 진행 중 마일스톤 줄, 다음 작업
+
+하지 않기로 한 것: `TestM5Done`, 조건 1을 PG로(D-103)
+
+단계
+1. 빈틈 셋 → 확인: `TestAddAuth`(두 방언), 변형(재해싱의 접두어 검사 빼기)
+2. 문서 → 확인: 목록, 두 모듈 확인 명령, "M5 끝"의 이름들
+
+### 계획 리뷰
+
+- codex: 조건 5의 다른 접두어, 조건 3의 표 다섯을 직접, 조건 4는 `Nickname` 뒤 `go test`가 다시 돈다고 명시, `TestM5Done`은 연결만(★ 겹침 → 사람의 결정: 만들지 않음), 문서 목록(createsuperuser·JWT·U-06·M6 권한·ARCHITECTURE §5)
+- fable: ★`TestM5Done`이 거의 전부 겹침 → 사람의 결정: 만들지 않고 이름만. 빈틈 셋(접두어, 표 다섯, 한 사슬). 문서의 낡은 문구 전체 목록과 D-113·D-121·D-123·D-128·D-130 본문
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 변형으로 확인: 라이브러리의 알고리즘 재해싱 규칙을 빼면 복사본 `TestRehash`의 SHA1 줄이 잡는다
+- codex: 조건 3에 `auth_user`의 `CREATE TABLE`도 → 더함. TASKS 그림의 `auth.FromSession` → `auth.Current`. 13번 머리말의 `TestM5Done` → 결정을 적음. "M5 끝"의 이름은 모두 있음, TUTORIAL-FUTURE의 `main`은 실제 API와 맞음
+- fable: D-128의 "제 시도를 지운다"가 코드(다섯 곳)보다 좁음 → 고침. 변경 기록의 "뜻은 그대로" → "8·11번의 결정을 본문에". TUTORIAL §3의 `fk=앱.모델`, 문장 둘. 남은 낡은 문구 grep(createsuperuser·FromSession·U-06·JWT·"메일 확인은 M5")은 모두 정당
 
 ---
 
 ## M5 끝
 
 - [ ] 1~13 완료
-- [ ] 위 M5 완료 조건을 실제로 돌려 확인(PG는 `MAAGO_TEST_PG_URL`로)
+- [ ] 위 M5 완료 조건을 실제로 돌려 확인(PG는 `MAAGO_TEST_PG_URL`로). 조건마다의 시험(복사본 시험과 `site` 앱의 시험은 `cmd/maago`의 `TestAddAuth`가 두 방언에서, `User`에 필드를 더하기 전과 뒤에 돌린다)
+  1. 튜토리얼의 M5 커밋(0019~0022): `TestBoardTutorial`(끝에서 `-createsuperuser`도), 망가진 단계는 `TestBoardTutorialCatches`(트레일러 빼기·모르는 트레일러·작성자 검사 빼기). SQLite(D-103)
+  2. 가입 → 인증 메일 링크 → 로그인 → 재설정: 복사본 `TestSignup`(한 사슬), 실패 경로는 `TestVerifyTokens`·`TestVerifyOnce`·`TestPasswordResetRefuses`·`TestPasswordResetOnce`·`TestSignupTakenFirst`
+  3. 인증 표 다섯이 `makemigrations`에: `TestAddAuth`의 마이그레이션 검사(두 방언)
+  4. 필드를 더한 `User`로 가입·로그인·staff 화면: `TestAddAuth`의 `Nickname` 뒤 다시 도는 복사본 시험과 `site`의 `TestStaff`(303·403·200)
+  5. 옛 해시의 재해싱(다른 접두어·적은 반복 수): 복사본 `TestRehash`, 틀린 비밀번호는 바꾸지 않음 `TestLoginFails`, 라이브러리 `TestCheckDjango`
+  6. 로그인하면 세션 ID가 바뀜: 복사본 `TestSessions`(심은 쿠키, 다시 로그인)
+  7. API 라우트를 토큰으로: `site`의 `TestAPIToken`(다른 출처의 preflight, Bearer 200, 지운 토큰 401과 `WWW-Authenticate`), 복사본 `TestAPITokens`·`TestAPITokensEnd`
 - [ ] MILESTONES.md의 M5 체크박스 갱신
 - [ ] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인
 - [ ] TASKS-M6 초안
