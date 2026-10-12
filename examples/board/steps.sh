@@ -2,9 +2,11 @@
 # steps.sh unpack DIR | pack DIR
 #
 # unpack turns the patches in steps/ into a git repository at DIR, one
-# commit per step, ready to build against this checkout of maago. Change a
-# step there with git rebase -i, then pack writes the commits back into
-# steps/. Generated files, .env, the database and go.work stay out.
+# commit per step, ready to build against this checkout of maago, whose
+# maago it builds into DIR/.git/maago. A step whose message says
+# Maago-Run: maago add APP has it run first. Change a step there with git
+# rebase, then pack writes the commits back into steps/. Generated files,
+# what maago add writes, .env, the database and go.work stay out.
 set -eu
 usage() {
 	echo "usage: $0 unpack|pack DIR" >&2
@@ -19,10 +21,16 @@ unpack)
 	[ ! -e "$dir" ] || { echo "$dir exists" >&2; exit 1; }
 	trap 'rm -rf "$dir"' EXIT # a half-made DIR would block the next try
 	git init -q "$dir"
-	git -C "$dir" -c user.name=Maago -c user.email=maago@example.com am -q "$here"/steps/*.patch
-	printf '*_gen.go\n.env\n*.db\ngo.work*\n' >>"$dir/.git/info/exclude"
+	printf '*_gen.go\n/auth/\n.env\n*.db\ngo.work*\n' >>"$dir/.git/info/exclude"
 	printf 'go 1.25.0\n\nuse .\n\nreplace github.com/maago-web/maago => %s\n' "$repo" >"$dir/go.work"
 	printf 'MAAGO_DATABASE_URL=sqlite:board.db\n' >"$dir/.env"
+	go build -C "$repo/cmd/maago" -o "$(cd "$dir" && pwd -P)/.git/maago" .
+	for p in "$here"/steps/*.patch; do
+		for app in $(sed -n '/^diff --git /q; s/^Maago-Run: maago add //p' "$p"); do
+			(cd "$dir" && .git/maago add "$app" >/dev/null)
+		done
+		git -C "$dir" -c user.name=Maago -c user.email=maago@example.com am -q "$p"
+	done
 	trap - EXIT
 	;;
 pack)

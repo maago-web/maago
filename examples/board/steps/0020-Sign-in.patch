@@ -1,0 +1,302 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 12 Oct 2026 23:37:41 +0900
+Subject: [PATCH] Sign in
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+main이 auth 앱을 쓴다. 이제 가입하고, 메일의 링크로 인증하고, 로그인한다.
+
+- Config.Apps에 auth.App, Config.Auth에 auth.Current. 요청마다 세션
+  쿠키(또는 API 토큰)의 사용자를 찾고, 뷰는 maago.UserFrom[auth.User]로
+  읽는다. 홈은 누가 로그인했는지 보인다
+- LoginURL은 "/app/login". 로그인이 필요한 화면이 브라우저를 그리로
+  보낸다. 접두어를 붙인 글자 그대로 쓴다: maago가 고쳐 주지 않는다
+- auth.SiteURL은 메일 링크의 앞이다. 요청의 Host로 만들지 않는다(누구나
+  바꿔 보낼 수 있다). 개발은 http://localhost:8000, 실제로는
+  BOARD_SITE_URL
+- 메일은 authlib.ConsoleMail이 로그에 쓴다. 실제 서버는
+  authlib.SMTP(주소, 보내는 이, 인증)
+- 첫 staff 계정은 main의 -createsuperuser로:
+
+      MAAGO_SUPERUSER_EMAIL=me@example.com MAAGO_SUPERUSER_PASSWORD=… go run . -createsuperuser
+
+  묻지 않고, 비밀번호를 플래그로 받지 않는다(ps와 셸 기록에 남는다).
+  .env가 아니라 셸의 변수이고, maago migrate 뒤에 돌린다
+- 머리말의 로그인·가입·로그아웃은 auth의 라우트 이름으로 {{url}}
+
+알아 둘 것 둘.
+
+- 세션 쿠키는 Secure다. Safari는 http://localhost에서 Secure 쿠키를
+  받지 않으니 개발은 Chrome·Firefox로, 아니면 https로 띄운다
+- 시도 횟수 제한은 IP를 r.RemoteAddr로만 본다. 프록시 뒤라면 모든 요청이
+  프록시에서 온다. main이 Handler를 미들웨어로 감싸, 믿는 프록시의
+  주소에서 온 요청만 그 머리(X-Forwarded-For 같은)로 r.RemoteAddr를
+  고친다. 아무나 그 머리를 보낼 수 있다
+
+시험은 빠른 해싱(authlib.Iterations)으로, 인증된 사용자를 넣고 /login에
+POST해 받은 쿠키로 홈을 본다. 가입·인증의 흐름은 auth/의 시험이 이미 본다.
+
+diff --git a/board/templates/base.html b/board/templates/base.html
+index 4c3c113..a7f4dab 100644
+--- a/board/templates/base.html
++++ b/board/templates/base.html
+@@ -2,7 +2,9 @@
+ <html lang="ko">
+ <head><meta charset="utf-8"><title>게시판</title></head>
+ <body>
+-<header><a href="{{url "home"}}">게시판</a></header>
++<header><a href="{{url "home"}}">게시판</a>
++<a href="{{url "login"}}">로그인</a> <a href="{{url "signup"}}">가입</a>
++<form method="post" action="{{url "logout"}}"><button>로그아웃</button></form></header>
+ <main>{{block "content" .}}{{end}}</main>
+ </body>
+ </html>
+diff --git a/board/templates/home_page.html b/board/templates/home_page.html
+index 7633994..dda776f 100644
+--- a/board/templates/home_page.html
++++ b/board/templates/home_page.html
+@@ -1,5 +1,6 @@
+ {{define "content"}}
+ <h1>게시판</h1>
++{{with .User}}<p>{{.Email}}(으)로 로그인했습니다.</p>{{end}}
+ <ul>{{range .Boards}}
+ <li><a href="{{url "board_detail" .ID}}">{{.Name}}</a></li>{{else}}
+ <li>아직 게시판이 없습니다.</li>{{end}}
+diff --git a/board/views.go b/board/views.go
+index 68bae01..6babca2 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -7,6 +7,8 @@ import (
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
++
++	"example.com/board/auth"
+ )
+ 
+ // pageSize is how many posts a page of a board shows.
+@@ -14,12 +16,17 @@ const pageSize = 10
+ 
+ type HomePage struct {
+ 	Boards []Board
++	User   *auth.User // nil: nobody signed in
+ }
+ 
+ // Home lists the boards.
+ func Home(ctx context.Context, in struct{}) (HomePage, error) {
+ 	bs, err := BoardList(ctx, maago.DBFrom(ctx))
+-	return HomePage{bs}, err
++	page := HomePage{Boards: bs}
++	if u, ok := maago.UserFrom[auth.User](ctx); ok {
++		page.User = &u
++	}
++	return page, err
+ }
+ 
+ type BoardIn struct {
+diff --git a/board/web_test.go b/board/web_test.go
+index 1963a7e..58d39c4 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -12,17 +12,29 @@ import (
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
++	authlib "github.com/maago-web/maago/contrib/auth"
+ 	"github.com/maago-web/maago/maagotest"
++
++	"example.com/board/auth"
+ )
+ 
++func init() {
++	authlib.Iterations = 1000 // fast password hashes in tests only
++}
++
+ // front is the origin main trusts, a frontend of its own.
+ const front = "http://localhost:5173"
+ 
++// config is main's, on db.
++func config(db *sql.DB) maago.Config {
++	return maago.Config{DB: db, Apps: []maago.App{App, auth.App}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login"}
++}
++
+ // app serves the board on a new database, as main does.
+ func app(t *testing.T) (http.Handler, *sql.DB) {
+ 	t.Helper()
+ 	db := maagotest.DB(t)
+-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Origins: []string{front}})
++	h, err := maago.Handler(config(db))
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -31,19 +43,37 @@ func app(t *testing.T) (http.Handler, *sql.DB) {
+ 
+ // get requests path and returns the status and the body.
+ func get(h http.Handler, path string) (int, string) {
++	return getAs(h, path, nil)
++}
++
++// getAs is get with the session cookie s, if not nil.
++func getAs(h http.Handler, path string, s *http.Cookie) (int, string) {
++	r := httptest.NewRequest("GET", path, nil)
++	if s != nil {
++		r.AddCookie(s)
++	}
+ 	w := httptest.NewRecorder()
+-	h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
++	h.ServeHTTP(w, r)
+ 	return w.Code, w.Body.String()
+ }
+ 
+ // post sends form to path, as a browser on the same site does, and returns
+ // the status, the Location and the body.
+ func post(h http.Handler, path string, form url.Values) (int, string, string) {
++	w := postAs(h, path, form, nil)
++	return w.Code, w.Header().Get("Location"), w.Body.String()
++}
++
++// postAs is post with the session cookie s, if not nil.
++func postAs(h http.Handler, path string, form url.Values, s *http.Cookie) *httptest.ResponseRecorder {
+ 	r := httptest.NewRequest("POST", path, strings.NewReader(form.Encode()))
+ 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
++	if s != nil {
++		r.AddCookie(s)
++	}
+ 	w := httptest.NewRecorder()
+ 	h.ServeHTTP(w, r)
+-	return w.Code, w.Header().Get("Location"), w.Body.String()
++	return w
+ }
+ 
+ func TestPages(t *testing.T) {
+@@ -378,12 +408,18 @@ func TestExport(t *testing.T) {
+ func TestUnderApp(t *testing.T) {
+ 	// The prefix is the process's, the last Handler's: make it first.
+ 	db := maagotest.DB(t)
+-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Prefix: "/app"})
++	cfg := config(db)
++	cfg.Prefix, cfg.LoginURL = "/app", "/app/login"
++	h, err := maago.Handler(cfg)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	// Back to no prefix for the tests after.
+-	t.Cleanup(func() { maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}}) })
++	t.Cleanup(func() {
++		if _, err := maago.Handler(config(db)); err != nil {
++			t.Error(err)
++		}
++	})
+ 	srv := http.StripPrefix("/app", h) // as main serves it
+ 
+ 	if code, loc, _ := post(srv, BoardCreateURL(), url.Values{"name": {"자유"}}); code != 303 || loc != "/app/boards/1" {
+@@ -396,3 +432,43 @@ func TestUnderApp(t *testing.T) {
+ 		t.Errorf("without /app: %d", code)
+ 	}
+ }
++
++const password = "correct horse battery staple"
++
++// newUser adds a verified account that may sign in.
++func newUser(t *testing.T, db *sql.DB, email string) auth.User {
++	t.Helper()
++	hash, err := authlib.Hash(password)
++	if err != nil {
++		t.Fatal(err)
++	}
++	now := time.Now()
++	u, err := auth.InsertUser(t.Context(), db, auth.NewUserInput{Email: email, PasswordHash: hash, VerifiedAt: &now})
++	if err != nil {
++		t.Fatal(err)
++	}
++	return u
++}
++
++// login signs in as email and returns the session cookie.
++func login(t *testing.T, h http.Handler, email string) *http.Cookie {
++	t.Helper()
++	w := postAs(h, "/login", url.Values{"email": {email}, "password": {password}}, nil)
++	if w.Code != 303 || len(w.Result().Cookies()) != 1 {
++		t.Fatalf("login %s: %d", email, w.Code)
++	}
++	return w.Result().Cookies()[0]
++}
++
++// Signed in, the home page says who; the header links to sign in and out.
++func TestSignIn(t *testing.T) {
++	h, db := app(t)
++	newUser(t, db, "ann@example.com")
++	if _, body := get(h, "/"); strings.Contains(body, "로그인했습니다") || !strings.Contains(body, `href="/login"`) || !strings.Contains(body, `action="/logout"`) {
++		t.Errorf("before: %s", body)
++	}
++	s := login(t, h, "ann@example.com")
++	if _, body := getAs(h, "/", s); !strings.Contains(body, "ann@example.com(으)로 로그인했습니다.") {
++		t.Errorf("after: %s", body)
++	}
++}
+diff --git a/main.go b/main.go
+index fa901d1..fd59778 100644
+--- a/main.go
++++ b/main.go
+@@ -2,19 +2,25 @@
+ package main
+ 
+ import (
++	"cmp"
+ 	"context"
++	"flag"
+ 	"log"
+ 	"net/http"
+ 	"os"
+ 
+ 	"github.com/maago-web/maago"
++	authlib "github.com/maago-web/maago/contrib/auth"
+ 
++	"example.com/board/auth"
+ 	"example.com/board/board"
+ 
+ 	_ "modernc.org/sqlite" // the database driver: the app imports it, not maago
+ )
+ 
+ func main() {
++	createSuperuser := flag.Bool("createsuperuser", false, "create a staff account from MAAGO_SUPERUSER_EMAIL and MAAGO_SUPERUSER_PASSWORD")
++	flag.Parse()
+ 	ctx := context.Background()
+ 	// The address comes from MAAGO_DATABASE_URL, or .env in the working
+ 	// directory.
+@@ -23,13 +29,32 @@ func main() {
+ 		log.Fatal(err)
+ 	}
+ 	defer db.Close()
++	// The first staff account, from the environment of the shell: no
++	// prompt, and no password in a flag, where ps would show it.
++	if *createSuperuser {
++		u, err := auth.CreateSuperuser(ctx, db, os.Getenv("MAAGO_SUPERUSER_EMAIL"), os.Getenv("MAAGO_SUPERUSER_PASSWORD"))
++		if err != nil {
++			log.Fatal(err)
++		}
++		log.Printf("created %s", u.Email)
++		return
++	}
++	// The links of the mails go to SiteURL, never to the request's Host.
++	// The mails go to the log here; a real server sends them with
++	// authlib.SMTP(addr, from, auth).
++	auth.SiteURL = cmp.Or(os.Getenv("BOARD_SITE_URL"), "http://localhost:8000")
++	authlib.Mail = authlib.ConsoleMail
+ 	// Where to announce new posts. Settings of the app are the app's own
+ 	// package variables, filled in here.
+ 	board.Webhook.URL = os.Getenv("BOARD_WEBHOOK_URL")
+ 	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")
+ 	h, err := maago.Handler(maago.Config{
+ 		DB:   db,
+-		Apps: []maago.App{board.App},
++		Apps: []maago.App{board.App, auth.App},
++		// Who sent the request: the user of its session cookie, or of its
++		// API token. A page that needs one sends the browser to LoginURL.
++		Auth:     auth.Current,
++		LoginURL: "/app/login",
+ 		// The frontend's dev server, another origin: its pages may call the
+ 		// API, and read the answers.
+ 		Origins: []string{"http://localhost:5173"},

@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Mon, 12 Oct 2026 23:40:13 +0900
+Subject: [PATCH] Delete what has no comments
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+지우기가 진짜로 지운다. 댓글이 없는 글만.
+
+0014에서 지우기는 숨기기였다. 댓글의 post_id가 글을 가리키고, FK는
+ON DELETE NO ACTION이라 댓글이 있는 글은 지울 수 없다(maago는 기본으로
+연쇄 지우기를 하지 않는다). 이제 쓴 사람이 지우는 것이니(0021), 댓글이 없으면
+DeletePost로 행을 지우고, 있으면 지금처럼 숨긴다.
+
+- 댓글이 있는지는 이미 있는 PostComments로 센다. 새 쿼리는 없다
+- 뷰 이름은 HidePost에서 RemovePost로. DeletePost는 maago가 Post마다
+  만드는 함수의 이름이다
+
+이것으로 게시판은 계정을 갖췄다: 가입과 인증, 로그인, 작성자, 쓴 사람만
+게시·보관·지우기, API 토큰.
+
+diff --git a/board/urls.go b/board/urls.go
+index 15a6e96..ad5eaf2 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -17,7 +17,7 @@ var Routes = maago.Routes{
+ 	maago.POST("/posts/{id}", "comment_create", ShowPost, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
+-	maago.POST("/posts/{id}/delete", "post_delete", HidePost, maago.LoginRequired),
++	maago.POST("/posts/{id}/delete", "post_delete", RemovePost, maago.LoginRequired),
+ 
+ 	// JSON for a frontend on another origin: main trusts it in Config.Origins.
+ 	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
+diff --git a/board/views.go b/board/views.go
+index 216dd71..7e3aeb2 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -106,10 +106,11 @@ func ShowPost(ctx context.Context, in ShowPostIn) (maago.Result[PostPage], error
+ 	return maago.Show(PostPage{p, cs, f}), err
+ }
+ 
+-// HidePost deletes a post as people see it: it hides it, and its comments
+-// with it. They stay in the database, so a comment never points at a post
+-// that is gone.
+-func HidePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
++// RemovePost deletes a post. One without comments goes from the database;
++// one with comments is hidden, and its comments with it: they stay, so a
++// comment never points at a post that is gone (the foreign key would
++// refuse it).
++func RemovePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
+ 	db := maago.DBFrom(ctx)
+ 	p, err := GetPost(ctx, db, in.ID)
+ 	if err != nil {
+@@ -118,8 +119,17 @@ func HidePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
+ 	if err := mayChange(ctx, p); err != nil {
+ 		return maago.Result[PostPage]{}, err
+ 	}
+-	p.Hidden = true
+-	if err := UpdatePost(ctx, db, &p); err != nil {
++	cs, err := PostComments(ctx, db, PostCommentsParams{PostID: p.ID})
++	if err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	if len(cs) == 0 {
++		err = DeletePost(ctx, db, p.ID)
++	} else {
++		p.Hidden = true
++		err = UpdatePost(ctx, db, &p)
++	}
++	if err != nil {
+ 		return maago.Result[PostPage]{}, err
+ 	}
+ 	return maago.SeeOther[PostPage](BoardDetailURL(p.BoardID)), nil
+diff --git a/board/web_test.go b/board/web_test.go
+index b0e9125..4f39a54 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -566,3 +566,24 @@ func TestAuthors(t *testing.T) {
+ 		}
+ 	}
+ }
++
++// A post without comments is deleted from the database.
++func TestDeleteWithoutComments(t *testing.T) {
++	h, db := app(t)
++	h, ann := signedIn(t, h, db, "ann@example.com")
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "글", Body: "본문"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if code, loc, _ := post(h, PostDeleteURL(p.ID), nil); code != 303 || loc != BoardDetailURL(b.ID) {
++		t.Fatalf("delete: %d %q", code, loc)
++	}
++	if _, err := GetPost(ctx, db, p.ID); err != sql.ErrNoRows {
++		t.Errorf("the post is still there: %v", err)
++	}
++}

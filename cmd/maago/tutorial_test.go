@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/maago-web/maago/internal/build"
+	"github.com/maago-web/maago/internal/scaffold"
 )
 
 const steps = "../../examples/board/steps"
@@ -37,6 +38,10 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"one template error of two", "0009-Try-two-typos-in-the-templates.patch",
 			"\nMaago-Expect: board/templates/post_page.html:3:13: PostPage.Post has no field or method \"Titel\"", "", "maago gen: expected\n"},
 		{"gofmt", "0002-Add-Board-Post-and-Comment.patch", "+\tdb := maagotest.DB(t)", "+    db := maagotest.DB(t)", "gofmt -l: "},
+		// What maago add writes comes from the trailer, not the patch.
+		{"no maago add", "0019-Add-accounts.patch", "\nMaago-Run: maago add auth", "", "maago gen: expected\n"},
+		{"an unknown trailer", "0019-Add-accounts.patch", "Maago-Run: maago add auth", "Maago-Run: maago add auth now", "unknown trailer "},
+		{"author check", "0021-Posts-have-authors.patch", "+\tif u.IsStaff || p.AuthorID != nil && *p.AuthorID == u.ID {", "+\tif u.IsStaff || true {", "go test: "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -92,7 +97,28 @@ func walk(t *testing.T, dir string) error {
 			return fmt.Errorf("%s: %w", filepath.Base(p), err)
 		}
 	}
+	// The last main makes the first staff account (D-130) on the steps'
+	// database, as its reader would.
+	run := goCmd(root, "run", ".", "-createsuperuser")
+	run.Env = append(run.Env, "MAAGO_SUPERUSER_EMAIL=boss@example.com", "MAAGO_SUPERUSER_PASSWORD=correct horse battery staple")
+	if out, err := run.CombinedOutput(); err != nil || !strings.Contains(string(out), "created boss@example.com") {
+		return fmt.Errorf("go run . -createsuperuser: %v\n%s", err, out)
+	}
 	return nil
+}
+
+// goCmd is the go command in root, offline, on root's go.work.
+func goCmd(root string, args ...string) *osexec.Cmd {
+	cmd := osexec.Command("go", args...)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(),
+		// These win over the environment's own: exec.Cmd uses the last
+		// value of a key.
+		"GOWORK="+filepath.Join(root, "go.work"),
+		"GOPROXY=off",           // the module cache only: cmd/maago's tests fetched the same versions
+		"GOFLAGS=-mod=readonly", // a stale go.sum fails, whatever GOFLAGS says
+	)
+	return cmd
 }
 
 func walkStep(root, patch string) error {
@@ -100,9 +126,16 @@ func walkStep(root, patch string) error {
 	if err != nil {
 		return err
 	}
-	want, err := expected(src)
+	want, apps, err := expected(src)
 	if err != nil {
 		return err
+	}
+	// What maago add writes is not in the patch, as generated files are
+	// not: the step runs it first, as its reader did.
+	for _, app := range apps {
+		if _, ds := scaffold.Add(root, app); ds != nil {
+			return fmt.Errorf("maago add %s:\n%s", app, text(ds))
+		}
 	}
 	abs, _ := filepath.Abs(patch)
 	apply := osexec.Command("git", "apply", abs)
@@ -133,37 +166,31 @@ func walkStep(root, patch string) error {
 	}
 	// The app's tests find the root's .env from their package's directory,
 	// as a reader's do (D-113): no address is given them.
-	test := osexec.Command("go", "test", "./...")
-	test.Dir = root
-	test.Env = append(os.Environ(),
-		// These win over the environment's own: exec.Cmd uses the last
-		// value of a key.
-		"GOWORK="+filepath.Join(root, "go.work"),
-		"GOPROXY=off",           // the module cache only: cmd/maago's tests fetched the same versions
-		"GOFLAGS=-mod=readonly", // a stale go.sum fails, whatever GOFLAGS says
-	)
-	if out, err := test.CombinedOutput(); err != nil {
+	if out, err := goCmd(root, "test", "./...").CombinedOutput(); err != nil {
 		return fmt.Errorf("go test: %v\n%s", err, out)
 	}
 	return nil
 }
 
-// expected reads the Maago-Expect: lines of a patch's commit message,
-// which ends where the diff starts (steps.sh packs without a diffstat).
-// The mail header before it has no Maago- lines.
-func expected(patch []byte) ([]string, error) {
+// expected reads the trailers of a patch's commit message, which ends
+// where the diff starts (steps.sh packs without a diffstat): the
+// Maago-Expect: lines, and the apps of Maago-Run: maago add APP lines, which
+// the step runs before its patch. The mail header before it has no Maago-
+// lines.
+func expected(patch []byte) (want, apps []string, err error) {
 	msg, _, ok := strings.Cut(string(patch), "\ndiff --git ")
 	if !ok {
-		return nil, fmt.Errorf("no diff after the commit message")
+		return nil, nil, fmt.Errorf("no diff after the commit message")
 	}
-	var want []string
 	for _, line := range strings.Split(msg, "\n") {
 		switch {
 		case strings.HasPrefix(line, "Maago-Expect: "):
 			want = append(want, strings.TrimPrefix(line, "Maago-Expect: "))
+		case strings.HasPrefix(line, "Maago-Run: maago add ") && !strings.ContainsAny(strings.TrimPrefix(line, "Maago-Run: maago add "), " \t") && line != "Maago-Run: maago add ":
+			apps = append(apps, strings.TrimPrefix(line, "Maago-Run: maago add "))
 		case strings.HasPrefix(line, "Maago-"):
-			return nil, fmt.Errorf("unknown trailer %q; the one maago knows is Maago-Expect:", line)
+			return nil, nil, fmt.Errorf("unknown trailer %q; maago knows Maago-Expect: and Maago-Run: maago add APP", line)
 		}
 	}
-	return want, nil
+	return want, apps, nil
 }

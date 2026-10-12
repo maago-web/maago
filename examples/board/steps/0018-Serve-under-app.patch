@@ -21,7 +21,7 @@ Content-Transfer-Encoding: 8bit
 되돌린다.
 
 이것으로 게시판은 화면, 폼, 상태, 댓글, API, 내보내기, 알림을 갖췄다.
-누가 썼는지는 아직 모른다. 로그인과 작성자만 고치기는 다음 판에서다.
+누가 썼는지는 아직 모른다. 로그인, 그리고 쓴 사람만 게시·보관·지우는 일은 다음 판에서다.
 
 diff --git a/board/web_test.go b/board/web_test.go
 index fe47ffd..1963a7e 100644

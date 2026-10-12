@@ -567,6 +567,42 @@
 `Secure` 쿠키는 Safari가 `http://localhost`에서 받지 않으니 튜토리얼은 그것을 한 줄 말한다(fable 4번 리뷰). 프록시 뒤에서는 `main`이 믿는 프록시에서 온 요청만 그 머리로 `r.RemoteAddr`를 고치는 미들웨어로 감싼다는 것도 한 줄(8번, `maago.RemoteAddrFrom`의 주석). `maago add auth`(그 뒤 `maago gen`이 `auth.App`을 쓰라고 막는 것까지 단계의 글), `main`(`auth.App`·`Auth`·`LoginURL`·메일·`-createsuperuser`), `Post.AuthorID fk=auth.User`(마이그레이션), 로그인 필수 쓰기, 작성자만 고치고 지우기(뷰의 Go 코드, 아니면 403), 지우기는 댓글이 없으면 진짜 지우기·있으면 숨기기(D-84), 가입·로그인 화면. 시험은 낮은 반복 수와 메일함. 댓글의 작성자는 계획에서.
 → 확인: `TestBoardTutorial`(SQLite)
 
+### 계획
+
+이 작업의 끝에 게시판 튜토리얼이 계정을 갖는다: `maago add auth`, `main`의 연결, 글의 작성자, 로그인해야 쓰기, 작성자(와 staff)만 게시·보관·지우기, 댓글 없는 글은 진짜 지우기. `TestBoardTutorial`(SQLite)이 새 단계까지 걷는다. 패치 넷(0019~0022), 커밋 메시지는 한국어(D-103).
+
+복사본은 패치 밖(사람의 결정 2026-10-12, D-103 고침): 생성물(`*_gen.go`)처럼 명령이 만드는 것은 패치에 담지 않는다. 커밋 메시지의 트레일러 `Maago-Run: maago add auth`가 그 단계 앞에서 명령을 부른다고 적는다. 걷기와 `steps.sh unpack`이 패치를 적용하기 전에 그 명령을 돌리고, `auth/`는 `*_gen.go`처럼 git에서 빠진다(공개 저장소를 만들 때는 그 커밋에 함께 넣는다). 그래서 복사본을 고쳐도 튜토리얼은 낡지 않고 다시 쌀 것도 없다. 튜토리얼 단계는 `auth/`를 손으로 고치지 않는다(빠진 파일이라 패치에 들지 않는다). 근거: 이 저장소를 고치는 에이전트는 대화형 `git rebase -i`를 못 쓰고, 2,500줄 패치는 diff와 맥락을 채운다(PHILOSOPHY 2)
+
+`cmd/maago`·`steps.sh`
+- `expected`가 `Maago-Run: maago add <앱>`을 안다(그 꼴만, 다른 `Maago-Run`은 오류). 걷기는 `git apply` 앞에서 `scaffold.Add(root, 앱)`
+- `steps.sh unpack`: maago를 `$dir/.git/maago`로 빌드해 두고(README가 이미 그 자리를 쓴다), 패치를 하나씩 `git am`하며 트레일러가 있으면 먼저 그 명령. `.git/info/exclude`에 `auth/`. `pack`은 그대로
+- `TestBoardTutorialCatches`에 둘: 0021에서 작성자 검사 빼기 → `go test: `, 0020에서 마이그레이션 빼기 → `maago check:`
+
+단계(패치)
+- 0019 `Add accounts`(`Maago-Run: maago add auth`): 패치는 `maago makemigrations`의 `migrations/0006_…sql`(인증 표 다섯. 진짜 diff가 있어야 `git am`이 받는다, fable 실측으로 `makemigrations`는 `main` 연결 전에도 돈다). `Maago-Expect: auth/urls.go:5:5: app auth has routes, but no package uses auth.App`(fable 실측). 메시지: 무엇이 생겼는지, 영어 문구는 고쳐 쓰라는 것, 패치의 `driver_test.go`는 SQLite 것이고 PG 독자의 `add`는 다른 것을 쓴다
+- 0020 `Sign in`: `main`에 `auth.App`, `Auth: auth.Current`, `LoginURL: "/app/login"`(글자 그대로, D-122), `auth.SiteURL = cmp.Or(os.Getenv("BOARD_SITE_URL"), "http://localhost:8000")`(비면 가입이 500), `authlib.Mail = authlib.ConsoleMail`(SMTP는 메시지의 한 문장), `-createsuperuser`(9번의 주석 그대로). 메시지에 Safari의 `Secure` 쿠키(`http://localhost`), 프록시 뒤의 `r.RemoteAddr` 미들웨어. `base.html`에 정적 로그인 링크·로그아웃 폼, `HomePage.User *auth.User`로 홈에 이메일. 시험: 인증된 사용자(`auth.InsertUser`) → `/login` POST → 홈에 이메일(가입·인증 흐름은 `auth/`의 시험이 걷기에서 이미 돈다). 걷기가 0020 뒤 `go run . -createsuperuser`를 환경 변수 둘과 공유 `board.db`로 한 번(사람의 결정 2026-10-12: 9번이 넘긴 실제 실행)
+- 0021 `Posts have authors`: `Post.AuthorID *int64 fk=auth.User`(포인터: 독자의 DB의 옛 글은 작성자가 없다. 비포인터면 `makemigrations`가 `⚠` 주석을 달고 행이 있는 DB에서 `migrate`가 실패한다 — 메시지가 그 줄을 인용). `makemigrations`. `recent_posts.sql`이 다시 막힌다(`missing "author_id"`, 0014의 되풀이) → 열을 고른다. `LoginRequired`: `board_new`·`board_create`·`post_new`·`post_create`·`comment_create`·`post_publish`·`post_archive`·`post_delete`·`api_post_create`(POST만 걸린 댓글은 익명에게 401, D-121 — 메시지 한 줄). 글을 만들면 작성자는 로그인한 사용자. 게시·보관·지우기는 작성자와 staff(사람의 결정 2026-10-12: 작성자 없는 옛 글은 staff가 다룬다), 아니면 403(뷰의 도우미 `mayChange`). API 글쓰기는 Bearer(11번). `web_test.go`의 `maago.Handler`를 `app()` 하나로 모아 `Auth`·`LoginURL`(`TestUnderApp`의 정리 `Handler`도). 시험: 익명·다른 사용자·작성자·staff × 게시·보관·지우기, 로그인 필수 라우트, API의 Bearer와 없을 때 401
+- 0022 `Delete what has no comments`: 댓글이 없으면(`len(PostComments(…)) == 0`, 새 SQL 없음) `DeletePost`, 있으면 지금처럼 숨긴다(D-84: 댓글의 FK가 지우기를 막는다). 시험: 두 경우(행·댓글·숨김)
+
+하지 않기로 한 것: 글 고치기 화면(튜토리얼에 없다, 작업 글의 "고치고"는 게시·보관·지우기), 댓글의 작성자(읽는 곳이 없다, 나중), 댓글 지우기, 작성자 표시 이름, admin(M6), 튜토리얼에서 `auth/` 고치기
+
+단계
+1. `expected`·걷기·`steps.sh`의 `Maago-Run`, 0019 → 확인: `TestBoardTutorial`, `steps.sh unpack`·`pack`이 패치를 그대로 돌려줌
+2. 0020과 `-createsuperuser` 실행 → 확인: 걷기
+3. 0021·0022 → 확인: 걷기, `TestBoardTutorialCatches`의 두 줄
+4. D-103, README(튜토리얼·`steps.sh`), TASKS 9번의 문장, 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: ★(가)/(나) → 사람의 결정: (나)(에이전트 관점의 연구 뒤). "고치고 지우기"와 고치기 화면 → 게시·보관·지우기로. 바이트 비교의 `driver_test.go` → (나)라 비교 없음. 0021의 마이그레이션이 행 있는 DB에서 → 포인터, 걷기는 빈 DB(받음, 메시지가 `⚠`를 인용). 권한 행렬 시험. API Bearer 시험(우선순위·`WWW-Authenticate`·preflight는 11번의 `site` 시험이 본다, 여기는 Bearer와 401). D-84 경계 시험. `refresh-auth` → (나)라 없음. 0020이 무겁다 → 운영 안내는 메시지 두 줄
+- fable: ★(가)/(나) → (나). ★`-createsuperuser` 실제 실행 → 사람의 결정: 걷기가 한 번. ★staff 예외 → 사람의 결정: 작성자와 staff. 0019의 진단은 실제로 한 줄(실측). 인증 표의 마이그레이션 → 0019. "NOT NULL은 막힌다"는 틀림 → `⚠`와 행 있는 DB의 실패로 고침. `recent_posts.sql` 다시 막힘. `base.html`의 `.User`는 페이지 다섯 → 정적 링크, 홈만 `User`. `board_new` GET도 로그인. 시험의 `Handler`를 `app()`으로(`TestUnderApp` 정리). 시험 로그인은 `/login`. `SiteURL` 기본값, `ConsoleMail`. 댓글 작성자 뺌. 0022는 새 SQL 없음
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 패치는 풀어 둔 저장소에서 커밋으로 쓰고 `steps.sh pack`으로 뽑았다(0001~0018은 바이트 그대로, 0018은 끝 문장만). 지우기 뷰는 생성된 `DeletePost`와 겹쳐 `RemovePost`. 계획의 잡기 "0020에서 마이그레이션 빼기"는 하지 않음: 마이그레이션은 0019에 있고(Expect 단계라 `check`에 닿지 않는다), 빼면 0019의 diff가 비어 `git am`이 받지 않는다. 대신 트레일러를 빼는 잡기와 모르는 트레일러 잡기
+- codex: 댓글 세기와 지우기 사이의 경합 → 받음(그사이 댓글이 생기면 FK가 지우기를 막아 500, 데이터는 그대로). 트레일러의 빈 앱·탭 → 거절. `steps.sh`의 `sed`는 Go보다 느슨(걷기가 잡는다, 받음). "쓴 사람만 고치기" → 게시·보관·지우기(0018·0022). 권한 행렬 → 셋 × 셋을 채움. 댓글 있는 글의 숨기기는 0014의 `TestCommentAndHide`가 본다
+- fable: `-createsuperuser`는 한 번(중복은 복사본 시험이 본다). 플래그 `--name`으로 통일. `TestUnderApp`의 `LoginURL`을 `/app/login`으로. "연쇄 지우기를 기본으로 하지 않는다". 인용 문구(진단·`⚠`·쿠키·SMTP)는 실측과 같음. 받음: 0020의 `getAs`·`postAs`와 0021의 `as`가 겹침(작다)
+
 ## 13. 완료 조건 종단 테스트와 문서
 
 `TestM5Done`(두 방언): 완료 조건마다 성공과 실패 경로. DECISIONS(초안의 D-123~D-130에서 만들며 바뀐 것), ARCHITECTURE §2(둘째 예외)·§5(복사된 앱), TUTORIAL-FUTURE §5(`maago add auth`, CLI `maago createsuperuser`를 `main`의 `-createsuperuser`로, 215·452줄), MILESTONES(106줄의 `maago createsuperuser`, 할일을 D-번호 한 줄로, M8 표의 JWT·contrib User 줄, M6의 "모델별 권한(M5)").
