@@ -24,3 +24,17 @@ func TestIDOrderAndOtherApp(t *testing.T) {
 		t.Errorf("admin_gen.go:\n%s", got)
 	}
 }
+
+// A field named Password without admin=hidden is in the admin, and its
+// list (D-49, M6's condition 2: nothing is hidden by its name).
+func TestPassword(t *testing.T) {
+	user := &model.Model{Name: "User", Table: "auth_user", Fields: []*model.Field{
+		{Name: "ID", Column: "id", Type: model.Int64},
+		{Name: "Password", Column: "password", Type: model.String},
+	}}
+	app := &model.App{Dir: "auth", Name: "auth", Models: []*model.Model{user}}
+	got := string(File(project.SQLite, app, []*model.App{app}))
+	if !strings.Contains(got, `{Name: "Password", Label: "Password"}`) || !strings.Contains(got, `List: []string{"ID", "Password"}`) {
+		t.Errorf("admin_gen.go:\n%s", got)
+	}
+}

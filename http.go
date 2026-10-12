@@ -76,7 +76,7 @@ type Config struct {
 }
 
 // App is an app's routes, as maago gen generates them into the app's App
-// value. Only generated code makes one.
+// value; contrib/admin makes the admin's (D-131). Nothing else does.
 type App struct {
 	name   string
 	routes []AppRoute
@@ -93,7 +93,8 @@ type AppRoute struct {
 	Serve              func(w http.ResponseWriter, r *http.Request) error
 }
 
-// NewApp is the App of the app named name. Only generated code calls it.
+// NewApp is the App of the app named name. Only generated code and
+// contrib/admin call it.
 func NewApp(name string, routes ...AppRoute) App { return App{name, routes} }
 
 // Handler serves the apps of cfg. It rejects what cfg gets wrong; the

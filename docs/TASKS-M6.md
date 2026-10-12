@@ -179,6 +179,59 @@ type Row struct {
 
 ---
 
+## 3. `contrib/admin` 런타임: 들어오기·인덱스·목록 (D-131, D-133)
+
+### 계획
+
+모양
+```go
+type Config struct {
+	Models [][]Model // 앱마다의 Admin: [][]admin.Model{board.Admin, auth.Admin}
+	Can    func(ctx context.Context, app, model, action string) bool // 복사본의 auth.Can (D-133)
+}
+const View, Add, Change, Delete = "view", "add", "change", "delete" // 타입 없는 상수: Permission.Action의 글자
+func App(cfg Config) maago.App // main의 Config.Apps에: admin.App(admin.Config{…})
+```
+- `action`은 `string`(fable): 정의된 타입이면 복사본 `auth.Can`이 `contrib/admin`을 import해야 하고, 그러면 `maago add auth`만 한 프로젝트가 admin 프로젝트가 된다(`admingen.Use`의 판정)
+- `Models`가 `[][]Model`인 까닭: 앱마다의 `X.Admin`을 그대로 적는다(`slices.Concat` 없이, 틀리게 적으면 컴파일 오류), `TestAdminGen`의 fix 문구("add blog.Admin to admin.Config.Models")와 맞는다
+- `App`은 잘못된 설정에 panic(기동 때 한 번, `maago.Pages`의 선례): `Can`이 nil, 같은 앱·모델이 두 번, 보일 모델이 하나도 없음(모두 숨긴 앱만이면 인덱스가 늘 403이다). 조용히 모두 거부하지 않는다(PHILOSOPHY 7)
+- 라우트 둘, 패턴은 `admin.Prefix`에서 만든다(admingen의 충돌 검사와 한 출처), 모두 `LoginRequired`이고 `API`가 아니다(완료 조건 3: 로그인하지 않은 GET은 `Handler`가 `LoginURL`로 303). `/admin`·`/admin/blog/Post`는 `ServeMux`가 `/`를 붙여 307로 보낸다(실측)
+  - `GET /admin/{$}` 인덱스: `Can(…, View)`가 참인 모델만 앱별로, 목록으로 가는 링크. 하나도 없으면 403(D-131). 모델마다 `Can`을 부른다(5번에서 권한 쿼리가 모델 수만큼, v0은 받음)
+  - `GET /admin/{app}/{model}/{$}` 목록: URL의 글자는 `Model.App`·`Model.Name` 그대로(★사람의 결정: Go 이름 그대로, 권한 행의 글자와 하나), 다른 글자는 없는 모델. **`Can`을 먼저**: `Can(ctx, app, model, View)`가 거짓이면 그 모델이 있든 없든 403이라 볼 수 없는 사람에게 모델이 있음을 드러내지 않는다(codex). 참인데 없는 모델이면 404
+  - `?page=N`: 정수가 아니면 400(`maago.Query`와 같다), 음수·0은 1. `Count`를 먼저 읽어 쪽수를 세고, N이 쪽수보다 크면 `Rows`를 부르지 않고 빈 표(D-134, 아주 큰 N의 OFFSET 넘침이 500이 되지 않는다, fable). 50행, "N쪽 중 M쪽"과 개수, 앞뒤 링크. 7번은 같은 `Query`를 `Rows`와 `Count`에 함께 넘긴다
+  - 한 행·추가·고치기·지우기 라우트는 그 화면을 만드는 작업에서(4·6번): 빈 라우트를 미리 두지 않는다. FK 칸은 번호만(링크는 한 행 화면이 생기는 4번)
+- 화면: `contrib/admin/templates`(`base.html`·`index.html`·`list.html`)를 `embed.FS`로, `maago.Pages`·`maago.Render`로 그린다. CSS 한 파일(`admin.css`)을 `base.html`의 `<style>`에 넣는다(라우트를 늘리지 않음, JS 없음). 링크는 `maago.Prefix()`를 앞에(전역 `maago.Config.Prefix`, D-122: admin에 따로 두지 않는다)
+- 칸 그리기(2번의 사람의 결정): 템플릿 함수 `cell`이 `string`을 돌려준다(`template.HTML`이 아니다: 사용자 데이터는 늘 이스케이프). 닫힌 type switch: 모델 타입 일곱(`int64`·`int32`·`float64`·`string`·`bool`·`time.Time`·`[]byte`)과 그 포인터. bool은 `yes`/`no`, 시간은 `maago.DateFunc("2006-01-02 15:04", …)`(Config.TimeZone), `[]byte`는 `(N bytes)`, nil 포인터는 빈칸. 그 밖의 타입은 오류(maago의 버그: 500, `fmt.Sprint`로 얼버무리지 않는다, PHILOSOPHY 6). 머리는 `List`의 이름으로 찾은 `Field.Label`(작은 도우미)
+- 이 저장소 쪽: "생성 코드만 부른다" 주석(`NewApp`·`AppRoute`·`Pages`·`Render`·`ParseQuery`·`Query` 중 admin이 부르는 것)과 ARCHITECTURE §2 목록에 `contrib/admin`을 더한다
+
+시험(`contrib/admin`, DB 없이: `Rows`·`Count`를 손으로 만든 `Model`, 연결하지 않는 `*sql.DB`, `Auth`는 머리로 사용자를 고르는 가짜. `maago.Prefix()`가 프로세스 전역이라 이 패키지에 `t.Parallel`을 쓰지 않는다)
+- `TestLogin`: 사용자 없이 인덱스·목록 GET → 303, `Location`을 파싱해 `next`가 요청 경로(완료 조건 3). 같은 `Handler`의 API 앱 라우트는 사용자 없이 401(admin과 섞여도 각자의 꼴)
+- `TestCan`: 보이는 모델이 없으면 인덱스 403, 볼 수 있는 모델만 인덱스에, 볼 수 없는 모델의 목록 403, 볼 수 없는 없는 모델도 403, 볼 수 있는(모든 것을 허락하는) 사용자의 없는 모델·`/admin/blog/post/`(소문자)·더 깊은 경로 404. `Can`이 받은 `app`·`model`·`"view"`
+- `TestList`: 칸 머리는 `Label`, 칸 값(문자열, `<b>`가 든 문자열은 `&lt;b&gt;`, nil과 값 있는 포인터, bool, 시간, `[]byte`), 개수, 페이지 경계(50행이면 1쪽, 51행이면 2쪽, `page=0`·`-1`은 1쪽, 범위 밖과 `page=1000000000000000000`은 빈 표이고 `Rows`를 부르지 않음, `page=x`는 400), `Rows`가 받은 `Limit`·`Offset`. 모르는 타입의 칸은 500
+- `TestPassword`: 태그 없는 `Password` 필드가 그린 목록의 머리와 값에 있다(완료 조건 2의 그린 쪽). 생성 쪽은 `admingen` 단위 시험에 `Password` 필드 하나(태그 없으면 `Fields`·`List`에)
+- `TestConfig`: `Can` nil·같은 모델 두 번·모델 없음은 panic과 문구
+- `TestPrefix`: `maago.Config.Prefix`가 `/app`이면 링크가 그 아래이고 한 번만 붙는다
+
+하지 않기로 한 것: 한 행·추가·고치기·지우기(4·6번), 검색·필터(7번), 권한 행과 `auth.Can`(5번, 여기 `Can`은 시험의 가짜), 모델 이름의 사람 말, 정렬 바꾸기(D-134: 정렬은 생성된 것만), 고르는 상자, 사용자 앱 이름이 `admin`일 때의 겹침(`Handler`가 "app admin is in Config.Apps twice"로 막는다, 생성 검사는 필요해지면)
+
+단계
+1. `Config`·`App`·라우트 둘·화면·CSS·`cell` → 확인: 위 시험들
+2. 주석·ARCHITECTURE, `admingen`의 `Password` 줄 → 확인: 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: 403/404 순서가 모델이 있음을 드러냄 → `Can`을 먼저. `TestPrefix`의 주체 → 전역 `maago.Config.Prefix`. admin과 API 라우트가 섞일 때 → `TestLogin`에 API 401. `next`는 파싱해서 본다. `{$}`의 경계 → 소문자·더 깊은 경로 404(`/admin`은 307). 7번의 `Count`도 같은 `Query` → 적음
+- fable: ★`Action` 타입이면 복사본 auth가 `contrib/admin`을 import해 admin 프로젝트가 됨 → 타입 없는 상수. ★URL의 글자 → 사람의 결정: Go 이름 그대로. 아주 큰 `page`의 OFFSET 넘침 → `Count` 먼저, 넘으면 `Rows` 없음. `cell`은 `string`, 이스케이프 시험. 값 있는 포인터 시험과 닫힌 type switch(모르는 타입은 500). `Prefix()` 전역이라 `t.Parallel` 없음. "생성 코드만" 주석의 범위. 패턴은 `admin.Prefix`에서. 모델이 없으면 panic. 인덱스의 `Can` 호출 수는 5번 메모. 사용자 앱 `admin`은 `Handler`가 막음
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 변형으로 확인(19개, 모두 잡힘): `LoginRequired` 둘, 인덱스의 `Can`·403, `Can` 먼저, 넘은 쪽에 `Rows` 없음, 쪽의 하한, 모르는 타입, 포인터 하나 빠뜨림, 모델 없음 panic, `Prefix`, Prev(처음엔 3쪽이 우연히 같아 살아남음 → 5쪽으로), 머리 `Label`, 앱 묶기, 정확히 50행, 마지막 쪽의 Next, 큰 수, `List`⊄`Fields` panic
+- codex: 아주 큰 `Count`의 쪽수 셈이 넘침 → `n/50 + min(n%50, 1)`. `*[]byte` 칸이 500 → 더함(시험 줄). `Can` 먼저·이스케이프·`template.CSS`는 embed 파일 하나뿐·초기화의 `Pages`는 문제없음. 시험을 돌리지 못함(샌드박스)
+- fable: `List`에 없는 필드가 요청 때 panic → `App`에서 검사하고 머리를 미리 만듦(요청마다의 찾기도 사라짐). 실수가 `1e+06` → `'f'`. 시험 빈틈 셋(앱 묶기, 정확히 50행, 마지막 쪽의 Next) → 더함. 주석의 D-18 → D-77, `home`의 `maago.Config.Prefix`, ARCHITECTURE 목록에 `ParseQuery`·`Query`. 화면: "Rows: N", 빈 모델은 "No rows.", 넓은 표는 가로로 굴림. 4번에: `Can` 먼저→404 두 단계를 `s.model(r, action)`으로 뽑기, 칸에 `Field`를 묶어 넘겨 FK·한 행 링크
+- 사람에게 물음(구현 중): admin이 사용자 코드와 맞물리는 방식 → 사람의 결정: 지금대로(생성 파일은 reflect 금지의 다리, 사용자는 import·`main` 한 줄·태그). 맞물림 셋(`Admin` 이름, `X.Admin` 빠뜨림 오류, `/admin/`)은 검사로 둔다
+
+---
+
 ## M6 끝
 
 - [ ] 1~10 완료

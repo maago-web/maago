@@ -18,7 +18,7 @@ import (
 
 // The functions of this file are what the generated adapters call to read
 // a request into a view's In and to write its page (D-116). Only
-// generated code uses them.
+// generated code and contrib/admin (D-131) use them.
 
 // ParseQuery reads r's query string: a malformed one is a 400, not pairs
 // dropped silently.

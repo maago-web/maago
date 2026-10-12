@@ -1,0 +1,7 @@
+{{define "content"}}
+<h1>Admin</h1>
+{{range .Apps}}
+<h2>{{.Name}}</h2>
+<ul>{{range .Models}}<li><a href="{{.URL}}">{{.Name}}</a></li>{{end}}</ul>
+{{end}}
+{{end}}

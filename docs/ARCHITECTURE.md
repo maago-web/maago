@@ -35,9 +35,9 @@ github.com/maago-web/maago
 │                          Form·Field·Messages·Invalid·InvalidForm(D-119, D-120), UserFrom·WithUser
 │                          (D-121), Prefix(D-122).
 │                          M5가 더한 것: SetCookie(D-125), RemoteAddrFrom(D-128).
-│                          생성 코드만 부르는 것: One·Many·Exec, Placeholders,
+│                          생성 코드(와 contrib/admin, D-131)만 부르는 것: One·Many·Exec, Placeholders,
 │                          SQLiteTime·SQLiteNullTime·ScanSQLiteTime·ScanNullSQLiteTime(D-105),
-│                          NewApp·AppRoute·Pages·Render·Bind*·FinishForm·FormValues·JSONValues·Unprocessable·
+│                          NewApp·AppRoute·Pages·Render·ParseQuery·Query·Bind*·FinishForm·FormValues·JSONValues·Unprocessable·
 │                          Rule·FieldError·URLFunc·PathSegment·DateFunc …
 │                          런타임이 기대는 내부 패키지는 internal/diag·internal/project뿐(시험이 본다)
 ├── maagotest/          시험 전용 도우미: DB (M4, D-113), Mailbox (M5, D-126). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
