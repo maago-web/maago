@@ -520,6 +520,48 @@
 토큰 만들기(평문 한 번)·지우기 화면, Bearer, 다른 출처 프런트엔드의 preflight와 실제 요청. 탈퇴(9번)와 재설정이 API 토큰을 어떻게 하는지도(탈퇴는 지운다).
 → 확인: 토큰으로 API 라우트(완료 조건 7), 지운 토큰은 401과 `WWW-Authenticate`
 
+### 계획
+
+이 작업의 끝에 사용자가 토큰을 만들고(평문은 한 번) 지우며, 다른 출처의 프런트엔드가 `Authorization: Bearer`로 API 라우트를 부른다(완료 조건 7). 코어는 4번에서 끝났다(API 401의 `WWW-Authenticate: Bearer`, preflight의 `Authorization`).
+
+라이브러리(`contrib/auth`)
+- `FromSession[U](session, token func(ctx, hash string) (U, error))`: 둘째 함수가 생긴다(nil이면 Bearer를 보지 않는다). Bearer는 모든 라우트에서 받는다(사람의 결정 2026-10-12, D-129 그대로). 요청에 `Authorization: Bearer <토큰>`(스킴은 대소문자 무관, 스킴 뒤 공백은 여럿이어도)이 있으면 **그것이 정한다**: 쿠키는 보지 않는다. 없으면 지금처럼 쿠키. D-129의 "쿠키가 없으면 Bearer"를 뒤집는다(사람의 결정 2026-10-12): 다른 출처 프런트엔드가 `credentials: 'include'`로 낡은 쿠키를 함께 보내면 쿠키가 이겨 토큰이 무시된다
+- 모양이 틀린 토큰(43자 base64url이 아님)과 없는 토큰은 사용자 없음(`nil, nil`, `Config.Auth`의 주석 "Status(401, err) for a bad token"도 고친다): `LoginRequired` API 라우트는 이미 401 + `WWW-Authenticate: Bearer`. 라이브러리는 `maago`를 몰라 401 오류를 만들 수 없고, 사용자 없음이면 공개 API 라우트도 그대로 돈다(RFC 6750의 `invalid_token`은 하지 않는다). 다른 스킴(`Basic`)은 머리가 없는 것과 같다
+- 토큰은 `NewToken`(43자), DB에는 `HashToken`(세션과 같은 부품)
+
+복사본
+- 모델 `APIToken{ID, UserID fk=User, Name string max=100, Hash max=64 unique, CreatedAt auto=create}`. 만료·마지막 사용 시각 없음(지우기로 끝낸다)
+- 쿼리: `api_token_user.sql`(`:one User`, `JOIN auth_api_token … WHERE t.hash = :hash AND u.is_active AND u.verified_at IS NOT NULL`, 세션과 같은 조건), `user_api_tokens.sql`(`:many APIToken`, `WHERE user_id ORDER BY id`), `delete_api_token.sql`(`:exec`, `WHERE id = :id AND user_id = :user_id`: 남의 토큰은 0행 → 404), `delete_user_api_tokens.sql`(`:exec`)
+- `Current = authlib.FromSession(세션 조회, APITokenUser 조회)`
+- 라우트(`LoginRequired`): `GET /tokens`(`api_tokens`, 목록과 만들기 폼), `POST /tokens`(`api_tokens_submit`, 만들기), `POST /tokens/{id}/delete`(`api_token_delete`, `SeeOther` 목록). 목록은 이름과 만든 날만(해시도 평문도 없다)
+- 만들기: `APITokenForm{Name max=100, Password max=4096}`. **비밀번호를 다시 묻는다**: 새어 나간 토큰이 Bearer로 이 HTML 폼을 불러 토큰을 더 만들면 원래 토큰을 지워도 남는다(Bearer 요청에는 출처 검사도 소용없다). 맞으면 `NewToken` → 넣기 → 같은 페이지에 평문을 한 번 그린다("Copy it now: you won't see it again."). 새로 고침은 폼을 다시 보내 토큰을 하나 더 만든다(브라우저가 묻는다, 받음). `Cache-Control: no-store`는 타입 있는 뷰가 머리를 쓰지 못해 하지 않는다(받음)
+- **비밀번호를 다시 묻는 세 곳(토큰 만들기·비밀번호 변경·탈퇴)에 시도 제한**(`login` 창, 성공하면 제 시도 행을 지운다): Bearer가 모든 라우트에 닿으니 8·9번의 "세션이 이미 계정이다"가 새어 나간 토큰에는 맞지 않는다. 토큰 하나로 옛 비밀번호를 제한 없이 맞춰 보면 완전한 탈취다. Bearer로 로그아웃(세션 모두 지움)·토큰 지우기는 비밀번호 없이 된다(성가심일 뿐, 받음)
+- 탈퇴(9번)는 트랜잭션 안에서 `DeleteUserAPITokens`도. 재설정(7번)도 지운다(사람의 결정 2026-10-12: 계정을 되찾는 길이라 탈취한 사람이 만든 토큰이 남지 않게. 대가는 비밀번호를 잊은 사용자도 연동을 다시 만든다). 비밀번호 변경은 지우지 않는다(옛 비밀번호를 증명했다, 스크립트가 쓰는 것)
+
+시험
+- 라이브러리 `TestFromSession` 표에 Bearer 줄: Bearer가 쿠키를 이김, 모양이 틀린 Bearer는 사용자 없음(쿠키가 있어도), 모양은 맞지만 없는(지운) Bearer + 유효한 쿠키 → 사용자 없음(따로 한 줄), `bearer` 소문자 스킴, 공백 둘, `Basic`은 쿠키로, `token` nil이면 Bearer를 보지 않음
+- 복사본(`Authorization`을 싣는 도우미 하나): `TestAPITokens`: 세션 없이 GET 303 → 목록 → 틀린 비밀번호(행 없음) → 만들기(본문에 평문 한 번, DB에는 해시만, 다시 GET에 평문도 해시도 없음) → 그 토큰의 Bearer로 `/whoami` 사용자 → 지우기 → 사용자 없음. 남의 토큰 지우기 404. Bearer로 만들기 폼은 비밀번호 없이 안 됨. 탈퇴·재설정 뒤 토큰 행 0, 변경 뒤에는 남음. 비활성·인증 전 사용자의 토큰은 사용자 없음. Bearer로 비밀번호 변경·탈퇴·토큰 만들기의 11번째 틀린 비밀번호는 429, 성공은 창을 채우지 않음
+- `cmd/maago`의 `TestAddAuth`의 앱 `site`에 API 라우트 `GET /api/me`(`maago.API`, `LoginRequired`, 이메일 JSON)와 `Config.Origins`: 다른 출처의 preflight(`Access-Control-Request-Headers: Authorization`) 204와 허락 머리, 실제 요청 Bearer 200, 지운 토큰 401과 `WWW-Authenticate: Bearer`(완료 조건 7)
+
+하지 않기로 한 것: 토큰 만료·범위(scope)·마지막 사용 시각, 토큰 접두어(비밀 스캐닝), 401의 `invalid_token`, API로 토큰 만들기, `Access-Control-Expose-Headers: WWW-Authenticate`(JS는 401만 보면 된다), 믿지 않는 출처의 통합 시험(코어 `http_test.go`가 본다)
+
+단계
+1. 라이브러리 `FromSession`의 Bearer → 확인: 단위 시험
+2. 모델·쿼리·뷰·템플릿, 탈퇴·재설정 → 확인: 복사본 시험(두 방언), 변형(Bearer 순서, 비밀번호 확인, 소유자 조건, 재설정 지우기)
+3. `site`의 API 라우트와 다른 출처 → 확인: 두 방언
+4. D-129·D-128(세 곳의 시도 제한)·`Config.Auth` 주석·ARCHITECTURE·README, 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: ★Bearer 우선순위 → 사람의 결정: Bearer가 이김(D-129 뒤집음). ★Bearer가 HTML 라우트에도 → 사람의 결정: 모든 라우트(D-129 그대로), 대신 비밀번호 재확인 세 곳에 시도 제한. ★`Basic`과 깨진 머리 → `Bearer`만 토큰 경로, 다른 스킴은 머리 없음과 같음, 공백 시험. `FromSession`·`Current`·지우기의 연결 → 구현. `no-store` → 타입 있는 뷰가 머리를 못 씀(받음). 다른 출처 시험 → 허용 출처의 preflight와 Bearer, 믿지 않는 출처는 코어 시험. ★깨진 토큰을 사용자 없음 → 유지(라이브러리가 `maago`를 모른다, `LoginRequired`가 401). 소유자 조건 → 변형으로
+- fable: Bearer 뒤집기 찬성, `Config.Auth` 주석도 고침. ★재설정의 지우기 → 사람의 결정: 지움(대가를 적음). ★새어 나간 토큰의 비밀번호 오라클(변경·탈퇴에 제한이 없다) → 세 곳에 `login` 창. 토큰 만들기 성공은 제 시도 행을 지움. Bearer 로그아웃·토큰 지우기 → 받음. 머리의 공백 둘. 새로 고침의 다시 보내기 → 받음. 시험(없는 Bearer + 쿠키, 목록에 해시 없음, `Authorization` 도우미). 생성기 규칙은 모두 됨(`api_token`, POST의 `{id}`, `maago.API`)
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 쿼리 `delete_api_token.sql`은 생성된 `DeleteAPIToken`과 이름이 겹쳐 `delete_own_api_token.sql`. 템플릿은 인자 있는 메서드를 못 불러 `date`. 변형으로 확인: 소유자 조건, 재설정·탈퇴의 토큰 지우기, 시도 제한(429를 버림), 토큰 만들기 성공의 시도 지우기, 비밀번호 확인, 인증 전·비활성 사용자의 토큰
+- codex: 토큰 없는 `Bearer`가 쿠키로 넘어감 → `Bearer` 스킴이면 토큰 하나가 아닐 때 사용자 없음(시험 줄). 토큰 넣은 뒤 시도 지우기가 실패하면 토큰이 남음 → 시도를 먼저 지운다
+- fable: 비밀번호 변경이 규칙에 걸린 새 비밀번호에도 시도를 남김(이 작업의 회귀) → 규칙을 `recheck` 앞으로, 약한 새 비밀번호 11번 시험. `is_active`를 시험이 못 잡음 → 인증된 채 비활성인 사용자의 토큰(변형으로 확인). `Config.Auth` 주석 줄, ARCHITECTURE의 D-129, 영어 문구. 받은 대가: 새어 나간 토큰의 틀린 비밀번호 10번은 주인의 로그인도 15분 막는다(토큰 지우기는 비밀번호 없이 된다)
+
 ## 12. 게시판 튜토리얼의 M5 단계 (D-103)
 
 `Secure` 쿠키는 Safari가 `http://localhost`에서 받지 않으니 튜토리얼은 그것을 한 줄 말한다(fable 4번 리뷰). 프록시 뒤에서는 `main`이 믿는 프록시에서 온 요청만 그 머리로 `r.RemoteAddr`를 고치는 미들웨어로 감싼다는 것도 한 줄(8번, `maago.RemoteAddrFrom`의 주석). `maago add auth`(그 뒤 `maago gen`이 `auth.App`을 쓰라고 막는 것까지 단계의 글), `main`(`auth.App`·`Auth`·`LoginURL`·메일·`-createsuperuser`), `Post.AuthorID fk=auth.User`(마이그레이션), 로그인 필수 쓰기, 작성자만 고치고 지우기(뷰의 Go 코드, 아니면 403), 지우기는 댓글이 없으면 진짜 지우기·있으면 숨기기(D-84), 가입·로그인 화면. 시험은 낮은 반복 수와 메일함. 댓글의 작성자는 계획에서.

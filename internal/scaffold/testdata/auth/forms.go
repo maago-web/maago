@@ -63,6 +63,13 @@ type AccountCloseForm struct {
 	Password maago.Field[string] `maago:"max=4096"`
 }
 
+// APITokenForm makes an API token, given the password again.
+type APITokenForm struct {
+	maago.Form
+	Name     maago.Field[string] `maago:"max=100"`
+	Password maago.Field[string] `maago:"max=4096"`
+}
+
 // PasswordResetForm asks for a link to reset the password.
 type PasswordResetForm struct {
 	maago.Form

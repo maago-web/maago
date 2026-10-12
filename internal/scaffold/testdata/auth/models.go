@@ -77,3 +77,16 @@ type Attempt struct {
 	IP        string
 	CreatedAt time.Time `maago:"auto=create"`
 }
+
+// APIToken lets a program call the API as its user, with the header
+// Authorization: Bearer and the token. Hash is the token's hash; the
+// token is shown once, when it is made.
+type APIToken struct {
+	maago.Model
+
+	ID        int64
+	UserID    int64     `maago:"fk=User"`
+	Name      string    `maago:"max=100"` // what it is for
+	Hash      string    `maago:"max=64,unique"`
+	CreatedAt time.Time `maago:"auto=create"`
+}

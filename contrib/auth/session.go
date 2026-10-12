@@ -52,17 +52,25 @@ func SessionCookie(token, path string, maxAge time.Duration) *http.Cookie {
 	}
 }
 
-// FromSession makes a maago.Config.Auth of find, which returns the user of
-// a session hash. A request without a well-formed session cookie, and one
-// whose session find does not have (sql.ErrNoRows: expired, removed), has
-// no user.
-func FromSession[U any](find func(ctx context.Context, hash string) (U, error)) func(*http.Request) (any, error) {
+// FromSession makes a maago.Config.Auth of session, which returns the
+// user of a session's hash, and token, the user of an API token's hash
+// (D-129). A request with Authorization: Bearer is the token's, whatever
+// cookie it brings: a frontend on another origin may send a stale one.
+// Without, it is the session cookie's. A nil token reads no header. A
+// request whose token or cookie is not well-formed, or whose hash find
+// does not have (sql.ErrNoRows: expired, removed), has no user.
+func FromSession[U any](session, token func(ctx context.Context, hash string) (U, error)) func(*http.Request) (any, error) {
 	return func(r *http.Request) (any, error) {
-		c, err := r.Cookie(CookieName)
-		if err != nil || !wellFormed(c.Value) {
+		find, value := session, ""
+		if t, ok := bearer(r); ok && token != nil {
+			find, value = token, t
+		} else if c, err := r.Cookie(CookieName); err == nil {
+			value = c.Value
+		}
+		if !wellFormed(value) {
 			return nil, nil
 		}
-		u, err := find(r.Context(), HashToken(c.Value))
+		u, err := find(r.Context(), HashToken(value))
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 			return nil, nil
@@ -71,6 +79,19 @@ func FromSession[U any](find func(ctx context.Context, hash string) (U, error)) 
 		}
 		return u, nil
 	}
+}
+
+// bearer is the token of r's Authorization: Bearer header, if it has
+// one; a Bearer header without one token has the token "".
+func bearer(r *http.Request) (string, bool) {
+	f := strings.Fields(r.Header.Get("Authorization"))
+	if len(f) == 0 || !strings.EqualFold(f[0], "Bearer") {
+		return "", false
+	}
+	if len(f) != 2 {
+		return "", true
+	}
+	return f[1], true
 }
 
 // wellFormed reports whether token can be one NewToken made.

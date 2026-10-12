@@ -43,10 +43,16 @@ var SiteURL string
 var PasswordRules = []authlib.PasswordRule{authlib.MinLength(8), authlib.NotCommon, authlib.NotSimilar}
 
 // Current is the Config.Auth of the project: the user of the request's
-// session, so that a view reads it with maago.UserFrom[auth.User].
-var Current = authlib.FromSession(func(ctx context.Context, hash string) (User, error) {
-	return SessionUser(ctx, maago.DBFrom(ctx), SessionUserParams{Hash: hash, Now: time.Now()})
-})
+// API token or session, so that a view reads it with
+// maago.UserFrom[auth.User].
+var Current = authlib.FromSession(
+	func(ctx context.Context, hash string) (User, error) {
+		return SessionUser(ctx, maago.DBFrom(ctx), SessionUserParams{Hash: hash, Now: time.Now()})
+	},
+	func(ctx context.Context, hash string) (User, error) {
+		return APITokenUser(ctx, maago.DBFrom(ctx), APITokenUserParams{Hash: hash})
+	},
+)
 
 // RequireStaff returns the signed-in user if staff, else a 403: a view
 // for staff only starts with

@@ -358,19 +358,25 @@ func PasswordChange(ctx context.Context, in PasswordChangeIn) (maago.Result[Pass
 		return maago.Show(PasswordChangePage{Form: f}), nil
 	}
 	u, _ := maago.UserFrom[User](ctx) // the route requires login
-	if ok, _ := authlib.Check(f.OldPassword.Value, u.PasswordHash); !ok {
-		f.OldPassword.Error = "Your old password is incorrect."
-		return maago.Show(PasswordChangePage{Form: f}), nil
-	}
+	// The rules first: only a wrong old password is an attempt that counts.
 	if err := authlib.ValidatePassword(f.NewPassword.Value, []string{u.Email}, PasswordRules...); err != nil {
 		f.NewPassword.Error = err.Error()
+		return maago.Show(PasswordChangePage{Form: f}), nil
+	}
+	db := maago.DBFrom(ctx)
+	attempt, ok, err := recheck(ctx, db, u, f.OldPassword.Value)
+	if err != nil {
+		return maago.Result[PasswordChangePage]{}, err
+	}
+	if !ok {
+		f.OldPassword.Error = "Your old password is incorrect."
 		return maago.Show(PasswordChangePage{Form: f}), nil
 	}
 	hash, err := authlib.Hash(f.NewPassword.Value)
 	if err != nil {
 		return maago.Result[PasswordChangePage]{}, err
 	}
-	tx, err := maago.DBFrom(ctx).BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return maago.Result[PasswordChangePage]{}, err
 	}
@@ -383,6 +389,9 @@ func PasswordChange(ctx context.Context, in PasswordChangeIn) (maago.Result[Pass
 	}
 	token, err := newSession(ctx, tx, u.ID)
 	if err != nil {
+		return maago.Result[PasswordChangePage]{}, err
+	}
+	if err := DeleteAttempt(ctx, tx, attempt); err != nil {
 		return maago.Result[PasswordChangePage]{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -507,6 +516,10 @@ func PasswordResetConfirm(ctx context.Context, in PasswordResetConfirmIn) (maago
 	if _, err := DeleteUserTokens(ctx, tx, DeleteUserTokensParams{UserID: u.ID, Purpose: "reset"}); err != nil {
 		return maago.Result[PasswordResetConfirmPage]{}, err
 	}
+	// Who took the account may have made tokens: getting it back ends them.
+	if _, err := DeleteUserAPITokens(ctx, tx, DeleteUserAPITokensParams{UserID: u.ID}); err != nil {
+		return maago.Result[PasswordResetConfirmPage]{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return maago.Result[PasswordResetConfirmPage]{}, err
 	}
@@ -530,11 +543,16 @@ func AccountClose(ctx context.Context, in AccountCloseIn) (maago.Result[AccountC
 		return maago.Show(AccountClosePage{f}), nil
 	}
 	u, _ := maago.UserFrom[User](ctx) // the route requires login
-	if ok, _ := authlib.Check(f.Password.Value, u.PasswordHash); !ok {
+	db := maago.DBFrom(ctx)
+	attempt, ok, err := recheck(ctx, db, u, f.Password.Value)
+	if err != nil {
+		return maago.Result[AccountClosePage]{}, err
+	}
+	if !ok {
 		f.Password.Error = "Your password is incorrect."
 		return maago.Show(AccountClosePage{f}), nil
 	}
-	tx, err := maago.DBFrom(ctx).BeginTx(ctx, nil)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return maago.Result[AccountClosePage]{}, err
 	}
@@ -551,9 +569,87 @@ func AccountClose(ctx context.Context, in AccountCloseIn) (maago.Result[AccountC
 			return maago.Result[AccountClosePage]{}, err
 		}
 	}
+	if _, err := DeleteUserAPITokens(ctx, tx, DeleteUserAPITokensParams{UserID: u.ID}); err != nil {
+		return maago.Result[AccountClosePage]{}, err
+	}
+	if err := DeleteAttempt(ctx, tx, attempt); err != nil {
+		return maago.Result[AccountClosePage]{}, err
+	}
 	if err := tx.Commit(); err != nil {
 		return maago.Result[AccountClosePage]{}, err
 	}
 	maago.SetCookie(ctx, authlib.SessionCookie("", cookiePath(), -1))
 	return maago.SeeOther[AccountClosePage](LoginURL()), nil
+}
+
+// recheck asks the signed-in user's password again, as an attempt to
+// sign in: an API token reaches these forms too, and must not try
+// passwords without limit. It returns the attempt's ID, for a success to
+// take back.
+func recheck(ctx context.Context, db maago.DB, u User, password string) (int64, bool, error) {
+	attempt, err := limit(ctx, db, "login", u.Email)
+	if err != nil {
+		return 0, false, err
+	}
+	ok, _ := authlib.Check(password, u.PasswordHash)
+	return attempt, ok, nil
+}
+
+type APITokensIn struct {
+	Form APITokenForm `maago:"form"`
+}
+
+type APITokensPage struct {
+	Form   APITokenForm
+	Tokens []APIToken
+	Made   string // the new token, shown this once
+}
+
+// APITokens lists the user's API tokens on GET, and makes one on POST,
+// given the password again: a leaked token cannot make more.
+func APITokens(ctx context.Context, in APITokensIn) (maago.Result[APITokensPage], error) {
+	u, _ := maago.UserFrom[User](ctx) // the route requires login
+	db := maago.DBFrom(ctx)
+	page := APITokensPage{Form: in.Form}
+	if in.Form.Valid() {
+		attempt, ok, err := recheck(ctx, db, u, in.Form.Password.Value)
+		if err != nil {
+			return maago.Result[APITokensPage]{}, err
+		}
+		if !ok {
+			page.Form.Password.Error = "Your password is incorrect."
+		} else {
+			if err := DeleteAttempt(ctx, db, attempt); err != nil {
+				return maago.Result[APITokensPage]{}, err
+			}
+			token, hash := authlib.NewToken()
+			if _, err := InsertAPIToken(ctx, db, NewAPITokenInput{UserID: u.ID, Name: in.Form.Name.Value, Hash: hash}); err != nil {
+				return maago.Result[APITokensPage]{}, err
+			}
+			page = APITokensPage{Made: token}
+		}
+	}
+	tokens, err := UserAPITokens(ctx, db, UserAPITokensParams{UserID: u.ID})
+	if err != nil {
+		return maago.Result[APITokensPage]{}, err
+	}
+	page.Tokens = tokens
+	return maago.Show(page), nil
+}
+
+type APITokenDeleteIn struct {
+	ID int64 `maago:"path=id"`
+}
+
+// APITokenDelete removes one of the user's API tokens; another's is a 404.
+func APITokenDelete(ctx context.Context, in APITokenDeleteIn) (maago.Result[APITokensPage], error) {
+	u, _ := maago.UserFrom[User](ctx) // the route requires login
+	n, err := DeleteOwnAPIToken(ctx, maago.DBFrom(ctx), DeleteOwnAPITokenParams{ID: in.ID, UserID: u.ID})
+	if err != nil {
+		return maago.Result[APITokensPage]{}, err
+	}
+	if n == 0 {
+		return maago.Result[APITokensPage]{}, sql.ErrNoRows
+	}
+	return maago.SeeOther[APITokensPage](APITokensURL()), nil
 }

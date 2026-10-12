@@ -133,6 +133,7 @@ import "github.com/maago-web/maago"
 
 var Routes = maago.Routes{
 	maago.GET("/staff", "staff", Staff, maago.LoginRequired),
+	maago.GET("/api/me", "api_me", Me, maago.API, maago.LoginRequired),
 }
 `,
 	"views.go": `package site
@@ -140,10 +141,21 @@ var Routes = maago.Routes{
 import (
 	"context"
 
+	"github.com/maago-web/maago"
+
 	"example.com/app/auth"
 )
 
 type StaffPage struct{ Email string }
+
+type MeOut struct {
+	Email string ` + "`json:\"email\"`" + `
+}
+
+func Me(ctx context.Context, in struct{}) (MeOut, error) {
+	u, _ := maago.UserFrom[auth.User](ctx) // the route requires login
+	return MeOut{u.Email}, nil
+}
 
 func Staff(ctx context.Context, in struct{}) (StaffPage, error) {
 	u, err := auth.RequireStaff(ctx)
@@ -220,6 +232,51 @@ func TestStaff(t *testing.T) {
 	}
 	if w := get(login("boss@example.com")); w.Code != 200 || !strings.Contains(w.Body.String(), "Staff: boss@example.com") {
 		t.Errorf("staff: %d %s", w.Code, w.Body)
+	}
+}
+
+// A frontend on another origin calls the API with a token (D-129).
+func TestAPIToken(t *testing.T) {
+	authlib.Iterations = 1000
+	db := maagotest.DB(t)
+	const front = "https://app.example.com"
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, App}, Auth: auth.Current, LoginURL: "/login", Origins: []string{front}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	u, err := auth.CreateSuperuser(ctx, db, "ann@example.com", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token, hash := authlib.NewToken()
+	tk, err := auth.InsertAPIToken(ctx, db, auth.NewAPITokenInput{UserID: u.ID, Name: "front", Hash: hash})
+	if err != nil {
+		t.Fatal(err)
+	}
+	send := func(method string, header map[string]string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, "/api/me", nil)
+		r.Header.Set("Origin", front)
+		for k, v := range header {
+			r.Header.Set(k, v)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	w := send("OPTIONS", map[string]string{"Access-Control-Request-Method": "GET", "Access-Control-Request-Headers": "authorization"})
+	if w.Code != 204 || w.Header().Get("Access-Control-Allow-Origin") != front || !strings.Contains(w.Header().Get("Access-Control-Allow-Headers"), "Authorization") {
+		t.Errorf("preflight: %d %v", w.Code, w.Header())
+	}
+	w = send("GET", map[string]string{"Authorization": "Bearer " + token})
+	if w.Code != 200 || w.Body.String() != "{\"email\":\"ann@example.com\"}\n" || w.Header().Get("Access-Control-Allow-Origin") != front {
+		t.Errorf("with the token: %d %q %v", w.Code, w.Body, w.Header())
+	}
+	if err := auth.DeleteAPIToken(ctx, db, tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	if w := send("GET", map[string]string{"Authorization": "Bearer " + token}); w.Code != 401 || w.Header().Get("WWW-Authenticate") != "Bearer" {
+		t.Errorf("a deleted token: %d %v", w.Code, w.Header())
 	}
 }
 `,

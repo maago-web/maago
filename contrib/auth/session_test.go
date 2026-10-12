@@ -35,42 +35,67 @@ func TestSessionCookie(t *testing.T) {
 
 func TestFromSession(t *testing.T) {
 	token, hash := NewToken()
+	api, apiHash := NewToken()
 	down := errors.New("database down")
-	var asked bool
-	auth := FromSession(func(ctx context.Context, h string) (string, error) {
-		asked = true
-		switch h {
-		case hash:
-			return "ann", nil
-		case HashToken("broken" + token[6:]):
-			return "", down
+	var asked string
+	find := func(name string, users map[string]string) func(context.Context, string) (string, error) {
+		return func(ctx context.Context, h string) (string, error) {
+			asked = name
+			if h == HashToken("broken"+token[6:]) {
+				return "", down
+			}
+			if u, ok := users[h]; ok {
+				return u, nil
+			}
+			return "", sql.ErrNoRows
 		}
-		return "", sql.ErrNoRows
-	})
+	}
+	auth := FromSession(find("session", map[string]string{hash: "ann"}), find("token", map[string]string{apiHash: "bot"}))
+	missing := strings.Repeat("A", 43)
 	for _, c := range []struct {
-		name, cookie string
-		user         any
-		err          error
-		asks         bool
+		name, cookie, authorization string
+		user                        any
+		err                         error
+		asks                        string
 	}{
-		{"no cookie", "", nil, nil, false},
-		{"empty", "session=", nil, nil, false},
-		{"not a token", "session=attacker", nil, nil, false},
-		{"too long", "session=" + token + "A", nil, nil, false},
-		{"padded", "session=" + token[:42] + "=", nil, nil, false},
-		{"session", "session=" + token, "ann", nil, true},
-		{"no such session", "session=" + strings.Repeat("A", 43), nil, nil, true},
-		{"database fails", "session=broken" + token[6:], nil, down, true},
+		{"no cookie", "", "", nil, nil, ""},
+		{"empty", "session=", "", nil, nil, ""},
+		{"not a token", "session=attacker", "", nil, nil, ""},
+		{"too long", "session=" + token + "A", "", nil, nil, ""},
+		{"padded", "session=" + token[:42] + "=", "", nil, nil, ""},
+		{"session", "session=" + token, "", "ann", nil, "session"},
+		{"no such session", "session=" + missing, "", nil, nil, "session"},
+		{"database fails", "session=broken" + token[6:], "", nil, down, "session"},
+		{"bearer", "", "Bearer " + api, "bot", nil, "token"},
+		{"bearer over the cookie", "session=" + token, "Bearer " + api, "bot", nil, "token"},
+		{"no such token, with a cookie", "session=" + token, "Bearer " + missing, nil, nil, "token"},
+		{"bad token, with a cookie", "session=" + token, "Bearer attacker", nil, nil, ""},
+		{"lower case, two spaces", "", "bearer  " + api, "bot", nil, "token"},
+		{"another scheme", "session=" + token, "Basic YW5uOnB3", "ann", nil, "session"},
+		{"another scheme, Bearer-like", "session=" + token, "Bearer" + api, "ann", nil, "session"},
+		{"Bearer without a token", "session=" + token, "Bearer", nil, nil, ""},
+		{"Bearer with two", "session=" + token, "Bearer " + api + " " + api, nil, nil, ""},
 	} {
-		asked = false
+		asked = ""
 		r := httptest.NewRequest("GET", "/", nil)
 		if c.cookie != "" {
 			r.Header.Set("Cookie", c.cookie)
 		}
+		if c.authorization != "" {
+			r.Header.Set("Authorization", c.authorization)
+		}
 		u, err := auth(r)
 		if u != c.user || err != c.err || asked != c.asks {
-			t.Errorf("%s: %v %v, asked %v", c.name, u, err, asked)
+			t.Errorf("%s: %v %v, asked %q", c.name, u, err, asked)
 		}
+	}
+
+	// Without a token func, the header is not read.
+	r := httptest.NewRequest("GET", "/", nil)
+	r.Header.Set("Cookie", "session="+token)
+	r.Header.Set("Authorization", "Bearer "+api)
+	if u, err := FromSession(find("session", map[string]string{hash: "ann"}), nil)(r); u != "ann" || err != nil {
+		t.Errorf("no token func: %v %v", u, err)
 	}
 }
 

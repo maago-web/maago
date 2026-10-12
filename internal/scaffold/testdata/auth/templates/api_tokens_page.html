@@ -1,0 +1,15 @@
+{{define "content"}}<h1>API tokens</h1>
+{{with .Made}}<p>Your new token. Copy it now: you won't see it again.</p>
+<p><code>{{.}}</code></p>{{end}}
+{{if .Tokens}}<ul>{{range .Tokens}}
+<li>{{.Name}}, made {{date "2006-01-02" .CreatedAt}}
+<form method="post" action="{{url "api_token_delete" .ID}}"><button>Delete</button></form></li>{{end}}
+</ul>{{end}}
+<h2>Make a token</h2>
+<form method="post" action="{{url "api_tokens_submit"}}">
+{{with .Form.Name}}<label for="{{.Name}}">Name</label>
+<input id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}" required>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+{{with .Form.Password}}<label for="{{.Name}}">Password</label>
+<input type="password" id="{{.Name}}" name="{{.Name}}" autocomplete="current-password" required>{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+<button>Make a token</button>
+</form>{{end}}

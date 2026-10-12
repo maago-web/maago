@@ -724,6 +724,11 @@ func TestPasswordChange(t *testing.T) {
 	if w := do(h, "GET", "/password", "", here.Value); w.Code != 200 || !strings.Contains(w.Body.String(), `name="old_password"`) {
 		t.Errorf("form: %d %s", w.Code, w.Body)
 	}
+	for range 11 { // the rules refuse it before an attempt counts
+		if w := do(h, "POST", "/password", change(password, "short"), here.Value); w.Code != 200 {
+			t.Fatalf("a weak new password: %d", w.Code)
+		}
+	}
 	for _, c := range []struct{ old, new, want string }{
 		{"wrong", fresh, "Your old password is incorrect."},
 		{password, "short", "This password is too short."},
@@ -1059,5 +1064,153 @@ func TestCreateSuperuser(t *testing.T) {
 	}
 	if n := count(t, db, "SELECT count(*) FROM auth_user"); n != 1 {
 		t.Errorf("%d users", n)
+	}
+}
+
+// bearer sends a request with the API token.
+func bearer(h http.Handler, method, path, body, token string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	r.Header.Set("Authorization", "Bearer "+token)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	return w
+}
+
+// makeToken makes an API token of the session's user and returns it.
+func makeToken(t *testing.T, h http.Handler, session, name string) string {
+	t.Helper()
+	w := do(h, "POST", "/tokens", url.Values{"name": {name}, "password": {password}}.Encode(), session)
+	_, rest, ok := strings.Cut(w.Body.String(), "<code>")
+	token, _, _ := strings.Cut(rest, "</code>")
+	if w.Code != 200 || !ok || len(token) != 43 {
+		t.Fatalf("make a token: %d %s", w.Code, w.Body)
+	}
+	return token
+}
+
+func TestAPITokens(t *testing.T) {
+	h, db := site(t)
+	newUser(t, db, "ann@example.com", nil)
+	bob := newUser(t, db, "bob@example.com", nil)
+	if w := do(h, "GET", "/tokens", "", ""); w.Code != 303 {
+		t.Errorf("GET without a session: %d", w.Code)
+	}
+	s := login(t, h, "ann@example.com", "")
+	if w := do(h, "POST", "/tokens", url.Values{"name": {"ci"}, "password": {"wrong"}}.Encode(), s.Value); w.Code != 200 || !strings.Contains(w.Body.String(), "Your password is incorrect.") || strings.Contains(w.Body.String(), "<code>") {
+		t.Errorf("wrong password: %d %s", w.Code, w.Body)
+	}
+	if count(t, db, "SELECT count(*) FROM auth_api_token") != 0 {
+		t.Error("a wrong password made a token")
+	}
+
+	token := makeToken(t, h, s.Value, "ci")
+	var stored string
+	if err := db.QueryRow("SELECT hash FROM auth_api_token").Scan(&stored); err != nil || stored != authlib.HashToken(token) {
+		t.Errorf("stored %q %v, want the token's hash", stored, err)
+	}
+	list := do(h, "GET", "/tokens", "", s.Value).Body.String()
+	if !strings.Contains(list, "ci, made ") || strings.Contains(list, token) || strings.Contains(list, stored) {
+		t.Errorf("list:\n%s", list)
+	}
+	if got := bearer(h, "GET", "/whoami", "", token).Body.String(); got != "ann@example.com" {
+		t.Errorf("the token is %q", got)
+	}
+
+	// A token cannot make another without the password.
+	if w := bearer(h, "POST", "/tokens", url.Values{"name": {"more"}, "password": {"guess"}}.Encode(), token); w.Code != 200 || count(t, db, "SELECT count(*) FROM auth_api_token") != 1 {
+		t.Errorf("a token made a token: %d", w.Code)
+	}
+	// Another's token is not there to delete.
+	bobs := makeToken(t, h, login(t, h, "bob@example.com", "").Value, "bob's")
+	var bobsID int64
+	if err := db.QueryRow(fmt.Sprintf("SELECT id FROM auth_api_token WHERE user_id = %d", bob.ID)).Scan(&bobsID); err != nil {
+		t.Fatal(err)
+	}
+	if w := do(h, "POST", fmt.Sprintf("/tokens/%d/delete", bobsID), "", s.Value); w.Code != 404 || bearer(h, "GET", "/whoami", "", bobs).Body.String() != "bob@example.com" {
+		t.Errorf("deleting bob's: %d", w.Code)
+	}
+	var id int64
+	if err := db.QueryRow(fmt.Sprintf("SELECT id FROM auth_api_token WHERE hash = '%s'", stored)).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if w := do(h, "POST", fmt.Sprintf("/tokens/%d/delete", id), "", s.Value); w.Code != 303 || w.Header().Get("Location") != "/tokens" {
+		t.Errorf("delete: %d %v", w.Code, w.Header())
+	}
+	if got := bearer(h, "GET", "/whoami", "", token).Body.String(); got != "" {
+		t.Errorf("a deleted token is %q", got)
+	}
+}
+
+// Changing the password keeps the API tokens; a reset and closing the
+// account end them. A token of a user who may not sign in is no one's.
+func TestAPITokensEnd(t *testing.T) {
+	h, db := site(t)
+	box := maagotest.Mailbox(t)
+	ctx := context.Background()
+	ann := newUser(t, db, "ann@example.com", nil)
+	token := makeToken(t, h, login(t, h, "ann@example.com", "").Value, "ci")
+
+	s := login(t, h, "ann@example.com", "")
+	const fresh = "a fresh secret phrase"
+	if w := do(h, "POST", "/password", url.Values{"old_password": {password}, "new_password": {fresh}}.Encode(), s.Value); w.Code != 200 || bearer(h, "GET", "/whoami", "", token).Body.String() != "ann@example.com" {
+		t.Errorf("after a change: %d", w.Code)
+	}
+	reset := resetLink(t, h, box, "ann@example.com")
+	if w := do(h, "POST", "/password/reset/confirm", confirm(reset, password), ""); w.Code != 303 || bearer(h, "GET", "/whoami", "", token).Body.String() != "" {
+		t.Errorf("after a reset: %d", w.Code)
+	}
+
+	token = makeToken(t, h, login(t, h, "ann@example.com", "").Value, "ci")
+	ann, _ = GetUser(ctx, db, ann.ID)
+	ann.VerifiedAt = nil
+	if err := UpdateUser(ctx, db, &ann); err != nil {
+		t.Fatal(err)
+	}
+	if bearer(h, "GET", "/whoami", "", token).Body.String() != "" {
+		t.Error("the token of a user not verified")
+	}
+	now := time.Now()
+	ann.VerifiedAt, ann.IsActive = &now, false
+	if err := UpdateUser(ctx, db, &ann); err != nil {
+		t.Fatal(err)
+	}
+	if bearer(h, "GET", "/whoami", "", token).Body.String() != "" {
+		t.Error("the token of a closed user")
+	}
+	ann.IsActive = true
+	if err := UpdateUser(ctx, db, &ann); err != nil {
+		t.Fatal(err)
+	}
+	if w := bearer(h, "POST", "/account/close", url.Values{"password": {password}}.Encode(), token); w.Code != 303 || count(t, db, "SELECT count(*) FROM auth_api_token") != 0 {
+		t.Errorf("close: %d", w.Code)
+	}
+}
+
+// A token gets no more password tries at the forms that ask it again than
+// a sign-in does.
+func TestAPITokenTriesPasswords(t *testing.T) {
+	h, db := site(t)
+	newUser(t, db, "ann@example.com", nil)
+	token := makeToken(t, h, login(t, h, "ann@example.com", "").Value, "ci")
+	for range 3 { // a success does not count
+		makeToken(t, h, login(t, h, "ann@example.com", "").Value, "more")
+	}
+	tries := []struct{ path, body string }{
+		{"/password", url.Values{"old_password": {"guess"}, "new_password": {"a fresh secret phrase"}}.Encode()},
+		{"/account/close", url.Values{"password": {"guess"}}.Encode()},
+		{"/tokens", url.Values{"name": {"x"}, "password": {"guess"}}.Encode()},
+	}
+	for i := range 10 {
+		if w := bearer(h, "POST", tries[i%3].path, tries[i%3].body, token); w.Code != 200 {
+			t.Fatalf("try %d %s: %d", i+1, tries[i%3].path, w.Code)
+		}
+	}
+	for _, c := range tries {
+		if w := bearer(h, "POST", c.path, c.body, token); w.Code != 429 {
+			t.Errorf("%s: %d", c.path, w.Code)
+		}
 	}
 }

@@ -18,6 +18,9 @@ var Routes = maago.Routes{
 	maago.POST("/password/reset", "password_reset_submit", PasswordReset),
 	maago.GET("/password/reset/confirm", "password_reset_confirm", PasswordResetConfirm),
 	maago.POST("/password/reset/confirm", "password_reset_confirm_submit", PasswordResetConfirm),
+	maago.GET("/tokens", "api_tokens", APITokens, maago.LoginRequired),
+	maago.POST("/tokens", "api_tokens_submit", APITokens, maago.LoginRequired),
+	maago.POST("/tokens/{id}/delete", "api_token_delete", APITokenDelete, maago.LoginRequired),
 	maago.GET("/account/close", "account_close", AccountClose, maago.LoginRequired),
 	maago.POST("/account/close", "account_close_submit", AccountClose, maago.LoginRequired),
 }

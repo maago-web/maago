@@ -50,12 +50,13 @@ type Config struct {
 
 	// Auth tells who sent r (D-121): a user, which views read with
 	// UserFrom, or nil for nobody. It runs once for each request, before
-	// the route. Its error answers as a view's does: Status(401, err) for
-	// a bad token, else a 500. A nil pointer returned as the user is a
-	// user: return nil itself for nobody, also for a missing or expired
-	// session (an sql.ErrNoRows would answer 404, a Status(401) would not
-	// send a page to the login page). The database is in r's context:
-	// DBFrom(r.Context()).
+	// the route. Its error answers as a view's does: a Status's code, else
+	// a 500. A nil pointer returned as the user is a user: return nil
+	// itself for nobody, also for a missing or expired session or token
+	// (an sql.ErrNoRows would answer 404, a Status(401) would not send a
+	// page to the login page; a route with LoginRequired answers an API
+	// request without a user with 401 and WWW-Authenticate: Bearer). The
+	// database is in r's context: DBFrom(r.Context()).
 	Auth func(r *http.Request) (any, error)
 
 	// Prefix is the path the site is under, such as "/app", or "" (D-122).
