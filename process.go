@@ -11,6 +11,7 @@ import (
 type process struct {
 	prefix string
 	tz     *time.Location
+	static map[string]*StaticFiles // by package name, for {{static}}
 }
 
 var current atomic.Pointer[process]

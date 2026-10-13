@@ -84,3 +84,46 @@
 
 - codex: 받음 — `{{static}}`은 `funcNames`·`call`만이 아니라 파일 목록 단계(2번), ETag·304·`ServeContent`(D-137), 413은 `MaxBytesError`를 명시적으로(3번), multipart의 임시 파일과 `RemoveAll`(4번), `Content-Disposition`은 `mime.FormatMediaType`와 이상한 이름 시험, `nosniff`는 직접(5번), 받기의 임시 파일·rename(6번), ★gzip은 프록시로 → 사람의 결정: 압축 없음, ★Q4 사람이 직접 받기 → 사람의 결정: `maago tailwind`(fable의 모양). 받지 않음: "JSON에 `MaxBytesReader`가 없다"(`form.go:334`에 있다), 개발은 디스크 서빙(D-136 기각: 두 길), 해시 충돌 검증(SHA-256의 앞부분 길이는 1번 계획에서)
 - fable: 받음 — `accept`의 `/`는 목록 구분자 → 닫힌 종류(D-139), ★`check`가 캐시에 있을 때만 보는 조건부 검사 → 출력을 사람의 파일로(D-138, 파이프라인 작업 지움), "처음 쓸 때"의 숨은 잠금 → 패키지 변수에서 한 번과 기동 panic(D-136), `MediaDir` 기본값 없음(D-140), `/static/` 예약은 늘(D-137), D-66의 `net/url`(8번), "CI는 네트워크가 없다"는 틀림(고침), 걷기의 트레일러(사실에), embed의 `.`·`_` 규칙(D-136), 조건 4의 "Node 없는 환경"과 조건 6의 대응(머리), 조건 5의 시험 모양(5번), ★해시 없는 이름 404 → 사람의 결정: `no-cache`로 서빙, ★다른 앱 참조 → 사람의 결정: 늘 `앱/이름`, 칸별 상한 대신 하나와 urlencoded도 413(D-139), 파일 칸 있는 폼의 urlencoded 400, 늘 attachment, 지우기가 첨부도(7번), 순서(Tailwind를 업로드 뒤로, 문서 상한은 끝에 합침)
+
+---
+
+## 1. 정적 파일 런타임 (D-136, D-137)
+
+### 계획
+
+이 작업의 끝에 루트에 정적 파일의 런타임이 있다: 생성될 코드가 부를 `maago.Static`과 `App.WithStatic`, `Handler`가 서빙하는 `/static/<앱>/<이름>`, 템플릿 함수 `StaticFunc`. 생성(embed·검사·`views_gen.go`)은 2번이고, 이 작업의 시험은 `fstest.MapFS`로 손으로 만든 앱을 쓴다.
+
+API(루트, 새 파일 `static.go`)
+- `func Static(app string, fsys fs.FS, names ...string) *StaticFiles`: `fsys`의 `static/` 파일을 모두 읽어 SHA-256을 낸다(`ParsePages`가 `templates/`를 읽듯, 2번은 `//go:embed static` 디렉터리 꼴로 낸다: `static/*`는 `.keep`을 싣는다). 해시 이름은 마지막 확장자 앞에 앞 16자(`app.css` → `app.1a2b3c4d5e6f7a8b.css`, 확장자 없으면 끝에 `.해시`). `names`(템플릿이 부른 이름, 생성기가 준다) 중 없는 것이 있거나 디렉터리가 있으면 panic(`maago.Pages`처럼 패키지 변수에서 불려 기동 때 실패, D-136). `app`은 패키지 이름(`board`): `NewApp`의 이름은 가져오기 경로라 URL에 쓰지 않는다(admin의 URL과 같음)
+- `func (a App) WithStatic(s *StaticFiles) App`: 생성된 `App`이 단다. `NewApp`의 모양은 그대로(admin·생성물이 바뀌지 않음)
+- `Handler`: `Apps`의 정적 파일마다 `GET /static/<앱>/{name}`을 mux에 직접(라우트의 `serve`를 지나지 않는다: Auth·DB가 없다. 교차 출처 검사는 GET이라 지나감). 같은 패키지 이름의 정적 파일 둘은 `Handler` 오류(생성 검사는 2번). 이름의 표(앱 → 파일)를 `process`에 `Prefix`와 함께(D-122, 마지막 `Handler`가 이김)
+- 응답: 해시 이름은 `Cache-Control: public, max-age=31536000, immutable`, 해시 없는 이름은 `no-cache`. 둘 다 `ETag: "<SHA-256 전체 16진>"`과 `http.ServeContent`(형식은 해시 없는 이름의 확장자, Range·`If-None-Match` 304·HEAD). 어느 이름도 아니면 404(`http.NotFound`)
+- `func StaticFunc(ref string) (string, error)`: `{{static "board/app.css"}}` → `Prefix() + "/static/board/app.1a2b….css"`. 표에 없는 앱·파일은 오류(생성기가 막으니 여기 오면 버그, `Render`가 500)
+
+결정에 없는 선택
+- 해시 길이 16자(64비트). 이름과 해시 이름을 한 표에 넣고 키가 겹치면 panic(사람이 만든 `a.<해시>.css`). URL이 그대로 두지 않는 이름(`url.PathEscape(n) != n`)과 디렉터리도 panic이고 2번이 생성 오류로 먼저 막는다: 런타임은 escape하지 않는다
+- `static/`은 있는데 라우트가 없는 패키지는 생성 오류(2번): `App`이 없어 `WithStatic`을 달 자리가 없고, 내도 `Config.Apps`에서 빠지면 조용히 404. `templates/`가 페이지 없는 앱에서 오류인 것과 같은 닫힌 쪽
+- `WithStatic`은 `NewApp`의 이름(가져오기 경로)과 `Static`의 이름(패키지 이름)이 맞는지 보지 않는다: 둘 다 생성물이 같은 앱에서 쓴다
+- 정적 라우트는 `serve` 밖이라 recover·`OnError`를 지나지 않는다: 메모리의 바이트를 `ServeContent`로 줄 뿐이다. `Handler`가 앞의 CORS는 그대로 붙인다
+- mux의 패턴 충돌(예: `GET /{a}/board/{b}`)은 `Handler`에서 panic: 2번이 정적 패턴을 생성기의 `conflicts()`에 넣어 생성 오류로. `Handler`는 복구하지 않는다(한 자리)
+- 여러 `Handler`: D-122의 한계 그대로(마지막 `Handler`의 표)
+- `WithStatic` 메서드(새 생성자 대신): `NewApp`을 부르는 곳을 건드리지 않는다
+- 정적 라우트는 Auth를 돌리지 않는다: 파일마다 세션을 읽지 않는다(공개 파일, D-140의 미디어와 다르다)
+
+하지 않기로 한 것: 압축(D-137), 하위 디렉터리(D-136), 생성(2번), `Last-Modified`(embed는 시각이 없다, ETag로 충분)
+
+단계
+1. `static.go`와 `process`의 표, `Handler` 등록 → 확인: `TestStatic`(내용을 바꾸면 이름이 바뀜·같은 내용은 같은 이름, 두 `Cache-Control`, `If-None-Match` 304, Range 206, HEAD, 없는 이름·다른 앱 404, 부른 이름이 없으면 panic, 해시 이름 충돌 panic), `TestStaticFunc`(`Pages` → `Handler` → 그린 URL, `Handler` 전은 오류), `TestStaticPanics`, `TestHandlerConfig`에 같은 패키지 이름 둘
+2. 두 모듈 확인 명령, 변형(캐시 헤더 바꾸기, ETag 빼기)으로 시험이 잡는지
+
+### 계획 리뷰
+
+- codex: 패턴 충돌의 panic → 2번이 `conflicts()`에(적음), `serve` 밖의 recover·`OnError` → 적음, `WithStatic`의 이름 불일치 → 생성물이 한 자리라 검사하지 않음(적음), `fs.Sub` → `static/`을 읽음, 이름 규칙(점 여럿·점으로 시작·확장자 없음)과 충돌 → 한 표·시험, `PathEscape` → 런타임은 escape하지 않고 막음, `Content-Type`·304 본문 없음·HEAD·Range → 시험. 받지 않음: "파일마다 같은 패턴을 등록"(앱마다 하나다), 정적 preflight 시험(CSS·JS는 교차 출처 요청을 하지 않는다, `ServeHTTP`가 그대로 붙인다)
+- fable: 정적 패턴과 사용자 패턴의 충돌은 2번의 `conflicts()`, embed의 `.`·`_`는 디렉터리 꼴에서만(스크래치로 확인) → `static/`을 읽음, `Pages`의 nil 실행이 `{{static}}`을 `Handler` 전에 부름 → 오류이고 panic 아님, 시험 `TestStaticFunc`. ★`static/`만 있는 패키지 → 생성 오류(닫힌 쪽, `templates/`의 선례라 사람에게 묻지 않음, 2번), HTML 라우트 없는 앱의 embed 자리·`names`는 모든 걷기 뒤 정렬(2번에), `Handler` 오류에 두 가져오기 경로, 다른 앱 404 대신 틀린 해시 404, 304는 해시 없는 이름에서·두 이름의 ETag가 같음, 해시 이름의 `Content-Type`, 빈 `{name}`, `StaticFunc`의 모르는 앱과 파일 → 모두 시험
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음(`static.go` 120줄, stdlib만). 변형으로 확인(6개 중 5개 잡힘): 캐시 헤더, ETag 빼기, `Prefix` 빼기, 해시 길이, `StaticFunc`의 해시 이름 받기. 남은 하나(`ServeContent`에 해시 이름)는 같은 동작이다: 해시 이름은 확장자를 지키고, 확장자 없는 이름은 어느 쪽이든 내용을 본다. Go 1.25에서도 돎
+- codex: 결함 없음(샌드박스가 스크래치 디렉터리를 막아 시험은 돌리지 못함, 코드만 읽은 리뷰)
+- fable: 결함 없음. 변형 15개 중 살아남은 둘 → 시험: 해시 이름을 `names`로 주면 panic, `POST`는 405. `TestStaticFunc`가 앞 시험의 `current`를 물려받아 "Handler 전"을 지나지 않음 → 머리에서 비움. 디렉터리의 오류 글, 충돌 글은 정렬 순서에 따라 같은 이름 둘을 적음 → 두 파일을 적음. 문서의 `PathEscape`·시험 이름 → 고침. 2번에 넘길 것: 파일 없는 `static/`(`//go:embed static`이 컴파일 오류)은 생성 오류, `names`가 다른 앱의 템플릿 때문에 바뀔 때 진단이 그 템플릿을 말함, `{{static "board/…"}}`의 앱은 패키지 이름, 이름 규칙의 진단을 런타임 글과 맞춤
+

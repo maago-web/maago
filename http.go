@@ -80,6 +80,7 @@ type Config struct {
 type App struct {
 	name   string
 	routes []AppRoute
+	static *StaticFiles
 }
 
 // AppRoute is one route of an App. Serve answers the request; when it
@@ -95,7 +96,7 @@ type AppRoute struct {
 
 // NewApp is the App of the app named name. Only generated code and
 // contrib/admin call it.
-func NewApp(name string, routes ...AppRoute) App { return App{name, routes} }
+func NewApp(name string, routes ...AppRoute) App { return App{name, routes, nil} }
 
 // Handler serves the apps of cfg. It rejects what cfg gets wrong; the
 // routes themselves maago gen has checked.
@@ -111,6 +112,8 @@ func Handler(cfg Config) (http.Handler, error) {
 		return nil, err
 	}
 	seen := map[string]bool{}
+	static := map[string]*StaticFiles{}
+	staticOf := map[string]string{}  // the app, by the package name of its static files
 	login, htmlLogin := false, false // some route requires login; some HTML one does
 	for _, app := range cfg.Apps {
 		switch {
@@ -120,6 +123,13 @@ func Handler(cfg Config) (http.Handler, error) {
 			return nil, fmt.Errorf("maago: app %s is in Config.Apps twice", app.name)
 		}
 		seen[app.name] = true
+		if s := app.static; s != nil {
+			if other, ok := staticOf[s.app]; ok {
+				return nil, fmt.Errorf("maago: apps %s and %s both serve static files at /static/%s/; rename one package", other, app.name, s.app)
+			}
+			staticOf[s.app], static[s.app] = app.name, s
+			h.mux.HandleFunc("GET /static/"+s.app+"/{name}", s.serve)
+		}
 		for i := range app.routes {
 			r := &app.routes[i]
 			if r.Serve == nil {
@@ -160,7 +170,7 @@ func Handler(cfg Config) (http.Handler, error) {
 	if tz == nil {
 		tz = time.UTC
 	}
-	current.Store(&process{cfg.Prefix, tz}) // the last Handler wins (D-122)
+	current.Store(&process{cfg.Prefix, tz, static}) // the last Handler wins (D-122)
 	return h, nil
 }
 

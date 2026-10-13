@@ -76,6 +76,8 @@ func TestHandlerConfig(t *testing.T) {
 		{Config{DB: testDB, Apps: []App{{}}}, "maago: Config.Apps holds an empty App; use the one maago gen makes, such as board.App, and run maago gen"},
 		{Config{DB: testDB, Apps: []App{NewApp("a", AppRoute{Method: "GET", Path: "/y", Name: "y"})}}, "maago: route y of app a serves nothing; run maago gen"},
 		{Config{DB: testDB, Apps: []App{app}, Origins: []string{"https://a.com/"}}, "maago: Config.Origins: "},
+		{Config{DB: testDB, Apps: []App{NewApp("a/board").WithStatic(&StaticFiles{app: "board"}), NewApp("b/board").WithStatic(&StaticFiles{app: "board"})}},
+			"maago: apps a/board and b/board both serve static files at /static/board/; rename one package"},
 	} {
 		_, err := Handler(c.cfg)
 		if err == nil || !strings.HasPrefix(err.Error(), c.want) {

@@ -20,7 +20,7 @@ func TestPrefix(t *testing.T) {
 	if _, err := Handler(Config{DB: testDB, Apps: []App{NewApp("d", route("GET", "/x", false, ok))}, Prefix: "/app/sub"}); err != nil {
 		t.Errorf("/app/sub: %v", err)
 	}
-	current.Store(&process{"/app", seoul}) // back to the first Handler's
+	current.Store(&process{"/app", seoul, nil}) // back to the first Handler's
 	if Prefix() != "/app" {
 		t.Errorf("Prefix() = %q", Prefix())
 	}
