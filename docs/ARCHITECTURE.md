@@ -146,7 +146,7 @@ blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
 
 ## 5. 사용자 프로젝트와 생성 코드
 
-사용자 프로젝트의 모양 (M1~M5에 걸쳐 채워진다):
+사용자 프로젝트의 모양 (M1~M6에 걸쳐 채워진다):
 
 ```
 myapp/

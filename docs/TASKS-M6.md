@@ -502,12 +502,59 @@ TODO M4 절: `web`의 모델 폼은 `default=''`를 보지 않아 빈 글을 거
 - ponytail(나): 잘라낼 것 없음. 시험의 단언마다 메시지의 주장 하나. 패치는 풀어 둔 저장소에서 커밋으로 쓰고 `steps.sh pack`(0001~0022는 바이트 그대로). 0023의 `main`은 gofmt가 `DB:` 정렬을 바꾸지 않게 `adminApp`을 따로 둠. 변형으로 확인: 검색어·`board_id`·`status`를 하나씩 빼면 검색+필터 단언이 잡는다
 - fable: 메시지의 사실 넷(`no changes`는 소문자, `Action`은 고르는 상자라 글 입력은 `App`·`ModelName`뿐, 댓글은 태그 셋, "뷰의 지우기는 숨기기"는 0022와 반대로 읽힘) → 고침. 검색의 SQLite ASCII → 괄호로. ★메시지의 주장 둘(staff 아니면 행이 있어도 못 들어옴, User·Permission의 보기 밖은 superuser만)을 시험이 받치지 않음(복사본의 `Can`을 고쳐도 통과, 복사본 자체 시험은 잡음) → 더함: 8번의 `" Ann@"`처럼 메시지가 낡으면 알린다. 복사본의 `Can`에서 각 줄을 빼 두 단언이 잡는 것을 확인. 본문 검색 안 봄 → `여름 소식`의 본문으로 더함. 받음(결함 아님): 시험의 `verified_at`은 새 값, `edit`가 빼는 칸은 NULL·false가 된다(메시지의 "작성자도 바뀐다"와 같음)
 
+## 10. 완료 조건과 문서
+
+### 계획
+
+이 작업의 끝에 M6의 완료 조건마다 시험 이름이 있고, 문서가 M6에서 만든 것과 맞는다. `TestM6Done`은 만들지 않는다(M5 13번의 사람의 결정과 같은 까닭: 조건마다 이미 도는 시험이 있고 시험의 주석이 조건을 부른다, "M6's condition N").
+
+조건과 시험("M6 끝"에 적는다)
+1. 튜토리얼의 M6 커밋(0023·0024): `TestBoardTutorial`(0024의 `board`의 `TestAdmin`), `TestBoardTutorialCatches`(`admin_list` 빼기). SQLite(D-103)
+2. 태그 없는 `password`는 숨겨지지 않음: 검사 `TestAdminTags`(`internal/model`), 생성 `TestPassword`·폼 `TestNoEditAndPasswordForm`(`internal/admingen`), 그린 목록 `TestPassword`(`contrib/admin`)
+3. 로그인 없이 못 들어옴: `TestLogin`(`contrib/admin`, 303과 API 401), 게시판 `TestAdmin`의 303
+4. 권한 없는 모델은 목록에 없고 URL로 403: `TestCan`(`contrib/admin`), 복사본 `TestCan`과 `site`의 `TestAdmin`(`TestAddAuth`가 두 방언에서), 게시판 `TestAdmin`(편집자)
+5. 커스터마이징의 골든: `TestGenerated`(`cmd/maago`, 픽스처 `blog`의 `admin_list=(Title,Status,PublishedAt)` → 두 방언 골든 `admin_gen.go`의 `List`), gentest의 `TestAdmin`. 생성 오류(D-131의 둘과 `Admin` 이름 겹침)는 `TestAdminGen`
+
+D-69 점검(실측, 스크래치에서 TUTORIAL-FUTURE §2~5를 그대로): `maago add auth` → `blog/models.go` → `makemigrations` → `migrate` → `-createsuperuser` → `go run .` → `/admin/`이 로그인으로 303 → 로그인 → 글 추가·고치기·지우기가 303, 표에 0행. 명령만 약 70초(사람이 읽고 치는 5분은 M9 게이트). 문서와 다른 곳 셋:
+- §5: `admin.App`은 값이 아니라 `admin.App(admin.Config{Models: [][]admin.Model{blog.Admin, auth.Admin}, Can: auth.Can})` → 고치고 🔮와 가정 목록 5줄을 지움
+- §5: `blog.App`은 라우트가 생기는 §7 전에는 없다(`blog`에 라우트가 없으면 `App`이 생성되지 않음) → §5의 `Apps`에서 빼고 "`blog.Admin`·`auth.App`은 생성된 값, 빠뜨리면 gen이" 로, §7 끝에 `blog.App`을 `Apps`에 더한다는 한 줄
+- §3: "`max`로 되돌리고 다시 돌리면 `models_gen.go`가 생깁니다"는 틀림. `gen`은 한 번에 한 단계에서 멈춘다: 먼저 `auth.App`을 쓰는 패키지가 없다고, 그다음 마이그레이션이 모델과 다르다고(실측) → 첫 오류를 실제 출력 그대로 싣고 "생성 파일은 §5에서 생긴다"로. §5의 `main.go` 뒤에 `maago gen` 한 줄(`makemigrations`·`migrate`는 생성 파일을 쓰지 않아 없으면 `go run .`이 `blog.Admin`을 모른다). §3의 `maago add auth`에 `Permission`·`Can` 한 구절, §5의 `password` 주석에 `admin=hidden`. §3~5의 순서를 바꾸는 것은 하지 않는다(짧은 튜토리얼의 다시 쓰기는 M9 게이트의 셋째 항목)
+- 🔮가 모두 없어지면 머리말의 🔮 문장을 고치고, 가정 목록 3행(`-`는 내림차순, D-83이 정함)도 지움
+
+문서(낡은 문구)
+- DECISIONS: D-119의 "모델 수준 검증 메서드(D-15)는 M6" → D-135가 미룸. D-130의 "staff 라우트 옵션은 M6" → v1(★사람의 결정: admin은 `Can`으로 막아 필요 없었다). D-131의 생성물 목록에 지우기·가리키는 행의 수·검색·필터, "어느 패키지" → 시험 파일이 아닌. D-21의 "admin도 이것을 쓴다" → 넣기·읽기·지우기(고치기는 고칠 칸만, D-132). 변경 기록에 M6 1~9번이 고친 본문과 10번
+- ARCHITECTURE §5: "M1~M5" → "M1~M6"
+- MILESTONES: v1의 admin 확장에 M6이 v0에서 뺀 것(권한 그룹, 비밀번호 바꾸기, 폼 필드의 순서·묶음, FK 고르는 상자, 동시 고침 검출, 모델 수준 검증 D-15)과 staff 라우트 옵션. M5 할일의 "IsSuperuser는 M6 D-130"에 D-133, M6 절의 "모델별 권한은 M6이 정한다" → D-133
+- README: 다음 작업("M6 끝": push 뒤 CI의 PG 확인, TASKS-M7 초안). "M0…M5가 끝났다"와 진행 중 링크는 "M6 끝" 커밋의 몫(M5 b8edfe4 모양)
+
+하지 않기로 한 것: `TestM6Done`, TUTORIAL-FUTURE §3~5의 순서 바꾸기(M9), MILESTONES M6 체크박스(“M6 끝”에서 CI 뒤에, M5와 같은 순서)
+
+계획 리뷰는 fable 하나: 문서 작업(WORKFLOW 3). 구현 리뷰도 fable 하나
+
+단계
+1. TUTORIAL-FUTURE §3·§5·§7과 가정 목록 → 확인: §5의 코드 블록과 스크래치의 `main.go`를 `diff`, 스크래치에서 gen 없이 `go build`가 실패하고 gen 뒤 성공
+2. DECISIONS·ARCHITECTURE·MILESTONES·README, "M6 끝"의 이름 → 확인: 적은 시험 이름이 모두 있음(grep), 두 모듈 확인 명령, PG(`MAAGO_TEST_PG_URL`)로 `cmd/maago` 시험(`contrib/admin`은 SQLite만)
+
+### 계획 리뷰
+
+- fable: 조건 2에 폼 쪽(`TestNoEditAndPasswordForm`), 조건 5는 픽스처 태그 → 골든의 `List`, `TestAdminGen` → 더함. §3의 오류는 한 번에 하나 → 실제 출력을 싣는다. §5에 `maago gen`이 없어 독자의 길에서 생성 파일이 안 생김 → 더함(확인도 gen 없이 실패로). §3의 `Can`, `password` 주석, 머리말의 🔮, 가정 3행 → 더함. ★D-130의 staff 라우트 옵션 → 사람의 결정: v1. D-131 생성물 목록·D-21·변경 기록·MILESTONES 122줄·동시 고침 → 더함. README의 M6 끝 → 적음
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음(문서만). 확인: §5의 코드 블록을 스크래치의 `main.go`와 `diff`해 같음, gen 없이 빌드 실패·gen 뒤 성공, `/admin/` 303 → 로그인 → 글 추가·고치기·지우기. 두 모듈 확인 명령과 PG
+- fable: 변경 기록의 D-132·D-134 번호가 git과 다름, MILESTONES 104줄의 그룹, "생성 오류 셋"은 D-131의 둘과 `Admin` 이름 겹침 → 고침. (선택) 122줄의 미래형, v1 줄에 `[]byte` → 고침. 나머지(§3 오류 문구와 단계 순서, §4는 gen 없이 됨, §5의 API, 조건별 시험)는 맞음
+
 ---
 
 ## M6 끝
 
-- [ ] 1~10 완료
-- [ ] 위 M6 완료 조건을 실제로 돌려 확인(PG는 `MAAGO_TEST_PG_URL`로), 조건마다 시험 이름
+- [x] 1~10 완료 (2026-10-13)
+- [x] 위 M6 완료 조건을 실제로 돌려 확인(PG는 로컬 서버의 `MAAGO_TEST_PG_URL`로 돌렸다). 조건마다의 시험(`site`의 시험과 복사본 시험은 `cmd/maago`의 `TestAddAuth`가 두 방언에서, 게시판의 시험은 `TestBoardTutorial`이 0024에서 돌린다)
+  1. 튜토리얼의 M6 커밋(0023·0024): `TestBoardTutorial`(0023의 `Maago-Expect`, 0024의 게시판 `TestAdmin`), 망가진 단계는 `TestBoardTutorialCatches`(`admin_list` 빼기). SQLite(D-103)
+  2. 태그 없는 `password`는 숨겨지지 않음: 검사 `TestAdminTags`(`internal/model`), 생성 `TestPassword`·폼 `TestNoEditAndPasswordForm`(`internal/admingen`), 그린 목록 `TestPassword`(`contrib/admin`)
+  3. 로그인 없이 못 들어옴: `TestLogin`(`contrib/admin`, 303과 API 401), 게시판 `TestAdmin`의 303
+  4. 권한 없는 모델은 목록에 없고 URL로 403: `TestCan`(`contrib/admin`), 복사본 `TestCan`, `site`의 `TestAdmin`(staff 아님·staff·권한 행·superuser × 동작), 게시판 `TestAdmin`(편집자)
+  5. 커스터마이징의 골든: `TestGenerated`(픽스처 `blog`의 `admin_list=(Title,Status,PublishedAt)` → 두 방언 골든 `admin_gen.go`의 `List`), gentest의 `TestAdmin`. 생성 오류(D-131의 둘과 `Admin` 이름 겹침)는 `TestAdminGen`
 - [ ] MILESTONES.md의 M6 체크박스 갱신
 - [ ] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인
 - [ ] TASKS-M7 초안
