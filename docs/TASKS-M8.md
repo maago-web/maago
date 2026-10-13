@@ -50,8 +50,20 @@
    - 하지 않는 것: 탈출구 뷰의 Go `XxxURL`을 정수로(경로 값의 타입은 뷰가 `PathValue`로 정하니 생성기가 모른다)
    - 계획 리뷰는 fable 하나: 정해진 틀 안의 검사 몇 줄(WORKFLOW 3). 받음: 오류 글의 순서, 파이프 경우의 시험, `print` 지우기의 범위, 정수 종류를 계획에. 결정 변경 없음
    - 구현 리뷰는 fable 하나(계획 리뷰를 하나로 줄인 작업, WORKFLOW 6): 막는 지적 없음, `typecheck.go`를 고치기 전으로 되돌리면 시험이 실패하는 것을 실측. 받음: `slices.Clone`으로 줄이기. 받지 않음: `kinds` 표를 패키지 `var`로(세 줄, 차이 없음), 0016 메시지의 문구("Go 함수는 문자열, 템플릿은 정수도"를 이미 한 문장에)
-2. **걷기의 PG**(D-141): 트레일러 `Maago-Database`(`expected`, `steps.sh unpack`), 걷기마다 스키마, 로컬은 건너뛰고 CI는 실패. → 확인: `TestBoardTutorialCatches`에 줄(모르는 값, 두 번), PG 없이 `CI`면 실패
-3. **PostgreSQL로 바꾸는 단계**(D-141): 0012 뒤 새 단계, 마이그레이션 넷 다시, 패치 번호 밀림(`TestBoardTutorialCatches`의 패치 이름, README·MILESTONES의 번호). → 확인: `TestBoardTutorial`(PG), 0001~0012는 바이트 그대로
+2. **걷기의 PG**(D-141): 트레일러 `Maago-Database`(`expected`, `steps.sh unpack`), 걷기마다 스키마, 로컬은 건너뛰고 CI는 실패. → 확인: `TestBoardTutorialPostgresTrailer`(모르는 값, 두 번, PG 없이 `CI`면 실패)
+
+   계획
+   - `cmd/maago/tutorial_test.go`의 `expected`: 반환을 `trailers{want, apps []string; postgres int}`로. 정확한 줄 `Maago-Database: postgres`만 안다(`Maago-Run`처럼 닫힌 목록: 공백·대소문자·뒤 글자가 다르면 모르는 줄). 모르는 `Maago-` 줄의 오류 글에 `Maago-Database: postgres`를 더한다
+   - `walk`: 단계마다 패치를 적용하기 **전에**(독자도 `.env`를 먼저 바꾼다) 이 순서로: 트레일러 세기 → 이미 PG거나 한 메시지에 둘이면 오류 `Maago-Database: postgres twice` → `MAAGO_TEST_PG_URL`(없으면 `CI`에서는 걷기의 오류, 아니면 `t.Skip`, 글은 `pgURL`의 것) → 스키마 `maagotest.SchemaName("github.com/maago-web/maago/cmd/maago board walk", t.Name(), 0)`를 `DROP SCHEMA IF EXISTS … CASCADE`·`CREATE SCHEMA`, `t.Cleanup`에서 `SET lock_timeout = '5s'` 뒤 지운다(`maagotest.schema`의 꼴) → `.env`를 `MAAGO_DATABASE_URL=<url.Parse 뒤 q.Set("search_path", 스키마)>`로 덮는다(서버 URL의 다른 쿼리는 남는다). `maago migrate`·끝의 `-createsuperuser`는 그 스키마에, `gen`·`check`의 연습용 DB는 자기 스키마(트랜잭션 안), 앱의 시험은 `maagotest`가 `search_path`를 자기 것으로 덮는다(`q.Set`)
+   - 걷기 끝: PG면 `-createsuperuser`의 계정이 걷기 스키마의 표에 있는지 그 스키마를 이름으로 적어 센다(`search_path`가 끝까지 닿았는지의 확인) → 확인: 3번의 `TestBoardTutorial`(PG)
+   - `steps.sh unpack`: 그 줄이 있으면 그 패치 앞에서 `.env`를 `MAAGO_DATABASE_URL=postgres://localhost:5432/board`로(unpack은 DB에 닿지 않는다. 시험 서버를 기본으로 두면 풀어 둔 곳의 `migrate`가 그 `public`에 쓴다). 두 번·모르는 값은 걷기가 잡는다
+   - 시험: `TestBoardTutorialPostgresTrailer`, 0001에 트레일러를 넣은 표 셋(트레일러는 적용 전에 읽으니 앞 단계를 걷지 않고, 3번의 번호 밀림에도 그대로): `unknown database`(`Maago-Database: mysql` → `unknown trailer "Maago-Database: mysql"`), `twice`(두 줄), `no server in CI`(한 줄 → `MAAGO_TEST_PG_URL is not set`). 모두 `CI=true`·`MAAGO_TEST_PG_URL=`이고 건너뛰면 실패. 계획은 앞 둘을 `TestBoardTutorialCatches`의 줄로 했으나, 검사를 일부러 고장 내면 걷기가 PG 단계에서 `t.Skip`으로 빠져 SKIP이 되어 회귀를 못 잡았다(셋 다 돌연변이로 확인: 고치기 전엔 통과, 표로는 FAIL)
+   - README(게시판): 트레일러 한 줄, "PG 없이는 걷기가 바꾸는 단계 앞까지만 본다(그 뒤의 Catches 줄과 CSS 비교도 건너뛴다)", 풀어 둔 곳의 `.env`는 마지막 단계의 것(PG)이라 앞 단계에서 `gen`을 돌리면 PG로 검사된다
+   - 하지 않는 것: 지금 단계에 트레일러를 넣는 것(3번). PG 연결의 미리 확인(스키마 만들기의 오류가 그 글). 이 2번만으로는 PG 경로(스키마·`.env`·PG의 migrate)를 걸어 보지 못한다: 3번의 `TestBoardTutorial`이 처음 잰다
+   - 계획 리뷰 codex·fable(뒤 작업이 기대는 약속). 받음: 검사 순서, `q.Set`, 끝의 스키마 확인, 정확한 줄, `lock_timeout`, unpack의 고정 주소와 README, Catches 줄을 0001에·`by`를 값까지. 받지 않음: 같은 서버에서 두 걷기가 동시에 돌 때의 스키마 충돌(codex. 이름을 고정해야 죽은 실행의 것을 다음 실행이 지운다: `maagotest`와 같은 맞바꿈), `maagotest`가 `search_path`를 덮는지의 시험(`q.Set`이 덮고 `maagotest`의 몫), 걷기마다 데이터베이스(fable 선택, D-141이 스키마)
+   - 구현 리뷰 codex·fable: 막는 지적 없음(codex는 샌드박스로 시험을 못 돌려 읽은 리뷰). fable이 PG로 0001을 걸어 스키마·`.env`·지우기를 실측. 받음: unpack에서 `.env`를 `maago add` 앞으로(시험 드라이버를 `.env`로 고른다, D-123), 확인 줄, 표 시험의 앵커 확인. 받지 않음: `pgURL`과의 중복(CI 경우를 걷기의 오류로 돌려야 표가 된다), `maagotest.schema`와의 중복(그쪽은 `maago.OpenDB`·모듈 경로에 묶임)
+
+3. **PostgreSQL로 바꾸는 단계**(D-141): 0012 뒤 새 단계(트레일러만이 아니라 앱 시험의 드라이버 import·`go.mod`/`go.sum`도 pgx로, 버전은 이 저장소가 받은 것: 걷기는 `GOPROXY=off`), 마이그레이션 넷 다시, 패치 번호 밀림(`TestBoardTutorialCatches`의 패치 이름, README·MILESTONES의 번호). → 확인: `TestBoardTutorial`(PG), 0001~0012는 바이트 그대로
 4. **`Me`와 `Edit a post`**(D-142): 단계 둘. → 확인: `TestBoardTutorial`, `TestBoardTutorialCatches`에 단계마다 한 줄(권한 검사 빼기)
 5. **`Ship it`**(D-142): 마지막 단계. → 확인: 걷기의 교차 빌드
 6. **대응표** `examples/board/MAP.md`(번호가 정해진 뒤). → 확인: 시험이 표의 게시판 커밋 열을 `steps/*.patch`와 맞춤(모든 패치가 한 번은 나오고, 표의 단계가 다 있음), 원본 줄은 89

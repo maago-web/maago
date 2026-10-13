@@ -1,7 +1,9 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/maago-web/maago/internal/build"
 	"github.com/maago-web/maago/internal/scaffold"
+	"github.com/maago-web/maago/maagotest"
 )
 
 const steps = "../../examples/board/steps"
@@ -81,12 +84,46 @@ func TestBoardTutorialCatches(t *testing.T) {
 	}
 }
 
+// The walk reads a step's trailers before it applies the step: a database
+// it does not know, and a second move, are errors, and without a server CI
+// fails at the move, where a local run skips (D-91). In CI, so that none
+// of these skips.
+func TestBoardTutorialPostgresTrailer(t *testing.T) {
+	t.Setenv("CI", "true")
+	t.Setenv("MAAGO_TEST_PG_URL", "")
+	for _, c := range []struct{ name, trailers, want string }{
+		{"unknown database", "Maago-Database: mysql", `unknown trailer "Maago-Database: mysql"`},
+		{"twice", "Maago-Database: postgres\nMaago-Database: postgres", "Maago-Database: postgres twice"},
+		{"no server in CI", "Maago-Database: postgres", "MAAGO_TEST_PG_URL is not set; CI must run the PostgreSQL tests"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Cleanup(func() {
+				if t.Skipped() {
+					t.Error("skipped: the walk got past the trailer")
+				}
+			})
+			dir := t.TempDir()
+			p := filepath.Join(dir, "0001-Start-the-project.patch")
+			src := readFile(t, filepath.Join(steps, filepath.Base(p)))
+			if !strings.Contains(src, "앱이 import한다.\n") {
+				t.Fatal("0001's message has changed: put the trailer elsewhere")
+			}
+			writeFile(t, p, strings.Replace(src, "앱이 import한다.\n", "앱이 import한다.\n\n"+c.trailers+"\n", 1))
+			if _, err := walk(t, dir); err == nil || !strings.HasPrefix(err.Error(), "0001-Start-the-project.patch: "+c.want) {
+				t.Errorf("walk: %v", err)
+			}
+		})
+	}
+}
+
 // walk applies the patches in dir one by one to a new project, as a reader
 // of the tutorial would make them, and checks each step. A step whose
 // commit message has Maago-Expect: lines must fail maago gen with exactly
 // those diagnostics; any other step must pass gen, check and migrate, and
 // the app's tests. The steps share the database maago migrate makes, as a
 // reader's would; the app's tests get their own from maagotest (D-113).
+// From the step whose message has Maago-Database: postgres, that database
+// is a schema of MAAGO_TEST_PG_URL's server, made for the walk (D-141).
 func walk(t *testing.T, dir string) (root string, err error) {
 	t.Helper()
 	noEnv(t) // maago reads .env, as for the reader
@@ -112,8 +149,20 @@ func walk(t *testing.T, dir string) (root string, err error) {
 	}
 	writeFile(t, filepath.Join(root, "go.work"), "go 1.25.0\n\nuse .\n\nreplace github.com/maago-web/maago => "+repo+"\n")
 	writeFile(t, filepath.Join(root, ".env"), "MAAGO_DATABASE_URL=sqlite:board.db\n")
+	schema := "" // the walk's PostgreSQL schema, once a step moved to it
 	for _, p := range patches {
-		if err := walkStep(root, p); err != nil {
+		src, err := os.ReadFile(p)
+		if err != nil {
+			return "", err
+		}
+		tr, err := expected(src)
+		if err == nil && tr.postgres > 0 {
+			schema, err = toPostgres(t, root, schema, tr.postgres)
+		}
+		if err == nil {
+			err = walkStep(root, p, tr)
+		}
+		if err != nil {
 			return "", fmt.Errorf("%s: %w", filepath.Base(p), err)
 		}
 	}
@@ -124,7 +173,67 @@ func walk(t *testing.T, dir string) (root string, err error) {
 	if out, err := run.CombinedOutput(); err != nil || !strings.Contains(string(out), "created boss@example.com") {
 		return "", fmt.Errorf("go run . -createsuperuser: %v\n%s", err, out)
 	}
+	if schema != "" { // .env's search_path reached the command
+		var n int
+		if err := withPostgres(func(db *sql.DB) error {
+			return db.QueryRow("SELECT count(*) FROM " + schema + ".auth_user WHERE email = 'boss@example.com'").Scan(&n)
+		}); err != nil || n != 1 {
+			return "", fmt.Errorf("the superuser is not in schema %s: %v", schema, err)
+		}
+	}
 	return root, nil
+}
+
+// toPostgres moves the walk at root to a new schema of MAAGO_TEST_PG_URL's
+// server, as a reader moves to PostgreSQL by .env: once, and without a
+// server, a skip, or a failure in CI (D-91).
+func toPostgres(t *testing.T, root, schema string, n int) (string, error) {
+	if schema != "" || n > 1 {
+		return "", fmt.Errorf("Maago-Database: postgres twice")
+	}
+	server := os.Getenv("MAAGO_TEST_PG_URL")
+	switch {
+	case server != "":
+	case os.Getenv("CI") != "":
+		return "", fmt.Errorf("MAAGO_TEST_PG_URL is not set; CI must run the PostgreSQL tests")
+	default:
+		t.Skip("MAAGO_TEST_PG_URL is not set; set it to a PostgreSQL server to run this test")
+	}
+	// Named by the test, so the next run drops what a killed one left.
+	schema = maagotest.SchemaName("github.com/maago-web/maago/cmd/maago board walk", t.Name(), 0)
+	if err := withPostgres(func(db *sql.DB) error {
+		_, err := db.Exec("DROP SCHEMA IF EXISTS " + schema + " CASCADE; CREATE SCHEMA " + schema)
+		return err
+	}); err != nil {
+		return "", err
+	}
+	t.Cleanup(func() {
+		if err := withPostgres(func(db *sql.DB) error {
+			_, err := db.Exec("SET lock_timeout = '5s'; DROP SCHEMA IF EXISTS " + schema + " CASCADE")
+			return err
+		}); err != nil {
+			t.Errorf("cannot drop schema %s: %v", schema, err)
+		}
+	})
+	u, err := url.Parse(server)
+	if err != nil {
+		return "", fmt.Errorf("MAAGO_TEST_PG_URL does not parse")
+	}
+	q := u.Query()
+	q.Set("search_path", schema)
+	u.RawQuery = q.Encode()
+	writeFile(t, filepath.Join(root, ".env"), "MAAGO_DATABASE_URL="+u.String()+"\n")
+	return schema, nil
+}
+
+// withPostgres runs f on MAAGO_TEST_PG_URL's server.
+func withPostgres(f func(*sql.DB) error) error {
+	db, err := sql.Open("pgx", os.Getenv("MAAGO_TEST_PG_URL"))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	return f(db)
 }
 
 // goCmd is the go command in root, offline, on root's go.work.
@@ -141,18 +250,11 @@ func goCmd(root string, args ...string) *osexec.Cmd {
 	return cmd
 }
 
-func walkStep(root, patch string) error {
-	src, err := os.ReadFile(patch)
-	if err != nil {
-		return err
-	}
-	want, apps, err := expected(src)
-	if err != nil {
-		return err
-	}
+func walkStep(root, patch string, tr trailers) error {
+	want := tr.want
 	// What maago add writes is not in the patch, as generated files are
 	// not: the step runs it first, as its reader did.
-	for _, app := range apps {
+	for _, app := range tr.apps {
 		if _, ds := scaffold.Add(root, app); ds != nil {
 			return fmt.Errorf("maago add %s:\n%s", app, text(ds))
 		}
@@ -192,25 +294,34 @@ func walkStep(root, patch string) error {
 	return nil
 }
 
+// trailers are what a step's commit message asks of the walk.
+type trailers struct {
+	want, apps []string // Maago-Expect:, Maago-Run: maago add
+	postgres   int      // Maago-Database: postgres lines
+}
+
 // expected reads the trailers of a patch's commit message, which ends
 // where the diff starts (steps.sh packs without a diffstat): the
-// Maago-Expect: lines, and the apps of Maago-Run: maago add APP lines, which
-// the step runs before its patch. The mail header before it has no Maago-
-// lines.
-func expected(patch []byte) (want, apps []string, err error) {
+// Maago-Expect: lines, the apps of Maago-Run: maago add APP lines, which
+// the step runs before its patch, and Maago-Database: postgres, which moves
+// the walk to PostgreSQL before it. The mail header before it has no
+// Maago- lines.
+func expected(patch []byte) (tr trailers, err error) {
 	msg, _, ok := strings.Cut(string(patch), "\ndiff --git ")
 	if !ok {
-		return nil, nil, fmt.Errorf("no diff after the commit message")
+		return tr, fmt.Errorf("no diff after the commit message")
 	}
 	for _, line := range strings.Split(msg, "\n") {
 		switch {
 		case strings.HasPrefix(line, "Maago-Expect: "):
-			want = append(want, strings.TrimPrefix(line, "Maago-Expect: "))
+			tr.want = append(tr.want, strings.TrimPrefix(line, "Maago-Expect: "))
 		case strings.HasPrefix(line, "Maago-Run: maago add ") && !strings.ContainsAny(strings.TrimPrefix(line, "Maago-Run: maago add "), " \t") && line != "Maago-Run: maago add ":
-			apps = append(apps, strings.TrimPrefix(line, "Maago-Run: maago add "))
+			tr.apps = append(tr.apps, strings.TrimPrefix(line, "Maago-Run: maago add "))
+		case line == "Maago-Database: postgres":
+			tr.postgres++
 		case strings.HasPrefix(line, "Maago-"):
-			return nil, nil, fmt.Errorf("unknown trailer %q; maago knows Maago-Expect: and Maago-Run: maago add APP", line)
+			return tr, fmt.Errorf("unknown trailer %q; maago knows Maago-Expect:, Maago-Run: maago add APP and Maago-Database: postgres", line)
 		}
 	}
-	return want, apps, nil
+	return tr, nil
 }
