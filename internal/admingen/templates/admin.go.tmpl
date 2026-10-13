@@ -26,8 +26,18 @@ var Admin = []admin.Model{
 {{range .Fields}}			{Name: "{{.Name}}", Label: {{printf "%q" .Label}}{{if .Help}}, Help: {{printf "%q" .Help}}{{end}}{{if .ReadOnly}}, ReadOnly: true{{end}}{{if .FK}}, FK: "{{.FK}}"{{end}}},
 {{end}}		},
 		List: []string{ {{range $i, $n := .List}}{{if $i}}, {{end}}"{{$n}}"{{end}} },
+{{- if .Search}}
+		Search: []string{ {{range $i, $n := .Search}}{{if $i}}, {{end}}"{{$n}}"{{end}} },
+{{- end}}
+{{- if .Filters}}
+		Filters: []admin.Filter{
+{{- range .Filters}}
+			{Key: "{{.Key}}", Field: "{{.Field}}", Kind: "{{.Kind}}"{{.Choices}}},
+{{- end}}
+		},
+{{- end}}
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			vs, err := maago.Many(ctx, db, scan{{.Name}}, {{.ListSQL}}, q.Limit, q.Offset)
+			{{.RowsArgs}}vs, err := maago.Many(ctx, db, scan{{.Name}}, {{.ListSQL}}, {{.Args}}q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -38,7 +48,7 @@ var Admin = []admin.Model{
 			return rows, nil
 		},
 		Count: func(ctx context.Context, db maago.DB, q admin.Query) (n int64, err error) {
-			err = db.QueryRowContext(ctx, {{.CountSQL}}).Scan(&n)
+			{{.CountArgs}}err = db.QueryRowContext(ctx, {{.CountSQL}}{{if .Args}}, {{.ArgList}}{{end}}).Scan(&n)
 			return n, err
 		},
 		Form: {{.Form}},

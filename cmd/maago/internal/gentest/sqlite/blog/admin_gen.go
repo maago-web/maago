@@ -37,9 +37,28 @@ var Admin = []admin.Model{
 			{Name: "Body", Label: "Body"},
 			{Name: "PublishedAt", Label: "PublishedAt"},
 		},
-		List: []string{"Title", "Status", "PublishedAt"},
+		List:   []string{"Title", "Status", "PublishedAt"},
+		Search: []string{"Title", "Slug"},
+		Filters: []admin.Filter{
+			{Key: "status", Field: "Status", Kind: "choice", Choices: []string{"draft", "published"}},
+			{Key: "public", Field: "Public", Kind: "bool"},
+			{Key: "author_id", Field: "AuthorID", Kind: "fk"},
+		},
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			vs, err := maago.Many(ctx, db, scanPost, `SELECT "id", "author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at" FROM "blog_post" ORDER BY "published_at" DESC NULLS LAST, "title", "id" DESC LIMIT ? OFFSET ?`, q.Limit, q.Offset)
+			vSearch := admin.Like(q.Search)
+			vStatus, err := admin.Choice(q.Filters["status"], "draft", "published")
+			if err != nil {
+				return nil, err
+			}
+			vPublic, err := admin.YesNo(q.Filters["public"])
+			if err != nil {
+				return nil, err
+			}
+			vAuthorID, err := admin.ID(q.Filters["author_id"])
+			if err != nil {
+				return nil, err
+			}
+			vs, err := maago.Many(ctx, db, scanPost, `SELECT "id", "author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at" FROM "blog_post" WHERE (LOWER("title") LIKE LOWER(?1) ESCAPE '\' OR LOWER("slug") LIKE LOWER(?1) ESCAPE '\' OR ?1 IS NULL) AND ("status" = ?2 OR ?2 IS NULL) AND ("public" = ?3 OR ?3 IS NULL) AND ("author_id" = ?4 OR ?4 IS NULL) ORDER BY "published_at" DESC NULLS LAST, "title", "id" DESC LIMIT ?5 OFFSET ?6`, vSearch, vStatus, vPublic, vAuthorID, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -50,7 +69,20 @@ var Admin = []admin.Model{
 			return rows, nil
 		},
 		Count: func(ctx context.Context, db maago.DB, q admin.Query) (n int64, err error) {
-			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "blog_post"`).Scan(&n)
+			vSearch := admin.Like(q.Search)
+			vStatus, err := admin.Choice(q.Filters["status"], "draft", "published")
+			if err != nil {
+				return 0, err
+			}
+			vPublic, err := admin.YesNo(q.Filters["public"])
+			if err != nil {
+				return 0, err
+			}
+			vAuthorID, err := admin.ID(q.Filters["author_id"])
+			if err != nil {
+				return 0, err
+			}
+			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "blog_post" WHERE (LOWER("title") LIKE LOWER(?1) ESCAPE '\' OR LOWER("slug") LIKE LOWER(?1) ESCAPE '\' OR ?1 IS NULL) AND ("status" = ?2 OR ?2 IS NULL) AND ("public" = ?3 OR ?3 IS NULL) AND ("author_id" = ?4 OR ?4 IS NULL)`, vSearch, vStatus, vPublic, vAuthorID).Scan(&n)
 			return n, err
 		},
 		Form: func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {
@@ -96,7 +128,7 @@ var Admin = []admin.Model{
 				f.Public.Raw = "on"
 			}
 			if vals != nil && f.AuthorID.Error == "" && f.AuthorID.Given {
-				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?`, f.AuthorID.Value); err != nil {
+				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?1`, f.AuthorID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
 					maago.NoRow(ctx, &f.AuthorID)
@@ -126,12 +158,12 @@ var Admin = []admin.Model{
 			if id == 0 {
 				return admin.Form{}, admin.NoAdding("Post")
 			}
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = ?, "title" = ?, "status" = ?, "views" = ?, "likes" = ?, "score" = ?, "public" = ?, "published_at" = ? WHERE "id" = ?`, f.AuthorID.Value, f.Title.Value, f.Status.Value, f.Views.Value, f.Likes.Value, admin.Ptr(f.Score), f.Public.Value, maago.SQLiteNullTime(admin.Ptr(f.PublishedAt)), id))
+			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = ?1, "title" = ?2, "status" = ?3, "views" = ?4, "likes" = ?5, "score" = ?6, "public" = ?7, "published_at" = ?8 WHERE "id" = ?9`, f.AuthorID.Value, f.Title.Value, f.Status.Value, f.Views.Value, f.Likes.Value, admin.Ptr(f.Score), f.Public.Value, maago.SQLiteNullTime(admin.Ptr(f.PublishedAt)), id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
 		},
 		Delete: DeletePost,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
-			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "blog_post" WHERE "id" = ?`, nil)
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "blog_post" WHERE "id" = ?1`, nil)
 		},
 		Edit: true,
 	},
@@ -150,8 +182,15 @@ var Admin = []admin.Model{
 			{Name: "UpdatedAt", Label: "UpdatedAt", ReadOnly: true},
 		},
 		List: []string{"ID", "Name", "ParentID", "EditorID", "ReviewerID", "Order", "Admin", "CreatedAt", "UpdatedAt"},
+		Filters: []admin.Filter{
+			{Key: "parent_id", Field: "ParentID", Kind: "fk"},
+		},
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			vs, err := maago.Many(ctx, db, scanAuthor, `SELECT "id", "name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at" FROM "people" ORDER BY "id" DESC LIMIT ? OFFSET ?`, q.Limit, q.Offset)
+			vParentID, err := admin.ID(q.Filters["parent_id"])
+			if err != nil {
+				return nil, err
+			}
+			vs, err := maago.Many(ctx, db, scanAuthor, `SELECT "id", "name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at" FROM "people" WHERE ("parent_id" = ?1 OR ?1 IS NULL) ORDER BY "id" DESC LIMIT ?2 OFFSET ?3`, vParentID, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -162,7 +201,11 @@ var Admin = []admin.Model{
 			return rows, nil
 		},
 		Count: func(ctx context.Context, db maago.DB, q admin.Query) (n int64, err error) {
-			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "people"`).Scan(&n)
+			vParentID, err := admin.ID(q.Filters["parent_id"])
+			if err != nil {
+				return 0, err
+			}
+			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "people" WHERE ("parent_id" = ?1 OR ?1 IS NULL)`, vParentID).Scan(&n)
 			return n, err
 		},
 		Form: func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {
@@ -199,21 +242,21 @@ var Admin = []admin.Model{
 				f.Admin.Raw = ""
 			}
 			if vals != nil && f.ParentID.Error == "" && f.ParentID.Given {
-				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?`, f.ParentID.Value); err != nil {
+				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?1`, f.ParentID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
 					maago.NoRow(ctx, &f.ParentID)
 				}
 			}
 			if vals != nil && f.EditorID.Error == "" && f.EditorID.Given {
-				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?`, f.EditorID.Value); err != nil {
+				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?1`, f.EditorID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
 					maago.NoRow(ctx, &f.EditorID)
 				}
 			}
 			if vals != nil && f.ReviewerID.Error == "" && f.ReviewerID.Given {
-				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?`, f.ReviewerID.Value); err != nil {
+				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?1`, f.ReviewerID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
 					maago.NoRow(ctx, &f.ReviewerID)
@@ -242,16 +285,16 @@ var Admin = []admin.Model{
 				return admin.Form{}, admin.NoAdding("Author")
 			}
 			now := time.Now().Truncate(time.Microsecond)
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "people" SET "name" = ?, "parent_id" = ?, "editor_id" = ?, "reviewer_id" = ?, "order" = ?, "admin" = ?, "updated_at" = ? WHERE "id" = ?`, f.Name.Value, admin.Ptr(f.ParentID), f.EditorID.Value, admin.Ptr(f.ReviewerID), f.Order.Value, f.Admin.Value, maago.SQLiteTime(now), id))
+			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "order" = ?5, "admin" = ?6, "updated_at" = ?7 WHERE "id" = ?8`, f.Name.Value, admin.Ptr(f.ParentID), f.EditorID.Value, admin.Ptr(f.ReviewerID), f.Order.Value, f.Admin.Value, maago.SQLiteTime(now), id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
 		},
 		Delete: DeleteAuthor,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
-			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "people" WHERE "id" = ?`, []admin.Ref{
-				{Model: "blog.Post", Field: "AuthorID", SQL: `SELECT COUNT(*) FROM "blog_post" WHERE "author_id" = ?`},
-				{Model: "blog.Author", Field: "ParentID", SQL: `SELECT COUNT(*) FROM "people" WHERE "parent_id" = ? AND "id" <> ?`, Self: true},
-				{Model: "blog.Author", Field: "EditorID", SQL: `SELECT COUNT(*) FROM "people" WHERE "editor_id" = ? AND "id" <> ?`, Self: true},
-				{Model: "blog.Author", Field: "ReviewerID", SQL: `SELECT COUNT(*) FROM "people" WHERE "reviewer_id" = ? AND "id" <> ?`, Self: true},
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "people" WHERE "id" = ?1`, []admin.Ref{
+				{Model: "blog.Post", Field: "AuthorID", SQL: `SELECT COUNT(*) FROM "blog_post" WHERE "author_id" = ?1`},
+				{Model: "blog.Author", Field: "ParentID", SQL: `SELECT COUNT(*) FROM "people" WHERE "parent_id" = ?1 AND "id" <> ?2`, Self: true},
+				{Model: "blog.Author", Field: "EditorID", SQL: `SELECT COUNT(*) FROM "people" WHERE "editor_id" = ?1 AND "id" <> ?2`, Self: true},
+				{Model: "blog.Author", Field: "ReviewerID", SQL: `SELECT COUNT(*) FROM "people" WHERE "reviewer_id" = ?1 AND "id" <> ?2`, Self: true},
 			})
 		},
 		Edit: true,

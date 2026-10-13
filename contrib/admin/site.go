@@ -1,16 +1,19 @@
 package admin
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"embed"
 	"errors"
 	"fmt"
 	"html/template"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/maago-web/maago"
@@ -62,6 +65,11 @@ func App(cfg Config) maago.App {
 			}
 			s.byKey[m.App+"."+m.Name] = m
 			s.models = append(s.models, m)
+			for _, name := range slices.Concat(m.Search, filterFields(m.Filters)) {
+				if !slices.ContainsFunc(m.Fields, func(f Field) bool { return f.Name == name }) {
+					panic(fmt.Sprintf("admin: %s.%s searches or filters by %s, which is not among its Fields; run maago gen", m.App, m.Name, name))
+				}
+			}
 			for _, name := range m.List {
 				i := slices.IndexFunc(m.Fields, func(f Field) bool { return f.Name == name })
 				if i < 0 {
@@ -86,6 +94,14 @@ func App(cfg Config) maago.App {
 		route("POST", "{app}/{model}/add/{$}", "admin_add_submit", s.add),
 		route("GET", "{app}/{model}/{id}/{$}", "admin_row", s.row),
 		route("POST", "{app}/{model}/{id}/{$}", "admin_row_submit", s.row))
+}
+
+func filterFields(fs []Filter) []string {
+	var names []string
+	for _, f := range fs {
+		names = append(names, f.Field)
+	}
+	return names
 }
 
 type site struct {
@@ -149,15 +165,27 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page = max(page, 1)
+	text := func(s string) (string, error) { return s, nil }
+	query := Query{Filters: map[string]string{}}
+	if query.Search, _, err = maago.Query(q, "q", text, false); err != nil {
+		return err
+	}
+	query.Search = strings.TrimSpace(query.Search)
+	for _, f := range m.Filters {
+		if query.Filters[f.Key], _, err = maago.Query(q, f.Key, text, false); err != nil {
+			return err
+		}
+	}
 	db := maago.DBFrom(ctx)
-	n, err := m.Count(ctx, db, Query{})
+	n, err := m.Count(ctx, db, query) // first: a bad filter value is a 400
 	if err != nil {
 		return err
 	}
 	last := max(n/pageSize+min(n%pageSize, 1), 1) // no overflow near the largest count
 	var rows []Row
 	if page <= last {
-		if rows, err = m.Rows(ctx, db, Query{Limit: pageSize, Offset: int(page-1) * pageSize}); err != nil {
+		query.Limit, query.Offset = pageSize, int(page-1)*pageSize
+		if rows, err = m.Rows(ctx, db, query); err != nil {
 			return err
 		}
 	}
@@ -186,16 +214,79 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 			addURL = listURL(m) + "add/"
 		}
 	}
+	// The conditions in force, which the links of pages keep; a link of a
+	// filter, or the search, starts again at page 1.
+	kept := url.Values{}
+	if query.Search != "" {
+		kept.Set("q", query.Search)
+	}
+	for k, v := range query.Filters {
+		if v != "" {
+			kept.Set(k, v)
+		}
+	}
+	link := func(vals url.Values) string {
+		if len(vals) == 0 {
+			return listURL(m)
+		}
+		return listURL(m) + "?" + vals.Encode()
+	}
 	at := func(p int64) string {
 		if p < 1 || p > last {
 			return ""
 		}
-		return listURL(m) + "?page=" + strconv.FormatInt(p, 10)
+		vals := maps.Clone(kept)
+		vals.Set("page", strconv.FormatInt(p, 10))
+		return link(vals)
+	}
+	type option struct {
+		Text, URL string
+		On        bool
+	}
+	type filterView struct {
+		Key, Label, Value string
+		Options           []option // choices and bools: links; an fk: none, a number in the search form
+	}
+	var filters []filterView
+	var hidden []filterView // the filters the search form keeps, as they are links
+	for _, f := range m.Filters {
+		v := filterView{Key: f.Key, Label: m.label(f.Field), Value: query.Filters[f.Key]}
+		values := f.Choices
+		if f.Kind == "bool" {
+			values = []string{"yes", "no"}
+		}
+		if f.Kind != "fk" {
+			for _, c := range append([]string{""}, values...) {
+				vals := maps.Clone(kept)
+				vals.Del(f.Key)
+				text := cmp.Or(c, "All")
+				if c != "" {
+					vals.Set(f.Key, c)
+				}
+				v.Options = append(v.Options, option{text, link(vals), c == v.Value})
+			}
+			if v.Value != "" {
+				hidden = append(hidden, v)
+			}
+		}
+		filters = append(filters, v)
+	}
+	var search []string
+	for _, name := range m.Search {
+		search = append(search, m.label(name))
 	}
 	return maago.Render(w, pages, "list.html", "", map[string]any{
 		"Home": home(), "App": m.App, "Name": m.Name, "Heads": s.heads[m], "Rows": views, "Add": addURL, "Delete": deleteURL,
+		"Search": strings.Join(search, ", "), "Q": query.Search, "Filters": filters, "Hidden": hidden, "Action": listURL(m),
+		"Box":   search != nil || slices.ContainsFunc(m.Filters, func(f Filter) bool { return f.Kind == "fk" }),
 		"Count": n, "Page": page, "Pages": last, "Prev": at(min(page, last+1) - 1), "Next": at(page + 1),
 	})
+}
+
+// label is the label of m's field named name, which App checked is there.
+func (m *Model) label(name string) string {
+	i := slices.IndexFunc(m.Fields, func(f Field) bool { return f.Name == name })
+	return m.Fields[i].Label
 }
 
 // model is the model of r's path, if Can lets the user do action to it.

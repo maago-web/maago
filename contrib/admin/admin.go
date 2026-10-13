@@ -20,6 +20,8 @@ type Model struct {
 	App, Name string   // the app's package name, the model's Go name
 	Fields    []Field  // the fields not admin=hidden, in declaration order
 	List      []string // the Go names of the list's columns
+	Search    []string // the Go names of the fields the search box looks in (admin_search); none: no box
+	Filters   []Filter
 	Rows      func(ctx context.Context, db maago.DB, q Query) ([]Row, error)
 	Count     func(ctx context.Context, db maago.DB, q Query) (int64, error)
 
@@ -63,10 +65,20 @@ type Input struct {
 	FK                string // the model an fk field refers to, as "app.Model"
 }
 
-// Query is which rows of a model's list to read. The zero Query reads
-// none: Limit is the page's size.
+// Query is which rows of a model's list to read: the page (the zero
+// Query reads none, Limit is the page's size), and the search and the
+// filters as the URL has them, "" for none (D-134).
 type Query struct {
 	Limit, Offset int
+	Search        string
+	Filters       map[string]string // by Filter.Key
+}
+
+// Filter is a field the list filters by (admin_filter, D-132).
+type Filter struct {
+	Key, Field string   // the URL's key, the field's name in snake_case; its Go name
+	Kind       string   // choice, bool or fk
+	Choices    []string // of a choice
 }
 
 // Field is a field of a model in the admin.

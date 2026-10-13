@@ -521,6 +521,10 @@ func (c *checker) adminItem(o *Option, j int, f *Field, model string) bool {
 		c.errf(o.ValuePos[j], "filter by a field with choices, a bool, or an fk field", "%s in admin_filter has no choices, and is neither a bool nor an fk field", where)
 		ok = false
 	}
+	if k := Snake(f.Name); o.Key == "admin_filter" && (k == "page" || k == "q") {
+		c.errf(o.ValuePos[j], "rename the field, or filter by another", "%s in admin_filter would be the list's key %s, which the page or the search has", where, k)
+		ok = false
+	}
 	return ok
 }
 

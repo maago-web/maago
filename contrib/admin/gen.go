@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/maago-web/maago"
@@ -146,6 +147,53 @@ func CountRefs(ctx context.Context, db maago.DB, id int64, row string, refs []Re
 		}
 	}
 	return out, nil
+}
+
+// Like is the pattern of a search: text, trimmed, between %s with its
+// \, % and _ escaped by \, or nil for no search (D-134).
+func Like(text string) *string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	p := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(text) + "%"
+	return &p
+}
+
+// Choice is a choice filter's value, or nil for none; a value that is
+// not one of choices is a 400.
+func Choice(v string, choices ...string) (*string, error) {
+	switch {
+	case v == "":
+		return nil, nil
+	case !slices.Contains(choices, v):
+		return nil, maago.Status(http.StatusBadRequest, fmt.Errorf("admin: filter value %q is not one of %q", v, choices))
+	}
+	return &v, nil
+}
+
+// YesNo is a bool filter's value, yes or no, or nil for none.
+func YesNo(v string) (*bool, error) {
+	switch v {
+	case "":
+		return nil, nil
+	case "yes", "no":
+		b := v == "yes"
+		return &b, nil
+	}
+	return nil, maago.Status(http.StatusBadRequest, fmt.Errorf("admin: filter value %q is not yes or no", v))
+}
+
+// ID is an fk filter's value, the id of a row, or nil for none.
+func ID(v string) (*int64, error) {
+	if v == "" {
+		return nil, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return nil, maago.Status(http.StatusBadRequest, fmt.Errorf("admin: filter value %q is not an id", v))
+	}
+	return &n, nil
 }
 
 // NoAdding is the error of the form of a new row of a model that has no

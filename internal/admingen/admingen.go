@@ -81,10 +81,8 @@ func Statements(m *model.Model, d project.Dialect, apps []*model.App) SQL {
 	for _, f := range m.Fields {
 		cols = append(cols, dialect.Quote(f.Column))
 	}
-	limit, offset := "$1", "$2"
-	if d == project.SQLite {
-		limit, offset = "?", "?"
-	}
+	where, n := whereSQL(m, d)
+	limit, offset := mark(d, n+1), mark(d, n+2)
 	table := dialect.Quote(m.Table)
 	update, _ := updateSQL(m, d)
 	var exists []string
@@ -110,13 +108,87 @@ func Statements(m *model.Model, d project.Dialect, apps []*model.App) SQL {
 		}
 	}
 	return SQL{
-		List:   "SELECT " + strings.Join(cols, ", ") + " FROM " + table + " ORDER BY " + strings.Join(order, ", ") + " LIMIT " + limit + " OFFSET " + offset,
-		Count:  "SELECT COUNT(*) FROM " + table,
+		List:   "SELECT " + strings.Join(cols, ", ") + " FROM " + table + where + " ORDER BY " + strings.Join(order, ", ") + " LIMIT " + limit + " OFFSET " + offset,
+		Count:  "SELECT COUNT(*) FROM " + table + where,
 		Update: update,
 		Exists: exists,
 		Row:    "SELECT 1 FROM " + table + ` WHERE "id" = ` + mark(d, 1),
 		Refs:   refs,
 	}
+}
+
+// whereSQL is the WHERE of m's list, and the number of its values: the
+// search, then each filter, each off when its value is NULL (D-134). A
+// value's typed use comes before its IS NULL, which PostgreSQL could not
+// type alone.
+func whereSQL(m *model.Model, d project.Dialect) (string, int) {
+	var conds []string
+	n := 0
+	if m.AdminSearch != nil {
+		n++
+		escape := `'\'`
+		if d == project.Postgres {
+			escape = `E'\\'` // a backslash, whatever standard_conforming_strings is
+		}
+		var or []string
+		for _, name := range m.AdminSearch {
+			or = append(or, "LOWER("+dialect.Quote(m.Field(name).Column)+") LIKE LOWER("+mark(d, n)+") ESCAPE "+escape)
+		}
+		conds = append(conds, "("+strings.Join(or, " OR ")+" OR "+mark(d, n)+" IS NULL)")
+	}
+	for _, name := range m.AdminFilter {
+		n++
+		conds = append(conds, "("+dialect.Quote(m.Field(name).Column)+" = "+mark(d, n)+" OR "+mark(d, n)+" IS NULL)")
+	}
+	if conds == nil {
+		return "", 0
+	}
+	return " WHERE " + strings.Join(conds, " AND "), n
+}
+
+// filterKind is how the list filters by f: by its choices, as a bool, or
+// by the id it refers to.
+func filterKind(f *model.Field) string {
+	switch {
+	case f.Choices != nil:
+		return "choice"
+	case f.Type == model.Bool:
+		return "bool"
+	}
+	return "fk"
+}
+
+// argsCode is the Go that reads the values of m's WHERE from q, and the
+// list of them; fail is what returns on an error.
+func argsCode(m *model.Model, fail string) (code, list string) {
+	var b strings.Builder
+	var args []string
+	if m.AdminSearch != nil {
+		b.WriteString("vSearch := admin.Like(q.Search)\n")
+		args = append(args, "vSearch")
+	}
+	for _, name := range m.AdminFilter {
+		f := m.Field(name)
+		v, key := "v"+f.Name, strconv.Quote(model.Snake(f.Name))
+		switch filterKind(f) {
+		case "choice":
+			var qs []string
+			for _, c := range f.Choices {
+				qs = append(qs, strconv.Quote(c))
+			}
+			fmt.Fprintf(&b, "%s, err := admin.Choice(q.Filters[%s], %s)\n", v, key, strings.Join(qs, ", "))
+		case "bool":
+			fmt.Fprintf(&b, "%s, err := admin.YesNo(q.Filters[%s])\n", v, key)
+		default:
+			fmt.Fprintf(&b, "%s, err := admin.ID(q.Filters[%s])\n", v, key)
+		}
+		fmt.Fprintf(&b, "if err != nil {\nreturn %s, err\n}\n", fail)
+		args = append(args, v)
+	}
+	if args == nil {
+		return "", ""
+	}
+	return b.String(), strings.Join(args, ", ") + ", "
 }
 
 // File is the admin_gen.go of app, whose list SQL is in d. apps are all
@@ -134,6 +206,12 @@ func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
 		Form              string
 		Add, Edit         bool
 		Row               string
+		RowsArgs          string // the Go that reads the WHERE's values, in Rows
+		CountArgs         string // and in Count
+		Args              string // the values, each followed by ", "
+		ArgList           string // the values
+		Search            []string
+		Filters           []map[string]string
 		Refs              []map[string]string
 	}
 	models := map[string]string{} // each table's model, as "app.Model"
@@ -155,7 +233,22 @@ func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
 			noAdd = append(noAdd, why)
 		}
 		v := modelView{Name: m.Name, List: m.AdminList, ListSQL: mapper.GoString(sql.List), CountSQL: mapper.GoString(sql.Count),
-			Form: formCode(m, d, models, imports), Add: why == "", Edit: slices.ContainsFunc(m.Fields, editable), Row: mapper.GoString(sql.Row)}
+			Form: formCode(m, d, models, imports), Add: why == "", Edit: slices.ContainsFunc(m.Fields, editable), Row: mapper.GoString(sql.Row), Search: m.AdminSearch}
+		v.RowsArgs, v.Args = argsCode(m, "nil")
+		v.CountArgs, _ = argsCode(m, "0")
+		v.ArgList = strings.TrimSuffix(v.Args, ", ")
+		for _, name := range m.AdminFilter {
+			f := m.Field(name)
+			choices := ""
+			if f.Choices != nil {
+				var qs []string
+				for _, c := range f.Choices {
+					qs = append(qs, strconv.Quote(c))
+				}
+				choices = ", Choices: []string{" + strings.Join(qs, ", ") + "}"
+			}
+			v.Filters = append(v.Filters, map[string]string{"Key": model.Snake(f.Name), "Field": f.Name, "Kind": filterKind(f), "Choices": choices})
+		}
 		for _, ref := range sql.Refs {
 			self := ""
 			if ref.Self {

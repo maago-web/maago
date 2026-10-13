@@ -37,9 +37,28 @@ var Admin = []admin.Model{
 			{Name: "Body", Label: "Body"},
 			{Name: "PublishedAt", Label: "PublishedAt"},
 		},
-		List: []string{"Title", "Status", "PublishedAt"},
+		List:   []string{"Title", "Status", "PublishedAt"},
+		Search: []string{"Title", "Slug"},
+		Filters: []admin.Filter{
+			{Key: "status", Field: "Status", Kind: "choice", Choices: []string{"draft", "published"}},
+			{Key: "public", Field: "Public", Kind: "bool"},
+			{Key: "author_id", Field: "AuthorID", Kind: "fk"},
+		},
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			vs, err := maago.Many(ctx, db, scanPost, `SELECT "id", "author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at" FROM "blog_post" ORDER BY "published_at" DESC NULLS LAST, "title", "id" DESC LIMIT $1 OFFSET $2`, q.Limit, q.Offset)
+			vSearch := admin.Like(q.Search)
+			vStatus, err := admin.Choice(q.Filters["status"], "draft", "published")
+			if err != nil {
+				return nil, err
+			}
+			vPublic, err := admin.YesNo(q.Filters["public"])
+			if err != nil {
+				return nil, err
+			}
+			vAuthorID, err := admin.ID(q.Filters["author_id"])
+			if err != nil {
+				return nil, err
+			}
+			vs, err := maago.Many(ctx, db, scanPost, `SELECT "id", "author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at" FROM "blog_post" WHERE (LOWER("title") LIKE LOWER($1) ESCAPE E'\\' OR LOWER("slug") LIKE LOWER($1) ESCAPE E'\\' OR $1 IS NULL) AND ("status" = $2 OR $2 IS NULL) AND ("public" = $3 OR $3 IS NULL) AND ("author_id" = $4 OR $4 IS NULL) ORDER BY "published_at" DESC NULLS LAST, "title", "id" DESC LIMIT $5 OFFSET $6`, vSearch, vStatus, vPublic, vAuthorID, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -50,7 +69,20 @@ var Admin = []admin.Model{
 			return rows, nil
 		},
 		Count: func(ctx context.Context, db maago.DB, q admin.Query) (n int64, err error) {
-			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "blog_post"`).Scan(&n)
+			vSearch := admin.Like(q.Search)
+			vStatus, err := admin.Choice(q.Filters["status"], "draft", "published")
+			if err != nil {
+				return 0, err
+			}
+			vPublic, err := admin.YesNo(q.Filters["public"])
+			if err != nil {
+				return 0, err
+			}
+			vAuthorID, err := admin.ID(q.Filters["author_id"])
+			if err != nil {
+				return 0, err
+			}
+			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "blog_post" WHERE (LOWER("title") LIKE LOWER($1) ESCAPE E'\\' OR LOWER("slug") LIKE LOWER($1) ESCAPE E'\\' OR $1 IS NULL) AND ("status" = $2 OR $2 IS NULL) AND ("public" = $3 OR $3 IS NULL) AND ("author_id" = $4 OR $4 IS NULL)`, vSearch, vStatus, vPublic, vAuthorID).Scan(&n)
 			return n, err
 		},
 		Form: func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {
@@ -150,8 +182,15 @@ var Admin = []admin.Model{
 			{Name: "UpdatedAt", Label: "UpdatedAt", ReadOnly: true},
 		},
 		List: []string{"ID", "Name", "ParentID", "EditorID", "ReviewerID", "Order", "Admin", "CreatedAt", "UpdatedAt"},
+		Filters: []admin.Filter{
+			{Key: "parent_id", Field: "ParentID", Kind: "fk"},
+		},
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			vs, err := maago.Many(ctx, db, scanAuthor, `SELECT "id", "name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at" FROM "people" ORDER BY "id" DESC LIMIT $1 OFFSET $2`, q.Limit, q.Offset)
+			vParentID, err := admin.ID(q.Filters["parent_id"])
+			if err != nil {
+				return nil, err
+			}
+			vs, err := maago.Many(ctx, db, scanAuthor, `SELECT "id", "name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at" FROM "people" WHERE ("parent_id" = $1 OR $1 IS NULL) ORDER BY "id" DESC LIMIT $2 OFFSET $3`, vParentID, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -162,7 +201,11 @@ var Admin = []admin.Model{
 			return rows, nil
 		},
 		Count: func(ctx context.Context, db maago.DB, q admin.Query) (n int64, err error) {
-			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "people"`).Scan(&n)
+			vParentID, err := admin.ID(q.Filters["parent_id"])
+			if err != nil {
+				return 0, err
+			}
+			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "people" WHERE ("parent_id" = $1 OR $1 IS NULL)`, vParentID).Scan(&n)
 			return n, err
 		},
 		Form: func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {

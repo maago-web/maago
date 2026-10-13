@@ -124,6 +124,10 @@ blog/models.go:77:42: Adm2.Code is admin=hidden, but admin_search of Adm2 lists 
   fix: remove it from admin_search, or remove admin=hidden
 blog/models.go:77:42: admin_search applies to strings, but Adm2.Code is int32
   fix: remove it from admin_search, or make the field a string
+blog/models.go:77:62: Adm2.Page in admin_filter would be the list's key page, which the page or the search has
+  fix: rename the field, or filter by another
+blog/models.go:77:67: Adm2.Q in admin_filter would be the list's key q, which the page or the search has
+  fix: rename the field, or filter by another
 shop/models.go:5:6: table "blog_post" of shop: Post is also the table of blog: Post
   fix: give one of them another name with table=…
 shop/models.go:8:19: Post.ID is the primary key and cannot have "unique"

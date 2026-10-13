@@ -8,7 +8,7 @@ import (
 type Status string
 
 type Post struct {
-	m.Model `maago:"ordering=(-PublishedAt,Title),unique=(AuthorID,Slug),index=(Status),admin_list=(Title,Status,PublishedAt)"`
+	m.Model `maago:"ordering=(-PublishedAt,Title),unique=(AuthorID,Slug),index=(Status),admin_list=(Title,Status,PublishedAt),admin_search=(Title,Slug),admin_filter=(Status,Public,AuthorID)"`
 
 	ID           int64    `maago:"label='번호'"`
 	AuthorID     int64    `maago:"fk=Author"`
@@ -32,7 +32,7 @@ type Audit struct {
 }
 
 type Author struct {
-	m.Model `maago:"table=people"`
+	m.Model `maago:"table=people,admin_filter=(ParentID)"`
 
 	ID       int64
 	Name     string

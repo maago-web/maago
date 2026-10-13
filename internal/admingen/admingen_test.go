@@ -17,7 +17,7 @@ func TestIDOrderAndOtherApp(t *testing.T) {
 		{Name: "ID", Column: "id", Type: model.Int64},
 		{Name: "ItemID", Column: "item_id", Type: model.Int64, FK: "shop_item"},
 	}}
-	if got := Statements(note, project.SQLite, nil).List; !strings.HasSuffix(got, `ORDER BY "id" LIMIT ? OFFSET ?`) {
+	if got := Statements(note, project.SQLite, nil).List; !strings.HasSuffix(got, `ORDER BY "id" LIMIT ?1 OFFSET ?2`) {
 		t.Errorf("list: %s", got)
 	}
 	apps := []*model.App{{Dir: "notes", Name: "notes", Models: []*model.Model{note}}, {Dir: "shop", Name: "shop", Models: []*model.Model{item}}}

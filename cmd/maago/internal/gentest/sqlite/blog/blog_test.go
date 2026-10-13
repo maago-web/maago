@@ -301,3 +301,98 @@ func TestAdminDelete(t *testing.T) {
 		t.Errorf("deleted twice: %v", err)
 	}
 }
+
+// The admin's search and filters (D-134), on data that tells a mutation
+// apart: the escapes, the case, the parentheses of the search, each
+// filter and the count with it, a NULL left out, and bad values.
+func TestAdminSearch(t *testing.T) {
+	ctx, db := gentest.Open(t, "internal/testdata/example")
+	post, author := Admin[0], Admin[1]
+	a, err := InsertAuthor(ctx, db, NewAuthorInput{Name: "a", EditorID: 1, Code: "a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := InsertAuthor(ctx, db, NewAuthorInput{Name: "b", EditorID: 2, ParentID: &a.ID, Code: "b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]int64{}
+	for _, p := range []struct {
+		author      int64
+		title, slug string
+		status      string
+		public      bool
+	}{
+		{a.ID, "a%b", "s1", "draft", true}, {a.ID, "axb", "s2", "draft", true}, {a.ID, "x_y", "s3", "published", false},
+		{b.ID, "xzy", "s4", "published", true}, {b.ID, `a\b`, "s5", "draft", false}, {b.ID, "hello", "s6", "published", true},
+		{a.ID, "other", "hello-slug", "draft", true},
+	} {
+		o, err := InsertPost(ctx, db, NewPostInput{AuthorID: p.author, Title: p.title, Slug: p.slug, Status: maago.Set(p.status), Public: maago.Set(p.public), Body: []byte{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[p.title] = o.ID
+	}
+	list := func(m admin.Model, q admin.Query) ([]string, error) {
+		if q.Limit == 0 {
+			q.Limit = 50
+		}
+		n, err := m.Count(ctx, db, q)
+		if err != nil {
+			return nil, err
+		}
+		rows, err := m.Rows(ctx, db, q)
+		if err != nil {
+			return nil, err
+		}
+		var got []string
+		for _, r := range rows {
+			got = append(got, fmt.Sprint(r.Cells[0]))
+		}
+		slices.Sort(got)
+		if q.Offset == 0 && int64(len(got)) != n {
+			t.Errorf("%+v: %d rows, count %d", q, len(got), n)
+		}
+		return got, nil
+	}
+	f := func(kv ...string) map[string]string {
+		m := map[string]string{}
+		for i := 0; i < len(kv); i += 2 {
+			m[kv[i]] = kv[i+1]
+		}
+		return m
+	}
+	all := []string{`a\b`, "a%b", "axb", "hello", "other", "x_y", "xzy"}
+	for _, c := range []struct {
+		q    admin.Query
+		want []string
+	}{
+		{admin.Query{Search: "a%b"}, []string{"a%b"}},
+		{admin.Query{Search: "x_y"}, []string{"x_y"}},
+		{admin.Query{Search: `a\b`}, []string{`a\b`}},
+		{admin.Query{Search: "HELLO"}, []string{"hello", "other"}},
+		{admin.Query{Search: "HELLO", Filters: f("status", "published")}, []string{"hello"}},
+		{admin.Query{Search: "  "}, all},
+		{admin.Query{Filters: f("status", "")}, all},
+		{admin.Query{Filters: f("status", "draft")}, []string{`a\b`, "a%b", "axb", "other"}},
+		{admin.Query{Filters: f("public", "no")}, []string{`a\b`, "x_y"}},
+		{admin.Query{Filters: f("author_id", fmt.Sprint(b.ID))}, []string{`a\b`, "hello", "xzy"}},
+		{admin.Query{Filters: f("status", "draft"), Limit: 2, Offset: 2}, []string{"axb", "other"}},
+	} {
+		got, err := list(post, c.q)
+		if slices.Sort(c.want); err != nil || !slices.Equal(got, c.want) {
+			t.Errorf("%+v: %q %v, want %q", c.q, got, err, c.want)
+		}
+	}
+	if got, err := list(author, admin.Query{Filters: f("parent_id", fmt.Sprint(a.ID))}); err != nil || !slices.Equal(got, []string{fmt.Sprint(b.ID)}) {
+		t.Errorf("parent filter: %q %v", got, err) // a's NULL parent is left out
+	}
+	for _, bad := range []map[string]string{f("status", "nope"), f("public", "maybe"), f("author_id", "x"), f("author_id", "1.5")} {
+		if _, err := post.Count(ctx, db, admin.Query{Filters: bad}); err == nil {
+			t.Errorf("%v: no error", bad)
+		}
+		if _, err := post.Rows(ctx, db, admin.Query{Limit: 50, Filters: bad}); err == nil {
+			t.Errorf("%v: no error from Rows", bad)
+		}
+	}
+}

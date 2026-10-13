@@ -146,11 +146,13 @@ type Adm struct {
 }
 
 type Adm2 struct {
-	maago.Model ` + q + `maago:"admin_search=(Views,Code)"` + q + `
+	maago.Model ` + q + `maago:"admin_search=(Views,Code),admin_filter=(Page,Q)"` + q + `
 
 	ID    int64
 	Views int32
 	Code  int32 ` + q + `maago:"admin=hidden"` + q + `
+	Page  bool
+	Q     bool
 }
 `,
 		"shop/models.go": `package blog

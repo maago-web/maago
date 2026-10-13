@@ -63,9 +63,11 @@ func existsSQL(f *model.Field, d project.Dialect) string {
 	return "SELECT 1 FROM " + dialect.Quote(f.FK) + ` WHERE "id" = ` + mark(d, 1)
 }
 
+// mark is placeholder n: $n, or ?n for SQLite, numbered so that one
+// value can be used twice (D-134).
 func mark(d project.Dialect, n int) string {
 	if d == project.SQLite {
-		return "?"
+		return "?" + strconv.Itoa(n)
 	}
 	return "$" + strconv.Itoa(n)
 }

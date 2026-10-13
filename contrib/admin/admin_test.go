@@ -28,8 +28,8 @@ func (noDriver) Connect(context.Context) (driver.Conn, error) { return nil, erro
 func (noDriver) Driver() driver.Driver                        { return nil }
 
 // rows is a model whose n rows are made by cells, and which records the
-// Queries Rows was given.
-func rows(app, name string, n int, fields []Field, cells func(i int) []any, got *[]Query) Model {
+// limit and offset of each Query Rows was given.
+func rows(app, name string, n int, fields []Field, cells func(i int) []any, got *[][2]int) Model {
 	var list []string
 	for _, f := range fields {
 		list = append(list, f.Name)
@@ -37,7 +37,7 @@ func rows(app, name string, n int, fields []Field, cells func(i int) []any, got 
 	return Model{App: app, Name: name, Fields: fields, List: list,
 		Rows: func(_ context.Context, _ maago.DB, q Query) ([]Row, error) {
 			if got != nil {
-				*got = append(*got, q)
+				*got = append(*got, [2]int{q.Limit, q.Offset})
 			}
 			out := []Row{}
 			for i := q.Offset; i < min(q.Offset+q.Limit, n); i++ {
@@ -172,7 +172,7 @@ func TestList(t *testing.T) {
 			fields[i].Label = fields[i].Name
 		}
 	}
-	var got []Query
+	var got [][2]int
 	post := rows("blog", "Post", 51, fields, func(i int) []any {
 		return []any{fmt.Sprintf("<b>%d</b>", i), &s, &n, true, at, []byte("abc"), (*string)(nil), 1e6, &[]byte{1}}
 	}, &got)
@@ -192,11 +192,11 @@ func TestList(t *testing.T) {
 	got = nil
 	for _, c := range []struct {
 		page, want string
-		queried    []Query
+		queried    [][2]int
 	}{
-		{"2", "Page 2 of 2", []Query{{50, 50}}},
-		{"0", "Page 1 of 2", []Query{{50, 0}}},
-		{"-1", "Page 1 of 2", []Query{{50, 0}}},
+		{"2", "Page 2 of 2", [][2]int{{50, 50}}},
+		{"0", "Page 1 of 2", [][2]int{{50, 0}}},
+		{"-1", "Page 1 of 2", [][2]int{{50, 0}}},
 		{"3", "Page 3 of 2", nil},
 		{"1000000000000000000", "No rows on this page.", nil},
 	} {

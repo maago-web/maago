@@ -381,6 +381,53 @@ type Ref struct{ Model, Field, SQL string; Self bool; N int64 }       // Model�
 
 ---
 
+## 7. 검색·필터 (D-132, D-134)
+
+### 계획
+
+모양(★사람의 결정: 한 문장 고정): 모델마다 모든 조건이 든 **한 문장**을 생성하고, 꺼진 조건은 NULL 인자다(PHILOSOPHY 3: 조건은 Go에서 값으로 계산해 넘긴다). 돌아가는 SQL이 생성물에 그대로 보이고, `checkQueries`가 그 문장을 그대로 prepare한다(D-134 "모델마다 한 문장"). 런타임엔 칸 이름 API가 없다(D-48)
+```sql
+SELECT … FROM "blog_post"
+WHERE (LOWER("title") LIKE LOWER($1) ESCAPE E'\\' OR LOWER("slug") LIKE LOWER($1) ESCAPE E'\\' OR $1 IS NULL)
+  AND ("status" = $2 OR $2 IS NULL) AND ("public" = $3 OR $3 IS NULL) AND ("author_id" = $4 OR $4 IS NULL)
+ORDER BY … LIMIT $5 OFFSET $6
+```
+- 타입이 정해지는 쓰임(`칸 = $n`, `LIKE LOWER($n)`)이 앞, `$n IS NULL`이 뒤(PG는 반대 순서를 prepare하지 못한다, fable 실측). SQLite는 같은 값을 두 번 쓰므로 `?N`(CRUD와 같은 꼴, admin의 SQL을 모두 `?N`으로). `ESCAPE`는 PG `E'\\'`(설정 `standard_conforming_strings`와 상관없이 역슬래시 하나), SQLite `'\'`
+- `admin.Query`에 더함: `Search string`, `Filters map[string]string`(키는 칸의 snake 이름, ★사람의 결정: snake, admin 폼의 입력 이름과 같다). `Rows`·`Count`의 시그니처는 그대로(2번의 `Query` 자리)
+- 생성물의 `Rows`·`Count`가 각각 인자를 만든다(같은 몇 줄, 한 문장의 같은 인자): `admin.Like(q.Search)`(앞뒤 공백을 떼고 빈 글이면 nil, `\`·`%`·`_`를 `\`로 막고 `%…%`, `*string`), `admin.Choice(v, 선택지…)`(`*string`), `admin.YesNo(v)`(`*bool`), `admin.ID(v)`(`*int64`). 빈 값은 nil(조건 없음), 틀린 값은 `maago.Status(400)`. 런타임은 `Count`를 먼저 부르므로 400이 먼저 난다
+- 포인터 칸의 필터는 값이 같은 행만(NULL 행은 빠진다, NULL 고르기는 v0에 없다)
+- `admin.Model`에 더함: `Search []string`(Go 이름, 라벨은 런타임이 `Fields`에서), `Filters []Filter{Key, Field, Kind, Choices}`(`Kind`: choice·bool·fk)
+- 상한(8번 문서): `LOWER(칸)`과 `OR $n IS NULL`은 PG에서 인덱스를 타지 못할 수 있다(50행 admin 목록에 받음), SQLite의 대소문자 무시는 ASCII만(D-134)
+
+런타임
+- 목록: `?q=`와 `Filters`의 키를 `maago.Query`로 읽는다(같은 키 두 번은 400, 모르는 키는 무시). 검색 상자는 `Search`가 있을 때, 켜진 필터를 숨은 입력으로 실어 함께 보내고, FK 필터의 번호 입력도 같은 GET 폼에. 선택지·bool은 "All"과 값의 링크(고른 것은 굵게). 필터·검색이 바뀌면 `page`를 떼고(1쪽), 쪽 링크는 조건을 지킨다(`url.Values`로 이스케이프). 검색 폼은 지우기 폼 밖
+
+시험
+- 픽스처(세 벌의 `models.go`): `Post`에 `admin_search=(Title,Slug)`·`admin_filter=(Status,Public,AuthorID)`, `Author`에 `admin_filter=(ParentID)`(포인터 FK, NULL 부모 행)
+- gentest(두 방언) `TestAdminSearch`, 변이가 잡히게 짝을 둔 데이터: `a%b`와 `axb`에 `a%b`는 하나, `x_y`와 `xzy`, `a\b`. 대문자 검색어(`HELLO`로 `hello`). Slug만 맞고 필터는 안 맞는 행은 빠짐(괄호). 조건이 켜졌을 때 `Count` ≠ 전체이고 `len(Rows) == Count`. 공백만·빈 검색어는 조건 없음. 필터 셋 각각, 검색과 함께, `ParentID` 필터에서 NULL 행이 빠짐. 쪽(조건 뒤의 자리표). 잘못된 값(선택지 밖·`maybe`·`x`·`1.5`) 400
+- 골든: 한 문장과 인자 줄
+- `contrib/admin` 단위: `Like`(이스케이프·공백·빈 글), `Choice`·`YesNo`·`ID`의 nil·값·400
+- 런타임(손으로 만든 `Model`): `Rows`·`Count`가 받은 `Query`(검색어·필터, 모르는 키 무시), 같은 키 두 번 400, 검색 상자·필터 링크의 유무와 고른 값, 숨은 입력, 필터 링크는 `page`를 뗌, 쪽 링크는 조건을 지킴(이스케이프)
+
+하지 않기로 한 것: NULL 필터, 범위 필터, 정렬 바꾸기(D-134), 전문 검색, SQLite의 비ASCII 대소문자, 지운 뒤 조건 되돌리기, FK 필터의 고르는 상자(v1)
+
+단계
+1. `contrib/admin`의 `Query`·`Filter`·도우미, admingen의 한 문장과 인자, `?N` → 확인: 단위, 골든, gentest 두 방언
+2. 런타임 목록의 검색 상자·필터·링크 → 확인: 런타임 시험, 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: 조합마다 prepare → 한 문장이라 그 문장 하나(사라짐). 같은 필터 키 두 번 → 400(`maago.Query`). `ESCAPE '\'`와 PG 설정 → `E'\\'`. 자리표 방언 → `$N`·`?N`. bool·FK의 인자 타입 → `*bool`·`*int64`. `LOWER`의 인덱스 → 상한(8번). 링크 보존·이스케이프 시험, 픽스처 태그 → 더함
+- fable: ★런타임 조립 대신 한 문장 고정·NULL 인자 → 사람의 결정. `Query → Clause` 바꾸지 말 것 → 그대로. prepare와 실행이 두 출처 → 한 문장이라 사라짐. 변이를 잡는 짝 데이터(`ESCAPE`·검색어의 `LOWER`·괄호·`Count`의 필터·공백), 포인터 FK 필터의 gentest(`ParentID`). 검색 폼에 켜진 필터, 필터 링크는 `page`를 뗌. `Search`는 Go 이름. ★필터 키 → 사람의 결정: snake. `*bool` 필터는 단위만(gentest 픽스처에 더하지 않음)
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 변형으로 확인(11개, 모두 잡힘): `ESCAPE` 빼기, 검색어의 `LOWER` 빼기, 검색의 괄호, 자리표 번호, `Like`의 이스케이프·공백, `Choice` 검사, 쪽 링크의 조건, 필터 링크의 `page`, 숨은 입력. 처음 짠 변형 셋은 틀려서(글자가 맞지 않음, 빌드가 깨짐) 다시 짰다
+- codex: 결함 없음. `*bool` 필터의 두 방언 실행 → 계획대로 단위만(받음). 이스케이프·`ESCAPE`의 두 방언, PG의 타입 추론 순서, `?N`의 일관(Update·Exists·Refs·Row 모두), nil 인자의 NULL, `Rows`·`Count`의 같은 인자, 같은 키 400, 링크 이스케이프는 맞음
+- fable: 필터 칸의 snake 이름이 `page`·`q`이면 목록이 늘 400 → 생성 오류(`model` 검사, 진단 표 두 줄). 검색도 FK 필터도 없는 모델에 빈 폼 → 폼은 검색이나 FK 필터가 있을 때만(시험 한 줄). 검색 폼에 `page`가 없음을 시험에. ARCHITECTURE의 `admin_gen.go`, D-134의 "번호로만" → 고침. `search`와 `vStatus`의 이름 꼴 → `vSearch`. 검색어의 앞뒤 공백을 링크에서도 뗌. 받음: `Rows`·`Count`의 겹친 인자 줄(한 문장 바로 위라 따라 읽기 쉽다)
+
+---
+
 ## M6 끝
 
 - [ ] 1~10 완료

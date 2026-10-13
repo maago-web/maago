@@ -25,7 +25,7 @@ var Admin = []admin.Model{
 		},
 		List: []string{"ID", "Name"},
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			vs, err := maago.Many(ctx, db, scanCustomer, `SELECT "id", "name" FROM "customers" ORDER BY "id" DESC LIMIT ? OFFSET ?`, q.Limit, q.Offset)
+			vs, err := maago.Many(ctx, db, scanCustomer, `SELECT "id", "name" FROM "customers" ORDER BY "id" DESC LIMIT ?1 OFFSET ?2`, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -68,13 +68,13 @@ var Admin = []admin.Model{
 				})
 				return admin.Form{Inputs: in, Saved: err == nil}, err
 			}
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "customers" SET "name" = ? WHERE "id" = ?`, f.Name.Value, id))
+			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "customers" SET "name" = ?1 WHERE "id" = ?2`, f.Name.Value, id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
 		},
 		Delete: DeleteCustomer,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
-			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "customers" WHERE "id" = ?`, []admin.Ref{
-				{Model: "orders.Order", Field: "CustomerID", SQL: `SELECT COUNT(*) FROM "orders" WHERE "customer_id" = ?`},
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "customers" WHERE "id" = ?1`, []admin.Ref{
+				{Model: "orders.Order", Field: "CustomerID", SQL: `SELECT COUNT(*) FROM "orders" WHERE "customer_id" = ?1`},
 			})
 		},
 		Add:  true,
@@ -94,7 +94,7 @@ var Admin = []admin.Model{
 		},
 		List: []string{"ID", "CustomerID", "Status", "Amount", "Priority", "CreatedAt", "UpdatedAt"},
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			vs, err := maago.Many(ctx, db, scanOrder, `SELECT "id", "customer_id", "status", "amount", "priority", "created_at", "updated_at" FROM "orders" ORDER BY "customer_id" NULLS LAST, "id" DESC LIMIT ? OFFSET ?`, q.Limit, q.Offset)
+			vs, err := maago.Many(ctx, db, scanOrder, `SELECT "id", "customer_id", "status", "amount", "priority", "created_at", "updated_at" FROM "orders" ORDER BY "customer_id" NULLS LAST, "id" DESC LIMIT ?1 OFFSET ?2`, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -139,7 +139,7 @@ var Admin = []admin.Model{
 				f.Priority.Raw = "10"
 			}
 			if vals != nil && f.CustomerID.Error == "" && f.CustomerID.Given {
-				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "customers" WHERE "id" = ?`, f.CustomerID.Value); err != nil {
+				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "customers" WHERE "id" = ?1`, f.CustomerID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
 					maago.NoRow(ctx, &f.CustomerID)
@@ -171,12 +171,12 @@ var Admin = []admin.Model{
 				return admin.Form{Inputs: in, Saved: err == nil}, err
 			}
 			now := time.Now().Truncate(time.Microsecond)
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = ?, "status" = ?, "amount" = ?, "priority" = ?, "created_at" = ?, "updated_at" = ? WHERE "id" = ?`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), maago.SQLiteTime(f.CreatedAt.Value), maago.SQLiteTime(now), id))
+			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = ?1, "status" = ?2, "amount" = ?3, "priority" = ?4, "created_at" = ?5, "updated_at" = ?6 WHERE "id" = ?7`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), maago.SQLiteTime(f.CreatedAt.Value), maago.SQLiteTime(now), id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
 		},
 		Delete: DeleteOrder,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
-			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "orders" WHERE "id" = ?`, nil)
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "orders" WHERE "id" = ?1`, nil)
 		},
 		Add:  true,
 		Edit: true,

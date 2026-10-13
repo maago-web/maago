@@ -1,6 +1,14 @@
 {{define "title"}}{{.App}}.{{.Name}} · Admin{{end}}
 {{define "content"}}
 <h1>{{.App}}.{{.Name}}</h1>
+{{if .Box}}<form method="get" action="{{.Action}}" class="search">
+{{if .Search}}<input type="search" name="q" value="{{.Q}}" placeholder="Search {{.Search}}">{{end}}
+{{range .Filters}}{{if not .Options}}<label>{{.Label}} <input type="number" name="{{.Key}}" value="{{.Value}}" step="1"></label>{{end}}{{end}}
+{{range .Hidden}}<input type="hidden" name="{{.Key}}" value="{{.Value}}">{{end}}
+<button type="submit">Search</button>
+</form>
+{{end}}
+{{range .Filters}}{{if .Options}}<p class="filter">{{.Label}}: {{range .Options}}{{if .On}}<b>{{.Text}}</b>{{else}}<a href="{{.URL}}">{{.Text}}</a>{{end}} {{end}}</p>{{end}}{{end}}
 <p>Rows: {{.Count}}{{if .Add}} · <a href="{{.Add}}">Add</a>{{end}}</p>
 {{if .Rows}}
 {{if .Delete}}<form method="get" action="{{.Delete}}">{{end}}
