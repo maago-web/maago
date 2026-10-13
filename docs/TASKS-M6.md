@@ -557,7 +557,7 @@ D-69 점검(실측, 스크래치에서 TUTORIAL-FUTURE §2~5를 그대로): `maa
   5. 커스터마이징의 골든: `TestGenerated`(픽스처 `blog`의 `admin_list=(Title,Status,PublishedAt)` → 두 방언 골든 `admin_gen.go`의 `List`), gentest의 `TestAdmin`. 생성 오류(D-131의 둘과 `Admin` 이름 겹침)는 `TestAdminGen`
 - [x] MILESTONES.md의 M6 체크박스 갱신
 - [x] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인: 실행 38367105819(postgres:18 서비스) 통과. M6 3번부터 CI가 실패하고 있었다: `contrib/admin`의 `TestCan`이 `/admin`의 되돌림 코드를 307로 봤는데 `ServeMux`는 Go 1.25(CI와 모듈의 바닥)에서 301, 1.26에서 307. 코드 대신 `/admin/`로 가는지를 본다. 로컬은 1.26이라 못 봤다: 두 모듈을 `GOTOOLCHAIN=go1.25.14`로도 돌려 확인 (2026-10-13)
-- [ ] TASKS-M7 초안
+- [x] TASKS-M7 초안 (2026-10-13)
 
 ## 초안 리뷰 (2026-10-13)
 
