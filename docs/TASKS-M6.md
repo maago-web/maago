@@ -51,7 +51,7 @@
  사용자 프로젝트                                      이 저장소
  main.go: Apps: {board.App, auth.App,                 contrib/admin  App(Config) → maago.App
    admin.App(admin.Config{                              라우트 /admin/, 화면(embed.FS), CSS 한 파일
-     Models: [...]admin.Model{board.Admin…, auth.Admin…},   Config.Can(ctx, app, model, action) bool
+     Models: [][]admin.Model{board.Admin, auth.Admin},      Config.Can(ctx, app, model, action) (bool, error)
      Can: auth.Can})}                                 internal/admingen → 앱마다 admin_gen.go
  board/admin_gen.go: var Admin = []admin.Model{…}       모델 기술, 목록·개수 쿼리(두 방언), 폼·바인딩,
  auth/: IsSuperuser, Permission, Can (복사본)             행의 값, 역방향 FK 개수
@@ -287,6 +287,48 @@ Edit bool // 고칠 칸이 하나라도 있다
 - ponytail(나): 잘라낼 것 없음. 계획과 다른 것: gentest의 `TestAdminForm`은 HTTP가 아니라 생성된 `Form`을 직접 부른다(`gentest.Open`이 연결 하나라 `Handler`에 못 넣는다. 바인딩이 생성물로 가 칸 순서는 컴파일러가 잡고, 그리기는 런타임 시험이 본다). `BindTime`의 레이아웃은 바꾸지 않았다(`time.Parse`가 초 뒤의 소수를 받는다, 바꾼 변형이 살아남아 알았다, 시험으로 고정). 변형으로 확인(15개 중 14개, 나머지 하나가 위의 것): UPDATE 칸, 고칠 칸의 정의, `NoRow`, 추가 막음, `Opt`, `Raw`의 정밀도, `Ptr`, 권한 넷, `Add`·`Edit` 검사, FK 링크의 `Can`, 목록의 Add 링크. 리뷰 뒤 템플릿 변형 셋(`checked`, 필수 select의 빈 항목, `selected`)도 잡힘
 - codex: 같은 키 두 번의 POST가 첫 값으로 저장 → 400(admin의 입력은 키가 하나씩). 추가 없는 모델의 생성된 `Form`이 `id == 0`에 panic → `admin.NoAdding`(404). 따옴표·HTML이 든 값의 이스케이프 시험 → 더함. UPDATE 자리표·인자 순서, SQLite 시간, 숨김·읽기 전용 빠짐, FK 확인, 권한 순서, 303의 접두어는 맞음. 시험을 돌리지 못함(샌드박스)
 - fable: ★`datetime-local`은 소수 초를 세 자리까지만 받아 마이크로초 값은 빈칸으로 그려진다(HTML 표준, 브라우저 없는 시험이 못 봄) → 사람의 결정: 글 입력(`type="text"`, `2006-01-02T15:04:05.999999`, Django처럼 고르는 창 없음). 고칠 칸이 없는데 추가가 있는 모델의 POST가 아무것도 안 함 → `InsertX(NewXInput{})`(단위 시험 단언). 입력 꼴(select·checkbox·글 시간·readonly)의 HTML을 그리는 시험이 없음 → 더함. `*bool` 경로의 생성물 시험 → `TestNullBool`. ARCHITECTURE의 `admin_gen.go` 설명과 `NoRow` → 고침. 추가 없음의 까닭을 모두 적음. 정수 칸은 `step="1"`(`integer`). 값 없는 필수 select엔 빈 항목. 그대로 둠: 연속한 `if id != 0` 둘, 첫 칸이 빈 글이면 링크가 안 보임(v0)
+
+---
+
+## 5. 권한 (D-133)
+
+### 계획
+
+복사본 auth(`internal/scaffold/testdata/auth`)
+- `User`에 `IsSuperuser bool default=false`, `PasswordHash`에 `admin=hidden`(그래서 admin에서 `User`는 추가가 없다, D-133. 고치기는 4번대로 해시 칸을 쓰지 않는다)
+- 새 모델 `Permission{ID, UserID fk=User, App max=100, ModelName max=100, Action choices=view/add/change/delete}`, `unique=(UserID,App,ModelName,Action)`(★사람의 결정: `ModelName`. `Model`은 임베드한 `maago.Model`과 겹쳐 컴파일되지 않는다). `App`·`ModelName`은 admin URL의 글자 그대로(대소문자까지, 3번의 사람의 결정), 오타는 아무것도 허락하지 않는다(닫히는 쪽)
+- `Session`·`Token`·`Attempt`·`APIToken`은 모델 `admin=hidden`
+- `Can(ctx, app, model, action string) (bool, error)`(★사람의 결정: 오류는 500. `Config.Can`도 바꾼다: `contrib/admin`의 호출과 시험의 가짜): 요청의 사용자가 없거나 `IsStaff`가 아니면 거짓(`IsSuperuser`여도), `IsSuperuser`면 참, **`auth.User`·`auth.Permission`의 보기 밖 동작은 superuser만**(★사람의 결정: 권한을 올리는 길은 superuser의 일, 권한 행이 있어도), 그 밖은 권한 행이 있을 때. 쿼리는 `COUNT(*)`의 `:one int64`(행 없음 분기가 없다). 비활성·미인증은 `Current`가 이미 사용자 없음으로 본다(세션·API 토큰 둘 다 `is_active && verified_at`, `Can`은 다시 보지 않는다, 주석에)
+- `CreateSuperuser`가 `IsSuperuser`도 참으로
+- 같은 권한 행을 두 번 추가하면 unique가 막아 500(4번의 받은 상한, 8번 문서). 마지막 superuser를 끄는 일은 superuser만 할 수 있다(위 규칙), 잠김은 8번 문서에
+
+튜토리얼
+- 0019(계정 더하기)의 마이그레이션은 그때의 복사본에서 만들어졌고 걷기는 지금의 복사본으로 `maago add auth`를 돌린다 → 0019를 다시 만든다(`steps.sh unpack`→마이그레이션 다시·커밋 글의 "모델 다섯"을 여섯으로→`pack`). 0020~0022의 패치는 바이트 그대로인지 `pack` 왕복으로 확인(트레일러로 옮기는 길은 0019의 diff가 비어 `git am`이 거절한다, M5 12번 실측)
+- README와 D-103의 "복사본을 고쳐도 패치는 낡지 않는다"를 한정: 코드는 낡지 않지만 복사본의 모델이 바뀌면 그 단계의 마이그레이션은 다시 만든다
+
+시험
+- 복사본 `auth_test.go`의 `TestCan`(두 방언): 사용자 없음, staff 아님(권한 행과 `IsSuperuser`가 있어도 거짓), staff(행 없음), staff+행(`blog.Post`의 `view`만: 같은 모델의 `change`는 거짓, 앱만 맞는 행·모델만 맞는 행 둘은 아무것도 허락하지 않음, 다른 사용자의 행도), superuser(모두), staff+`auth.User`·`auth.Permission`의 `change`·`add` 행은 그 동작이 거짓이고 `view` 행은 참. DB 오류는 오류(닫은 DB)
+- `contrib/admin`: `Can`의 오류가 인덱스·목록·한 행·추가에서 500이고 `OnError`가 듣는다
+- `TestAddAuth`의 프로젝트에 admin을 켠다: `authMain`에 `admin.App(admin.Config{Models: [][]admin.Model{auth.Admin}, Can: auth.Can})`, 마이그레이션 기대에 `auth_permission`·`is_superuser`. `site`의 `TestAdmin`(두 방언, 진짜 `auth.Current`·`auth.Can`·DB): 네 사용자 × (인덱스, `User`·`Permission` 목록, `User` 한 행 GET·POST, `Permission` 추가 GET·POST)의 기대 코드 행렬(완료 조건 4), 인덱스에 숨긴 모델 넷이 없음, `User` 한 행 화면에 해시가 없고 고친 뒤에도 해시가 그대로, superuser가 admin에서 권한 행을 추가하면 그 staff의 동작이 열림. 이 작업은 view·add·change, 지우기 칸은 6번
+- `TestBoardTutorial`: 다시 만든 0019로 통과
+
+하지 않기로 한 것: 그룹(v1), 지우기(6번), 권한 행의 앱·모델을 고르는 상자(v1), 권한 캐시, 필드 단위 권한
+
+단계
+1. 복사본 auth와 `Config.Can`의 오류 → 확인: 복사본 시험(두 방언), `contrib/admin` 시험
+2. `TestAddAuth`에 admin과 `site`의 `TestAdmin` → 확인: 두 방언
+3. 튜토리얼 0019 다시, README·D-103 문구 → 확인: `TestBoardTutorial`, 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: ★User 고치기로 자기 권한 올리기, ★Permission 추가로 스스로 권한 주기 → 사람의 결정: `auth.User`·`auth.Permission`의 보기 밖 동작은 superuser만. ★`Can`이 DB 오류를 403으로 삼킴 → 사람의 결정: `(bool, error)`, 500. 비활성·미인증 → `Current`가 막는다(주석). 글자 비교는 대소문자까지 정확히. 권한 행 unique → 500 상한(8번). 0019 다시 만들기의 범위 → `pack` 왕복. 동작 넷의 분담 → 5번 view·add·change, 6번 delete
+- fable: ★`Permission.Model`은 임베드한 `maago.Model`과 겹쳐 컴파일되지 않음 → 사람의 결정: `ModelName`. `has_permission`은 `COUNT(*)`로(행 없음 분기 없음). 행렬이 놓치는 변이: 권한 행은 `view`만, staff 아님에 `IsSuperuser`·행을 붙임, 앱만·모델만 맞는 행 둘. 0019의 커밋 글(모델 다섯), README·D-103 문구 한정. 9번 글에서 "URL의 글자 그대로"를 짚을 것. Bearer도 `is_active && verified_at`를 거름
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 계획과 다른 것: admingen에서 기본값이 `''`인 문자열 칸은 빈 입력을 받는다(`TestAddAuth`가 `User`에 더하는 `Nickname default=''`가 admin 고치기를 막아서 알았다, D-132에 한 줄. `web`의 모델 폼은 기본값을 보지 않아 같은 칸이 사용자 폼에선 필수: 8번 상한 후보). 0019는 마이그레이션과 커밋 글(모델 여섯)을 다시 만들었고 0020~0022는 바이트 그대로. 변형으로 확인(11개, 모두 잡힘): `IsStaff` 조건, superuser만 규칙, 오류 삼키기, 쿼리 조건 넷, `CreateSuperuser`의 `IsSuperuser`, `PasswordHash` 숨김, `Session` 숨김
+- codex: superuser만 규칙이 앱 이름 `"auth"`에 묶여 복사본의 패키지 이름을 바꾸면 조용히 열린다 → 상수 `appName`과 패키지 이름을 대는 `TestAppName`. 권한 추가 POST의 행렬 → 줄 더함(`Permission` add 행이 있는 staff도 403). 비활성·미인증·`Can` 오류 전파·0019의 표는 맞음. 시험을 돌리지 못함(샌드박스)
+- fable: 앱 이름 규칙(codex와 같음, 주석과 시험으로). `User` 추가 404 줄 → 더함. `optional`의 뜻 바뀜을 기록에 → 위와 D-132. `-createsuperuser` 도움말 "staff account" → 복사본·시험은 고침, 0020의 `main`은 admin을 켜는 9번에서, TUTORIAL-FUTURE는 10번. 모양 그림의 `Can` → 고침. 6·9번은 이 모양에 붙는다(지우기는 `s.model(r, Delete)`, User·Permission 규칙이 delete도 덮는다)
 
 ---
 

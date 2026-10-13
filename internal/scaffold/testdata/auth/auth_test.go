@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1072,7 +1074,7 @@ func TestCreateSuperuser(t *testing.T) {
 	h, db := site(t)
 	ctx := context.Background()
 	u, err := CreateSuperuser(ctx, db, " Boss@Example.com ", password)
-	if err != nil || u.Email != "boss@example.com" || !u.IsStaff || u.VerifiedAt == nil {
+	if err != nil || u.Email != "boss@example.com" || !u.IsStaff || !u.IsSuperuser || u.VerifiedAt == nil {
 		t.Fatalf("%+v %v", u, err)
 	}
 	if c := login(t, h, "boss@example.com", ""); whoami(h, c.Value) != "boss@example.com" {
@@ -1239,5 +1241,75 @@ func TestAPITokenTriesPasswords(t *testing.T) {
 		if w := bearer(h, "POST", c.path, c.body, token); w.Code != 429 {
 			t.Errorf("%s: %d", c.path, w.Code)
 		}
+	}
+}
+
+// Can, the admin's: staff only, a superuser for all, other staff what
+// their own rows allow, spelled as the admin spells it, and never to add,
+// change or delete a User or a Permission (D-133).
+func TestCan(t *testing.T) {
+	_, db := site(t)
+	ctx := context.Background()
+	nobody := newUser(t, db, "nobody@example.com", func(in *NewUserInput) { in.IsSuperuser = maago.Set(true) })
+	staff := newUser(t, db, "staff@example.com", func(in *NewUserInput) { in.IsStaff = maago.Set(true) })
+	ed := newUser(t, db, "ed@example.com", func(in *NewUserInput) { in.IsStaff = maago.Set(true) })
+	boss := newUser(t, db, "boss@example.com", func(in *NewUserInput) { in.IsStaff, in.IsSuperuser = maago.Set(true), maago.Set(true) })
+	for _, p := range []NewPermissionInput{
+		{UserID: ed.ID, App: "blog", ModelName: "Post", Action: "view"},
+		{UserID: ed.ID, App: "blog", ModelName: "Tag", Action: "change"}, // the app right, the model not asked
+		{UserID: ed.ID, App: "shop", ModelName: "Item", Action: "add"},   // the model below asked of another app
+		{UserID: ed.ID, App: "auth", ModelName: "User", Action: "view"},
+		{UserID: ed.ID, App: "auth", ModelName: "User", Action: "change"},
+		{UserID: ed.ID, App: "auth", ModelName: "Permission", Action: "add"},
+		{UserID: staff.ID, App: "blog", ModelName: "Post", Action: "change"}, // another user's row
+		{UserID: nobody.ID, App: "blog", ModelName: "Post", Action: "view"},  // not staff
+	} {
+		if _, err := InsertPermission(ctx, db, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		user               *User
+		app, model, action string
+		want               bool
+	}{
+		{nil, "blog", "Post", "view", false},
+		{&nobody, "blog", "Post", "view", false},
+		{&staff, "blog", "Post", "view", false},
+		{&ed, "blog", "Post", "view", true},
+		{&ed, "blog", "Post", "change", false},
+		{&ed, "blog", "post", "view", false},
+		{&ed, "blog", "Tag", "view", false},
+		{&ed, "blog", "Tag", "change", true},
+		{&ed, "shop", "Tag", "change", false},
+		{&ed, "blog", "Item", "add", false},
+		{&ed, "auth", "User", "view", true},
+		{&ed, "auth", "User", "change", false},
+		{&ed, "auth", "Permission", "add", false},
+		{&boss, "auth", "Permission", "add", true},
+		{&boss, "any", "Thing", "delete", true},
+	} {
+		cctx := maago.WithDB(ctx, db)
+		name := "nobody signed in"
+		if c.user != nil {
+			cctx, name = maago.WithUser(cctx, *c.user), c.user.Email
+		}
+		if got, err := Can(cctx, c.app, c.model, c.action); err != nil || got != c.want {
+			t.Errorf("%s %s %s.%s: %t %v, want %t", name, c.action, c.app, c.model, got, err, c.want)
+		}
+	}
+
+	closed := maagotest.DB(t)
+	closed.Close()
+	if _, err := Can(maago.WithUser(maago.WithDB(ctx, closed), ed), "blog", "Post", "view"); err == nil {
+		t.Error("no error from a closed database")
+	}
+}
+
+// appName is the package's name, which the admin calls the app.
+func TestAppName(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "auth.go", nil, parser.PackageClauseOnly)
+	if err != nil || f.Name.Name != appName {
+		t.Errorf("appName is %q, but the package is %v (%v): rename appName with the package", appName, f.Name, err)
 	}
 }

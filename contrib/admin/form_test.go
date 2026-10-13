@@ -140,10 +140,10 @@ func TestForms(t *testing.T) {
 	var asked []string
 	author := plain("blog", "Author")
 	cfg := Config{Models: [][]Model{{p.model(true, true), author}},
-		Can: func(ctx context.Context, app, model, action string) bool {
+		Can: func(ctx context.Context, app, model, action string) (bool, error) {
 			u, _ := maago.UserFrom[string](ctx)
 			asked = append(asked, u+" "+app+"."+model+" "+action)
-			return u == "root" || u == "viewer" && action == View && model == "Post"
+			return u == "root" || u == "viewer" && action == View && model == "Post", nil
 		}}
 	h := handler(t, cfg, "", nil)
 
@@ -244,7 +244,7 @@ func TestForms(t *testing.T) {
 // to change is read only (D-132).
 func TestNoAddNoEdit(t *testing.T) {
 	p := &post{}
-	all := func(context.Context, string, string, string) bool { return true }
+	all := func(context.Context, string, string, string) (bool, error) { return true, nil }
 	h := handler(t, Config{Models: [][]Model{{p.model(false, false)}}, Can: all}, "", nil)
 	if w := get(h, "root", "/admin/blog/Post/add/"); w.Code != 404 {
 		t.Errorf("add: %d", w.Code)

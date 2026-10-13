@@ -49,8 +49,8 @@ func TestAddAuth(t *testing.T) {
 
 			initial := readFile(t, filepath.Join(root, makeMigrations(t, root, "")))
 			want := map[project.Dialect][]string{
-				project.SQLite:   {`CREATE TABLE "auth_user"`, `CREATE TABLE "auth_session"`, `CREATE TABLE "auth_token"`, `CREATE TABLE "auth_attempt"`, `CREATE TABLE "auth_api_token"`, `"email" TEXT NOT NULL CHECK (length("email") <= 254)`, `"is_active" INTEGER NOT NULL DEFAULT 1`, `"is_staff" INTEGER NOT NULL DEFAULT 0`, `"verified_at" TEXT,`, `CREATE UNIQUE INDEX "auth_user_email_key"`},
-				project.Postgres: {`CREATE TABLE "auth_user"`, `CREATE TABLE "auth_session"`, `CREATE TABLE "auth_token"`, `CREATE TABLE "auth_attempt"`, `CREATE TABLE "auth_api_token"`, `"email" VARCHAR(254) NOT NULL`, `"is_active" BOOLEAN NOT NULL DEFAULT true`, `"is_staff" BOOLEAN NOT NULL DEFAULT false`, `"verified_at" TIMESTAMPTZ,`, `CONSTRAINT "auth_user_email_key" UNIQUE ("email")`},
+				project.SQLite:   {`CREATE TABLE "auth_user"`, `CREATE TABLE "auth_session"`, `CREATE TABLE "auth_token"`, `CREATE TABLE "auth_attempt"`, `CREATE TABLE "auth_api_token"`, `CREATE TABLE "auth_permission"`, `"is_superuser" INTEGER NOT NULL DEFAULT 0`, `"email" TEXT NOT NULL CHECK (length("email") <= 254)`, `"is_active" INTEGER NOT NULL DEFAULT 1`, `"is_staff" INTEGER NOT NULL DEFAULT 0`, `"verified_at" TEXT,`, `CREATE UNIQUE INDEX "auth_user_email_key"`},
+				project.Postgres: {`CREATE TABLE "auth_user"`, `CREATE TABLE "auth_session"`, `CREATE TABLE "auth_token"`, `CREATE TABLE "auth_attempt"`, `CREATE TABLE "auth_api_token"`, `CREATE TABLE "auth_permission"`, `"is_superuser" BOOLEAN NOT NULL DEFAULT false`, `"email" VARCHAR(254) NOT NULL`, `"is_active" BOOLEAN NOT NULL DEFAULT true`, `"is_staff" BOOLEAN NOT NULL DEFAULT false`, `"verified_at" TIMESTAMPTZ,`, `CONSTRAINT "auth_user_email_key" UNIQUE ("email")`},
 			}[dd.d]
 			for _, w := range want {
 				if !strings.Contains(initial, w) {
@@ -61,7 +61,7 @@ func TestAddAuth(t *testing.T) {
 			goTest(t, root)
 
 			models := filepath.Join(root, "auth", "models.go")
-			writeFile(t, models, strings.Replace(readFile(t, models), "\tPasswordHash string\n", "\tPasswordHash string\n\tNickname     string `maago:\"default=''\"`\n", 1))
+			writeFile(t, models, strings.Replace(readFile(t, models), "\tIsActive ", "\tNickname string `maago:\"default=''\"`\n\tIsActive ", 1))
 			if added := readFile(t, filepath.Join(root, makeMigrations(t, root, ""))); !strings.Contains(added, `"nickname"`) {
 				t.Errorf("no nickname:\n%s", added)
 			}
@@ -83,6 +83,7 @@ import (
 	"os"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/contrib/admin"
 	_ "modernc.org/sqlite"
 
 	"example.com/app/auth"
@@ -90,7 +91,7 @@ import (
 )
 
 func main() {
-	createSuperuser := flag.Bool("createsuperuser", false, "create a staff account from MAAGO_SUPERUSER_EMAIL and MAAGO_SUPERUSER_PASSWORD")
+	createSuperuser := flag.Bool("createsuperuser", false, "create a superuser from MAAGO_SUPERUSER_EMAIL and MAAGO_SUPERUSER_PASSWORD")
 	flag.Parse()
 	ctx := context.Background()
 	db, err := maago.OpenDB(ctx, maago.DBConfig{})
@@ -105,7 +106,8 @@ func main() {
 		log.Printf("created %s", u.Email)
 		return
 	}
-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, site.App}, Auth: auth.Current, LoginURL: "/login"})
+	adminApp := admin.App(admin.Config{Models: [][]admin.Model{auth.Admin}, Can: auth.Can})
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, site.App, adminApp}, Auth: auth.Current, LoginURL: "/login"})
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -163,6 +165,127 @@ func Staff(ctx context.Context, in struct{}) (StaffPage, error) {
 		return StaffPage{}, err
 	}
 	return StaffPage{u.Email}, nil
+}
+`,
+	"admin_test.go": `package site
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/contrib/admin"
+	authlib "github.com/maago-web/maago/contrib/auth"
+	"github.com/maago-web/maago/maagotest"
+
+	"example.com/app/auth"
+)
+
+// The admin on the copied auth (D-133, M6's condition 4): who may see and
+// do what, the models it hides, and the hash it never shows nor writes.
+func TestAdmin(t *testing.T) {
+	authlib.Iterations = 1000
+	db := maagotest.DB(t)
+	adminApp := admin.App(admin.Config{Models: [][]admin.Model{auth.Admin}, Can: auth.Can})
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, App, adminApp}, Auth: auth.Current, LoginURL: "/login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	const password = "correct horse battery staple"
+	hash, err := authlib.Hash(password)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	user := func(email string, staff, super bool) auth.User {
+		u, err := auth.InsertUser(ctx, db, auth.NewUserInput{Email: email, PasswordHash: hash, VerifiedAt: &now, IsStaff: maago.Set(staff), IsSuperuser: maago.Set(super)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	ann, staff, ed, _ := user("ann@example.com", false, false), user("staff@example.com", true, false), user("ed@example.com", true, false), user("boss@example.com", true, true)
+	for _, p := range [][2]string{{"User", "view"}, {"Permission", "view"}, {"Permission", "add"}} { // add: a superuser's job all the same
+		if _, err := auth.InsertPermission(ctx, db, auth.NewPermissionInput{UserID: ed.ID, App: "auth", ModelName: p[0], Action: p[1]}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	do := func(session, method, path string, form url.Values) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(form.Encode()))
+		if form != nil {
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		}
+		r.AddCookie(&http.Cookie{Name: authlib.CookieName, Value: session})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	login := func(email string) string {
+		w := do("", "POST", "/login", url.Values{"email": {email}, "password": {password}})
+		if w.Code != 303 || len(w.Result().Cookies()) != 1 {
+			t.Fatalf("login %s: %d", email, w.Code)
+		}
+		return w.Result().Cookies()[0].Value
+	}
+	sessions := map[string]string{}
+	for _, u := range []string{"ann", "staff", "ed", "boss"} {
+		sessions[u] = login(u + "@example.com")
+	}
+	annRow := fmt.Sprintf("/admin/auth/User/%d/", ann.ID)
+	change := url.Values{"email": {"ann2@example.com"}, "is_active": {"on"}, "verified_at": {"2026-01-01T00:00:00"}}
+	grant := url.Values{"user_id": {fmt.Sprint(staff.ID)}, "app": {"auth"}, "model_name": {"User"}, "action": {"view"}}
+	for _, c := range []struct {
+		method, path string
+		form         url.Values
+		codes        [4]int // ann, staff, ed, boss
+	}{
+		{"GET", "/admin/", nil, [4]int{403, 403, 200, 200}},
+		{"GET", "/admin/auth/User/", nil, [4]int{403, 403, 200, 200}},
+		{"GET", "/admin/auth/Permission/", nil, [4]int{403, 403, 200, 200}},
+		{"GET", annRow, nil, [4]int{403, 403, 200, 200}},
+		{"GET", "/admin/auth/Permission/add/", nil, [4]int{403, 403, 403, 200}},
+		{"GET", "/admin/auth/Session/", nil, [4]int{403, 403, 403, 404}},
+		{"GET", "/admin/auth/User/add/", nil, [4]int{403, 403, 403, 404}}, // the hash would be empty (D-133)
+		{"POST", annRow, change, [4]int{403, 403, 403, 303}},
+		{"POST", "/admin/auth/Permission/add/", url.Values{"user_id": {fmt.Sprint(ed.ID)}, "app": {"auth"}, "model_name": {"User"}, "action": {"change"}}, [4]int{403, 403, 403, 303}},
+	} {
+		for i, u := range []string{"ann", "staff", "ed", "boss"} {
+			if w := do(sessions[u], c.method, c.path, c.form); w.Code != c.codes[i] {
+				t.Errorf("%s %s %s: %d, want %d", u, c.method, c.path, w.Code, c.codes[i])
+			}
+		}
+	}
+
+	body := do(sessions["boss"], "GET", "/admin/", nil).Body.String()
+	for _, hidden := range []string{"Session", "Token", "Attempt", "APIToken"} {
+		if strings.Contains(body, ">"+hidden+"<") {
+			t.Errorf("the index shows %s:\n%s", hidden, body)
+		}
+	}
+	if body := do(sessions["boss"], "GET", annRow, nil).Body.String(); strings.Contains(body, "password") || strings.Contains(body, hash) || strings.Contains(body, "Password") {
+		t.Errorf("the User page shows the hash:\n%s", body)
+	}
+	if ann2, err := auth.GetUser(ctx, db, ann.ID); err != nil || ann2.Email != "ann2@example.com" || ann2.PasswordHash != hash {
+		t.Errorf("after boss changed ann: %+v %v", ann2, err)
+	}
+	login("ann2@example.com") // the hash is as it was
+
+	if w := do(sessions["staff"], "GET", "/admin/auth/User/", nil); w.Code != 403 {
+		t.Fatalf("staff before the grant: %d", w.Code)
+	}
+	if w := do(sessions["boss"], "POST", "/admin/auth/Permission/add/", grant); w.Code != 303 {
+		t.Fatalf("grant: %d\n%s", w.Code, w.Body)
+	}
+	if w := do(sessions["staff"], "GET", "/admin/auth/User/", nil); w.Code != 200 {
+		t.Errorf("staff after the grant: %d", w.Code)
+	}
 }
 `,
 	"templates/base.html":       `<!doctype html><title>Site</title>{{block "content" .}}{{end}}`,

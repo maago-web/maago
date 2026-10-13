@@ -107,7 +107,7 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 				c.Type, c.Choices = model.String, []string{"yes", "no"}
 				mf = &c
 			}
-			bind, rule := web.ModelRule(mf, f.Pointer)
+			bind, rule := web.ModelRule(mf, optional(f))
 			w("maago.%s(ctx, vals, &f.%s, %s)", bind, f.Name, rule)
 		}
 		w("if vals == nil && id != 0 {")
@@ -145,7 +145,7 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 		switch {
 		case f.Admin == "hidden":
 		case editable(f):
-			w("in = append(in, admin.In(&f.%s, %t, %q))", f.Name, !f.Pointer && f.Type != model.Bool, models[f.FK])
+			w("in = append(in, admin.In(&f.%s, %t, %q))", f.Name, !optional(f) && f.Type != model.Bool, models[f.FK])
 		default:
 			w("if id != 0 {")
 			w("in = append(in, admin.Show(%q, o.%s))", label, f.Name)
@@ -205,6 +205,12 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 	w("return admin.Form{Inputs: in, Saved: err == nil}, err")
 	w("}")
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// optional reports whether f's input may be left empty: a pointer is
+// then NULL, and a string whose default is ” is then ”.
+func optional(f *model.Field) bool {
+	return f.Pointer || f.Type == model.String && f.Default != nil && *f.Default == ""
 }
 
 // formType is T of the maago.Field[T] that reads f.

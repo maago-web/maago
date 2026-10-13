@@ -69,7 +69,32 @@ func RequireStaff(ctx context.Context) (User, error) {
 	return u, nil
 }
 
-// CreateSuperuser adds a staff account that may sign in at once, for
+// appName is this package's name, as the admin calls the app: rename it
+// with the package, or Can no longer keeps User and Permission to
+// superusers (TestAppName checks it).
+const appName = "auth"
+
+// Can is the admin's Config.Can (D-133): may the user of the request do
+// action to the model of the app? Not a staff user: no, even a superuser.
+// A superuser: yes. Any other staff user: what a Permission row allows,
+// but never to add, change or delete a User or a Permission, which would
+// give one more power: that is a superuser's job. A closed or unverified
+// account is no user of the request at all (Current).
+func Can(ctx context.Context, app, model, action string) (bool, error) {
+	u, ok := maago.UserFrom[User](ctx)
+	switch {
+	case !ok || !u.IsStaff:
+		return false, nil
+	case u.IsSuperuser:
+		return true, nil
+	case app == appName && (model == "User" || model == "Permission") && action != "view":
+		return false, nil
+	}
+	n, err := CountPermissions(ctx, maago.DBFrom(ctx), CountPermissionsParams{UserID: u.ID, App: app, ModelName: model, Action: action})
+	return n.N > 0, err
+}
+
+// CreateSuperuser adds a superuser that may sign in at once, for
 // main's -createsuperuser (see the package's doc). An email that has an
 // account is an error.
 func CreateSuperuser(ctx context.Context, db maago.DB, email, password string) (User, error) {
@@ -91,7 +116,7 @@ func CreateSuperuser(ctx context.Context, db maago.DB, email, password string) (
 		return User{}, err
 	}
 	now := time.Now()
-	return InsertUser(ctx, db, NewUserInput{Email: email, PasswordHash: hash, IsStaff: maago.Set(true), VerifiedAt: &now})
+	return InsertUser(ctx, db, NewUserInput{Email: email, PasswordHash: hash, IsStaff: maago.Set(true), IsSuperuser: maago.Set(true), VerifiedAt: &now})
 }
 
 // cookiePath is where the session cookie goes: the whole site.

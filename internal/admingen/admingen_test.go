@@ -107,3 +107,17 @@ func TestNullBool(t *testing.T) {
 		}
 	}
 }
+
+// A string whose default is ” may be left empty: that is its value.
+func TestEmptyDefault(t *testing.T) {
+	empty := ""
+	m := &model.Model{Name: "Note", Table: "notes", Fields: []*model.Field{
+		{Name: "ID", Column: "id", Type: model.Int64},
+		{Name: "Nick", Column: "nick", Type: model.String, Default: &empty},
+	}}
+	app := &model.App{Dir: "n", Name: "n", Models: []*model.Model{m}}
+	got := string(File(project.SQLite, app, []*model.App{app}))
+	if !strings.Contains(got, `maago.Rule{Name: "nick", Label: "Nick", Optional: true}`) || !strings.Contains(got, `admin.In(&f.Nick, false, "")`) {
+		t.Errorf("admin_gen.go:\n%s", got)
+	}
+}

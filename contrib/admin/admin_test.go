@@ -58,9 +58,9 @@ func plain(app, name string) Model {
 func handler(t *testing.T, cfg Config, prefix string, can map[string][]string) http.Handler {
 	t.Helper()
 	if cfg.Can == nil {
-		cfg.Can = func(ctx context.Context, app, model, action string) bool {
+		cfg.Can = func(ctx context.Context, app, model, action string) (bool, error) {
 			u, _ := maago.UserFrom[string](ctx)
-			return action == View && (slices.Contains(can[u], "*") || slices.Contains(can[u], app+"."+model))
+			return action == View && (slices.Contains(can[u], "*") || slices.Contains(can[u], app+"."+model)), nil
 		}
 	}
 	api := maago.NewApp("api", maago.AppRoute{Method: "GET", Path: "/api/x", Name: "api_x", API: true, LoginRequired: true,
@@ -117,10 +117,10 @@ func TestLogin(t *testing.T) {
 func TestCan(t *testing.T) {
 	var asked []string
 	cfg := Config{Models: [][]Model{{plain("blog", "Post"), plain("blog", "Tag")}, {plain("auth", "User")}},
-		Can: func(ctx context.Context, app, model, action string) bool {
+		Can: func(ctx context.Context, app, model, action string) (bool, error) {
 			u, _ := maago.UserFrom[string](ctx)
 			asked = append(asked, app+"."+model+" "+action)
-			return u == "root" || u == "ed" && app+"."+model == "blog.Tag"
+			return u == "root" || u == "ed" && app+"."+model == "blog.Tag", nil
 		}}
 	h := handler(t, cfg, "", nil)
 	if w := get(h, "nobody", "/admin/"); w.Code != http.StatusForbidden {
@@ -239,7 +239,7 @@ func TestPassword(t *testing.T) {
 
 // App refuses a Config that cannot work.
 func TestConfig(t *testing.T) {
-	can := func(context.Context, string, string, string) bool { return true }
+	can := func(context.Context, string, string, string) (bool, error) { return true, nil }
 	for _, c := range []struct {
 		cfg  Config
 		want string
@@ -269,5 +269,26 @@ func TestPrefix(t *testing.T) {
 	}
 	if body := get(h, "ed", "/admin/blog/Post/").Body.String(); !strings.Contains(body, `href="/app/admin/blog/Post/?page=2"`) {
 		t.Errorf("list:\n%s", body)
+	}
+}
+
+// An error of Can answers 500 on every page that asks it, and OnError
+// hears it.
+func TestCanFails(t *testing.T) {
+	p := &post{}
+	down := errors.New("database down")
+	cfg := Config{Models: [][]Model{{p.model(true, true)}}, Can: func(context.Context, string, string, string) (bool, error) { return false, down }}
+	var heard []error
+	h, err := maago.Handler(maago.Config{DB: sql.OpenDB(noDriver{}), Apps: []maago.App{App(cfg)}, LoginURL: "/login",
+		Auth:    func(*http.Request) (any, error) { return "root", nil },
+		OnError: func(_ context.Context, _ *http.Request, err error) { heard = append(heard, err) }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"/admin/", "/admin/blog/Post/", "/admin/blog/Post/7/", "/admin/blog/Post/add/"} {
+		heard = nil
+		if w := get(h, "root", target); w.Code != http.StatusInternalServerError || len(heard) != 1 || !errors.Is(heard[0], down) {
+			t.Errorf("%s: %d, heard %v", target, w.Code, heard)
+		}
 	}
 }

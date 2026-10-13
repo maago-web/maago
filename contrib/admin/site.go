@@ -31,7 +31,8 @@ type Config struct {
 	// model of the app named app (D-133): the copied auth's Can. ctx holds
 	// the user (maago.UserFrom) and the database (maago.DBFrom). A model
 	// whose view it refuses is not in the index, and its pages are 403.
-	Can func(ctx context.Context, app, model, action string) bool
+	// Its error, such as the database's, answers 500.
+	Can func(ctx context.Context, app, model, action string) (bool, error)
 }
 
 // pageSize is the rows of a page of a list (D-134).
@@ -83,7 +84,7 @@ func App(cfg Config) maago.App {
 }
 
 type site struct {
-	can    func(ctx context.Context, app, model, action string) bool
+	can    func(ctx context.Context, app, model, action string) (bool, error)
 	models []*Model            // in the order of Config.Models
 	byKey  map[string]*Model   // by "app.Model"
 	heads  map[*Model][]string // the labels of each model's List
@@ -106,7 +107,11 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) error {
 	}
 	var apps []app
 	for _, m := range s.models {
-		if !s.can(r.Context(), m.App, m.Name, View) {
+		ok, err := s.can(r.Context(), m.App, m.Name, View)
+		if err != nil {
+			return err
+		}
+		if !ok {
 			continue
 		}
 		if len(apps) == 0 || apps[len(apps)-1].Name != m.App {
@@ -160,8 +165,14 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 		views[i] = rowView{rowURL(m, row.ID), row.Cells}
 	}
 	addURL := ""
-	if m.Add && s.can(ctx, m.App, m.Name, Add) {
-		addURL = listURL(m) + "add/"
+	if m.Add {
+		ok, err := s.can(ctx, m.App, m.Name, Add)
+		if err != nil {
+			return err
+		}
+		if ok {
+			addURL = listURL(m) + "add/"
+		}
 	}
 	at := func(p int64) string {
 		if p < 1 || p > last {
@@ -180,7 +191,11 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 // there are: 403 whether the model is there or not, then 404.
 func (s *site) model(r *http.Request, action string) (*Model, error) {
 	app, name := r.PathValue("app"), r.PathValue("model")
-	if !s.can(r.Context(), app, name, action) {
+	ok, err := s.can(r.Context(), app, name, action)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
 		return nil, maago.Status(http.StatusForbidden, fmt.Errorf("admin: the user may not %s %s.%s", action, app, name))
 	}
 	m := s.byKey[app+"."+name]
@@ -219,7 +234,12 @@ func (s *site) row(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	save := m.Edit && (action == Change || s.can(r.Context(), m.App, m.Name, Change))
+	save := m.Edit && action == Change
+	if m.Edit && action == View {
+		if save, err = s.can(r.Context(), m.App, m.Name, Change); err != nil {
+			return err
+		}
+	}
 	if action == Change && !m.Edit {
 		return maago.Status(http.StatusForbidden, fmt.Errorf("admin: %s.%s has nothing to change", m.App, m.Name))
 	}
@@ -255,7 +275,15 @@ func (s *site) form(w http.ResponseWriter, r *http.Request, m *Model, id int64, 
 	for i, in := range f.Inputs {
 		inputs[i].Input = in
 		target := s.byKey[in.FK]
-		if n, err := strconv.ParseInt(in.Raw, 10, 64); target != nil && err == nil && in.Error == "" && s.can(ctx, target.App, target.Name, View) {
+		n, err := strconv.ParseInt(in.Raw, 10, 64)
+		if target == nil || err != nil || in.Error != "" {
+			continue
+		}
+		ok, err := s.can(ctx, target.App, target.Name, View)
+		if err != nil {
+			return err
+		}
+		if ok {
 			inputs[i].Link = rowURL(target, n)
 		}
 	}
