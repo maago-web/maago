@@ -68,6 +68,8 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"admin columns", "0025-Board-in-the-admin.patch", ",admin_list=(Title,BoardID,Status,AuthorID,CreatedAt)", "", "go test: "},
 		// Who gets a draft's file is the view's to check (D-140).
 		{"a draft's file", "0029-Attach-files-to-posts.patch", "+\tif post.Status == \"draft\" {", "+\tif false {", "go test: "},
+		{"me without a sign-in", "0030-Me.patch", `+	maago.GET("/me", "me", Me, maago.LoginRequired),`, `+	maago.GET("/me", "me", Me),`, "go test: "},
+		{"anybody edits", "0031-Edit-a-post.patch", "+\tif err := mayChange(ctx, p); err != nil {", "+\tif err := error(nil); err != nil {", "go test: "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()

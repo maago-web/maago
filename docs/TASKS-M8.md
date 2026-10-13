@@ -76,6 +76,20 @@
    - 계획 리뷰는 fable 하나: 정해진 결정(D-141) 안의 튜토리얼 고침(WORKFLOW 3). 받음: 확인의 grep을 `-il`로(대문자 `SQLite` 문장을 놓친다. 남는 것은 0013과 0020의 "SQLite 프로젝트라면"), DECISIONS D-129의 "게시판 0015" → 0016, 제목에서 "(draft)" 떼기, 메시지에 D-번호 대신 말로(공개 저장소에는 DECISIONS가 없다), `go get` 없이 `go mod tidy` 하나, 0022 문구(열·인덱스·FK), `TestBoardTutorialCatches`에 0013 줄(0001_initial의 PG 열을 SQLite의 것으로 → `maago gen:`의 PG 구문 오류). 선택을 받음: pack 전에 PG로 걸어 보기(`TestBoardTutorial`로 함)
    - 구현 리뷰는 fable 하나(계획 리뷰를 하나로 줄인 작업, WORKFLOW 6): 막는 지적 없음, 스테이지된 것을 PG로 걸어 실측. 받음: 새 Catches 줄의 주석을 그 줄이 증명하는 것으로(방언은 가르지 못한다, PG로 가는 증명은 `TestBoardTutorial`의 끝 확인), 확인의 grep 사실, 0013 메시지에 `createdb board`
 4. **`Me`와 `Edit a post`**(D-142): 단계 둘. → 확인: `TestBoardTutorial`, `TestBoardTutorialCatches`에 단계마다 한 줄(권한 검사 빼기)
+
+   계획 (풀어 둔 곳에서 먼저 해 봄: 두 단계 모두 PG로 gen·check·`go test`가 통과)
+   - 자리: 0029 뒤에 `0030-Me.patch`, `0031-Edit-a-post.patch`(앞 단계의 번호가 밀리지 않는다. `Ship it`은 5번에서 0032)
+   - **0030 `Me`**(원본 44·24): `board/queries/my_posts.sql`(`MyPosts :many MyPost`, `author_id`의 글, 초안·예약도, 숨긴 글은 빼고, 게시판 이름과, 새것부터. 페이지 없음). 뷰 `Me(ctx, struct{}) (MePage, error)` 하나를 라우트 둘이 쓴다: `GET /me`(`me`, 템플릿 `me_page.html`)와 `GET /api/me`(`api_me`, `maago.API`), 둘 다 `maago.LoginRequired`. `MePage{Email, Posts}`: `auth.User`를 통째로 JSON에 넣지 않는다(비밀번호 해시). `base.html` 머리에 `내 글` 링크(클래스 없음: Tailwind 출력은 그대로)
+     - 시험 `TestMe`: 앤의 초안·게시 글은 나오고 숨긴 글·밥의 글은 안 나온다(페이지와 JSON 둘), 로그인 없는 `/me`는 303, 토큰 없는 `/api/me`는 401과 `WWW-Authenticate: Bearer`, 토큰이면 200 JSON(`"Email":"ann@example.com"`)
+     - 메시지: 한 뷰가 페이지와 JSON을 함께 하는 법, 사용자는 `maago.UserFrom`이 준다. 커스텀 User 필드 한 문단: `auth/models.go`의 `User`에 필드를 적고 `makemigrations`(복사한 앱은 내 코드다). 이 튜토리얼은 `auth/`를 패치에 넣지 않아 하지 않는다
+     - Catches: `/me`의 `maago.LoginRequired`를 빼면 → `go test: `(로그인 없이 빈 목록의 200)
+   - **0031 `Edit a post`**(원본 35·46): `GET`·`POST /posts/{id}/edit`(`post_edit`·`post_update`, `maago.LoginRequired`), 뷰 `EditPost`, 폼 `PostEditForm{Title, Body}`(`model=Post`). 고정·예약 시각은 고치지 않는다: 쓸 때 정한 것이고, 같이 고치면 겹침 검사가 제 글을 빼야 하고 지난 예약 시각이 `Validate`에 걸린다(메시지에 한 줄). 숨긴 글은 404, `mayChange`(작성자·staff, 아니면 403)는 GET에도. GET이면(`!f.Bound()`) 폼의 `Raw`를 글의 값으로. 같은 제목 검사는 `post_title_taken.sql`에 선택 파라미터 `skip_id? int64`와 조건 줄 `{skip_id} AND id <> :skip_id`(새 글은 nil 그대로: `savePost`는 바뀌지 않는다). 저장은 생성된 `UpdatePost`(`UpdatedAt`이 바뀐다). 글 화면에 `고치기` 링크(클래스 없음)
+     - 시험 `TestEdit`: 앤 GET은 200과 채운 제목, 앤 POST는 303이고 글이 바뀜(`UpdatedAt`도), 제목 그대로 POST도 303(`skip_id`), 같은 게시판의 다른 글 제목은 200과 오류, 밥은 GET·POST 403, staff는 303, 숨긴 글 404, 로그인 없는 POST 401
+     - Catches: `EditPost`의 `mayChange`를 빼면 → `go test: `
+   - TASKS·README의 다음 작업 줄. 대응표(6번)는 이 번호를 쓴다
+   - 하지 않는 것: `/me`의 페이지 나누기, 글 고치기의 API, 고친 글의 웹훅 알림, 고치기의 기록(누가 언제)
+   - 계획 리뷰 codex·fable(권한 검사): 막는 지적 없음. 받음: 비로그인 GET edit의 303, 고치기 뒤 고정·예약 시각이 그대로인지, `/me`에 예약 글, 다른 게시판의 같은 제목은 303, Catches를 컴파일되는 돌연변이로 고정하고 실측, `UpdatedAt`은 `!Equal`, 시험은 `TestAuthors`의 표 꼴, 편집 화면의 제목과 `Form.Errors`. 받지 않음(TODO로, 사람에게 묻는다): 초안·예약 글의 상세(`ShowPost`)가 누구에게나 보인다(codex). `/me`는 작성자에게 제 글의 링크를 보일 뿐 접근을 넓히지 않고, 고치면 단계가 하나 더 생겨 D-142가 바뀐다(fable)
+   - 구현 리뷰는 fable 하나: codex는 이 기기에서 Codex CLI가 없다며 돌지 않았다(계획 리뷰 때는 돌았다). 막는 지적 없음, 복사본을 PG로 걸어 돌연변이 8개 중 7개를 잡는 것을 실측(Catches 두 줄도). 받음: 안 잡힌 하나(`my_posts.sql`의 순서)를 `TestMe`가 순서로 보게(뒤집으면 실패를 확인), 패키지 `auth`를 가리는 매개변수 이름, `PostEditPage`의 키 있는 리터럴. 알아 둘 것: 같은 서버·같은 데이터베이스에서 걷기 둘이 동시에 돌면 스키마가 겹친다(2번에서 받지 않은 그 경우). 리뷰어에게는 다른 데이터베이스를 준다
 5. **`Ship it`**(D-142): 마지막 단계. → 확인: 걷기의 교차 빌드
 6. **대응표** `examples/board/MAP.md`(번호가 정해진 뒤). → 확인: 시험이 표의 게시판 커밋 열을 `steps/*.patch`와 맞춤(모든 패치가 한 번은 나오고, 표의 단계가 다 있음), 원본 줄은 89
 7. **완료 조건과 문서**: "M8 끝"에 조건마다 시험 이름, README(일부러 틀리는 단계를 찾는 법 `grep -l Maago-Expect steps/*.patch`), MILESTONES의 M8 표·할일, TUTORIAL-FUTURE

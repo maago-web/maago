@@ -1,0 +1,256 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Wed, 14 Oct 2026 03:04:23 +0900
+Subject: [PATCH] Edit a post
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+글을 고친다. 쓴 사람과 staff만, 제목과 본문만.
+
+- 라우트 둘: GET /posts/{id}/edit(post_edit)는 폼을 그리고, POST(post_update)는
+  저장한다. 같은 뷰 EditPost, 둘 다 maago.LoginRequired. 숨긴 글은 404,
+  그 밖의 사람은 GET에도 403(mayChange, 0022)
+- 폼 PostEditForm은 model=Post에서 Title과 Body만. 고정과 예약 시각은 글을
+  쓸 때 정한다: 함께 고치면 겹침 검사가 제 글을 빼야 하고, 이미 지난 예약
+  시각이 Validate의 "지난 시각" 검사에 걸린다
+- GET이면(f.Bound()가 false) 폼의 Raw를 글의 값으로 채운다. 템플릿은 늘
+  Raw를 그린다
+- 같은 제목 검사는 PostTitleTaken을 다시 쓴다. 고치는 글 자신은 세지 않도록
+  선택 파라미터 skip_id?와 조건 줄 {skip_id} AND id <> :skip_id를
+  더한다(search_posts.sql의 q?와 같다). 새 글은 SkipID가 nil이라 그 줄이
+  빠진다: savePost는 그대로다
+- 저장은 maago가 만든 UpdatePost. 행 전체를 쓰고 UpdatedAt을 바꾼다. 읽은
+  글에서 제목과 본문만 바꿔 넘기니 다른 열은 그대로다
+- 글 화면에 고치기 링크
+
+시험은 TestAuthors의 표 꼴로 누가 무엇을 받는지 보고, 제 제목·다른
+게시판의 같은 제목은 받고 이 게시판의 다른 글 제목은 거절하는지, 고친 뒤
+고정·예약 시각이 그대로인지 본다.
+
+diff --git a/board/forms.go b/board/forms.go
+index 3ae5782..611c0bc 100644
+--- a/board/forms.go
++++ b/board/forms.go
+@@ -62,3 +62,11 @@ type CommentForm struct {
+ 	maago.Form `maago:"model=Comment"`
+ 	Text       maago.Field[string]
+ }
++
++// PostEditForm is what changes in a post: its title and body. When to pin
++// and publish it is decided when it is written.
++type PostEditForm struct {
++	maago.Form `maago:"model=Post"`
++	Title      maago.Field[string]
++	Body       maago.Field[string]
++}
+diff --git a/board/queries/post_title_taken.sql b/board/queries/post_title_taken.sql
+index d28b47e..e17b664 100644
+--- a/board/queries/post_title_taken.sql
++++ b/board/queries/post_title_taken.sql
+@@ -1,8 +1,11 @@
+ -- name: PostTitleTaken :one Count
+--- How many posts of the board have the title: 0 or 1.
++-- How many posts of the board have the title: 0 or 1. With skip_id, the
++-- post being changed does not count.
+ -- param: board_id int64
+ -- param: title    string
++-- param: skip_id? int64
+ -- column: n int64
+ SELECT count(*) AS n
+ FROM board_post
+ WHERE board_id = :board_id AND title = :title
++  {skip_id} AND id <> :skip_id
+diff --git a/board/templates/post_edit_page.html b/board/templates/post_edit_page.html
+new file mode 100644
+index 0000000..09943d9
+--- /dev/null
++++ b/board/templates/post_edit_page.html
+@@ -0,0 +1,12 @@
++{{define "content"}}
++<h1>{{.Post.Title}} 고치기</h1>
++<form method="post">
++{{range .Form.Errors}}<p class="error">{{.}}</p>{{end}}
++{{with .Form.Title}}<label for="{{.Name}}">{{.Label}}</label>
++<input id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}">
++{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
++{{with .Form.Body}}<textarea name="{{.Name}}">{{.Raw}}</textarea>
++{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
++<button>고치기</button>
++</form>
++{{end}}
+diff --git a/board/templates/post_page.html b/board/templates/post_page.html
+index 20dee60..e896453 100644
+--- a/board/templates/post_page.html
++++ b/board/templates/post_page.html
+@@ -5,6 +5,7 @@
+ <div>{{.Post.Body}}</div>
+ {{if eq .Post.Status "draft"}}<form method="post" action="{{url "post_publish" .Post.ID}}"><button>게시하기</button></form>{{end}}
+ {{if eq .Post.Status "published"}}<form method="post" action="{{url "post_archive" .Post.ID}}"><button>보관하기</button></form>{{end}}
++<a href="{{url "post_edit" .Post.ID}}">고치기</a>
+ <form method="post" action="{{url "post_delete" .Post.ID}}"><button>지우기</button></form>
+ <h2>첨부</h2>
+ <ul>{{range .Attachments}}
+diff --git a/board/urls.go b/board/urls.go
+index bea4747..3cb7257 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -15,6 +15,8 @@ var Routes = maago.Routes{
+ 	maago.POST("/boards/{id}/posts/new", "post_create", NewPost, maago.LoginRequired),
+ 	maago.GET("/posts/{id}", "post_detail", ShowPost),
+ 	maago.POST("/posts/{id}", "comment_create", ShowPost, maago.LoginRequired),
++	maago.GET("/posts/{id}/edit", "post_edit", EditPost, maago.LoginRequired),
++	maago.POST("/posts/{id}/edit", "post_update", EditPost, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/delete", "post_delete", RemovePost, maago.LoginRequired),
+diff --git a/board/views.go b/board/views.go
+index b02f07d..f62f1bd 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -437,3 +437,49 @@ func Me(ctx context.Context, in struct{}) (MePage, error) {
+ 	ps, err := MyPosts(ctx, maago.DBFrom(ctx), MyPostsParams{AuthorID: u.ID})
+ 	return MePage{Email: u.Email, Posts: ps}, err
+ }
++
++type EditPostIn struct {
++	ID   int64        `maago:"path=id"`
++	Form PostEditForm `maago:"form"`
++}
++
++type PostEditPage struct {
++	Post Post
++	Form PostEditForm
++}
++
++// EditPost changes a post's title and body, for its author or staff. The
++// form starts with what the post has.
++func EditPost(ctx context.Context, in EditPostIn) (maago.Result[PostEditPage], error) {
++	db := maago.DBFrom(ctx)
++	p, err := GetPost(ctx, db, in.ID)
++	switch {
++	case err != nil:
++		return maago.Result[PostEditPage]{}, err
++	case p.Hidden:
++		return maago.Result[PostEditPage]{}, sql.ErrNoRows
++	}
++	if err := mayChange(ctx, p); err != nil {
++		return maago.Result[PostEditPage]{}, err
++	}
++	f := in.Form
++	if !f.Bound() {
++		f.Title.Raw, f.Body.Raw = p.Title, p.Body
++	}
++	if !f.Valid() {
++		return maago.Show(PostEditPage{Post: p, Form: f}), nil
++	}
++	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: p.BoardID, Title: f.Title.Value, SkipID: &p.ID})
++	if err != nil {
++		return maago.Result[PostEditPage]{}, err
++	}
++	if taken.N > 0 {
++		f.Title.Error = "이 게시판에 같은 제목의 글이 있습니다."
++		return maago.Show(PostEditPage{Post: p, Form: f}), nil
++	}
++	p.Title, p.Body = f.Title.Value, f.Body.Value
++	if err := UpdatePost(ctx, db, &p); err != nil {
++		return maago.Result[PostEditPage]{}, err
++	}
++	return maago.SeeOther[PostEditPage](PostDetailURL(p.ID)), nil
++}
+diff --git a/board/web_test.go b/board/web_test.go
+index 7b884f4..17c49e6 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -682,3 +682,91 @@ func TestMe(t *testing.T) {
+ 		t.Errorf("/api/me without a token: %d %v", w.Code, w.Header())
+ 	}
+ }
++
++// A post's author or staff change its title and body; when it is pinned
++// and published stays. The title is still one of a kind on its board.
++func TestEdit(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	other, err := InsertBoard(ctx, db, NewBoardInput{Name: "공지"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	asAnn, ann := signedIn(t, h, db, "ann@example.com")
++	asBob, _ := signedIn(t, h, db, "bob@example.com")
++	boss, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password)
++	if err != nil {
++		t.Fatal(err)
++	}
++	asBoss := as(h, login(t, h, boss.Email))
++	from, until, at := time.Now().Add(time.Hour), time.Now().Add(2*time.Hour), time.Now().Add(3*time.Hour)
++	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 글", Body: "본문", PinnedFrom: &from, PinnedUntil: &until, PublishAt: &at})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, in := range []NewPostInput{
++		{BoardID: b.ID, Title: "있는 제목", Body: "본문"},
++		{BoardID: other.ID, Title: "다른 게시판의 제목", Body: "본문"},
++	} {
++		if _, err := InsertPost(ctx, db, in); err != nil {
++			t.Fatal(err)
++		}
++	}
++	h2, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "숨긴 글", Body: "본문", Hidden: maago.Set(true)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	hidden := PostEditURL(h2.ID)
++
++	if code, body := get(asAnn, PostEditURL(p.ID)); code != 200 || !strings.Contains(body, `value="앤의 글"`) || !strings.Contains(body, ">본문</textarea>") {
++		t.Errorf("the form: %d %s", code, body)
++	}
++	if code, _ := get(h, PostEditURL(p.ID)); code != 303 {
++		t.Errorf("the form without a sign-in: %d", code)
++	}
++	for _, c := range []struct {
++		who   string
++		h     http.Handler
++		path  string
++		title string
++		code  int
++	}{
++		{"nobody", h, PostUpdateURL(p.ID), "새 제목", 401},
++		{"bob", asBob, PostEditURL(p.ID), "", 403},
++		{"bob", asBob, PostUpdateURL(p.ID), "밥의 제목", 403},
++		{"ann", asAnn, hidden, "", 404},
++		{"ann", asAnn, PostUpdateURL(p.ID), "있는 제목", 200}, // taken on this board
++		{"ann", asAnn, PostUpdateURL(p.ID), "앤의 글", 303},  // its own title
++		{"ann", asAnn, PostUpdateURL(p.ID), "다른 게시판의 제목", 303},
++		{"boss", asBoss, PostUpdateURL(p.ID), "고친 제목", 303},
++	} {
++		var code int
++		var body string
++		if c.title == "" {
++			code, body = get(c.h, c.path)
++		} else {
++			code, _, body = post(c.h, c.path, url.Values{"title": {c.title}, "body": {"고친 본문"}})
++		}
++		if code != c.code {
++			t.Errorf("%s %s %q: %d, want %d\n%s", c.who, c.path, c.title, code, c.code, body)
++		}
++		if c.code == 200 && !strings.Contains(body, "이 게시판에 같은 제목의 글이 있습니다.") {
++			t.Errorf("%s %q: no error on the title\n%s", c.who, c.title, body)
++		}
++	}
++
++	got, err := GetPost(ctx, db, p.ID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got.Title != "고친 제목" || got.Body != "고친 본문" || got.UpdatedAt.Equal(p.UpdatedAt) {
++		t.Errorf("after: %q %q %v", got.Title, got.Body, got.UpdatedAt)
++	}
++	if !got.PinnedFrom.Equal(*p.PinnedFrom) || !got.PinnedUntil.Equal(*p.PinnedUntil) || !got.PublishAt.Equal(*p.PublishAt) {
++		t.Errorf("the times changed: %v %v %v", got.PinnedFrom, got.PinnedUntil, got.PublishAt)
++	}
++}

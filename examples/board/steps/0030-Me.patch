@@ -1,0 +1,184 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Wed, 14 Oct 2026 03:03:28 +0900
+Subject: [PATCH] Me
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+로그인한 사람이 자기가 쓴 글을 본다. 브라우저에서는 /me, 프런트엔드는
+API 토큰으로 GET /api/me.
+
+- 쿼리 my_posts.sql: author_id의 글을 게시판 이름과 함께, 새것부터. 초안과
+  예약 글도 넣는다(내 글이니까). 숨긴 글은 뺀다
+- 뷰 Me 하나를 라우트 둘이 쓴다. me는 페이지라 MePage가 me_page.html로
+  그려지고, api_me는 maago.API라 같은 MePage가 JSON이 된다. 둘 다
+  maago.LoginRequired: 로그인하지 않은 브라우저는 로그인 화면으로, 토큰
+  없는 API는 401과 WWW-Authenticate: Bearer
+- 누가 물었는지는 maago.UserFrom[auth.User]가 준다. 돌려주는 것은
+  auth.User가 아니라 MePage(이메일과 글)다. User를 통째로 JSON에 넣으면
+  비밀번호 해시도 나간다
+- base.html 머리에 내 글 링크
+
+User에 필드(예: 별명)를 더하고 싶다면 auth/models.go의 User에 필드를 적고
+maago makemigrations를 돌린다. maago add가 복사한 앱은 이제 이 프로젝트의
+코드다. 이 튜토리얼은 auth/를 패치에 넣지 않아서 하지 않는다.
+
+시험은 앤의 초안·게시·예약 글이 나오고 숨긴 글과 밥의 글은 나오지 않는
+것을 페이지와 JSON 둘에서 본다.
+
+diff --git a/board/queries/my_posts.sql b/board/queries/my_posts.sql
+new file mode 100644
+index 0000000..72e7313
+--- /dev/null
++++ b/board/queries/my_posts.sql
+@@ -0,0 +1,9 @@
++-- name: MyPosts :many MyPost
++-- The posts an author wrote, drafts and scheduled ones with them, but not
++-- the hidden: the newest first.
++-- param: author_id int64
++SELECT p.id, p.title, p.status, p.created_at, b.name AS board_name
++FROM board_post p
++JOIN board_board b ON b.id = p.board_id
++WHERE p.author_id = :author_id AND NOT p.hidden
++ORDER BY p.created_at DESC, p.id DESC
+diff --git a/board/templates/base.html b/board/templates/base.html
+index 3df11d2..aa463fb 100644
+--- a/board/templates/base.html
++++ b/board/templates/base.html
+@@ -4,7 +4,7 @@
+ <link rel="stylesheet" href="{{static "board/tailwind.css"}}"></head>
+ <body class="mx-auto max-w-2xl p-4 text-gray-900">
+ <header class="mb-6 flex items-center gap-4 border-b pb-2"><a class="font-bold" href="{{url "home"}}">게시판</a>
+-<a href="{{url "login"}}">로그인</a> <a href="{{url "signup"}}">가입</a>
++<a href="{{url "me"}}">내 글</a> <a href="{{url "login"}}">로그인</a> <a href="{{url "signup"}}">가입</a>
+ <form method="post" action="{{url "logout"}}"><button>로그아웃</button></form></header>
+ <main class="space-y-4">{{block "content" .}}{{end}}</main>
+ </body>
+diff --git a/board/templates/me_page.html b/board/templates/me_page.html
+new file mode 100644
+index 0000000..bedd20d
+--- /dev/null
++++ b/board/templates/me_page.html
+@@ -0,0 +1,8 @@
++{{define "content"}}
++<h1>내 글</h1>
++<p>{{.Email}}</p>
++<ul>{{range .Posts}}
++<li><a href="{{url "post_detail" .ID}}">{{.Title}}</a> <small>{{.BoardName}} · {{.Status}} · {{date "2006-01-02" .CreatedAt}}</small></li>{{else}}
++<li>아직 쓴 글이 없습니다.</li>{{end}}
++</ul>
++{{end}}
+diff --git a/board/urls.go b/board/urls.go
+index 971ca00..bea4747 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -20,8 +20,10 @@ var Routes = maago.Routes{
+ 	maago.POST("/posts/{id}/delete", "post_delete", RemovePost, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/attachments", "attachment_add", Attach, maago.LoginRequired),
+ 	maago.GET("/attachments/{id}", "attachment", DownloadAttachment),
++	maago.GET("/me", "me", Me, maago.LoginRequired),
+ 
+ 	// JSON for a frontend on another origin: main trusts it in Config.Origins.
+ 	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
+ 	maago.POST("/api/boards/{id}/posts", "api_post_create", APINewPost, maago.API, maago.LoginRequired),
++	maago.GET("/api/me", "api_me", Me, maago.API, maago.LoginRequired),
+ }
+diff --git a/board/views.go b/board/views.go
+index 9c33387..b02f07d 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -422,3 +422,18 @@ func deletePost(ctx context.Context, id int64) error {
+ 	}
+ 	return nil
+ }
++
++type MePage struct {
++	Email string
++	Posts []MyPost
++}
++
++// Me lists the posts of whoever asks, drafts and scheduled ones too: a
++// page in the browser, and JSON with an API token. One view serves both
++// routes; MePage, not auth.User, is what goes out, so the password's hash
++// never does.
++func Me(ctx context.Context, in struct{}) (MePage, error) {
++	u, _ := maago.UserFrom[auth.User](ctx) // the routes require login
++	ps, err := MyPosts(ctx, maago.DBFrom(ctx), MyPostsParams{AuthorID: u.ID})
++	return MePage{Email: u.Email, Posts: ps}, err
++}
+diff --git a/board/web_test.go b/board/web_test.go
+index 05f9c10..7b884f4 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -615,3 +615,70 @@ func TestDeleteWithoutComments(t *testing.T) {
+ 		t.Errorf("the post is still there: %v", err)
+ 	}
+ }
++
++// Me lists the posts of whoever asks, drafts and scheduled ones too, but
++// not the hidden ones or anybody else's: as a page, and as JSON for a
++// token.
++func TestMe(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	asAnn, ann := signedIn(t, h, db, "ann@example.com")
++	bob := newUser(t, db, "bob@example.com")
++	later := time.Now().Add(time.Hour)
++	for _, p := range []NewPostInput{
++		{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 초안", Body: "본문"},
++		{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 게시 글", Body: "본문", Status: maago.Set("published")},
++		{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 예약 글", Body: "본문", PublishAt: &later},
++		{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 숨긴 글", Body: "본문", Hidden: maago.Set(true)},
++		{BoardID: b.ID, AuthorID: &bob.ID, Title: "밥의 글", Body: "본문"},
++	} {
++		if _, err := InsertPost(ctx, db, p); err != nil {
++			t.Fatal(err)
++		}
++	}
++	// lists reports whether body has ann's three posts, the newest first,
++	// and no other.
++	lists := func(body string) bool {
++		last := -1
++		for _, s := range []string{"앤의 예약 글", "앤의 게시 글", "앤의 초안"} {
++			i := strings.Index(body, s)
++			if i <= last {
++				return false
++			}
++			last = i
++		}
++		return !strings.Contains(body, "숨긴") && !strings.Contains(body, "밥의")
++	}
++
++	if code, body := get(asAnn, MeURL()); code != 200 || !lists(body) || !strings.Contains(body, "ann@example.com") {
++		t.Errorf("/me: %d %s", code, body)
++	}
++	if code, _ := get(h, MeURL()); code != 303 {
++		t.Errorf("/me without a sign-in: %d", code)
++	}
++
++	token, hash := authlib.NewToken()
++	if _, err := auth.InsertAPIToken(ctx, db, auth.NewAPITokenInput{UserID: ann.ID, Name: "front", Hash: hash}); err != nil {
++		t.Fatal(err)
++	}
++	// call asks for the API's /me with the Authorization header header.
++	call := func(header string) *httptest.ResponseRecorder {
++		r := httptest.NewRequest("GET", APIMeURL(), nil)
++		if header != "" {
++			r.Header.Set("Authorization", header)
++		}
++		w := httptest.NewRecorder()
++		h.ServeHTTP(w, r)
++		return w
++	}
++	if w := call("Bearer " + token); w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || !lists(w.Body.String()) || !strings.Contains(w.Body.String(), `"Email":"ann@example.com"`) {
++		t.Errorf("/api/me: %d %v %s", w.Code, w.Header(), w.Body)
++	}
++	if w := call(""); w.Code != 401 || w.Header().Get("WWW-Authenticate") != "Bearer" {
++		t.Errorf("/api/me without a token: %d %v", w.Code, w.Header())
++	}
++}
