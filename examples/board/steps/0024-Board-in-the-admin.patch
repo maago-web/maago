@@ -1,0 +1,275 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Tue, 13 Oct 2026 15:24:48 +0900
+Subject: [PATCH] Board in the admin
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+main이 board.Admin도 넘긴다. /app/admin/에 게시판의 세 모델이 생긴다.
+
+모델이 admin에서 어떻게 보이는지는 모델 태그로 말한다.
+
+- admin_list=(Title,BoardID,Status,AuthorID,CreatedAt): 글 목록의 칸.
+  없으면 모든 필드다(본문까지)
+- admin_search=(Title,Body): 검색 상자가 볼 문자열 필드. 대소문자를
+  무시하는 LIKE다(SQLite는 ASCII 글자만 무시한다)
+- admin_filter=(Status,BoardID,Hidden): 목록 위의 거르개. 선택지, bool,
+  fk 필드만 된다
+- 댓글에도 셋, 게시판에는 검색 하나. 필드가 없거나 검색에 문자열이 아닌 필드를
+  쓰면 maago gen이 그 자리를 짚는다
+
+태그는 스키마가 아니다. maago makemigrations는 "no changes"다.
+
+첫 계정은 0020의 -createsuperuser가 만든 superuser다. superuser는
+admin에서 무엇이든 한다. 편집자를 두려면 superuser가 admin에서 두 가지를
+한다.
+
+- auth의 User 화면에서 그 사용자의 is_staff를 켠다. staff가 아니면 권한
+  행이 있어도 admin에 들어오지 못한다
+- auth의 Permission을 더한다. App은 board, ModelName은 Post, Action은
+  view, add, change, delete 중 하나. App과 ModelName은 고르는 상자 없이
+  패키지 이름과 Go 이름 그대로 적는다. 철자가 틀린 행은 아무것도 허락하지
+  않는다
+
+auth의 User와 Permission은 행이 있어도 보기 밖은 superuser만 한다.
+권한을 주는 일은 편집자에게 넘어가지 않는다.
+
+admin은 뷰가 아니다. 이 게시판에 닿는 차이 둘.
+
+- 저장은 모델의 규칙(길이, 선택지, fk)만 지킨다. 뷰가 지키는 상태의
+  순서(Post.Next: 초안, 게시, 보관)도 작성자도 admin에서는 아무렇게나
+  바뀐다. fk 칸은 번호를 적는다
+- 댓글이 있는 글은 superuser도 지우지 못한다. 댓글이 그 글을 가리킨다.
+  뷰는 그런 글을 숨긴다(0022)
+
+시험은 superuser가 admin에서 편집자를 만들고, 편집자가 할 수 있는 것과 없는
+것(staff 아닌 사람의 행, 편집자의 auth 권한 행), 목록의 칸, 검색과
+거르개를 함께 건 목록과 본문 검색, 지우기의 두 경우를 본다.
+
+diff --git a/board/admin_test.go b/board/admin_test.go
+new file mode 100644
+index 0000000..37569b1
+--- /dev/null
++++ b/board/admin_test.go
+@@ -0,0 +1,141 @@
++package board
++
++import (
++	"database/sql"
++	"fmt"
++	"net/url"
++	"strings"
++	"testing"
++
++	"github.com/maago-web/maago"
++
++	"example.com/board/auth"
++)
++
++// The admin, as main serves it: who gets in, the editor a superuser makes
++// in it, and the board's tags.
++func TestAdmin(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	if code, _ := get(h, "/admin/"); code != 303 {
++		t.Errorf("without a sign-in: %d", code)
++	}
++	asAnn, ann := signedIn(t, h, db, "ann@example.com")
++	if code, _ := get(asAnn, "/admin/"); code != 403 {
++		t.Errorf("ann, not staff: %d", code)
++	}
++
++	// The superuser of -createsuperuser makes ed an editor: staff, and
++	// allowed to see and change posts.
++	if _, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password); err != nil {
++		t.Fatal(err)
++	}
++	asBoss := as(h, login(t, h, "boss@example.com"))
++	asEd, ed := signedIn(t, h, db, "ed@example.com")
++	staff := url.Values{"email": {ed.Email}, "is_active": {"on"}, "is_staff": {"on"}, "verified_at": {"2026-01-01T00:00:00"}}
++	if code, _, body := post(asBoss, fmt.Sprintf("/admin/auth/User/%d/", ed.ID), staff); code != 303 {
++		t.Fatalf("boss makes ed staff: %d\n%s", code, body)
++	}
++	if code, _ := get(asEd, "/admin/"); code != 403 {
++		t.Errorf("ed, staff with no permission: %d", code)
++	}
++	for _, action := range []string{"view", "change"} {
++		grant := url.Values{"user_id": {fmt.Sprint(ed.ID)}, "app": {"board"}, "model_name": {"Post"}, "action": {action}}
++		if code, _, body := post(asBoss, "/admin/auth/Permission/add/", grant); code != 303 {
++			t.Fatalf("boss grants %s: %d\n%s", action, code, body)
++		}
++	}
++	// A row means nothing for who is not staff, and a staff user may not
++	// add a Permission whatever the rows say: that is a superuser's.
++	grant := url.Values{"user_id": {fmt.Sprint(ann.ID)}, "app": {"board"}, "model_name": {"Post"}, "action": {"view"}}
++	if code, _, body := post(asBoss, "/admin/auth/Permission/add/", grant); code != 303 {
++		t.Fatalf("boss grants ann: %d\n%s", code, body)
++	}
++	grant = url.Values{"user_id": {fmt.Sprint(ed.ID)}, "app": {"auth"}, "model_name": {"Permission"}, "action": {"add"}}
++	if code, _, body := post(asBoss, "/admin/auth/Permission/add/", grant); code != 303 {
++		t.Fatalf("boss grants ed auth: %d\n%s", code, body)
++	}
++	if code, _ := get(asAnn, "/admin/"); code != 403 {
++		t.Errorf("ann, not staff, with a row: %d", code)
++	}
++	if code, _ := get(asEd, "/admin/auth/Permission/add/"); code != 403 {
++		t.Errorf("ed adds a Permission: %d", code)
++	}
++	if code, body := get(asEd, "/admin/"); code != 200 || !strings.Contains(body, ">Post<") || strings.Contains(body, ">Comment<") || strings.Contains(body, ">Board<") {
++		t.Errorf("ed's index: %d\n%s", code, body)
++	}
++
++	free, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	notice, err := InsertBoard(ctx, db, NewBoardInput{Name: "공지"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	posts := map[string]Post{}
++	for _, p := range []struct {
++		board               Board
++		title, body, status string
++	}{
++		{free, "봄 소식", "본문", "published"},
++		{notice, "봄 행사", "본문", "published"},    // another board
++		{free, "여름 소식", "여름이 왔다", "published"}, // no 봄
++		{free, "봄 초안", "본문", "draft"},          // another status
++	} {
++		if posts[p.title], err = InsertPost(ctx, db, NewPostInput{BoardID: p.board.ID, Title: p.title, Body: p.body, Status: maago.Set(p.status)}); err != nil {
++			t.Fatal(err)
++		}
++	}
++	code, body := get(asEd, "/admin/board/Post/")
++	if code != 200 || !strings.Contains(body, "<th>제목</th>") || strings.Contains(body, "<th>Body</th>") || strings.Contains(body, "<th>Views</th>") {
++		t.Errorf("the columns of admin_list: %d\n%s", code, body)
++	}
++	_, body = get(asEd, fmt.Sprintf("/admin/board/Post/?q=봄&board_id=%d&status=published", free.ID))
++	if !strings.Contains(body, "봄 소식") || strings.Contains(body, "봄 행사") || strings.Contains(body, "여름 소식") || strings.Contains(body, "봄 초안") {
++		t.Errorf("search and filters: %s", body)
++	}
++	if _, body = get(asEd, "/admin/board/Post/?q=왔다"); !strings.Contains(body, "여름 소식") || strings.Contains(body, "봄 소식") {
++		t.Errorf("a search in the body: %s", body)
++	}
++
++	p := posts["봄 소식"]
++	edit := func(title, status string) url.Values {
++		return url.Values{"board_id": {fmt.Sprint(p.BoardID)}, "title": {title}, "body": {p.Body}, "status": {status}, "views": {"0"}}
++	}
++	if code, _, body := post(asEd, fmt.Sprintf("/admin/board/Post/%d/", p.ID), edit("봄 소식!", "published")); code != 303 {
++		t.Errorf("ed changes a post: %d\n%s", code, body)
++	}
++	for _, path := range []string{"/admin/board/Comment/", fmt.Sprintf("/admin/board/Post/delete/?id=%d", p.ID)} {
++		if code, _ := get(asEd, path); code != 403 {
++			t.Errorf("ed GET %s: %d", path, code)
++		}
++	}
++	// The admin saves by the model's rules alone: Next, the views' order of
++	// the statuses, is not asked.
++	if code, _, body := post(asBoss, fmt.Sprintf("/admin/board/Post/%d/", p.ID), edit("봄 소식!", "draft")); code != 303 {
++		t.Errorf("boss makes a published post a draft: %d\n%s", code, body)
++	}
++	if got, err := GetPost(ctx, db, p.ID); err != nil || got.Title != "봄 소식!" || got.Status != "draft" {
++		t.Errorf("after the changes: %+v %v", got, err)
++	}
++
++	// A post with comments is not deleted, not even by a superuser (the
++	// views hide such a post). One without is.
++	if _, err := InsertComment(ctx, db, NewCommentInput{PostID: p.ID, Text: "댓글"}); err != nil {
++		t.Fatal(err)
++	}
++	if code, _, body := post(asBoss, "/admin/board/Post/delete/", url.Values{"id": {fmt.Sprint(p.ID)}}); code != 200 || !strings.Contains(body, "1 row of board.Comment (PostID) refers to it") {
++		t.Errorf("deleting a post with comments: %d\n%s", code, body)
++	}
++	if _, err := GetPost(ctx, db, p.ID); err != nil {
++		t.Errorf("the post with comments: %v", err)
++	}
++	summer := posts["여름 소식"]
++	if code, _, body := post(asBoss, "/admin/board/Post/delete/", url.Values{"id": {fmt.Sprint(summer.ID)}}); code != 303 {
++		t.Errorf("deleting a post without comments: %d\n%s", code, body)
++	}
++	if _, err := GetPost(ctx, db, summer.ID); err != sql.ErrNoRows {
++		t.Errorf("the post without comments: %v", err)
++	}
++}
+diff --git a/board/models.go b/board/models.go
+index c5c5402..5f00642 100644
+--- a/board/models.go
++++ b/board/models.go
+@@ -10,14 +10,14 @@ import (
+ )
+ 
+ type Board struct {
+-	maago.Model
++	maago.Model `maago:"admin_search=(Name)"`
+ 
+ 	ID   int64
+ 	Name string `maago:"max=100,unique,label='이름'"`
+ }
+ 
+ type Post struct {
+-	maago.Model `maago:"unique=(BoardID,Title)"`
++	maago.Model `maago:"unique=(BoardID,Title),admin_list=(Title,BoardID,Status,AuthorID,CreatedAt),admin_search=(Title,Body),admin_filter=(Status,BoardID,Hidden)"`
+ 
+ 	ID        int64
+ 	BoardID   int64  `maago:"fk=Board"`
+@@ -40,7 +40,7 @@ type Post struct {
+ }
+ 
+ type Comment struct {
+-	maago.Model
++	maago.Model `maago:"admin_list=(PostID,Text,CreatedAt),admin_search=(Text),admin_filter=(PostID)"`
+ 
+ 	ID        int64
+ 	PostID    int64 `maago:"fk=Post"`
+diff --git a/board/web_test.go b/board/web_test.go
+index 4f39a54..53d4649 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -12,6 +12,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
++	"github.com/maago-web/maago/contrib/admin"
+ 	authlib "github.com/maago-web/maago/contrib/auth"
+ 	"github.com/maago-web/maago/maagotest"
+ 
+@@ -27,7 +28,8 @@ const front = "http://localhost:5173"
+ 
+ // config is main's, on db.
+ func config(db *sql.DB) maago.Config {
+-	return maago.Config{DB: db, Apps: []maago.App{App, auth.App}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login"}
++	adminApp := admin.App(admin.Config{Models: [][]admin.Model{Admin, auth.Admin}, Can: auth.Can})
++	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login"}
+ }
+ 
+ // app serves the board on a new database, as main does.
+@@ -450,6 +452,13 @@ func TestUnderApp(t *testing.T) {
+ 	if code, _ := get(srv, "/boards/1"); code != 404 {
+ 		t.Errorf("without /app: %d", code)
+ 	}
++	boss, err := auth.CreateSuperuser(t.Context(), db, "boss@example.com", password)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if code, body := getAs(srv, "/app/admin/", login(t, h, boss.Email)); code != 200 || !strings.Contains(body, `href="/app/admin/board/Post/"`) {
++		t.Errorf("the admin: %d %s", code, body)
++	}
+ }
+ 
+ const password = "correct horse battery staple"
+diff --git a/main.go b/main.go
+index f040e9f..9857f8f 100644
+--- a/main.go
++++ b/main.go
+@@ -51,7 +51,7 @@ func main() {
+ 	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")
+ 	// The admin, at /app/admin/: the models of the apps it is given, to
+ 	// those auth.Can lets see them.
+-	adminApp := admin.App(admin.Config{Models: [][]admin.Model{auth.Admin}, Can: auth.Can})
++	adminApp := admin.App(admin.Config{Models: [][]admin.Model{board.Admin, auth.Admin}, Can: auth.Can})
+ 	h, err := maago.Handler(maago.Config{
+ 		DB:   db,
+ 		Apps: []maago.App{board.App, auth.App, adminApp},

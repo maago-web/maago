@@ -471,6 +471,37 @@ TODO M4 절: `web`의 모델 폼은 `default=''`를 보지 않아 빈 글을 거
 - ponytail(나): 잘라낼 것 없음(문서와 태그 하나, 시험 몇 줄). 변형으로 확인: help 태그를 빼면 `TestAddAuth`가 잡는다
 - fable: "close the account instead"는 admin이 할 수 없음 → 사용자가 탈퇴하거나 admin이 `IsActive`를 끔. `Current`가 막는 것은 세션·API 토큰이고 일회 토큰은 뷰가 → 고침. 서로 가리키는 두 행 → 고른 다른 행이 가리키는 행(한 방향도 막힘). `ordering`이 없을 때의 기본, "v1" 약속 → "v0에 없음", D-134 인용 자리 → 고침. 시험이 trim·lower 어느 쪽 정규화도 잡음은 확인
 
+## 9. 게시판 튜토리얼의 M6 단계 (D-103)
+
+### 계획
+
+이 작업의 끝에 게시판 튜토리얼이 admin을 갖는다: `/app/admin/`에 게시판 셋이 태그대로 보이고, superuser가 admin에서 편집자에게 권한 행을 주면 편집자는 그만큼만 한다. 패치 둘(0023·0024), 커밋 메시지는 한국어(D-103). 걷기·`steps.sh`는 그대로.
+
+시제품(풀어 둔 저장소에서 실측): `main`이 `auth.Admin`만 넘기면 `maago gen`이 `board/models.go:12:6: app board has models, but no package uses board.Admin`. 태그를 더해도 `makemigrations`는 `no changes`(admin 태그는 스키마가 아니다). `/app` 아래에서도 admin의 링크는 `Prefix`를 따른다(3번 `TestPrefix`).
+
+단계(패치)
+- 0023 `Open the admin`: `main`의 `Apps`에 `admin.App(admin.Config{Models: [][]admin.Model{auth.Admin}, Can: auth.Can})`. `Maago-Expect:` 위 한 줄(D-131: 모델이 있는 앱을 빠뜨리면 생성 오류, 0019처럼 기계가 막는 것을 보인다). 메시지: admin은 생성물(`admin_gen.go`, `board/`·`auth/` 둘에, `*_gen.go`처럼 패치 밖)과 라이브러리, `Can`은 복사본의 것(staff 아니면 아무것도, superuser는 전부, 나머지는 권한 행), 오류의 `fix:` 줄까지 인용, 다음 커밋이 연다
+- 0024 `Board in the admin`: `main`에 `board.Admin`. 태그: `Post`에 `admin_list=(Title,BoardID,Status,AuthorID,CreatedAt)`·`admin_search=(Title,Body)`·`admin_filter=(Status,BoardID,Hidden)`, `Comment`에 `admin_list=(PostID,Text,CreatedAt)`·`admin_search=(Text)`·`admin_filter=(PostID)`, `Board`에 `admin_search=(Name)`. `web_test.go`의 `config`가 `main`처럼 admin을 넣는다. 새 시험 `TestAdmin`(`board/admin_test.go`): 로그인 없이 303, staff 아닌 ann 403, superuser boss가 admin의 User 화면에서 ed의 `is_staff`를 켜고(독자가 하는 그대로) 권한 행 전에는 403, boss가 admin의 `Permission` 추가 폼으로 ed에게 `board`·`Post`·`view`와 `change`를 준다(독자가 하는 그대로) → ed는 인덱스에 Post만, Post 목록·고치기 200·303, Comment 목록과 Post 지우기 403. Post 목록의 칸은 `admin_list`대로(`제목` 있고 `Body`·`Views` 없음). 검색과 필터를 함께: 두 게시판에 `q`가 맞는 글 하나씩(`board_id`가 하나를 고름), 필터는 맞고 `q`는 안 맞는 글(빠짐). 지우기: 댓글 있는 글은 boss도 못 지움(200, 까닭, 행이 남음, D-135), 댓글 없는 글은 303이고 행이 없음. boss가 published 글을 admin에서 `draft`로 저장하면 303(`Post.Next`를 지나침, 8번의 `" Ann@"`처럼 문서가 낡으면 알린다). `TestUnderApp`에 `/app/admin/`의 링크 한 줄. 메시지: 첫 계정은 `-createsuperuser`(superuser, 0020), 편집자는 boss가 admin의 User 화면에서 `is_staff`를 켜고 Permission 행을 더한다(글자는 패키지 이름 `board`·Go 이름 `Post` 그대로, 오타는 아무것도 허락하지 않음, D-133), `auth`의 User·Permission은 행이 있어도 보기 밖은 superuser만, admin 태그는 스키마가 아니라 `makemigrations`는 `no changes`, FK 칸은 번호, admin이 하지 않는 것 중 이 게시판에 닿는 둘(저장은 모델 폼의 규칙만이라 `Post.Next`의 상태 순서를 지나치고 작성자도 바꿀 수 있음, 댓글 있는 글은 지우지 못함 — D-135)
+- `TestBoardTutorialCatches`에 하나: 0024의 Post에서 `admin_list=(…)` 빼기 → `go test: `(D-131의 빠뜨림은 0023의 `Maago-Expect`가 본다)
+
+하지 않기로 한 것: 게시판 쪽 `admin=hidden`·`readonly`(게시판에 숨길 것이 없다. 태그 없는 `password`는 M6 3번의 시험이 본다), `ordering`(없으면 ID 내림차순, 게시판의 글 순서는 뷰의 SQL), PG 걷기(걷기는 SQLite, admin의 두 방언은 2~7번 시험), 튜토리얼 문서의 산문(M8)
+
+계획 리뷰는 fable 하나: 정해진 틀(M5 12번의 걷기·패치) 안에서 1~8번의 API를 쓰기만 한다(WORKFLOW 3). 구현 리뷰도 fable 하나: 새 로직은 시험 코드뿐
+
+단계
+1. 0023·0024를 풀어 둔 저장소에서 커밋하고 `steps.sh pack` → 확인: `TestBoardTutorial`, 0001~0022는 바이트 그대로(`git diff --stat`)
+2. 잡기 한 줄 → 확인: `TestBoardTutorialCatches`, 걷기가 0024에서 멈춤
+3. README의 다음 작업, 이 항목 체크 → 확인: 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- fable: 태그는 검사에 맞고 시제품 gen 통과(실측). ★0023을 따로 둘지 → 사람의 결정: 둔다(0019처럼 기계가 막는 모습, 대가는 `12:6`에 묶인 줄). 0023 메시지의 `/app/admin/` → "다음 커밋이 연다". `admin_list` 단언 없음 → 더함. ed가 staff가 되는 길 → 시험도 메시지도 admin의 User 화면(고칠 칸을 다 보낸다, 구현 때 바꿈: 독자의 길을 시험이 걷는다). 검색+필터의 짝 데이터, 지우기의 양의 경우 → 더함. 잡기를 `admin_list` 빼기로 바꿈(0023이 빠뜨림을 이미 봄). 메시지에 말할 것(권한 글자·`IsStaff`·User/Permission·`no changes`·FK 번호) → 더함. ★(선택) `draft`로 되돌리기 단언, `TestUnderApp`의 링크 → 더함(싸다). `-createsuperuser`의 "staff account" 설명은 0020이라 두고 메시지에서 superuser라 부름
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 시험의 단언마다 메시지의 주장 하나. 패치는 풀어 둔 저장소에서 커밋으로 쓰고 `steps.sh pack`(0001~0022는 바이트 그대로). 0023의 `main`은 gofmt가 `DB:` 정렬을 바꾸지 않게 `adminApp`을 따로 둠. 변형으로 확인: 검색어·`board_id`·`status`를 하나씩 빼면 검색+필터 단언이 잡는다
+- fable: 메시지의 사실 넷(`no changes`는 소문자, `Action`은 고르는 상자라 글 입력은 `App`·`ModelName`뿐, 댓글은 태그 셋, "뷰의 지우기는 숨기기"는 0022와 반대로 읽힘) → 고침. 검색의 SQLite ASCII → 괄호로. ★메시지의 주장 둘(staff 아니면 행이 있어도 못 들어옴, User·Permission의 보기 밖은 superuser만)을 시험이 받치지 않음(복사본의 `Can`을 고쳐도 통과, 복사본 자체 시험은 잡음) → 더함: 8번의 `" Ann@"`처럼 메시지가 낡으면 알린다. 복사본의 `Can`에서 각 줄을 빼 두 단언이 잡는 것을 확인. 본문 검색 안 봄 → `여름 소식`의 본문으로 더함. 받음(결함 아님): 시험의 `verified_at`은 새 값, `edit`가 빼는 칸은 NULL·false가 된다(메시지의 "작성자도 바뀐다"와 같음)
+
 ---
 
 ## M6 끝

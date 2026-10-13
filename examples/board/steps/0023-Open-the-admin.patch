@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Tue, 13 Oct 2026 15:23:35 +0900
+Subject: [PATCH] Open the admin
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+admin을 들인다. 모델의 목록·추가·고치기·지우기를 staff가 브라우저에서
+하는 화면이다. 짜지 않는다. 두 부분이다.
+
+- 라이브러리 contrib/admin: 라우트와 화면. main이 admin.App(Config)을
+  Config.Apps에 넣는다. 접두어 /app 아래라 /app/admin/
+- 생성물 admin_gen.go: maago gen이 모델이 있는 앱마다 쓴다(여기는 board/와
+  auth/). 그 앱의 모델이 admin에서 어떻게 보이는지, 목록과 개수의 SQL, 폼.
+  *_gen.go라 패치에는 없다
+
+누가 무엇을 하는지는 Config.Can이 답한다. 복사한 auth의 auth.Can을 쓴다.
+staff가 아니면 아무것도(superuser여도), superuser는 전부, 다른 staff는
+권한 행(auth.Permission)이 허락한 만큼. 고쳐 쓸 수 있는 복사본의 코드다.
+
+그러나 maago gen이 막는다:
+
+    board/models.go:12:6: app board has models, but no package uses board.Admin
+      fix: add board.Admin to admin.Config.Models in main (D-131), then run maago gen: go build works after gen
+
+Models에 auth.Admin만 넘겼다. 모델이 있는 앱을 빠뜨리면 그 모델이
+admin에서 조용히 없어지는 대신 오류다. 다음 커밋이 board.Admin을 넣는다.
+
+Maago-Expect: board/models.go:12:6: app board has models, but no package uses board.Admin
+
+diff --git a/main.go b/main.go
+index fd59778..f040e9f 100644
+--- a/main.go
++++ b/main.go
+@@ -10,6 +10,7 @@ import (
+ 	"os"
+ 
+ 	"github.com/maago-web/maago"
++	"github.com/maago-web/maago/contrib/admin"
+ 	authlib "github.com/maago-web/maago/contrib/auth"
+ 
+ 	"example.com/board/auth"
+@@ -48,9 +49,12 @@ func main() {
+ 	// package variables, filled in here.
+ 	board.Webhook.URL = os.Getenv("BOARD_WEBHOOK_URL")
+ 	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")
++	// The admin, at /app/admin/: the models of the apps it is given, to
++	// those auth.Can lets see them.
++	adminApp := admin.App(admin.Config{Models: [][]admin.Model{auth.Admin}, Can: auth.Can})
+ 	h, err := maago.Handler(maago.Config{
+ 		DB:   db,
+-		Apps: []maago.App{board.App, auth.App},
++		Apps: []maago.App{board.App, auth.App, adminApp},
+ 		// Who sent the request: the user of its session cookie, or of its
+ 		// API token. A page that needs one sends the browser to LoginURL.
+ 		Auth:     auth.Current,

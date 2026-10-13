@@ -42,6 +42,7 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"no maago add", "0019-Add-accounts.patch", "\nMaago-Run: maago add auth", "", "maago gen: expected\n"},
 		{"an unknown trailer", "0019-Add-accounts.patch", "Maago-Run: maago add auth", "Maago-Run: maago add auth now", "unknown trailer "},
 		{"author check", "0021-Posts-have-authors.patch", "+\tif u.IsStaff || p.AuthorID != nil && *p.AuthorID == u.ID {", "+\tif u.IsStaff || true {", "go test: "},
+		{"admin columns", "0024-Board-in-the-admin.patch", ",admin_list=(Title,BoardID,Status,AuthorID,CreatedAt)", "", "go test: "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
