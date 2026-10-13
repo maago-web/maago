@@ -153,11 +153,14 @@ func TestCan(t *testing.T) {
 		{"root", "/admin/blog/Nope/", 404},
 		{"root", "/admin/blog/post/", 404},
 		{"root", "/admin/blog/Post/1/x/", 404},
-		{"root", "/admin", 307},
 	} {
 		if w := get(h, c.user, c.target); w.Code != c.code {
 			t.Errorf("%s %s: %d, want %d", c.user, c.target, w.Code, c.code)
 		}
+	}
+	// ServeMux's redirect: 301 before Go 1.26, 307 from it.
+	if w := get(h, "root", "/admin"); w.Code/100 != 3 || w.Header().Get("Location") != "/admin/" {
+		t.Errorf("root /admin: %d %q", w.Code, w.Header().Get("Location"))
 	}
 }
 
