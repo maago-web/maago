@@ -11,8 +11,8 @@ Content-Transfer-Encoding: 8bit
 - CSV는 페이지가 아니다. 그래서 뷰의 모양(func(ctx, In) (P, error))을
   벗어난다: 탈출구 뷰, 그냥 http.HandlerFunc다. 라우트 표에는 다른 뷰처럼
   한 줄로 적는다. 경로 값은 r.PathValue("id")로 직접 읽는다. In이 없으니
-  URL 함수의 인자도 문자열이다(BoardExportURL(id string)). 템플릿에서는
-  {{url "board_export" (print .Board.ID)}}
+  URL 함수의 인자도 문자열이다(BoardExportURL(id string)). 템플릿의
+  {{url "board_export" .Board.ID}}는 정수도 받는다
 - DB는 여기서도 maago.DBFrom(r.Context())다
 - 글을 한꺼번에 읽지 않는다. export_rows.sql이 id 다음부터 500개씩 읽고
   (WHERE p.id > :after ORDER BY p.id), 읽은 만큼 써서 보낸다. 긴 게시판도
@@ -135,14 +135,14 @@ index 0000000..5d91e17
 +ORDER BY p.id
 +LIMIT :limit
 diff --git a/board/templates/board_page.html b/board/templates/board_page.html
-index 8fd9885..3438753 100644
+index 8fd9885..95eefdb 100644
 --- a/board/templates/board_page.html
 +++ b/board/templates/board_page.html
 @@ -1,6 +1,6 @@
  {{define "content"}}
  <h1>{{.Board.Name}}</h1>
 -<p><a href="{{url "post_new" .Board.ID}}">글쓰기</a></p>
-+<p><a href="{{url "post_new" .Board.ID}}">글쓰기</a> · <a href="{{url "board_export" (print .Board.ID)}}">CSV로 받기</a></p>
++<p><a href="{{url "post_new" .Board.ID}}">글쓰기</a> · <a href="{{url "board_export" .Board.ID}}">CSV로 받기</a></p>
  <form><input name="q" value="{{.Q}}"><button>찾기</button></form>
  {{block "rows" .}}<ul id="rows">{{range .Posts}}
  <li><a href="{{url "post_detail" .ID}}">{{.Title}}</a> ({{.Comments}})</li>{{else}}

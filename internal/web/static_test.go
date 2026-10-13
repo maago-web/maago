@@ -24,7 +24,7 @@ func withFiles(more ...string) map[string]string {
 // serves, and routes in the way of /static/ are errors (D-136, D-137).
 func TestStaticDiags(t *testing.T) {
 	routes := func(extra string) string {
-		return strings.Replace(blog, "\tmaago.GET(\"/feed\", \"feed\", Feed),\n", "\tmaago.GET(\"/feed\", \"feed\", Feed),\n"+extra, 1)
+		return strings.Replace(blog, "\tmaago.GET(\"/feed/{tag}\", \"feed\", Feed),\n", "\tmaago.GET(\"/feed/{tag}\", \"feed\", Feed),\n"+extra, 1)
 	}
 	cases := []struct {
 		name  string

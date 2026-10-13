@@ -129,6 +129,8 @@ blog/templates/list_page.html:1:42: {id} of route post_detail is int64, not a st
   fix: pass a value of type int64
 blog/templates/list_page.html:1:53: cannot check url: the route name is not a string literal
   fix: write the name in quotes: {{url "post_detail" .ID}}
+blog/templates/list_page.html:1:75: {tag} of route feed is string or int, not time.Time
+  fix: pass a value of type string or int
 
 # no block
 blog/urls.go:13:40: template blog/templates/list_page.html has no block "rows"

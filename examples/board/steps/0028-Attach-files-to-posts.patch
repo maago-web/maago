@@ -249,7 +249,7 @@ index 0000000..b591a56
 +WHERE post_id = :post_id
 +ORDER BY id
 diff --git a/board/templates/post_page.html b/board/templates/post_page.html
-index eaf4667..4c1d362 100644
+index eaf4667..20dee60 100644
 --- a/board/templates/post_page.html
 +++ b/board/templates/post_page.html
 @@ -6,6 +6,16 @@
@@ -258,7 +258,7 @@ index eaf4667..4c1d362 100644
  <form method="post" action="{{url "post_delete" .Post.ID}}"><button>지우기</button></form>
 +<h2>첨부</h2>
 +<ul>{{range .Attachments}}
-+<li><a href="{{url "attachment" (print .ID)}}">{{.Name}}</a> <small>{{.Size}} bytes</small></li>{{else}}
++<li><a href="{{url "attachment" .ID}}">{{.Name}}</a> <small>{{.Size}} bytes</small></li>{{else}}
 +<li>첨부가 없습니다.</li>{{end}}
 +</ul>
 +<form method="post" action="{{url "attachment_add" .Post.ID}}" enctype="multipart/form-data">

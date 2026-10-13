@@ -23,7 +23,7 @@ var Routes = maago.Routes{
 	maago.GET("/{$}", "post_list", List),
 	maago.GET("/rows", "post_rows", List, maago.Block("rows")),
 	maago.GET("/posts/{id}", "post_detail", Detail),
-	maago.GET("/feed", "feed", Feed),
+	maago.GET("/feed/{tag}", "feed", Feed),
 }
 
 type Author struct{ Name string }
@@ -96,7 +96,7 @@ func TestTemplatesPass(t *testing.T) {
 	list := `{{$p := .Posts}}{{range $i, $e := $p}}{{$e.Title}}{{$i}}{{$.Count}}{{.Excerpt}}{{.Meta.k}}{{.Author.Name}}{{break}}{{end}}` +
 		`{{range .Count}}{{.}}{{end}}{{range $k, $v := .ByName}}{{$k}}{{$v.ID}}{{end}}{{range $i, $p := .All}}{{$p.Title}}{{end}}{{range $i := .All}}{{$i}}{{.}}{{end}}{{range .Ch}}{{.Title}}{{end}}{{range .Posts}}{{.PtrMethod}}{{end}}{{date "2006-01-02" .At}}{{.At | date "2006"}}{{date "15:04" .AtP}}` +
 		`{{with .Posts}}{{len .}}{{else}}none{{end}}{{if .Count}}{{.Name}}{{else if .Name}}x{{end}}{{printf "%d" .Count}}` +
-		`<a href="{{url "post_detail" 3}}">{{url "post_list"}}</a>{{range .Posts}}<a href="{{url "post_detail" .ID}}"></a>{{end}}` +
+		`<a href="{{url "post_detail" 3}}">{{url "post_list"}}</a>{{range .Posts}}<a href="{{url "post_detail" .ID}}"></a>{{end}}{{url "feed" 3}}{{url "feed" "go"}}{{url "feed" .Count}}{{.Count | url "feed"}}` +
 		`{{index .Posts 0}}{{.Any}}{{block "rows" .}}<p>{{.Count}}</p>{{end}}{{define "row"}}{{.Title}}{{$.ID}}{{end}}{{range .Posts}}{{template "row" .}}{{end}}`
 	detail := `{{.PP.Title}}{{range .PS}}{{.Title}}{{.PtrMethod}}{{end}}`
 	if out, _ := generate(t, blogFiles("list_page.html", list+"\n", "detail_page.html", detail+"\n")); out != "" {
@@ -178,10 +178,11 @@ func TestTemplateErrors(t *testing.T) {
 		// {{url}}.
 		{"url name", blogFiles("list_page.html", "{{url \"post_detial\" 1}}{{block \"rows\" .}}{{end}}\n"),
 			[]string{`blog/templates/list_page.html:1:7: unknown route name "post_detial"`}},
-		{"url values", blogFiles("list_page.html", "{{url \"post_detail\"}}{{url \"post_detail\" \"x\"}}{{url .Name 1}}{{block \"rows\" .}}{{end}}\n"),
+		{"url values", blogFiles("list_page.html", "{{url \"post_detail\"}}{{url \"post_detail\" \"x\"}}{{url .Name 1}}{{url \"feed\" .At}}{{block \"rows\" .}}{{end}}\n"),
 			[]string{`blog/templates/list_page.html:1:3: route post_detail has 1 wildcards, but url got 0 values`,
 				`blog/templates/list_page.html:1:42: {id} of route post_detail is int64, not a string constant`,
-				`blog/templates/list_page.html:1:53: cannot check url: the route name is not a string literal`}},
+				`blog/templates/list_page.html:1:53: cannot check url: the route name is not a string literal`,
+				`blog/templates/list_page.html:1:75: {tag} of route feed is string or int, not time.Time`}},
 
 		// Blocks and files.
 		{"no block", blogFiles("list_page.html", "{{.Count}}\n"),

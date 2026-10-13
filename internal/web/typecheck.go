@@ -23,9 +23,17 @@ func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) [
 			statics[app.Name] = app
 		}
 		for _, r := range app.Routes {
-			if r.view != nil {
-				routes[r.Name] = r.view.wildcards
+			if r.view == nil {
+				continue
 			}
+			ps := r.view.wildcards
+			if r.view.escape { // it reads r.PathValue; URLFunc prints a number too
+				ps = slices.Clone(ps)
+				for i := range ps {
+					ps[i].typ = "string or int"
+				}
+			}
+			routes[r.Name] = ps
 		}
 	}
 	var ds []diag.Diagnostic

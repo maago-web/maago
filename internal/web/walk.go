@@ -504,15 +504,12 @@ func (w *walker) url(id *parse.IdentifierNode, args []parse.Node, vs []val) {
 // fits reports whether v can fill a wildcard of type typ: URLFunc takes a
 // string, or an int, int32 or int64.
 func fits(v val, typ string) bool {
+	ints := []types.BasicKind{types.Int, types.Int64, types.Int32}
+	kinds := map[string][]types.BasicKind{"string": {types.String}, "int64": ints, "int32": ints, "string or int": append(ints, types.String)}[typ]
 	if v.konst != "" {
-		return v.konst == "string" && typ == "string" || v.konst == "int" && typ != "string"
+		return v.konst == "string" && slices.Contains(kinds, types.String) || v.konst == "int" && slices.Contains(kinds, types.Int)
 	}
-	for _, k := range map[string][]types.BasicKind{"string": {types.String}, "int64": {types.Int, types.Int64, types.Int32}, "int32": {types.Int, types.Int32, types.Int64}}[typ] {
-		if types.Identical(v.t, types.Typ[k]) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(kinds, func(k types.BasicKind) bool { return types.Identical(v.t, types.Typ[k]) })
 }
 
 func kindOf(v val) string {

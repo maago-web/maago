@@ -40,6 +40,16 @@
 ## 작업
 
 1. **탈출구 뷰의 정수 경로 값**(TODO M4): 템플릿 검사가 탈출구 라우트의 `{{url}}`에 정수를 받는다(런타임 `URLFunc`은 이미 받는다). → 확인: `internal/web`의 시험, 0016·0028의 `(print …)`를 지운 뒤 `TestBoardTutorial`
+
+   계획
+   - `internal/web/typecheck.go`: `{{url}}`에 넘기는 라우트 표에서 탈출구 뷰의 와일드카드 타입을 `string or int`로(뷰는 `r.PathValue`로 글을 읽고, `URLFunc`은 글과 `int`·`int32`·`int64`를 받는다). 생성되는 Go의 `XxxURL(id string)`은 그대로(`view.wildcards`는 손대지 않는다) → 확인: 아래 시험
+   - `internal/web/walk.go`의 `fits`: 타입마다 받는 기본 종류의 표 하나로, 상수도 그 표로(`string or int`는 글·정수 상수 둘 다). 오류는 지금 꼴 그대로 `{tag} of route feed is string or int, not time.Time`. 정수는 `int`·`int32`·`int64`만(`URLFunc`과 같다, 이름 붙은 타입·`uint`·포인터는 둘 다 거절)
+   - `internal/web/templates_test.go`: 시험의 `feed` 라우트를 `/feed/{tag}`로, `TestTemplatesPass`에 `{{url "feed" 3}}{{url "feed" "go"}}{{url "feed" .Count}}{{.Count | url "feed"}}`, `TestTemplateErrors`의 url 줄에 `{{url "feed" .At}}`의 오류 → 확인: 고치기 전에 Pass가 실패하는 것부터
+   - 게시판: `steps.sh unpack` → 0016·0028의 `(print …)`를 지우는 rebase(0016의 메시지 "In이 없으니 URL 함수의 인자도 문자열이다 … `(print .Board.ID)`"도 고친다) → `pack`. 뒤 패치의 맥락이 바뀌면 함께 지우는 것은 템플릿의 `(print …)` 둘뿐, 시험의 `fmt.Sprint(a.ID)`는 Go `XxxURL(string)`을 부르니 그대로 → 확인: `TestBoardTutorial`, `grep -c '(print' steps/*.patch`가 0, 바뀐 패치는 0016·0028뿐
+   - TODO의 M4 줄 체크
+   - 하지 않는 것: 탈출구 뷰의 Go `XxxURL`을 정수로(경로 값의 타입은 뷰가 `PathValue`로 정하니 생성기가 모른다)
+   - 계획 리뷰는 fable 하나: 정해진 틀 안의 검사 몇 줄(WORKFLOW 3). 받음: 오류 글의 순서, 파이프 경우의 시험, `print` 지우기의 범위, 정수 종류를 계획에. 결정 변경 없음
+   - 구현 리뷰는 fable 하나(계획 리뷰를 하나로 줄인 작업, WORKFLOW 6): 막는 지적 없음, `typecheck.go`를 고치기 전으로 되돌리면 시험이 실패하는 것을 실측. 받음: `slices.Clone`으로 줄이기. 받지 않음: `kinds` 표를 패키지 `var`로(세 줄, 차이 없음), 0016 메시지의 문구("Go 함수는 문자열, 템플릿은 정수도"를 이미 한 문장에)
 2. **걷기의 PG**(D-141): 트레일러 `Maago-Database`(`expected`, `steps.sh unpack`), 걷기마다 스키마, 로컬은 건너뛰고 CI는 실패. → 확인: `TestBoardTutorialCatches`에 줄(모르는 값, 두 번), PG 없이 `CI`면 실패
 3. **PostgreSQL로 바꾸는 단계**(D-141): 0012 뒤 새 단계, 마이그레이션 넷 다시, 패치 번호 밀림(`TestBoardTutorialCatches`의 패치 이름, README·MILESTONES의 번호). → 확인: `TestBoardTutorial`(PG), 0001~0012는 바이트 그대로
 4. **`Me`와 `Edit a post`**(D-142): 단계 둘. → 확인: `TestBoardTutorial`, `TestBoardTutorialCatches`에 단계마다 한 줄(권한 검사 빼기)
