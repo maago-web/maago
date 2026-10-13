@@ -112,6 +112,7 @@ var commands = []command{
 	{"showmigrations", "list the migrations and which the database has applied", 0, noFlags(cmdShowMigrations)},
 	{"migrate", "apply the migrations the database has not applied", 0, noFlags(cmdMigrate)},
 	{"add", "copy contrib app APP into the project, yours from then on (apps: " + strings.Join(scaffold.Apps(), ", ") + ")", 1, cmdAdd},
+	{"tailwind", "write each app's static/tailwind.css from its tailwind.css, with the standalone Tailwind CSS " + tailwindVersion, 0, noFlags(cmdTailwind)},
 }
 
 func noFlags(run func(stdout, stderr io.Writer) int) func(*flag.FlagSet) func(stdout, stderr io.Writer) int {

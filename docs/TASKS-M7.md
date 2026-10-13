@@ -290,3 +290,44 @@ API(루트, 새 파일 `static.go`)
 - codex: 실패 때 임시 파일 지우기의 오류를 버림 → `errors.Join`으로 함께 돌려줌(샌드박스가 GOCACHE를 막아 시험은 돌리지 못함)
 - fable: 막는 결함 없음, 변형 19개 중 17개 잡힘(살아남은 둘 — 임시 이름 없이 바로 쓰기, 실패 때 지우기 생략 — 은 동시 읽기·복사 실패를 주입할 길이 없어 시험 없이 둠). D-140 본문에 이번 결정 셋 → 고침. 계획 2단계의 픽스처 끝에서 끝이 빠짐 → `site`에 `GET /media/{key}` 탈출구 뷰와 200·404, `MediaDir` 없는 `Handler` 오류. `Type`은 매개변수를 떼지 않고 받는 그대로(놀람이 적다), `m.Type != ""` 군더더기 지움, 링크 시험은 건너뛰지 않고 `Fatal`. 7번에 넘김: `Attachment`가 `maago.Media`를 임베드할 수 있는지(모델 읽기는 `maago.Model`만 본다), 내려받기만 하는 앱은 `Files`가 없어 `MediaDir` 없이 서고 첫 `ServeMedia`에서 500(7번에는 업로드가 있다)
 
+
+## 6. `maago tailwind` (D-138)
+
+### 계획
+
+이 작업의 끝에 `maago tailwind`가 Node 없이 Tailwind CSS를 만든다: `<앱>/tailwind.css` → `<앱>/static/tailwind.css`. 결정의 기준은 "Claude·Codex가 Maago로 서비스를 만들 때 편한가".
+
+실측(스크래치, 2026-10-13): 공식 standalone v4.3.3(2026-07-16, 두 주보다 오래됨)의 `sha256sums.txt`는 플랫폼 일곱. macOS arm64 76MB, linux 100MB 안팎. `tailwindcss -i board/tailwind.css -o board/static/tailwind.css --minify`를 프로젝트 루트에서 돌리면 소스를 작업 디렉터리에서 찾아(`.gitignore`를 따른다) 다른 앱(`auth/templates`)의 클래스도 든다, 40ms. 입력은 `@import "tailwindcss";` 한 줄이면 된다.
+
+`cmd/maago/tailwind.go`(CLI 모듈, D-09는 CLI의 의존을 허락하지만 stdlib만 쓴다)
+- 고정 표: 버전 `v4.3.3`, `GOOS/GOARCH` → 자산 이름과 SHA-256(글자 그대로 소스에, 받는 곳의 `sha256sums.txt`를 믿지 않는다). linux는 `-musl`(정적이라 glibc·musl 어디서나 돈다), darwin arm64·x64, windows x64. 표에 없는 플랫폼은 오류("download tailwindcss … yourself" 대신 지원하는 것을 적는다)
+- 캐시: `os.UserCacheDir()/maago/tailwindcss-v4.3.3-<자산>`. 없으면 GitHub releases에서 받아 같은 디렉터리의 임시 파일 → SHA-256 확인 → 0755 → `Rename`. 있으면 그대로 쓴다(체크섬은 받을 때 한 번: 계획 리뷰). 받는 주소는 시험이 바꾸는 패키지 변수
+- 돌리기: 프로젝트 루트(`project.Root`)를 작업 디렉터리로, `<앱>/tailwind.css`가 있는 디렉터리마다(정렬) `-i <앱>/tailwind.css -o <앱>/static/tailwind.css --minify`. `wrote <앱>/static/tailwind.css`. 하나도 없으면 오류(fix: `@import "tailwindcss";` 한 줄의 `<앱>/tailwind.css`). Tailwind의 오류 출력은 그대로 stderr
+- 받기 실패: 네트워크 오류와 체크섬 불일치를 구별해 말한다. fix: 다시 돌리기, 프록시
+- `static/`이 생기면 그 앱은 라우트가 있어야 한다(2번의 생성 검사가 본다)
+
+CI: 워크플로는 그대로, `CI`가 있으면 `TestTailwind`가 진짜 실행 파일을 받는다(100MB, 아프면 `actions/cache`: 계획 리뷰)
+
+시험
+- `TestTailwindDownload`(가짜 서버, 가짜 실행 파일은 셸 스크립트): 받아 캐시에 둠·두 번째는 받지 않음·체크섬 틀림 거절과 임시 파일 없음·캐시가 바뀌면 다시 받음·표에 없는 플랫폼
+- `TestTailwind`(완료 조건 4): 진짜 v4.3.3으로 템플릿의 클래스가 든 CSS, `node`를 부르지 않음(`PATH`에서 `node`를 뺀다). 캐시에 실행 파일이 없으면 로컬은 이유를 찍고 건너뛰고 `CI`면 받는다(D-91 꼴)
+
+결정에 없는 선택(에이전트 편의로): linux는 musl, 출력 이름 고정(`static/tailwind.css`: `{{static "board/tailwind.css"}}` 한 꼴), `--minify` 늘
+
+하지 않기로 한 것: `--watch`(개발 중 다시 돌리기는 에이전트가 명령으로), 버전 고르기 플래그, 오프라인 실행 파일 경로 설정(v1), `check`가 출력의 낡음을 보는 것(D-138)
+
+단계
+1. 받기와 캐시 → 확인: `TestTailwindDownload`
+2. 명령과 진짜 실행 → 확인: `TestTailwind`(로컬에서 받아 한 번), CI 캐시
+
+### 계획 리뷰
+
+- codex: 명령 표·CI에 없다(계획이 만들 것), 동시에 두 실행 → 임시 파일에 받아 확인한 같은 바이트를 rename(Windows는 이미 있으면 그것을 쓴다, 잠금 없음: 내용이 같다), `UserCacheDir` 실패 → 진단, 받기 시간 제한(10분), 리다이렉트(GitHub의 302, 시험의 가짜 서버도 302), 플랫폼 표에 linux arm64 musl, 가짜 실행 파일은 셸이라 Windows에서 건너뜀, 출력은 옆 임시 파일에 쓰고 rename(실패하면 옛 출력이 남는다). 받지 않음: 실행까지 잠금(캐시를 바꿀 수 있는 자는 maago도 바꾼다)
+- fable: 진단 글(D-62) → 적은 대로, Tailwind의 출력은 잡아 두고 실패 때만(성공 때 stdout은 `wrote …`뿐), 입력 찾기는 `project.TailwindInputs`(`walk` 하나, `static/tailwind.css`는 빼고), `static/`은 먼저 만든다, 쓸 때마다 체크섬은 지움(받을 때 한 번), `actions/cache`도 지움(CI 시간이 아플 때), `TestTailwind`는 쓴 클래스가 있고 쓰지 않은 것이 없음을 본다. 7번에 넘김: `Maago-Run:` 트레일러는 필요 없다(출력이 패치에), 대신 낡음을 잡는 시험(`TestBoardTutorialTailwind`: 패치를 다 적용하고 standalone을 돌려 커밋된 CSS와 같은지), 작성자와 독자의 소스 집합(`steps.sh`의 `.git/info/exclude`가 `/auth/`를 뺀다) → 튜토리얼의 입력을 `@import "tailwindcss" source(none); @source "./templates";`로 고정할지 7번에서
+
+### 구현 리뷰
+
+- ponytail(나): 명령은 `gen`처럼 플래그 없는 함수 하나. CI는 `CI`가 있으면 진짜 실행 파일을 받아 `TestTailwind`를 돌린다(워크플로는 그대로). 로컬에서 `CI=1`로 한 번 받아 돎(8.8초, 다음부터 캐시). Go 1.25에서도 돎
+- codex: 출력 임시 파일 이름이 고정이라 동시에 덮는다 → `CreateTemp`. 받지 않음: 캐시를 쓸 때마다 체크섬과 그 시험(계획 리뷰의 fable과 갈림, 받을 때 한 번으로: 캐시를 바꿀 수 있는 자는 maago 실행 파일도 바꾼다)(샌드박스가 빌드 디렉터리를 막아 시험은 돌리지 못함)
+- fable: 체크섬 표 다섯 줄은 공식 `sha256sums.txt`와 같음. 실패한 첫 실행이 빈 `static/`을 남겨 `maago gen`이 거절 → `static/`은 rename 직전에(시험). 체크섬 불일치의 fix가 네트워크 탓 → 다시 돌려도 같으니 "그 파일을 쓰지 말라"로(시험). 변형 16개 중 살아남은 것 → 실패하는 스탠드인이 출력 반쪽을 쓰고 끝남·임시 파일 없음·`static/` 없이 시작·앱 디렉터리 안에서 돌리기(`cmd.Dir`, `project.Root`의 위로 찾기). Tailwind가 말했으면 "exit status 1"은 빼고 그 말만. D-138 본문(입력 찾기의 범위, 플랫폼, 캐시, 실패 때 옛 출력)과 계획의 낡은 두 줄 → 고침. 받지 않음: ANSI 색 지우기(에이전트는 읽는다), 상태 코드 시험(404 본문은 체크섬에서 막힌다)
+

@@ -60,6 +60,15 @@ func QueryFiles(root string) ([]string, []diag.Diagnostic) {
 	})
 }
 
+// TailwindInputs returns the apps' Tailwind inputs: each tailwind.css
+// not in a static directory, where maago tailwind writes its output under
+// the same name (D-138). It looks where GoFiles looks.
+func TailwindInputs(root string) ([]string, []diag.Diagnostic) {
+	return walk(root, func(p string) bool {
+		return path.Base(p) == "tailwind.css" && path.Base(path.Dir(p)) != "static"
+	})
+}
+
 // walk returns the regular files under root that keep accepts, as GoFiles
 // describes. Names starting with "." or "_" never reach keep.
 func walk(root string, keep func(slashPath string) bool) ([]string, []diag.Diagnostic) {
