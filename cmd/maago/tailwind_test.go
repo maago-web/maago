@@ -28,7 +28,7 @@ func fakeTailwind(t *testing.T, sum string) (cache string, downloads *atomic.Int
 	if sum == "" {
 		sum = hex.EncodeToString(h[:])
 	}
-	platform := runtime.GOOS + "/" + runtime.GOARCH
+	platform := tailwindPlatform()
 	old, oldURL := tailwindBuilds[platform], tailwindURL
 	asset := "tailwindcss-test"
 	tailwindBuilds[platform] = struct{ asset, sha256 string }{asset, sum}
@@ -126,7 +126,7 @@ func TestTailwindFails(t *testing.T) {
 	fakeTailwind(t, "")
 	root := tailwindProject(t)
 	runCmd("tailwind")
-	platform := runtime.GOOS + "/" + runtime.GOARCH
+	platform := tailwindPlatform()
 	cache, _ := os.UserCacheDir()
 	bin := filepath.Join(cache, "maago", "tailwindcss-"+tailwindVersion+"-"+tailwindBuilds[platform].asset)
 	// It writes half an output, then fails.
@@ -153,7 +153,7 @@ func TestTailwindFails(t *testing.T) {
 // templates use and not those they do not (M7's condition 4). It runs
 // when the build is in the user's cache, and always in CI (D-91).
 func TestTailwind(t *testing.T) {
-	platform := runtime.GOOS + "/" + runtime.GOARCH
+	platform := tailwindPlatform()
 	b, ok := tailwindBuilds[platform]
 	if !ok {
 		t.Skip("no build for " + platform)

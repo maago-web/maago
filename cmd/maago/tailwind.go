@@ -24,16 +24,19 @@ import (
 // tailwindVersion is the standalone Tailwind CSS maago tailwind runs
 // (D-138), and tailwindBuilds its file for each platform with the file's
 // SHA-256, as the release's sha256sums.txt gave them: written here, so a
-// changed file at the release is refused. Linux takes the musl builds,
-// which are static and run on any libc.
+// changed file at the release is refused. Linux takes the glibc builds,
+// and the musl ones where musl's loader is, as on Alpine: neither runs
+// with the other's.
 const tailwindVersion = "v4.3.3"
 
 var tailwindBuilds = map[string]struct{ asset, sha256 string }{
-	"darwin/arm64":  {"tailwindcss-macos-arm64", "cdf646702987a743464dff4d9c60fd4480d1c1e73dd819a9a67f1078815dce9d"},
-	"darwin/amd64":  {"tailwindcss-macos-x64", "7922e0953f2110c05976e3bf58f14e643d90427575e766b7d433f5f80cbee7e1"},
-	"linux/amd64":   {"tailwindcss-linux-x64-musl", "a04d34ceacc8f52cbe8920ad846cdeb61d3d0021dba32db0d1f77c9d9fad7a6c"},
-	"linux/arm64":   {"tailwindcss-linux-arm64-musl", "71ea4be79c9de9827545682df3e040053fb535d37c71ed2cfdedf9385a0868e0"},
-	"windows/amd64": {"tailwindcss-windows-x64.exe", "e0e260ce048014e9268f6237ff18f8ccf02cef521cbd0ae04e82c2cdf7aa3955"},
+	"darwin/arm64":     {"tailwindcss-macos-arm64", "cdf646702987a743464dff4d9c60fd4480d1c1e73dd819a9a67f1078815dce9d"},
+	"darwin/amd64":     {"tailwindcss-macos-x64", "7922e0953f2110c05976e3bf58f14e643d90427575e766b7d433f5f80cbee7e1"},
+	"linux/amd64":      {"tailwindcss-linux-x64", "dc61b3ac6b8c9ca874c0cc4c57b2409791a64c5540404ca5f5367360babc313a"},
+	"linux/arm64":      {"tailwindcss-linux-arm64", "55fd0b241214eff3de1e8ee4f22796662f2d2e7a49bcfca7477cfd0bac398195"},
+	"linux/amd64/musl": {"tailwindcss-linux-x64-musl", "a04d34ceacc8f52cbe8920ad846cdeb61d3d0021dba32db0d1f77c9d9fad7a6c"},
+	"linux/arm64/musl": {"tailwindcss-linux-arm64-musl", "71ea4be79c9de9827545682df3e040053fb535d37c71ed2cfdedf9385a0868e0"},
+	"windows/amd64":    {"tailwindcss-windows-x64.exe", "e0e260ce048014e9268f6237ff18f8ccf02cef521cbd0ae04e82c2cdf7aa3955"},
 }
 
 // errChanged is a download that is not the build maago knows.
@@ -56,7 +59,7 @@ func cmdTailwind(stdout, stderr io.Writer) int {
 	}
 	var bin string
 	if ds == nil {
-		bin, ds = tailwindBinary(runtime.GOOS + "/" + runtime.GOARCH)
+		bin, ds = tailwindBinary(tailwindPlatform())
 	}
 	if ds != nil {
 		diag.Write(stderr, ds)
@@ -99,6 +102,15 @@ func runTailwind(bin, root, in, out string) error {
 		return err
 	}
 	return os.Rename(f.Name(), filepath.Join(dir, "tailwind.css"))
+}
+
+// tailwindPlatform is this machine's key in tailwindBuilds.
+func tailwindPlatform() string {
+	p := runtime.GOOS + "/" + runtime.GOARCH
+	if musl, _ := filepath.Glob("/lib/ld-musl-*.so.1"); runtime.GOOS == "linux" && musl != nil {
+		p += "/musl"
+	}
+	return p
 }
 
 // tailwindBinary is the path of the standalone build for platform, in the
