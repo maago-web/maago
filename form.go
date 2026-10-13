@@ -310,15 +310,12 @@ func (m Messages) check() error {
 	return nil
 }
 
-// maxBody is the most a form body may hold, as http.Request.ParseForm
-// allows for one.
-const maxBody = 10 << 20
-
 // JSONValues is the form an API route's request sent (D-120): one JSON
 // object, read as the text of each value. A string is its text, a number
 // its digits as written, true and false themselves, null not given. A GET
 // or HEAD sends none: nil. The body must be application/json: one object
-// and nothing after it, at most 10MB; a 400 otherwise. Of keys, the
+// and nothing after it; a 400 otherwise. A body past Config.MaxBody is a
+// 413 (D-139). Of keys, the
 // form's, none may come twice or hold an array or object; other keys are
 // ignored (D-116).
 func JSONValues(r *http.Request, keys ...string) (url.Values, error) {
@@ -331,8 +328,10 @@ func JSONValues(r *http.Request, keys ...string) (url.Values, error) {
 	if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); mt != "application/json" {
 		return nil, bad("Content-Type %q, not application/json", r.Header.Get("Content-Type"))
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, maxBody))
-	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+	dec := json.NewDecoder(r.Body)
+	if t, err := dec.Token(); err != nil {
+		return nil, bad("not a JSON object: %w", err)
+	} else if t != json.Delim('{') {
 		return nil, bad("not a JSON object")
 	}
 	vals := url.Values{}
@@ -340,12 +339,12 @@ func JSONValues(r *http.Request, keys ...string) (url.Values, error) {
 	for dec.More() {
 		t, err := dec.Token()
 		if err != nil {
-			return nil, bad("%v", err)
+			return nil, bad("%w", err)
 		}
 		key := t.(string) // a key, once the object is open
 		var raw json.RawMessage
 		if err := dec.Decode(&raw); err != nil {
-			return nil, bad("%v", err)
+			return nil, bad("%w", err)
 		}
 		if !slices.Contains(keys, key) {
 			continue
@@ -367,9 +366,13 @@ func JSONValues(r *http.Request, keys ...string) (url.Values, error) {
 		}
 	}
 	if _, err := dec.Token(); err != nil {
-		return nil, bad("%v", err)
+		return nil, bad("%w", err)
 	}
-	if _, err := dec.Token(); err != io.EOF {
+	switch _, err := dec.Token(); {
+	case err == io.EOF:
+	case err != nil:
+		return nil, bad("%w", err)
+	default:
 		return nil, bad("more after the object")
 	}
 	return vals, nil

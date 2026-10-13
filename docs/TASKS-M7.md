@@ -175,3 +175,36 @@ API(루트, 새 파일 `static.go`)
 - codex: `fs.ReadDir`의 모든 오류를 "없음"으로 → `fs.ErrNotExist`만 넘기고 나머지는 진단. `-foo.css`를 embed는 받는데 규칙이 막음 → 일부러: D-136에 규칙을 적음(샌드박스가 스크래치를 막아 시험은 돌리지 못함)
 - fable: 결함 없음, 변형 15개 중 14개 잡힘. 살아남은 `More`의 예약 이름 → 시험 한 줄. "not a regular file"이 위치의 이름을 되풀이 → 줄임. 모르는 앱의 fix가 앱을 나열 → `url`처럼 did you mean만. `used`의 늦은 초기화 → `ReadStatic`에서. 받지 않음: `StaticName`의 빈 이름 가지(공개 함수라 남김)
 
+
+## 3. 본문 상한과 413 (D-139)
+
+### 계획
+
+이 작업의 끝에 요청 본문의 상한이 `Config` 값 하나이고, 넘으면 어느 본문이든 413이다. multipart와 파일 칸은 4번.
+
+- `Config.MaxBody int64`: 본문이 가질 수 있는 가장 많은 바이트, 0이면 10MB(`maxBody`, 지금 JSON과 `ParseForm`의 상한과 같다), 음수는 `Handler` 오류
+- `serve`(라우트마다, `Auth` 앞)에서 `r.Body = http.MaxBytesReader(w, r.Body, max)`. 모든 라우트: 탈출구 뷰(D-41)의 본문도. `ParseForm`은 본문이 `MaxBytesReader`이면 제 10MB 상한을 걸지 않으므로 상한은 이 값 하나다(stdlib `parsePostForm`)
+- `status()`: 사슬에 `*http.MaxBytesError`가 있으면 413, `Status`보다 먼저(`FormValues`가 `Status(400, fmt.Errorf("form: %w", err))`로 싸도 413). `JSONValues`는 제 `MaxBytesReader`를 지우고(serve가 건다) 읽기 오류를 `%w`로 싸서 사슬을 지킨다. `JSONValues`는 `Handler` 밖에서(시험의 `httptest`) 불릴 수 있어 상한이 없어진다: 문서에 "Handler가 건다"
+- API의 413은 RFC 9457 문서(`fail` 그대로), HTML은 글
+- 413은 4xx라 `OnError`를 부르지 않는다
+
+결정에 없는 선택: 필드 이름 `MaxBody`(D-139는 "Config 값 하나"), 탈출구 뷰도 막는다(웹훅의 본문도 무한하지 않게; 더 큰 것이 필요하면 `MaxBody`를 올린다)
+
+하지 않기로 한 것: 라우트마다의 상한(D-139 기각), multipart(4번)
+
+계획 리뷰는 codex 하나: 정해진 결정(D-139) 안의 작은 작업이고 `net/http`의 동작이 핵심이다(WORKFLOW 3). 구현 리뷰는 codex·fable(보안 경로)
+
+단계
+1. `Config.MaxBody`, `serve`의 감싸기, `status`, `JSONValues` → 확인: `TestMaxBody`(urlencoded·JSON·탈출구가 읽는 본문이 413, 상한 바로 아래는 그대로, API는 problem+json, `OnError`는 듣지 않음, 음수는 `Handler` 오류, 0은 10MB)
+2. 두 모듈 확인 명령, 변형(감싸기를 빼면, `status`의 순서를 바꾸면)
+
+### 계획 리뷰
+
+- codex: `MaxBytesReader(ww, …)`는 `written`이 net/http의 숨은 인터페이스를 가려 넘친 뒤 연결을 닫지 못함 → 원래 `w`, 시험은 `httptest.NewServer`의 진짜 서버에서 `Connection: close`(기록기에는 그 인터페이스가 없다). 탈출구 뷰가 읽기 오류를 삼키거나 이미 썼으면 413이 아니다 → `MaxBody` 문서에 "쓰기 전에 오류를 돌려줄 때". JSON의 `%w`, `ParseForm`(Go 1.25 소스는 이 환경에 없어 1.26.3만, 시험은 1.25에서도 돎), `status`의 순서는 맞음 → 시험으로 고정(`TestMaxBody`). `Content-Length` 미리 보기는 하지 않음(길이 모르는 본문엔 소용없다). multipart 파서의 제 오류와 `MaxBytesError`의 구분 → 4번
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음(감싸기 한 줄, `status`의 한 가지, 설정 하나). JSON의 제 상한은 지움(상한이 둘이면 `MaxBody`를 올려도 JSON은 10MB). 변형으로 확인: 감싸기 빼기, 413 가지 빼기, 기본값 바꾸기, `ww`로 감싸기(진짜 서버의 `Connection: close`가 잡는다). Go 1.25에서도 돎
+- codex: 결함 없음(샌드박스가 GOCACHE를 막아 시험은 돌리지 못함). `Auth`가 본문을 읽는 경우의 시험은 하지 않음(`Auth` 앞에서 감싸는 한 줄이 같다)
+- fable: 결함 없음, 변형 15개 중 둘 살아남음 → 시험: 기본값은 정확히 10MB가 200, 객체 뒤의 공백이 넘치면 413(끝 토큰의 `%w`). 주석의 까닭(`ww`가 아닌 이유), 같은 값을 두 이름으로, `JSONValues` 문서의 괄호 → 고침. 받음(결함 아님): 손으로 만든 `Body == nil` 요청은 이제 500(서버와 `httptest`는 늘 본문이 있다). ARCHITECTURE의 `Config` 목록에 `MaxBody`·`Static`이 없음 → 8번
+

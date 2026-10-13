@@ -73,6 +73,12 @@ type Config struct {
 	// LoginURL is where an HTML route that requires login sends a GET or
 	// HEAD without a user, with the request's path and query in next.
 	LoginURL string
+
+	// MaxBody is the most bytes the body of a request may hold, 0 for
+	// 10MB. A route that reads more answers 413, whatever the body: a
+	// form, JSON, or what a func(w, r) view reads, when the view returns
+	// the read's error before writing (D-139).
+	MaxBody int64
 }
 
 // App is an app's routes, as maago gen generates them into the app's App
@@ -147,6 +153,12 @@ func Handler(cfg Config) (http.Handler, error) {
 		return nil, errors.New("maago: routes require login, but Config.Auth is nil, so no request could reach them; set it to what tells the user of a request")
 	case htmlLogin && cfg.LoginURL == "":
 		return nil, errors.New("maago: HTML routes require login, but Config.LoginURL is empty; set it to the login page")
+	}
+	if h.cfg.MaxBody < 0 {
+		return nil, fmt.Errorf("maago: Config.MaxBody is %d; give the most bytes a body may hold, or 0 for 10MB", h.cfg.MaxBody)
+	}
+	if h.cfg.MaxBody == 0 {
+		h.cfg.MaxBody = 10 << 20
 	}
 	if cfg.Prefix != "" && (!strings.HasPrefix(cfg.Prefix, "/") || slices.ContainsFunc(strings.Split(cfg.Prefix, "/")[1:], func(seg string) bool { return seg == "" || url.PathEscape(seg) != seg })) {
 		return nil, fmt.Errorf("maago: Config.Prefix %q is not a path such as /app: start it with /, end it without, and use no character a URL path escapes", cfg.Prefix)
@@ -242,6 +254,7 @@ func (h *handler) serve(route *AppRoute) http.Handler {
 		ctx := context.WithValue(WithDB(r.Context(), h.cfg.DB), formKey{}, h.forms)
 		ctx = context.WithValue(ctx, remoteAddrKey{}, r.RemoteAddr)
 		r = r.WithContext(context.WithValue(ctx, cookiesKey{}, ww))
+		r.Body = http.MaxBytesReader(w, r.Body, h.cfg.MaxBody) // w, not ww: net/http closes the connection only when its own writer hears of it
 		defer func() {
 			p := recover()
 			if p == nil {
@@ -297,11 +310,15 @@ func (h *handler) report(w *written, r *http.Request, route *AppRoute, code int,
 	}
 }
 
-// status is the response's code for err: a Status first, then
-// sql.ErrNoRows, which is a row that is not there; else 500.
+// status is the response's code for err: a body past Config.MaxBody
+// first, even inside a Status (a form's 400 that could not read it); then
+// a Status, then sql.ErrNoRows, which is a row that is not there; else 500.
 func status(err error) int {
 	var s *statusError
+	var tooLarge *http.MaxBytesError
 	switch {
+	case errors.As(err, &tooLarge):
+		return http.StatusRequestEntityTooLarge
 	case errors.As(err, &s):
 		return s.code
 	case errors.Is(err, sql.ErrNoRows):

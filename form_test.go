@@ -264,7 +264,6 @@ func TestJSONValues(t *testing.T) {
 		"a form key twice": {js, `{"title":"a","title":"b"}`},
 		"form urlencoded":  {"application/x-www-form-urlencoded", "title=a"},
 		"no Content-Type":  {"", `{}`},
-		"past the limit":   {js, `{"title":"` + strings.Repeat("a", maxBody) + `"}`},
 	} {
 		var se *statusError
 		if _, err := read(c[0], c[1]); !errors.As(err, &se) || se.code != 400 {
