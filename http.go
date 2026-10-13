@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -79,6 +80,11 @@ type Config struct {
 	// form, JSON, or what a func(w, r) view reads, when the view returns
 	// the read's error before writing (D-139).
 	MaxBody int64
+
+	// MediaDir is the directory SaveMedia keeps files in (D-140), relative
+	// to the working directory if not absolute. A project whose forms take
+	// files must set it, and it must exist: Handler does not make it.
+	MediaDir string
 }
 
 // App is an app's routes, as maago gen generates them into the app's App
@@ -97,6 +103,7 @@ type AppRoute struct {
 	Method, Path, Name string
 	API                bool
 	LoginRequired      bool // a request without a user does not reach Serve (D-121)
+	Files              bool // it reads a form with a file: Config.MediaDir is needed (D-140)
 	Serve              func(w http.ResponseWriter, r *http.Request) error
 }
 
@@ -121,6 +128,7 @@ func Handler(cfg Config) (http.Handler, error) {
 	static := map[string]*StaticFiles{}
 	staticOf := map[string]string{}  // the app, by the package name of its static files
 	login, htmlLogin := false, false // some route requires login; some HTML one does
+	files := false                   // some route reads a form with a file
 	for _, app := range cfg.Apps {
 		switch {
 		case app.name == "":
@@ -144,7 +152,7 @@ func Handler(cfg Config) (http.Handler, error) {
 			pattern := r.Method + " " + r.Path
 			h.routes[pattern] = r
 			h.mux.Handle(pattern, h.serve(r))
-			login = login || r.LoginRequired
+			login, files = login || r.LoginRequired, files || r.Files
 			htmlLogin = htmlLogin || r.LoginRequired && !r.API
 		}
 	}
@@ -153,6 +161,14 @@ func Handler(cfg Config) (http.Handler, error) {
 		return nil, errors.New("maago: routes require login, but Config.Auth is nil, so no request could reach them; set it to what tells the user of a request")
 	case htmlLogin && cfg.LoginURL == "":
 		return nil, errors.New("maago: HTML routes require login, but Config.LoginURL is empty; set it to the login page")
+	}
+	switch info, err := os.Stat(cfg.MediaDir); {
+	case files && cfg.MediaDir == "":
+		return nil, errors.New("maago: forms take files, but Config.MediaDir is empty; set it to the directory to keep them in, such as media")
+	case cfg.MediaDir != "" && err != nil:
+		return nil, fmt.Errorf("maago: Config.MediaDir: %w; create the directory", err)
+	case cfg.MediaDir != "" && !info.IsDir():
+		return nil, fmt.Errorf("maago: Config.MediaDir %q is not a directory", cfg.MediaDir)
 	}
 	if h.cfg.MaxBody < 0 {
 		return nil, fmt.Errorf("maago: Config.MaxBody is %d; give the most bytes a body may hold, or 0 for 10MB", h.cfg.MaxBody)
@@ -253,6 +269,9 @@ func (h *handler) serve(route *AppRoute) http.Handler {
 		ww := &written{ResponseWriter: w}
 		ctx := context.WithValue(WithDB(r.Context(), h.cfg.DB), formKey{}, h.forms)
 		ctx = context.WithValue(ctx, remoteAddrKey{}, r.RemoteAddr)
+		if h.cfg.MediaDir != "" {
+			ctx = WithMediaDir(ctx, h.cfg.MediaDir)
+		}
 		r = r.WithContext(context.WithValue(ctx, cookiesKey{}, ww))
 		r.Body = http.MaxBytesReader(w, r.Body, h.cfg.MaxBody) // w, not ww: net/http closes the connection only when its own writer hears of it
 		// The multipart files of r as it is last: net/http removes only

@@ -58,7 +58,8 @@ func URLsFile(app *App, stub bool) []byte {
 		expr = strings.ReplaceAll(strings.TrimPrefix(expr, `"" + `), `" + "`, "")
 		rs = append(rs, map[string]any{
 			"Method": r.Method, "Path": r.Path, "Name": r.Name, "API": hasOption(r.Options, "API"), "LoginRequired": hasOption(r.Options, "LoginRequired"),
-			"URL": mapper.FieldName(r.Name) + "URL", "Serve": "serve" + mapper.FieldName(r.Name),
+			"Files": app.readsFile(&r),
+			"URL":   mapper.FieldName(r.Name) + "URL", "Serve": "serve" + mapper.FieldName(r.Name),
 			"Params": strings.Join(params, ", "), "URLExpr": expr,
 		})
 	}

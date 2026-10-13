@@ -33,7 +33,7 @@ func handler(t *testing.T) (http.Handler, *sql.DB, *[]error) {
 	t.Helper()
 	db := maagotest.DB(t)
 	var reported []error
-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, LoginURL: "/login", Origins: []string{trusted},
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, MediaDir: t.TempDir(), LoginURL: "/login", Origins: []string{trusted},
 		OnError: func(_ context.Context, _ *http.Request, err error) { reported = append(reported, err) }})
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestUpload(t *testing.T) {
 		code int
 		body string
 	}{
-		{"a png", post("a.png", png), 200, "<p>got a.png image/png</p>"},
+		{"a png", post("a.png", png), 200, "<p>got a.png image/png "},
 		{"html named png", post("a.png", []byte("<!DOCTYPE html><p>x")), 200, "This kind of file is not allowed."},
 		{"no file chosen", post("", nil), 200, "This field is required."},
 		{"past MaxBody", post("big.png", append(png, make([]byte, 10<<20)...)), 413, ""},
@@ -94,6 +94,22 @@ func TestUpload(t *testing.T) {
 		if c.w.Code != c.code || !strings.Contains(c.w.Body.String(), c.body) {
 			t.Errorf("%s: %d %q", c.name, c.w.Code, c.w.Body)
 		}
+	}
+	// What was saved comes back down, to download; another key is 404.
+	key := regexp.MustCompile(`got a\.png image/png ([0-9a-f]{32})`).FindStringSubmatch(post("a.png", png).Body.String())
+	if key == nil {
+		t.Fatal("no key")
+	}
+	for k, code := range map[string]int{key[1]: 200, strings.Repeat("0", 32): 404} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", MediaURL(k), nil))
+		if w.Code != code || code == 200 && (w.Body.String() != string(png) || w.Header().Get("Content-Disposition") != "attachment; filename=a.png") {
+			t.Errorf("media %s: %d %v", k, w.Code, w.Header())
+		}
+	}
+	// A form takes a file: no Handler without Config.MediaDir.
+	if _, err := maago.Handler(maago.Config{DB: maagotest.DB(t), Apps: []maago.App{App}, Auth: Auth, LoginURL: "/login"}); err == nil || !strings.Contains(err.Error(), "Config.MediaDir is empty") {
+		t.Errorf("no MediaDir: %v", err)
 	}
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", UploadSaveURL(), strings.NewReader("doc=a.png"))
@@ -235,7 +251,7 @@ func TestForm(t *testing.T) {
 // Config.Messages replaces what forms say; what it leaves empty stays.
 func TestFormMessages(t *testing.T) {
 	_, db, _ := handler(t)
-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, LoginURL: "/login", Messages: maago.Messages{Required: "필수 항목입니다."}})
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, MediaDir: t.TempDir(), LoginURL: "/login", Messages: maago.Messages{Required: "필수 항목입니다."}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -381,7 +397,7 @@ func TestPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, LoginURL: "/app/login", Prefix: "/app", TimeZone: seoul})
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, MediaDir: t.TempDir(), LoginURL: "/app/login", Prefix: "/app", TimeZone: seoul})
 	if err != nil {
 		t.Fatal(err)
 	}

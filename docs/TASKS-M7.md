@@ -251,3 +251,42 @@ API(루트, 새 파일 `static.go`)
 - codex: `enctype` 글자 그대로의 검색 → 정규식(대소문자·따옴표·공백, `TestFileForm`에 대문자·홑따옴표), `RemoveAll`의 오류를 버림 → `OnError`나 로그(시험 없음: 임시 파일을 지우지 못하게 만들 길이 플랫폼마다 다르다). 주석 안의 같은 글은 거짓 양성으로 받음(fix가 정확한 글을 준다)(샌드박스가 GOCACHE를 막아 시험은 돌리지 못함)
 - fable: 막는 결함 없음, 변형 13개 중 11개 잡힘. 살아남은 둘 → 큰 파일이 실제로 임시 파일로 갔는지 단언, `MultipartValues`의 Content-Type 검사는 `ParseMultipartForm`의 오류와 같은 400이라 지움(`FormValues`의 것은 남김: `ParseForm`은 multipart를 조용히 버린다). 칸마다 바인딩 인자 하나(`r`나 `r.Context()`)로 `Ctx` 표지와 분기를 지움. 진단 글을 `unknown kind "jpg" in accept of …`로, 시험은 `jpg`(did you mean "jpeg"). `Messages.NotAccepted`는 `NotKind`로(`NotNumber`·`NotChoice`와 맞춤). 7번에 넘김: `enctype` 검사는 폼을 읽는 라우트의 페이지만 본다 → 첨부 POST가 글 상세 GET과 같은 페이지 타입을 돌려 템플릿을 같이 쓰거나 `base.html`. 5번에 넘김: D-140의 "`MediaDir`이 비면 `Handler` 오류"에 런타임 신호가 없다(파일 칸은 생성기만 안다) → 생성물이 알린다(2번의 `WithStatic` 꼴), `File.Type`의 zip 계열(docx)은 문서에
 
+
+## 5. 미디어 (D-140)
+
+### 계획
+
+이 작업의 끝에 뷰가 받은 파일을 `SaveMedia`로 `MediaDir`에 두고, 제 권한 검사 뒤 `ServeMedia`로 내려보낸다. 결정의 기준은 "Claude·Codex가 Maago로 서비스를 만들 때 편한가".
+
+런타임(루트, 새 파일 `media.go`)
+- `type Media struct { Key, Name, Type string; Size int64 }`: 저장한 것 하나를 한 값으로. `SaveMedia`가 주고 `ServeMedia`가 받는다(열쇠·이름·형식을 문자열 셋으로 따로 넘기면 순서를 바꿔 넘기기 쉽다: 에이전트 편의로 결정). 사용자는 칸 넷을 모델에 둔다(예: `Attachment`의 `Key`·`Name`·`Type`·`Size`)
+- `Config.MediaDir string`, 상대 경로면 작업 디렉터리 기준(SQLite 파일과 같다). `Handler`: 파일 폼을 읽는 라우트가 있는데 비면 오류, 있는데 디렉터리가 아니면(없으면) 오류("create it", 기동 때 몰래 만들지 않는다). 요청의 ctx에 둔다. 시험용 `WithMediaDir(ctx, dir)`(`WithDB`와 같은 꼴)
+- 파일 폼을 읽는 라우트의 표지: `AppRoute.Files bool`, 생성된 `urls_gen.go`가 `Files: true`(4번 리뷰가 넘긴 것: 파일 칸은 생성기만 안다)
+- `SaveMedia(ctx, f File) (Media, error)`: 열쇠는 `crypto/rand` 16바이트의 소문자 16진 32자, 파일 이름은 열쇠뿐(보낸 이름은 `Media.Name`에만: 경로가 될 수 없다). `O_CREATE|O_EXCL`로 만들고 복사, 실패하면 지운다. 디렉터리가 ctx에 없으면 오류
+- `OpenMedia(ctx, key) (*os.File, error)`: 열쇠 형식(32자 소문자 16진)이 아니거나 없으면 `Status(404)`(`../x`도 형식에서 막힌다)
+- `DeleteMedia(ctx, key) error`: 형식이 아니면 오류, 없으면 nil(두 번 지워도 된다: 글을 지울 때 첨부 행과 함께, 에이전트가 존재를 먼저 묻지 않아도 된다)
+- `ServeMedia(w, r, m Media) error`: `OpenMedia`, `Content-Disposition: attachment; filename=…`(`mime.FormatMediaType`, 비ASCII는 RFC 2231, 만들 수 없는 이름은 `attachment`만), `Content-Type: m.Type`(빈 것은 `application/octet-stream`), `X-Content-Type-Options: nosniff`, `Cache-Control: private`, `http.ServeContent`(Range·`Last-Modified`). 오류는 쓰기 전에만 돌려준다(탈출구 뷰의 약속, D-41)
+
+생성(`internal/web`): `urls.go.tmpl`에 `Files: true`(그 라우트의 In이 파일 폼을 읽으면)
+
+문서: `File`의 주석에 "`SaveMedia`로 두라", 고아 파일(저장 뒤 DB 쓰기가 실패하면 뷰가 `DeleteMedia`, 남은 것을 치우는 명령은 v1), `File.Type`의 zip 계열(docx·xlsx)
+
+결정에 없는 선택: `Media` 한 값, `DeleteMedia`가 없는 것에 nil, `MediaDir`이 없을 때 만들지 않음, `Cache-Control: private`
+
+하지 않기로 한 것: 공개 미디어 라우트(D-140), 하위 디렉터리로 나누기(열쇠가 많아지면 v1), 외부 저장소(v1), 이미지 처리(D-72)
+
+단계
+1. 런타임 → 확인: `TestMedia`(`../../evil`이란 이름의 파일이 `MediaDir` 아래 열쇠 이름으로만 생김(완료 조건 5), 내용 그대로, `OpenMedia("../x")`·대문자·짧은 열쇠는 404, 없는 열쇠 404, `DeleteMedia` 두 번), `TestServeMedia`(`Content-Disposition`의 따옴표·역슬래시·한글·CR/LF 이름, `nosniff`, Range 206, 형식), `TestHandlerConfig`에 `MediaDir` 빈 것·없는 디렉터리
+2. 생성 → 확인: 골든·`TestFileForm`에 `Files: true`, `cmd/maago` 픽스처의 업로드가 `SaveMedia` → `ServeMedia`로 돌아오고 `MediaDir` 없이 `Handler` 오류
+
+### 계획 리뷰
+
+- codex: 최종 열쇠로 먼저 만들고 복사하면 반쯤 쓴 파일이 보인다 → `.tmp-열쇠`에 쓰고 닫은 뒤 `Rename`(`.tmp-`는 열쇠 형식이 아니라 열리지 않는다), 충돌한 남의 파일은 지우지 않음(임시 이름은 제 것뿐), `MediaDir` 안의 링크 → `os.Root`(Go 1.25에 `Rename`이 있다, 1.25로도 돎), 모드 `0o600`, `m.Type`은 `mime.ParseMediaType`이 받는 것만(아니면 `application/octet-stream`), `FormatMediaType`은 이름 때문에 실패하지 않는다(빈 이름만 `attachment`로), HEAD·빈 이름 시험. 받지 않음: "`Files` 표지가 생성되지 않는다"(계획이 만들 것이었다), `no-store`(`private`로 충분, 결정 밖)
+- fable: ★`ServeMedia`가 `error`를 돌려도 탈출구 뷰는 돌려줄 자리가 없다(생성 어댑터가 `return nil`) → 에이전트 편의로 결정: 반환 없음, 없으면 스스로 404, 그 밖은 쓰기 전 panic(500과 `OnError`, 0016 CSV의 관례), `OpenMedia`는 `fs.ErrNotExist`로 감싼 오류(형식 틀림도). 픽스처의 `Handler` 셋에 `MediaDir: t.TempDir()`. 7번에 넘김: `config(db)`가 `t`를 받게, `main.go`와 `media/`(`.gitignore`), 지우는 순서는 첨부 행 먼저·파일 다음(FK `NO ACTION`), 글 상세 GET과 첨부 POST가 같은 페이지 타입. 시험용 `maagotest`의 미디어 디렉터리는 필요 없음(`t.TempDir()` 한 줄)
+
+### 구현 리뷰
+
+- ponytail(나): 라우트가 파일 폼을 읽는지는 `App.readsFile` 하나(생성물의 `Files`와 `enctype` 검사가 함께 쓴다). `WithMediaDir`은 디렉터리 이름만, `os.Root`는 부를 때마다 열고 닫는다(잡아 둘 핸들이 없다). Go 1.25에서도 돎
+- codex: 실패 때 임시 파일 지우기의 오류를 버림 → `errors.Join`으로 함께 돌려줌(샌드박스가 GOCACHE를 막아 시험은 돌리지 못함)
+- fable: 막는 결함 없음, 변형 19개 중 17개 잡힘(살아남은 둘 — 임시 이름 없이 바로 쓰기, 실패 때 지우기 생략 — 은 동시 읽기·복사 실패를 주입할 길이 없어 시험 없이 둠). D-140 본문에 이번 결정 셋 → 고침. 계획 2단계의 픽스처 끝에서 끝이 빠짐 → `site`에 `GET /media/{key}` 탈출구 뷰와 200·404, `MediaDir` 없는 `Handler` 오류. `Type`은 매개변수를 떼지 않고 받는 그대로(놀람이 적다), `m.Type != ""` 군더더기 지움, 링크 시험은 건너뛰지 않고 `Fatal`. 7번에 넘김: `Attachment`가 `maago.Media`를 임베드할 수 있는지(모델 읽기는 `maago.Model`만 본다), 내려받기만 하는 앱은 `Files`가 없어 `MediaDir` 없이 서고 첫 `ServeMedia`에서 500(7번에는 업로드가 있다)
+

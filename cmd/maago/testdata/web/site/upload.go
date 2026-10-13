@@ -2,6 +2,7 @@ package site
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/maago-web/maago"
 )
@@ -24,8 +25,17 @@ type UploadPage struct {
 func Upload(ctx context.Context, in UploadIn) (UploadPage, error) {
 	p := UploadPage{Form: in.Form}
 	if in.Form.Valid() {
-		f := in.Form.Doc.Value
-		p.Got = f.Name + " " + f.Type
+		m, err := maago.SaveMedia(ctx, in.Form.Doc.Value)
+		if err != nil {
+			return p, err
+		}
+		p.Got = m.Name + " " + m.Type + " " + m.Key
 	}
 	return p, nil
+}
+
+// MediaDownload sends a saved file down; a real view would read its row
+// and check the user may have it first (D-140).
+func MediaDownload(w http.ResponseWriter, r *http.Request) {
+	maago.ServeMedia(w, r, maago.Media{Key: r.PathValue("key"), Name: "a.png", Type: "image/png"})
 }

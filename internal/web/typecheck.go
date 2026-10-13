@@ -70,10 +70,7 @@ func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) [
 			}
 			r.view.template = model.Snake(r.view.page) + ".html"
 			viewPos[r] = pos
-			multipart := slices.ContainsFunc(r.view.fields, func(f inField) bool {
-				return f.source == "form" && app.forms[f.typ] != nil && app.forms[f.typ].hasFile()
-			})
-			pages = append(pages, page{route: r, typ: pkg.Scope().Lookup(r.view.page).Type().(*types.Named), label: r.view.page, multipart: multipart})
+			pages = append(pages, page{route: r, typ: pkg.Scope().Lookup(r.view.page).Type().(*types.Named), label: r.view.page, multipart: app.readsFile(r)})
 		}
 		ds = append(ds, validates(res, pkg, app)...)
 		if !failed { // a template is walked with the page types, which must be right

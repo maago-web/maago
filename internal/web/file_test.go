@@ -57,6 +57,9 @@ func TestFileForm(t *testing.T) {
 	if out != "" {
 		t.Fatal(out)
 	}
+	if u := string(files["up/urls_gen.go"]); !strings.Contains(u, `Name: "up_save", Files: true, Serve:`) || !strings.Contains(u, `Name: "up_form", Files: true, Serve:`) {
+		t.Errorf("urls_gen.go marks no route that reads a file:\n%s", u)
+	}
 	v := string(files["up/views_gen.go"])
 	for _, want := range []string{
 		`vals, err := maago.MultipartValues(r, "title", "doc")`,

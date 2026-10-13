@@ -398,3 +398,10 @@ func modelRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ide
 func (f *form) hasFile() bool {
 	return slices.ContainsFunc(f.fields, func(ff formField) bool { return ff.typ == "maago.File" })
 }
+
+// readsFile reports whether route r's In reads a form with a file.
+func (app *App) readsFile(r *Route) bool {
+	return r.view != nil && slices.ContainsFunc(r.view.fields, func(f inField) bool {
+		return f.source == "form" && app.forms[f.typ] != nil && app.forms[f.typ].hasFile()
+	})
+}
