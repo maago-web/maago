@@ -42,6 +42,14 @@ var Admin = []admin.Model{
 			return n, err
 		},
 		Form: {{.Form}},
+		Delete: Delete{{.Name}},
+		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
+			return admin.CountRefs(ctx, db, id, {{.Row}}, {{if .Refs}}[]admin.Ref{
+{{- range .Refs}}
+				{Model: "{{.Model}}", Field: "{{.Field}}", SQL: {{.SQL}}{{.Self}}},
+{{- end}}
+			}{{else}}nil{{end}})
+		},
 {{- if .Add}}
 		Add: true,
 {{- end}}

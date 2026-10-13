@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"fmt"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -225,5 +227,77 @@ func TestAdminForm(t *testing.T) {
 	}
 	if _, err := post.Form(ctx, db, p.ID+100, vals); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("no row, sent: %v", err)
+	}
+}
+
+// What keeps a row from being deleted in the admin (D-135): the rows of
+// each field that refers to it, but not the row itself; and a row that
+// is not there.
+func TestAdminDelete(t *testing.T) {
+	ctx, db := gentest.Open(t, "internal/testdata/example")
+	post, author := Admin[0], Admin[1]
+	// Each edits itself (EditorID is unique, ids start at 1); b is a's
+	// parent and c's reviewer; c writes two posts.
+	var as []Author
+	for i, name := range []string{"a", "b", "c"} {
+		x, err := InsertAuthor(ctx, db, NewAuthorInput{Name: name, EditorID: int64(i + 1), Code: name})
+		if err != nil || x.ID != int64(i+1) {
+			t.Fatalf("author %s: %+v %v", name, x, err)
+		}
+		as = append(as, x)
+	}
+	a, b, c := as[0], as[1], as[2]
+	a.ParentID, c.ReviewerID = &b.ID, &b.ID
+	for _, x := range []*Author{&a, &c} {
+		if err := UpdateAuthor(ctx, db, x); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var posts []int64
+	for _, slug := range []string{"p1", "p2"} {
+		p, err := InsertPost(ctx, db, NewPostInput{AuthorID: c.ID, Title: "t", Slug: slug, Body: []byte{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		posts = append(posts, p.ID)
+	}
+	counts := func(id int64) string {
+		refs, err := author.Refs(ctx, db, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var s []string
+		for _, r := range refs {
+			s = append(s, fmt.Sprintf("%s.%s=%d", r.Model, r.Field, r.N))
+		}
+		return strings.Join(s, " ")
+	}
+	for _, c := range []struct {
+		id   int64
+		want string
+	}{
+		{a.ID, "blog.Post.AuthorID=0 blog.Author.ParentID=0 blog.Author.EditorID=0 blog.Author.ReviewerID=0"},
+		{b.ID, "blog.Post.AuthorID=0 blog.Author.ParentID=1 blog.Author.EditorID=0 blog.Author.ReviewerID=1"},
+		{c.ID, "blog.Post.AuthorID=2 blog.Author.ParentID=0 blog.Author.EditorID=0 blog.Author.ReviewerID=0"},
+	} {
+		if got := counts(c.id); got != c.want {
+			t.Errorf("author %d: %s, want %s", c.id, got, c.want)
+		}
+	}
+	if _, err := author.Refs(ctx, db, c.ID+100); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("no author: %v", err)
+	}
+	if refs, err := post.Refs(ctx, db, posts[0]); err != nil || refs != nil {
+		t.Errorf("post refs: %v %v", refs, err)
+	}
+	// a, which refers only to itself, is deleted, as its Refs said.
+	if err := author.Delete(ctx, db, a.ID); err != nil {
+		t.Errorf("an author that edits itself: %v", err)
+	}
+	if err := post.Delete(ctx, db, posts[0]); err != nil {
+		t.Fatal(err)
+	}
+	if err := post.Delete(ctx, db, posts[0]); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("deleted twice: %v", err)
 	}
 }

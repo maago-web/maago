@@ -1,6 +1,7 @@
 package admingen
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func TestIDOrderAndOtherApp(t *testing.T) {
 		{Name: "ID", Column: "id", Type: model.Int64},
 		{Name: "ItemID", Column: "item_id", Type: model.Int64, FK: "shop_item"},
 	}}
-	if got := Statements(note, project.SQLite).List; !strings.HasSuffix(got, `ORDER BY "id" LIMIT ? OFFSET ?`) {
+	if got := Statements(note, project.SQLite, nil).List; !strings.HasSuffix(got, `ORDER BY "id" LIMIT ? OFFSET ?`) {
 		t.Errorf("list: %s", got)
 	}
 	apps := []*model.App{{Dir: "notes", Name: "notes", Models: []*model.Model{note}}, {Dir: "shop", Name: "shop", Models: []*model.Model{item}}}
@@ -72,7 +73,7 @@ func TestBlocks(t *testing.T) {
 // a Password field without admin=hidden is in the form.
 func TestNoEditAndPasswordForm(t *testing.T) {
 	item := &model.Model{Name: "Item", Table: "shop_item", Fields: []*model.Field{{Name: "ID", Column: "id", Type: model.Int64}}}
-	if st := Statements(item, project.SQLite); st.Update != "" {
+	if st := Statements(item, project.SQLite, nil); st.Update != "" {
 		t.Errorf("update: %q", st.Update)
 	}
 	app := &model.App{Dir: "shop", Name: "shop", Models: []*model.Model{item}}
@@ -119,5 +120,31 @@ func TestEmptyDefault(t *testing.T) {
 	got := string(File(project.SQLite, app, []*model.App{app}))
 	if !strings.Contains(got, `maago.Rule{Name: "nick", Label: "Nick", Optional: true}`) || !strings.Contains(got, `admin.In(&f.Nick, false, "")`) {
 		t.Errorf("admin_gen.go:\n%s", got)
+	}
+}
+
+// The rows that refer to a model: from any app, and from the same table
+// leaving the row itself out (D-135).
+func TestRefs(t *testing.T) {
+	item := &model.Model{Name: "Item", Table: "shop_item", Fields: []*model.Field{
+		{Name: "ID", Column: "id", Type: model.Int64},
+		{Name: "ParentID", Column: "parent_id", Type: model.Int64, Pointer: true, FK: "shop_item"},
+	}}
+	note := &model.Model{Name: "Note", Table: "notes", AdminHidden: true, Fields: []*model.Field{
+		{Name: "ID", Column: "id", Type: model.Int64},
+		{Name: "ItemID", Column: "item_id", Type: model.Int64, FK: "shop_item"},
+	}}
+	apps := []*model.App{{Dir: "notes", Name: "notes", Models: []*model.Model{note}}, {Dir: "shop", Name: "shop", Models: []*model.Model{item}}}
+	got := Statements(item, project.Postgres, apps).Refs
+	want := []Ref{
+		{Model: "notes.Note", Field: "ItemID", SQL: `SELECT COUNT(*) FROM "notes" WHERE "item_id" = $1`},
+		{Model: "shop.Item", Field: "ParentID", SQL: `SELECT COUNT(*) FROM "shop_item" WHERE "parent_id" = $1 AND "id" <> $2`, Self: true},
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("refs:\n%+v\nwant\n%+v", got, want)
+	}
+	if file := string(File(project.Postgres, apps[1], apps)); !strings.Contains(file, `{Model: "notes.Note", Field: "ItemID", SQL: `+"`"+`SELECT COUNT(*) FROM "notes" WHERE "item_id" = $1`+"`"+`}`) ||
+		!strings.Contains(file, "Delete: DeleteItem,") {
+		t.Errorf("admin_gen.go:\n%s", file)
 	}
 }

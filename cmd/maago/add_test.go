@@ -212,6 +212,7 @@ func TestAdmin(t *testing.T) {
 		return u
 	}
 	ann, staff, ed, _ := user("ann@example.com", false, false), user("staff@example.com", true, false), user("ed@example.com", true, false), user("boss@example.com", true, true)
+	gone := user("gone@example.com", false, false) // never signs in: no session refers to it
 	for _, p := range [][2]string{{"User", "view"}, {"Permission", "view"}, {"Permission", "add"}} { // add: a superuser's job all the same
 		if _, err := auth.InsertPermission(ctx, db, auth.NewPermissionInput{UserID: ed.ID, App: "auth", ModelName: p[0], Action: p[1]}); err != nil {
 			t.Fatal(err)
@@ -254,6 +255,8 @@ func TestAdmin(t *testing.T) {
 		{"GET", "/admin/auth/Session/", nil, [4]int{403, 403, 403, 404}},
 		{"GET", "/admin/auth/User/add/", nil, [4]int{403, 403, 403, 404}}, // the hash would be empty (D-133)
 		{"POST", annRow, change, [4]int{403, 403, 403, 303}},
+		{"GET", fmt.Sprintf("/admin/auth/User/delete/?id=%d", gone.ID), nil, [4]int{403, 403, 403, 200}},
+		{"POST", "/admin/auth/User/delete/", url.Values{"id": {fmt.Sprint(gone.ID)}}, [4]int{403, 403, 403, 303}},
 		{"POST", "/admin/auth/Permission/add/", url.Values{"user_id": {fmt.Sprint(ed.ID)}, "app": {"auth"}, "model_name": {"User"}, "action": {"change"}}, [4]int{403, 403, 403, 303}},
 	} {
 		for i, u := range []string{"ann", "staff", "ed", "boss"} {
@@ -276,6 +279,14 @@ func TestAdmin(t *testing.T) {
 		t.Errorf("after boss changed ann: %+v %v", ann2, err)
 	}
 	login("ann2@example.com") // the hash is as it was
+	if _, err := auth.GetUser(ctx, db, gone.ID); err == nil {
+		t.Error("boss did not delete gone")
+	}
+	// A user who signed in has sessions: not even a superuser deletes it.
+	w := do(sessions["boss"], "POST", "/admin/auth/User/delete/", url.Values{"id": {fmt.Sprint(ann.ID)}})
+	if body := w.Body.String(); w.Code != 200 || !strings.Contains(body, "rows of auth.Session (UserID) refer to it") {
+		t.Errorf("deleting a user with sessions: %d\n%s", w.Code, body)
+	}
 
 	if w := do(sessions["staff"], "GET", "/admin/auth/User/", nil); w.Code != 403 {
 		t.Fatalf("staff before the grant: %d", w.Code)

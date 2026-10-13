@@ -30,6 +30,21 @@ type Model struct {
 	Form func(ctx context.Context, db maago.DB, id int64, vals url.Values) (Form, error)
 	Add  bool // a new row can be made: no field the form leaves out would be a zero value (D-132)
 	Edit bool // the form has a field to change
+
+	// Delete deletes the row with id: sql.ErrNoRows if there is none. Refs
+	// counts the rows that refer to it, which keep it from being deleted
+	// (D-135): sql.ErrNoRows if there is none.
+	Delete func(ctx context.Context, db maago.DB, id int64) error
+	Refs   func(ctx context.Context, db maago.DB, id int64) ([]Ref, error)
+}
+
+// Ref is a field of a model, of any app, that refers to a model, and how
+// many rows refer to one row of it.
+type Ref struct {
+	Model, Field string // Model as "app.Model"
+	SQL          string // the count: SELECT COUNT(*) … WHERE "field" = ?, and AND "id" <> ? when Self
+	Self         bool   // the field is of the same table: the row itself does not count
+	N            int64
 }
 
 // Form is a model's form, read or to draw.

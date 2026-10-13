@@ -1,0 +1,19 @@
+{{define "title"}}Delete · Admin{{end}}
+{{define "content"}}
+<p><a href="{{.List}}">{{.App}}.{{.Name}}</a></p>
+<h1>Delete {{.App}}.{{.Name}}</h1>
+<ul>
+{{range .Rows}}<li><a href="{{.URL}}">{{$.Name}} {{.ID}}</a>
+{{if .Missing}}: <span class="error">no such row</span>
+{{else}}{{range .Refs}}<br><span class="error">{{.N}} {{if eq .N 1}}row of {{.Model}} ({{.Field}}) refers{{else}}rows of {{.Model}} ({{.Field}}) refer{{end}} to it</span>{{end}}{{end}}
+</li>
+{{end}}</ul>
+{{if .OK}}
+<form method="post">
+{{range .Rows}}<input type="hidden" name="id" value="{{.ID}}">{{end}}
+<button type="submit">Delete</button>
+</form>
+{{else}}
+<p class="empty">Nothing is deleted: a row above cannot be.</p>
+{{end}}
+{{end}}

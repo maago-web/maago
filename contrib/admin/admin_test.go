@@ -57,6 +57,12 @@ func plain(app, name string) Model {
 // the X-User header, and can tells what each user may view.
 func handler(t *testing.T, cfg Config, prefix string, can map[string][]string) http.Handler {
 	t.Helper()
+	return handlerOn(t, sql.OpenDB(noDriver{}), cfg, prefix, can)
+}
+
+// handlerOn is handler on db.
+func handlerOn(t *testing.T, db *sql.DB, cfg Config, prefix string, can map[string][]string) http.Handler {
+	t.Helper()
 	if cfg.Can == nil {
 		cfg.Can = func(ctx context.Context, app, model, action string) (bool, error) {
 			u, _ := maago.UserFrom[string](ctx)
@@ -65,7 +71,7 @@ func handler(t *testing.T, cfg Config, prefix string, can map[string][]string) h
 	}
 	api := maago.NewApp("api", maago.AppRoute{Method: "GET", Path: "/api/x", Name: "api_x", API: true, LoginRequired: true,
 		Serve: func(w http.ResponseWriter, r *http.Request) error { return nil }})
-	h, err := maago.Handler(maago.Config{DB: sql.OpenDB(noDriver{}), Apps: []maago.App{App(cfg), api}, LoginURL: "/login", Prefix: prefix,
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App(cfg), api}, LoginURL: "/login", Prefix: prefix,
 		Auth: func(r *http.Request) (any, error) {
 			if u := r.Header.Get("X-User"); u != "" {
 				return u, nil

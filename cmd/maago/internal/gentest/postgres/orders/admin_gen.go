@@ -71,6 +71,12 @@ var Admin = []admin.Model{
 			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "customers" SET "name" = $1 WHERE "id" = $2`, f.Name.Value, id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
 		},
+		Delete: DeleteCustomer,
+		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "customers" WHERE "id" = $1`, []admin.Ref{
+				{Model: "orders.Order", Field: "CustomerID", SQL: `SELECT COUNT(*) FROM "orders" WHERE "customer_id" = $1`},
+			})
+		},
 		Add:  true,
 		Edit: true,
 	},
@@ -167,6 +173,10 @@ var Admin = []admin.Model{
 			now := time.Now().Truncate(time.Microsecond)
 			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = $1, "status" = $2, "amount" = $3, "priority" = $4, "created_at" = $5, "updated_at" = $6 WHERE "id" = $7`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), f.CreatedAt.Value, now, id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
+		},
+		Delete: DeleteOrder,
+		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "orders" WHERE "id" = $1`, nil)
 		},
 		Add:  true,
 		Edit: true,

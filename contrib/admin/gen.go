@@ -1,11 +1,13 @@
 package admin
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -125,6 +127,25 @@ func Exists(ctx context.Context, db maago.DB, query string, id int64) (bool, err
 		return false, nil
 	}
 	return err == nil, err
+}
+
+// CountRefs is the Refs of the row of id: each of refs with its count,
+// or sql.ErrNoRows when row (SELECT 1 … WHERE "id" = ?) finds no such row.
+func CountRefs(ctx context.Context, db maago.DB, id int64, row string, refs []Ref) ([]Ref, error) {
+	if found, err := Exists(ctx, db, row, id); err != nil || !found {
+		return nil, cmp.Or(err, sql.ErrNoRows)
+	}
+	out := slices.Clone(refs)
+	for i := range out {
+		args := []any{id}
+		if out[i].Self {
+			args = append(args, id)
+		}
+		if err := db.QueryRowContext(ctx, out[i].SQL, args...).Scan(&out[i].N); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
 }
 
 // NoAdding is the error of the form of a new row of a model that has no

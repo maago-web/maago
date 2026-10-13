@@ -129,6 +129,10 @@ var Admin = []admin.Model{
 			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = ?, "title" = ?, "status" = ?, "views" = ?, "likes" = ?, "score" = ?, "public" = ?, "published_at" = ? WHERE "id" = ?`, f.AuthorID.Value, f.Title.Value, f.Status.Value, f.Views.Value, f.Likes.Value, admin.Ptr(f.Score), f.Public.Value, maago.SQLiteNullTime(admin.Ptr(f.PublishedAt)), id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
 		},
+		Delete: DeletePost,
+		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "blog_post" WHERE "id" = ?`, nil)
+		},
 		Edit: true,
 	},
 	{
@@ -240,6 +244,15 @@ var Admin = []admin.Model{
 			now := time.Now().Truncate(time.Microsecond)
 			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "people" SET "name" = ?, "parent_id" = ?, "editor_id" = ?, "reviewer_id" = ?, "order" = ?, "admin" = ?, "updated_at" = ? WHERE "id" = ?`, f.Name.Value, admin.Ptr(f.ParentID), f.EditorID.Value, admin.Ptr(f.ReviewerID), f.Order.Value, f.Admin.Value, maago.SQLiteTime(now), id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
+		},
+		Delete: DeleteAuthor,
+		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "people" WHERE "id" = ?`, []admin.Ref{
+				{Model: "blog.Post", Field: "AuthorID", SQL: `SELECT COUNT(*) FROM "blog_post" WHERE "author_id" = ?`},
+				{Model: "blog.Author", Field: "ParentID", SQL: `SELECT COUNT(*) FROM "people" WHERE "parent_id" = ? AND "id" <> ?`, Self: true},
+				{Model: "blog.Author", Field: "EditorID", SQL: `SELECT COUNT(*) FROM "people" WHERE "editor_id" = ? AND "id" <> ?`, Self: true},
+				{Model: "blog.Author", Field: "ReviewerID", SQL: `SELECT COUNT(*) FROM "people" WHERE "reviewer_id" = ? AND "id" <> ?`, Self: true},
+			})
 		},
 		Edit: true,
 	},

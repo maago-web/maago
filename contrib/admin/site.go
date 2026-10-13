@@ -2,10 +2,13 @@ package admin
 
 import (
 	"context"
+	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"time"
@@ -41,7 +44,7 @@ const pageSize = 50
 //go:embed templates admin.css
 var files embed.FS
 
-var pages = maago.Pages(files, template.FuncMap{"cell": cell, "css": css}, "index.html", "list.html", "form.html")
+var pages = maago.Pages(files, template.FuncMap{"cell": cell, "css": css}, "index.html", "list.html", "form.html", "delete.html")
 
 // App is the admin's routes, under Prefix, for main's Config.Apps: each
 // requires login (D-121). It panics on a Config that cannot work, as main
@@ -77,7 +80,9 @@ func App(cfg Config) maago.App {
 	return maago.NewApp("admin",
 		route("GET", "{$}", "admin_index", s.index),
 		route("GET", "{app}/{model}/{$}", "admin_list", s.list),
-		route("GET", "{app}/{model}/add/{$}", "admin_add", s.add), // the literal add is more specific than {id}
+		route("GET", "{app}/{model}/delete/{$}", "admin_delete", s.delete), // the literals are more specific than {id}
+		route("POST", "{app}/{model}/delete/{$}", "admin_delete_submit", s.delete),
+		route("GET", "{app}/{model}/add/{$}", "admin_add", s.add),
 		route("POST", "{app}/{model}/add/{$}", "admin_add_submit", s.add),
 		route("GET", "{app}/{model}/{id}/{$}", "admin_row", s.row),
 		route("POST", "{app}/{model}/{id}/{$}", "admin_row_submit", s.row))
@@ -157,12 +162,19 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 		}
 	}
 	type rowView struct {
+		ID    int64
 		URL   string
 		Cells []any
 	}
 	views := make([]rowView, len(rows))
 	for i, row := range rows {
-		views[i] = rowView{rowURL(m, row.ID), row.Cells}
+		views[i] = rowView{row.ID, rowURL(m, row.ID), row.Cells}
+	}
+	deleteURL := ""
+	if ok, err := s.can(ctx, m.App, m.Name, Delete); err != nil {
+		return err
+	} else if ok {
+		deleteURL = listURL(m) + "delete/"
 	}
 	addURL := ""
 	if m.Add {
@@ -181,7 +193,7 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 		return listURL(m) + "?page=" + strconv.FormatInt(p, 10)
 	}
 	return maago.Render(w, pages, "list.html", "", map[string]any{
-		"Home": home(), "App": m.App, "Name": m.Name, "Heads": s.heads[m], "Rows": views, "Add": addURL,
+		"Home": home(), "App": m.App, "Name": m.Name, "Heads": s.heads[m], "Rows": views, "Add": addURL, "Delete": deleteURL,
 		"Count": n, "Page": page, "Pages": last, "Prev": at(min(page, last+1) - 1), "Next": at(page + 1),
 	})
 }
@@ -287,13 +299,123 @@ func (s *site) form(w http.ResponseWriter, r *http.Request, m *Model, id int64, 
 			inputs[i].Link = rowURL(target, n)
 		}
 	}
-	title := "Add " + m.Name
+	title, deleteURL := "Add "+m.Name, ""
 	if id != 0 {
 		title = m.Name + " " + strconv.FormatInt(id, 10)
+		if ok, err := s.can(ctx, m.App, m.Name, Delete); err != nil {
+			return err
+		} else if ok {
+			deleteURL = listURL(m) + "delete/?id=" + strconv.FormatInt(id, 10)
+		}
 	}
 	return maago.Render(w, pages, "form.html", "", map[string]any{
-		"Home": home(), "App": m.App, "Name": m.Name, "List": listURL(m), "Title": title, "Inputs": inputs, "Save": save,
+		"Home": home(), "App": m.App, "Name": m.Name, "List": listURL(m), "Title": title, "Inputs": inputs, "Save": save, "Delete": deleteURL,
 	})
+}
+
+// delete deletes the rows of the ids, all of them or none (D-135): a GET
+// shows each row, and what refers to it; a POST counts again, and
+// deletes them, in the transaction it counted in, only if nothing refers
+// to any and all are there, else shows the same page.
+func (s *site) delete(w http.ResponseWriter, r *http.Request) error {
+	m, err := s.model(r, Delete)
+	if err != nil {
+		return err
+	}
+	ids, err := deleteIDs(r)
+	if errors.Is(err, errNoRows) && r.Method == http.MethodGet { // Delete selected with nothing selected
+		http.Redirect(w, r, listURL(m), http.StatusSeeOther)
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	ctx := r.Context()
+	var db maago.DB = maago.DBFrom(ctx)
+	var tx *sql.Tx
+	if r.Method == http.MethodPost { // count and delete in one transaction
+		if tx, err = maago.DBFrom(ctx).BeginTx(ctx, nil); err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		db = tx
+	}
+	type rowView struct {
+		ID      int64
+		URL     string
+		Missing bool
+		Refs    []Ref // those with rows
+	}
+	var rows []rowView
+	ok := true
+	for _, id := range ids {
+		v := rowView{ID: id, URL: rowURL(m, id)}
+		refs, err := m.Refs(ctx, db, id)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			v.Missing = true
+		case err != nil:
+			return err
+		}
+		for _, ref := range refs {
+			if ref.N > 0 {
+				v.Refs = append(v.Refs, ref)
+			}
+		}
+		ok = ok && !v.Missing && v.Refs == nil
+		rows = append(rows, v)
+	}
+	if tx != nil && ok {
+		for _, id := range ids {
+			if err := m.Delete(ctx, tx, id); err != nil {
+				return err
+			}
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		http.Redirect(w, r, listURL(m), http.StatusSeeOther)
+		return nil
+	}
+	return maago.Render(w, pages, "delete.html", "", map[string]any{
+		"Home": home(), "App": m.App, "Name": m.Name, "List": listURL(m), "Rows": rows, "OK": ok,
+	})
+}
+
+var errNoRows = errors.New("admin: no row to delete")
+
+// deleteIDs are the ids to delete: the query's of a GET, the form's of a
+// POST, each once. None, one that is not a number, or more than a page
+// of the list holds, is a 400.
+func deleteIDs(r *http.Request) ([]int64, error) {
+	var vals url.Values
+	var err error
+	if r.Method == http.MethodPost {
+		vals, err = maago.FormValues(r)
+	} else {
+		vals, err = maago.ParseQuery(r)
+	}
+	if err != nil {
+		return nil, err
+	}
+	raw := vals["id"]
+	switch {
+	case len(raw) == 0:
+		return nil, maago.Status(http.StatusBadRequest, errNoRows)
+	case len(raw) > pageSize:
+		return nil, maago.Status(http.StatusBadRequest, fmt.Errorf("admin: %d rows to delete; a page of the list holds %d", len(raw), pageSize))
+	}
+	var ids []int64
+	for _, s := range raw {
+		id, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			return nil, maago.Status(http.StatusBadRequest, fmt.Errorf("admin: id %q: %w", s, err))
+		}
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 // cell is a cell's text; html/template escapes it. The types are the

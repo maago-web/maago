@@ -42,12 +42,24 @@ type SQL struct {
 	List, Count string   // List takes the limit and the offset
 	Update      string   // the form's, or "" when it changes nothing (D-132)
 	Exists      []string // the check of each fk field the form changes
+	Row         string   // whether the row of an id is there
+	Refs        []Ref    // the counts of the rows that refer to a row (D-135)
 }
 
-// Statements is the SQL of m's list. The rows are in m's ordering, or
+// Ref is a field of a model, of any app, that refers to the model, and
+// the count of the rows whose field holds an id. Self: the field is of
+// the same table, and the count leaves out the row itself, which the
+// database lets go (NO ACTION is checked at the statement's end).
+type Ref struct {
+	Model, Field, SQL string // Model as "app.Model"
+	Self              bool
+}
+
+// Statements is the SQL of m's admin; apps are all the project's, for the
+// fields that refer to m. The rows are in m's ordering, or
 // newest first, and rows that order the same by the ID, newest first.
 // NULL is last either way, as it is not in both dialects alone.
-func Statements(m *model.Model, d project.Dialect) SQL {
+func Statements(m *model.Model, d project.Dialect, apps []*model.App) SQL {
 	var order []string
 	byID := false
 	for _, o := range m.Ordering {
@@ -81,11 +93,29 @@ func Statements(m *model.Model, d project.Dialect) SQL {
 			exists = append(exists, existsSQL(f, d))
 		}
 	}
+	var refs []Ref
+	for _, a := range apps {
+		for _, x := range a.Models {
+			for _, f := range x.Fields {
+				if f.FK != m.Table {
+					continue
+				}
+				ref := Ref{Model: a.Name + "." + x.Name, Field: f.Name, Self: x.Table == m.Table,
+					SQL: "SELECT COUNT(*) FROM " + dialect.Quote(x.Table) + " WHERE " + dialect.Quote(f.Column) + " = " + mark(d, 1)}
+				if ref.Self {
+					ref.SQL += ` AND "id" <> ` + mark(d, 2)
+				}
+				refs = append(refs, ref)
+			}
+		}
+	}
 	return SQL{
 		List:   "SELECT " + strings.Join(cols, ", ") + " FROM " + table + " ORDER BY " + strings.Join(order, ", ") + " LIMIT " + limit + " OFFSET " + offset,
 		Count:  "SELECT COUNT(*) FROM " + table,
 		Update: update,
 		Exists: exists,
+		Row:    "SELECT 1 FROM " + table + ` WHERE "id" = ` + mark(d, 1),
+		Refs:   refs,
 	}
 }
 
@@ -103,6 +133,8 @@ func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
 		ListSQL, CountSQL string
 		Form              string
 		Add, Edit         bool
+		Row               string
+		Refs              []map[string]string
 	}
 	models := map[string]string{} // each table's model, as "app.Model"
 	for _, a := range apps {
@@ -117,13 +149,20 @@ func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
 		if m.AdminHidden {
 			continue
 		}
-		sql := Statements(m, d)
+		sql := Statements(m, d, apps)
 		why := blocks(m)
 		if why != "" {
 			noAdd = append(noAdd, why)
 		}
 		v := modelView{Name: m.Name, List: m.AdminList, ListSQL: mapper.GoString(sql.List), CountSQL: mapper.GoString(sql.Count),
-			Form: formCode(m, d, models, imports), Add: why == "", Edit: slices.ContainsFunc(m.Fields, editable)}
+			Form: formCode(m, d, models, imports), Add: why == "", Edit: slices.ContainsFunc(m.Fields, editable), Row: mapper.GoString(sql.Row)}
+		for _, ref := range sql.Refs {
+			self := ""
+			if ref.Self {
+				self = ", Self: true"
+			}
+			v.Refs = append(v.Refs, map[string]string{"Model": ref.Model, "Field": ref.Field, "SQL": mapper.GoString(ref.SQL), "Self": self})
+		}
 		for _, f := range m.Fields {
 			if f.Admin == "hidden" {
 				continue

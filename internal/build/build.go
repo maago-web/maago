@@ -301,8 +301,11 @@ func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagno
 		}
 		for _, m := range app.Models {
 			if s.admin && !m.AdminHidden {
-				st := admingen.Statements(m, s.d)
-				sqls = append(sqls, st.List, st.Count)
+				st := admingen.Statements(m, s.d, s.apps)
+				sqls = append(sqls, st.List, st.Count, st.Row)
+				for _, ref := range st.Refs {
+					sqls = append(sqls, ref.SQL)
+				}
 				if st.Update != "" {
 					sqls = append(sqls, st.Update)
 				}

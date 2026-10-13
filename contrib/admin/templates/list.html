@@ -3,14 +3,17 @@
 <h1>{{.App}}.{{.Name}}</h1>
 <p>Rows: {{.Count}}{{if .Add}} · <a href="{{.Add}}">Add</a>{{end}}</p>
 {{if .Rows}}
+{{if .Delete}}<form method="get" action="{{.Delete}}">{{end}}
 <div class="table">
 <table>
-<thead><tr>{{range .Heads}}<th>{{.}}</th>{{end}}</tr></thead>
+<thead><tr>{{if .Delete}}<th></th>{{end}}{{range .Heads}}<th>{{.}}</th>{{end}}</tr></thead>
 <tbody>
-{{range .Rows}}<tr>{{$url := .URL}}{{range $i, $c := .Cells}}<td>{{if eq $i 0}}<a href="{{$url}}">{{cell $c}}</a>{{else}}{{cell $c}}{{end}}</td>{{end}}</tr>
+{{range .Rows}}<tr>{{if $.Delete}}<td><input type="checkbox" name="id" value="{{.ID}}"></td>{{end}}{{$url := .URL}}{{range $i, $c := .Cells}}<td>{{if eq $i 0}}<a href="{{$url}}">{{cell $c}}</a>{{else}}{{cell $c}}{{end}}</td>{{end}}</tr>
 {{end}}</tbody>
 </table>
 </div>
+{{if .Delete}}<button type="submit">Delete selected</button>
+</form>{{end}}
 {{else}}
 <p class="empty">{{if .Count}}No rows on this page.{{else}}No rows.{{end}}</p>
 {{end}}

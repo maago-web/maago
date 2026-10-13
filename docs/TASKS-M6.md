@@ -332,6 +332,55 @@ Edit bool // 고칠 칸이 하나라도 있다
 
 ---
 
+## 6. 지우기와 일괄 지우기 (D-135)
+
+### 계획
+
+모양(★사람의 결정: 전부 아니면 아무것도, 한 행과 여러 행이 한 길): `GET /admin/{app}/{model}/delete/?id=1&id=2`가 확인 화면(지울 행, 못 지울 행과 까닭, 없는 행), `POST` 같은 경로(`id`는 숨은 입력)는 다시 세어 하나라도 막히거나 없으면 아무것도 지우지 않고 확인 화면을 다시(200), 모두 되면 **한 트랜잭션**으로 지우고 303으로 목록. 도중의 DB 오류(셈과 지우기 사이에 생긴 참조 포함)는 되돌려져 500이고 반만 지워지는 일이 없다(Django의 `delete_selected`+PROTECT와 같다). 한 행 화면의 "Delete"는 `delete/?id=7`, 목록의 체크 상자는 `method=get action="delete/"`의 폼
+
+생성물(`admin.Model`에 더함)
+```go
+Delete func(ctx context.Context, db maago.DB, id int64) error          // 생성된 DeleteX 그대로
+Refs   func(ctx context.Context, db maago.DB, id int64) ([]Ref, error) // 행이 없으면 sql.ErrNoRows
+type Ref struct{ Model, Field, SQL string; Self bool; N int64 }       // Model은 "앱.모델"
+```
+- `Refs`는 `admin.CountRefs(ctx, db, id, 자기표의 SELECT 1, []admin.Ref{…})` 한 줄(런타임 도우미가 행 있음을 보고 수를 센다). 함수로 두는 것은 런타임 시험이 DB 없이 가짜를 쓰기 위해서(fable 3의 데이터 안은 받지 않음)
+- 이 표를 가리키는 모든 앱의 FK 칸(D-124)마다 `SELECT COUNT(*) FROM 그표 WHERE "칸" = ?`. 숨긴 모델의 칸도 센다(DB의 FK는 숨김과 상관없다). 같은 표를 가리키는 칸은 `AND "id" <> ?`(`Self`): 자기만 가리키는 행은 DB가 지우게 하므로(`NO ACTION`은 문장 끝에 본다) 막지 않는다. 예제 `Author.EditorID`가 그 경우(fable 2)
+- `admingen.Statements`는 다른 앱의 FK를 보려고 `apps`를 받고, `Refs`의 SQL과 자기표 확인을 `checkQueries`가 prepare(`DeleteX`는 CRUD가 이미)
+
+런타임
+- 라우트 둘(`GET`·`POST /admin/{app}/{model}/delete/{$}`), `s.model(r, Delete)`로 `Can(Delete)`를 `id`를 읽기 전에. 권한은 모델 단위(D-133: 행 단위 권한은 없다)
+- `id`: GET은 쿼리, POST는 폼, 반복 키(`site.form`의 "같은 키 두 번 400"은 여기 쓰지 않는다). 없거나, 정수가 아니거나, 보낸 값이 쪽 크기(`pageSize`, 50)를 넘으면 400(목록 한 쪽이 고를 수 있는 것, 조작 요청의 셈 쿼리 수를 묶는다). 겹친 값은 하나로
+- 까닭 문구는 사실만: "N rows of 앱.모델 (칸) refer to it". 볼 수 없는 모델이어도 수를 보인다(유일한 참말, 모델 이름은 비밀이 아니다)
+- 목록·한 행 화면의 지우기 링크와 체크 상자는 `Can(Delete)`일 때만
+
+시험
+- gentest(두 방언) `TestAdminDelete`: `blog`에 참조가 0·1·2인 `Author`를 섞어(수와 id가 겹치지 않게) `Refs`의 칸마다 수, 자기만 가리키는 `EditorID`는 0, 없는 id는 `sql.ErrNoRows`, `Post`의 `Delete`
+- `admingen` 단위: 다른 앱의 FK(`shop.Item`을 `notes.Note`가 가리킴)가 `shop.Item`의 `Refs`에, 같은 표는 `Self`
+- 골든: `Refs`·`Delete`
+- 런타임(손으로 만든 `Model`): 확인 GET(지울 것·못 지울 것·없는 것, 단추는 모두 될 때만), 막힌 것이 하나라도 있으면 POST가 아무것도 안 지움(`Delete` 호출 없음), 모두 되면 303과 `Delete` 호출들, 도중의 `Delete` 오류는 500이고 그 앞의 호출도 되돌려짐(트랜잭션: 가짜 DB 대신 `Delete`가 받은 `db`가 `*sql.Tx`인지와 오류 500으로), `Can`이 받은 `"delete"`, 권한 없는 사용자의 GET·POST 403과 화면에 링크·체크 상자 없음, `id` 없음·정수 아님·51개 400, 겹친 id 한 줄, 다른 출처 POST 403, `Refs` 오류 500
+- `TestAddAuth`의 `TestAdmin`: 로그인한 적 없는 사용자 하나를 boss만 지울 수 있고(네 사용자 × GET·POST), 로그인한 사용자는 `auth.Session`이 가리켜 boss도 못 지움(까닭에 `auth.Session`)
+- 8번 문서에: admin에서 사용자는 세션·권한 행이 가리켜 대개 지울 수 없다, 없애는 길은 탈퇴(비활성)
+
+하지 않기로 한 것: 연쇄 지우기(D-84, D-135), 부분 성공, 지운 이력, 되살리기, 다른 일괄 동작(D-132: 하나), 확인 토큰(교차 출처 검사가 위조 POST를 막고, 같은 출처의 사용자는 무엇이든 할 수 있다: codex 1을 받지 않음), 7번 뒤의 `?q=`·`?page=` 되돌리기(v0은 목록 첫 쪽으로)
+
+단계
+1. admingen: `Refs`·`Delete`, `Statements`의 `apps`, prepare → 확인: 골든, gentest 두 방언, 단위
+2. 런타임: 라우트 둘, 확인 화면, 트랜잭션, 목록의 체크 상자·한 행의 링크 → 확인: 런타임 시험, `TestAddAuth`, 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: 확인 없이 POST로 지워짐 → 받지 않음(교차 출처 검사, Django와 같다). 일괄의 도중 실패 → 한 트랜잭션, 500이면 되돌림. 상한과 겹침의 순서 → 보낸 값 50개, 그다음 겹침 하나로. 일괄 경로의 CSRF·권한 시험 → 더함, `Can` 먼저. `Refs` SQL의 prepare → `checkQueries`. 앱 사이 FK → `admingen` 단위. "행마다 권한" → 모델 단위로 문구 고침
+- fable: ★일괄의 두 단계 POST와 부분 성공 → 사람의 결정: 확인 GET + 전부 아니면 아무것도 POST(한 트랜잭션), 한 행과 같은 길, D-135 문구 고침. ★자기 표를 가리키는 FK가 DB가 허락하는 지우기를 막음 → `AND "id" <> ?`. `Refs`를 데이터로 → 함수로 둠(DB 없는 런타임 시험). `TestAddAuth`의 사용자는 모두 세션이 있어 못 지움 → 로그인하지 않은 사용자, 8번 문서. 변이: 다른 앱의 참조자, 수와 id의 우연, 없는 행. 상한은 `pageSize`에 묶음. 까닭 문구는 사실만, 볼 수 없는 모델의 수도 보임
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음. 변형으로 확인(9개, 모두 잡힘): 자기 참조 조건, 다른 앱 훑기, 없는 행을 막음, 트랜잭션, 겹침, 상한, `Can(Delete)`, 목록의 지우기 폼, 수 0인 칸 숨김
+- codex: 셈이 트랜잭션 밖 → POST는 트랜잭션을 먼저 열고 그 안에서 세고 지운다(막히면 되돌림, 경쟁은 좁아질 뿐 D-135의 500 받음은 그대로). 실제 DB의 되돌림·앱 사이 참조의 지우기 통합 시험 → 받음(가짜 드라이버가 `*sql.Tx`·되돌림을 보고, 앱 사이 SQL은 단위 시험). 트랜잭션·`Can` 먼저·GET이 바꾸지 않음·숨은 입력을 다시 읽음·두 방언 자리표는 맞음
+- fable: 자기만 가리키는 행이 실제로 지워지는지 → `TestAdminDelete`에 한 줄(DB가 `RESTRICT`가 되면 잡힌다). D-133의 "행마다 지우기 권한"·ARCHITECTURE의 `admin_gen.go` → 고침. `.error`의 여백이 목록 안에 번짐 → `li .error`. "1 rows" → "1 row … refers". 아무것도 고르지 않은 "Delete selected"는 400 대신 목록으로(GET만, POST는 400). `CountRefs` 주석. 받음: 같이 고른 두 행이 서로 가리키면 막힌다(보수적), 확인 화면은 행 번호만(첫 칸은 v1). 7번에: 검색 폼은 지우기 폼 밖에
+
+---
+
 ## M6 끝
 
 - [ ] 1~10 완료

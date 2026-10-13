@@ -15,4 +15,5 @@ nav.pages { margin-top: .8rem; display: flex; gap: 1rem; align-items: baseline; 
 .field label, .field .label { display: inline-block; min-width: 9rem; font-weight: 600; }
 .field small { color: #666; margin-left: .5rem; }
 .error { color: #b00020; margin: .2rem 0 0 9rem; }
+li .error { margin: 0; }
 button { margin-top: .8rem; padding: .3rem 1rem; }
