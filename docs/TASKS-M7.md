@@ -100,7 +100,7 @@
   6. 권한 없는 사용자는 비공개 미디어를 받지 못함: 게시판 `TestAttachments`(남의 초안 첨부 403)·`TestHiddenAttachments`(숨긴 글 404), `TestServeMedia`(루트, attachment·`nosniff`), 미디어를 서빙하는 라우트가 없고 `MediaDir`이 필수: `TestMediaDirConfig`(루트)·`site`의 `TestUpload`
 - [x] MILESTONES.md의 M7 체크박스 갱신
 - [x] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인: 실행 38398967681(postgres:18 서비스) 통과. Tailwind는 `CI`라 진짜 v4.3.3(Linux glibc)을 받아 `TestTailwind`와 튜토리얼의 CSS 비교가 돌았다. 6번 뒤의 실행 38388589578이 musl 빌드가 Ubuntu에서 돌지 않음을 잡았다(0218c99) (2026-10-13)
-- [ ] TASKS-M8 초안
+- [x] TASKS-M8 초안 (2026-10-13)
 
 ## 초안 리뷰 (2026-10-13)
 
