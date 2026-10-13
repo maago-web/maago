@@ -17,9 +17,9 @@ staff만 한다.
       -- ⚠ Column "author_id" … is NOT NULL without a default, so this fails if "board_post" has rows …
 
   글이 있는 DB에서 maago migrate가 실패한다
-- maago makemigrations --name post_author. SQLite는 FK가 있는 열을 표를
-  다시 만들어 더한다(0007)
-- maago gen이 recent_posts.sql을 다시 막는다(0014의 Hidden 때와 같다).
+- maago makemigrations --name post_author. 열과 인덱스, FK 제약을
+  더한다(0004)
+- maago gen이 recent_posts.sql을 다시 막는다(0015의 Hidden 때와 같다).
   :many Post는 Post의 모든 열을 골라야 한다. author_id를 더한다
 - 라우트 표의 쓰기 줄에 maago.LoginRequired. 로그인하지 않은 GET은 로그인
   화면으로 가고(돌아올 next와 함께), POST는 401이다: 폼을 다시 보낼 수
@@ -335,42 +335,14 @@ index 58d39c4..b0e9125 100644
 +		}
 +	}
 +}
-diff --git a/migrations/0007_post_author.sql b/migrations/0007_post_author.sql
+diff --git a/migrations/0004_post_author.sql b/migrations/0004_post_author.sql
 new file mode 100644
-index 0000000..805ae09
+index 0000000..556b08a
 --- /dev/null
-+++ b/migrations/0007_post_author.sql
-@@ -0,0 +1,33 @@
-+CREATE TABLE "maago_new_board_post" (
-+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
-+    "board_id" INTEGER NOT NULL,
-+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
-+    "body" TEXT NOT NULL,
-+    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'published', 'archived')),
-+    "views" INTEGER NOT NULL DEFAULT 0,
-+    "created_at" TEXT NOT NULL,
-+    "updated_at" TEXT NOT NULL,
-+    "pinned_from" TEXT,
-+    "pinned_until" TEXT,
-+    "publish_at" TEXT,
-+    "hidden" INTEGER NOT NULL DEFAULT 0 CHECK ("hidden" IN (0, 1)),
-+    "author_id" INTEGER,
-+    CONSTRAINT "board_post_board_id_fkey" FOREIGN KEY ("board_id") REFERENCES "board_board" ("id") ON DELETE NO ACTION,
-+    CONSTRAINT "board_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "auth_user" ("id") ON DELETE NO ACTION
-+) STRICT;
-+
-+INSERT INTO "maago_new_board_post" ("id", "board_id", "title", "body", "status", "views", "created_at", "updated_at", "pinned_from", "pinned_until", "publish_at", "hidden") SELECT "id", "board_id", "title", "body", "status", "views", "created_at", "updated_at", "pinned_from", "pinned_until", "publish_at", "hidden" FROM "board_post";
-+
-+DELETE FROM sqlite_sequence WHERE name = 'maago_new_board_post';
-+
-+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_board_post', seq FROM sqlite_sequence WHERE name = 'board_post';
-+
-+DROP TABLE "board_post";
-+
-+ALTER TABLE "maago_new_board_post" RENAME TO "board_post";
-+
-+CREATE UNIQUE INDEX "board_post_board_id_title_key" ON "board_post" ("board_id", "title");
-+
-+CREATE INDEX "board_post_board_id_idx" ON "board_post" ("board_id");
++++ b/migrations/0004_post_author.sql
+@@ -0,0 +1,5 @@
++ALTER TABLE "board_post" ADD COLUMN "author_id" BIGINT;
 +
 +CREATE INDEX "board_post_author_id_idx" ON "board_post" ("author_id");
++
++ALTER TABLE "board_post" ADD CONSTRAINT "board_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "auth_user" ("id") ON DELETE NO ACTION;

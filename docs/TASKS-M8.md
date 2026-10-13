@@ -64,6 +64,17 @@
    - 구현 리뷰 codex·fable: 막는 지적 없음(codex는 샌드박스로 시험을 못 돌려 읽은 리뷰). fable이 PG로 0001을 걸어 스키마·`.env`·지우기를 실측. 받음: unpack에서 `.env`를 `maago add` 앞으로(시험 드라이버를 `.env`로 고른다, D-123), 확인 줄, 표 시험의 앵커 확인. 받지 않음: `pgURL`과의 중복(CI 경우를 걷기의 오류로 돌려야 표가 된다), `maagotest.schema`와의 중복(그쪽은 `maago.OpenDB`·모듈 경로에 묶임)
 
 3. **PostgreSQL로 바꾸는 단계**(D-141): 0012 뒤 새 단계(트레일러만이 아니라 앱 시험의 드라이버 import·`go.mod`/`go.sum`도 pgx로, 버전은 이 저장소가 받은 것: 걷기는 `GOPROXY=off`), 마이그레이션 넷 다시, 패치 번호 밀림(`TestBoardTutorialCatches`의 패치 이름, README·MILESTONES의 번호). → 확인: `TestBoardTutorial`(PG), 0001~0012는 바이트 그대로
+
+   계획 (풀어 둔 곳에서 먼저 해 봄: 새 단계와 뒤 16단계의 cherry-pick이 충돌 없이, 새 단계에서 gen·check·migrate·시험이 PG로 통과)
+   - 새 단계 `0013-Move-to-PostgreSQL.patch`: `main.go`·`board/board_test.go`의 드라이버 import를 `github.com/jackc/pgx/v5/stdlib`로, `go.mod`(직접 require 둘: pgx v5.11.0·maago, `modernc.org/*`는 빠짐)·`go.sum`은 `go mod tidy`의 것, `migrations/0001~0004`를 지우고 `maago makemigrations`가 쓴 PG의 `0001_initial.sql`. 메시지: `.env`의 새 주소(패치 밖), 드라이버, 마이그레이션은 방언의 것이라 새로 쓰고 데이터는 옮기지 않는다(D-31), 모델·쿼리·시험은 그대로, 트레일러 `Maago-Database: postgres` → 확인: 걷기가 이 단계를 PG로 통과
+   - 뒤 단계의 마이그레이션 넷을 PG로 다시(`makemigrations --name` 같은 이름): `0005_hide_posts`→`0002`, `0006_accounts`→`0003`, `0007_post_author`→`0004`(SQLite의 표 다시 만들기가 `ADD COLUMN`·FK 하나로), `0008_attachments`→`0005`
+   - 메시지 고침: 마이그레이션 번호(옛 0014·0019·0021의 "0005를"·"0006에"·"(0007)"), 옛 0019의 "여기는 SQLite라 modernc.org/sqlite" → PG·pgx, 옛 0021의 표 다시 만들기 문장, 옛 0024의 "(SQLite는 ASCII 글자만 무시한다)"를 지움, 다른 단계를 부르는 번호 +1(옛 0021의 "0014의", 0022의 "0014에서"·"(0021)", 0024의 "0020의"·"(0022)")
+   - `steps.sh pack`: 0013~0028이 0014~0029로 이름이 바뀐다 → 확인: `git diff --stat`에서 0001~0012가 바뀌지 않음
+   - `cmd/maago/tutorial_test.go`의 `TestBoardTutorialCatches` 패치 이름 넷 +1. README(게시판)의 `board.db` 줄을 방언 없이, MILESTONES의 `0019~0022` → `0020~0023`
+   - → 확인: PG로 `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardTutorialPostgresTrailer`, PG 없이 로컬은 0013 앞에서 SKIP, `CI=1`이고 PG 없으면 `0013-Move-to-PostgreSQL.patch: MAAGO_TEST_PG_URL is not set`으로 FAIL, `grep -il sqlite steps/00{13..29}*.patch`는 0013과 0020("SQLite 프로젝트라면")뿐
+   - 하지 않는 것: 데이터 옮기기(D-141), 0001~0012의 메시지(그때는 SQLite가 맞다), TASKS-M8 "먼저 확인한 사실"의 옛 번호(그날의 기록, 대응표는 6번이 새 번호로), TODO의 체크된 "0016의"(그날의 기록)
+   - 계획 리뷰는 fable 하나: 정해진 결정(D-141) 안의 튜토리얼 고침(WORKFLOW 3). 받음: 확인의 grep을 `-il`로(대문자 `SQLite` 문장을 놓친다. 남는 것은 0013과 0020의 "SQLite 프로젝트라면"), DECISIONS D-129의 "게시판 0015" → 0016, 제목에서 "(draft)" 떼기, 메시지에 D-번호 대신 말로(공개 저장소에는 DECISIONS가 없다), `go get` 없이 `go mod tidy` 하나, 0022 문구(열·인덱스·FK), `TestBoardTutorialCatches`에 0013 줄(0001_initial의 PG 열을 SQLite의 것으로 → `maago gen:`의 PG 구문 오류). 선택을 받음: pack 전에 PG로 걸어 보기(`TestBoardTutorial`로 함)
+   - 구현 리뷰는 fable 하나(계획 리뷰를 하나로 줄인 작업, WORKFLOW 6): 막는 지적 없음, 스테이지된 것을 PG로 걸어 실측. 받음: 새 Catches 줄의 주석을 그 줄이 증명하는 것으로(방언은 가르지 못한다, PG로 가는 증명은 `TestBoardTutorial`의 끝 확인), 확인의 grep 사실, 0013 메시지에 `createdb board`
 4. **`Me`와 `Edit a post`**(D-142): 단계 둘. → 확인: `TestBoardTutorial`, `TestBoardTutorialCatches`에 단계마다 한 줄(권한 검사 빼기)
 5. **`Ship it`**(D-142): 마지막 단계. → 확인: 걷기의 교차 빌드
 6. **대응표** `examples/board/MAP.md`(번호가 정해진 뒤). → 확인: 시험이 표의 게시판 커밋 열을 `steps/*.patch`와 맞춤(모든 패치가 한 번은 나오고, 표의 단계가 다 있음), 원본 줄은 89

@@ -15,7 +15,7 @@ Content-Transfer-Encoding: 8bit
   막는다. 지우기는 글을 숨긴다: Post.Hidden을 켠다. 댓글도 글과 함께
   보이지 않고, DB에는 남는다
 - Hidden bool default=false. maago makemigrations --name hide_posts가
-  0005를 쓴다. maago gen이 다시 recent_posts.sql을 막는다. 새 컬럼을
+  0002를 쓴다. maago gen이 다시 recent_posts.sql을 막는다. 새 컬럼을
   고른다
 - 쿼리마다 NOT p.hidden을 더한다: 목록, 검색, 글 하나, 고정 기간 겹침.
   숨긴 글의 화면은 PostDetail이 행을 찾지 못해 404다. 그 글에 댓글을 달
@@ -279,10 +279,10 @@ index b424fe9..223478f 100644
 +		t.Errorf("%v %v", cs, err)
 +	}
 +}
-diff --git a/migrations/0005_hide_posts.sql b/migrations/0005_hide_posts.sql
+diff --git a/migrations/0002_hide_posts.sql b/migrations/0002_hide_posts.sql
 new file mode 100644
-index 0000000..bf5268f
+index 0000000..c765845
 --- /dev/null
-+++ b/migrations/0005_hide_posts.sql
++++ b/migrations/0002_hide_posts.sql
 @@ -0,0 +1 @@
-+ALTER TABLE "board_post" ADD COLUMN "hidden" INTEGER NOT NULL DEFAULT 0 CHECK ("hidden" IN (0, 1));
++ALTER TABLE "board_post" ADD COLUMN "hidden" BOOLEAN NOT NULL DEFAULT false;

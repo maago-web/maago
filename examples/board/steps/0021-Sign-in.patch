@@ -237,7 +237,7 @@ index 1963a7e..58d39c4 100644
 +	}
 +}
 diff --git a/main.go b/main.go
-index fa901d1..fd59778 100644
+index 20e1fcb..159b0ce 100644
 --- a/main.go
 +++ b/main.go
 @@ -2,19 +2,25 @@
@@ -257,7 +257,7 @@ index fa901d1..fd59778 100644
 +	"example.com/board/auth"
  	"example.com/board/board"
  
- 	_ "modernc.org/sqlite" // the database driver: the app imports it, not maago
+ 	_ "github.com/jackc/pgx/v5/stdlib" // the database driver: the app imports it, not maago
  )
  
  func main() {

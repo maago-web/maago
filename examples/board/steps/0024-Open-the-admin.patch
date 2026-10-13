@@ -30,7 +30,7 @@ admin에서 조용히 없어지는 대신 오류다. 다음 커밋이 board.Admi
 Maago-Expect: board/models.go:12:6: app board has models, but no package uses board.Admin
 
 diff --git a/main.go b/main.go
-index fd59778..f040e9f 100644
+index 159b0ce..805f196 100644
 --- a/main.go
 +++ b/main.go
 @@ -10,6 +10,7 @@ import (

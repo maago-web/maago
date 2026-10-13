@@ -243,7 +243,7 @@ index 223478f..9220624 100644
 +	}
 +}
 diff --git a/main.go b/main.go
-index 119f1f8..5936fe5 100644
+index 1bc643a..4c45a91 100644
 --- a/main.go
 +++ b/main.go
 @@ -25,6 +25,9 @@ func main() {

@@ -13,7 +13,7 @@ main이 board.Admin도 넘긴다. /app/admin/에 게시판의 세 모델이 생�
 - admin_list=(Title,BoardID,Status,AuthorID,CreatedAt): 글 목록의 칸.
   없으면 모든 필드다(본문까지)
 - admin_search=(Title,Body): 검색 상자가 볼 문자열 필드. 대소문자를
-  무시하는 LIKE다(SQLite는 ASCII 글자만 무시한다)
+  무시하는 LIKE다
 - admin_filter=(Status,BoardID,Hidden): 목록 위의 거르개. 선택지, bool,
   fk 필드만 된다
 - 댓글에도 셋, 게시판에는 검색 하나. 필드가 없거나 검색에 문자열이 아닌 필드를
@@ -21,7 +21,7 @@ main이 board.Admin도 넘긴다. /app/admin/에 게시판의 세 모델이 생�
 
 태그는 스키마가 아니다. maago makemigrations는 "no changes"다.
 
-첫 계정은 0020의 -createsuperuser가 만든 superuser다. superuser는
+첫 계정은 0021의 -createsuperuser가 만든 superuser다. superuser는
 admin에서 무엇이든 한다. 편집자를 두려면 superuser가 admin에서 두 가지를
 한다.
 
@@ -41,7 +41,7 @@ admin은 뷰가 아니다. 이 게시판에 닿는 차이 둘.
   순서(Post.Next: 초안, 게시, 보관)도 작성자도 admin에서는 아무렇게나
   바뀐다. fk 칸은 번호를 적는다
 - 댓글이 있는 글은 superuser도 지우지 못한다. 댓글이 그 글을 가리킨다.
-  뷰는 그런 글을 숨긴다(0022)
+  뷰는 그런 글을 숨긴다(0023)
 
 시험은 superuser가 admin에서 편집자를 만들고, 편집자가 할 수 있는 것과 없는
 것(staff 아닌 사람의 행, 편집자의 auth 권한 행), 목록의 칸, 검색과
@@ -261,7 +261,7 @@ index 4f39a54..53d4649 100644
  
  const password = "correct horse battery staple"
 diff --git a/main.go b/main.go
-index f040e9f..9857f8f 100644
+index 805f196..59e80f4 100644
 --- a/main.go
 +++ b/main.go
 @@ -51,7 +51,7 @@ func main() {
