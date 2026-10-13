@@ -428,6 +428,51 @@ ORDER BY … LIMIT $5 OFFSET $6
 
 ---
 
+## 8. 복사본과 문서의 상한
+
+### 계획
+
+막는 코드는 쓰지 않는다(D-135: 모델 수준 검증은 미룸, 상한은 문서에). 상한은 읽을 사람이 보는 곳 셋에 적는다. 1~7번이 미룬 것을 모두 모았다("8번"·"v1"·"문서에"로 grep).
+
+`contrib/admin` 패키지 문서(`admin.go`, `go doc`): "What the admin does not do (v0)"
+- 저장은 모델 폼의 규칙(D-119)만: 뷰의 일(email 소문자, 함께 지우기)은 일어나지 않는다(D-135)
+- 폼 칸은 선언 순서·묶음 없음, FK는 번호(고르는 상자 없음), `[]byte`는 고치지 않음, 동시 고침은 나중 저장이 이김(D-132)
+- DB가 막는 것(unique 두 번, 저장 사이에 지워진 FK 대상)은 폼 오류가 아니라 500(4번에서 받음)
+- 가리키는 행이 있으면 숨긴 모델의 행이어도 지우지 않음, 서로 가리키는 두 행을 함께 골라도 막힘, 자기만 가리키는 행은 지움(D-135, 6번)
+- 정렬은 `ordering` 하나, 포인터 칸의 필터는 NULL을 고르지 못함, 검색의 SQLite ASCII와 PG 인덱스(D-134)
+- 그룹·비밀번호 바꾸기·사용자 화면·템플릿 오버라이드(D-42)는 v1
+
+복사본 auth(`internal/scaffold/testdata/auth/models.go`): `User`의 타입 주석에(필드 주석은 한 절 그대로)
+- Email: 뷰는 소문자·앞뒤 공백 없이 저장하고 찾는데 admin은 적은 그대로. 그 계정은 로그인 못 하고 대소문자만 다른 두 계정이 생길 수 있음
+- IsActive: 탈퇴(`AccountClose`)는 세션·토큰을 지우지만 admin에서 끄는 것은 지우지 않음. 꺼진 동안은 `Current`가 막고, 다시 켜면 만료 전의 것이 다시 산다
+- PasswordHash가 없어 admin은 User를 추가하지 않음: 계정은 가입이나 `-createsuperuser`, 비밀번호는 `PasswordChange`·`PasswordReset`
+- 마지막 superuser가 자기를 끄면 admin에서 되돌릴 사람이 없음: 다른 email로 `-createsuperuser`
+- 세션·토큰(숨긴 모델)이 가리켜 User는 대개 못 지움: 탈퇴로
+- `Permission` 주석에: 글로 적음(고르는 상자 없음), 그룹 없음
+- ★사람의 결정: `Email`에 `help='lowercase, as the user signs in'`(admin 폼에 뜬다. 태그라 D-15의 코드가 아니고 스키마·0019는 그대로. 가입·로그인 폼은 모델 폼이 아니라 뜨지 않는다)
+
+시험(★사람의 결정: 한 줄 더함): `site`의 `TestAdmin`에 User 화면의 help, `" Ann@example.com"`으로 고치면 그대로 저장(누가 admin 바인딩에 정규화를 넣으면 문서가 낡았다고 알린다)
+
+TODO M4 절: `web`의 모델 폼은 `default=''`를 보지 않아 빈 글을 거절한다(admin은 받는다, 5번)
+
+하지 않기로 한 것: 위를 막는 코드(D-15 미룸), 사용자 지우기 길(탈퇴가 그 길)
+
+계획 리뷰는 fable 하나: 문서 작업(WORKFLOW 3). 구현 리뷰도 fable 하나: 바뀐 코드는 태그 하나와 시험 몇 줄
+
+단계
+1. 패키지 문서·복사본 주석과 태그·TODO·시험 → 확인: 문구의 사실을 코드와 맞춰 봄(`AccountClose`가 지우는 것, `SessionUser`·`APITokenUser`의 조건, `CreateSuperuser`의 같은 email 오류), `TestAddAuth` 두 방언, 두 모듈 확인 명령, `TestBoardTutorial`(0019~0022 패치는 `auth/`를 건드리지 않으니 잡는 것은 태그가 스키마를 바꾼 경우: 마이그레이션이 바뀌면 0019가 낡는다)
+
+### 계획 리뷰
+
+- fable: grep "8번"이 못 본 미룬 것(동시 고침, `[]byte`, 정렬·NULL 필터, 서로 가리키는 두 행) → 더함. 숨긴 모델(토큰)도 지우기를 막음, User 추가 없음과 계정이 생기는 길, `PasswordChange`도, `Permission`의 "(위)"와 이미 있는 문장 → 고침. 500 줄을 넓혀 저장 사이에 지워진 FK 대상도 → 더함. 복사본의 긴 문장은 타입 주석에 → 그렇게. ★`help=` 태그, ★저장값 그대로 단언 → 사람의 결정: 둘 다. `TestBoardTutorial` 조건 문구 → 고침
+
+### 구현 리뷰
+
+- ponytail(나): 잘라낼 것 없음(문서와 태그 하나, 시험 몇 줄). 변형으로 확인: help 태그를 빼면 `TestAddAuth`가 잡는다
+- fable: "close the account instead"는 admin이 할 수 없음 → 사용자가 탈퇴하거나 admin이 `IsActive`를 끔. `Current`가 막는 것은 세션·API 토큰이고 일회 토큰은 뷰가 → 고침. 서로 가리키는 두 행 → 고른 다른 행이 가리키는 행(한 방향도 막힘). `ordering`이 없을 때의 기본, "v1" 약속 → "v0에 없음", D-134 인용 자리 → 고침. 시험이 trim·lower 어느 쪽 정규화도 잡음은 확인
+
+---
+
 ## M6 끝
 
 - [ ] 1~10 완료

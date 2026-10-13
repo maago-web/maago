@@ -279,6 +279,18 @@ func TestAdmin(t *testing.T) {
 		t.Errorf("after boss changed ann: %+v %v", ann2, err)
 	}
 	login("ann2@example.com") // the hash is as it was
+	// The admin saves the email as typed, not as the views store it (the
+	// help of User.Email says so, D-135).
+	if body := do(sessions["boss"], "GET", annRow, nil).Body.String(); !strings.Contains(body, "lowercase") {
+		t.Errorf("the User page has no help for the email:\n%s", body)
+	}
+	change.Set("email", " Ann@example.com")
+	if w := do(sessions["boss"], "POST", annRow, change); w.Code != 303 {
+		t.Fatalf("boss changing ann's email: %d\n%s", w.Code, w.Body)
+	}
+	if ann2, err := auth.GetUser(ctx, db, ann.ID); err != nil || ann2.Email != " Ann@example.com" {
+		t.Errorf("the admin stored the email as %q, %v", ann2.Email, err)
+	}
 	if _, err := auth.GetUser(ctx, db, gone.ID); err == nil {
 		t.Error("boss did not delete gone")
 	}

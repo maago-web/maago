@@ -28,11 +28,30 @@ import (
 
 // User is an account. It may sign in once its email is verified and while
 // it is active: IsActive && VerifiedAt != nil.
+//
+// The admin saves a User through the rules of its model form only, not
+// through the views (D-135):
+//   - The views store and look up the email in lowercase, with no spaces
+//     around it; the admin saves it as typed. Changed to Ann@example.com,
+//     the account cannot sign in, and two accounts can differ by case.
+//   - Closing an account (AccountClose) deletes its sessions and tokens;
+//     turning IsActive off in the admin does not. While it is off, Current
+//     refuses the sessions and API tokens, and the views the one-time
+//     tokens; once it is on, those not yet expired work again.
+//   - The admin has no PasswordHash, so it adds no User: an account comes
+//     from signing up, or from -createsuperuser, and its password changes
+//     by PasswordChange or PasswordReset.
+//   - The last superuser who turns off their own IsSuperuser, IsStaff or
+//     IsActive leaves no one to turn it on again in the admin: run
+//     -createsuperuser with another email.
+//   - Its sessions and tokens keep a User from being deleted, and the
+//     admin hides them: the user closes the account instead, or the admin
+//     turns IsActive off.
 type User struct {
 	maago.Model
 
 	ID           int64
-	Email        string     `maago:"max=254,unique"`
+	Email        string     `maago:"max=254,unique,help='lowercase, as the user signs in'"`
 	PasswordHash string     `maago:"admin=hidden"`
 	IsActive     bool       `maago:"default=true"`  // false: closed by the user or an admin
 	IsStaff      bool       `maago:"default=false"` // may use the staff pages and the admin
@@ -43,7 +62,8 @@ type User struct {
 
 // Permission lets a staff user do an action to a model in the admin. App
 // and ModelName are written as the admin's URL has them, such as board
-// and Post: a row with another spelling allows nothing.
+// and Post (typed, with no picker): a row with another spelling allows
+// nothing. There are no groups of permissions.
 type Permission struct {
 	maago.Model `maago:"unique=(UserID,App,ModelName,Action)"`
 

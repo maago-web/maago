@@ -1,6 +1,25 @@
 // Package admin is maago's admin site (D-131): the types of the
 // admin_gen.go that maago gen writes into each app with models when a
 // package of the project imports this one.
+//
+// What the admin does not do (v0):
+//   - It saves a row through the rules of its model form only (D-119): the
+//     work of the app's views, such as storing an email in lowercase or
+//     deleting what goes with a row, does not happen (D-135).
+//   - The form has its fields in declaration order, with no groups; an fk
+//     field takes the number of the row, with no picker; a []byte field is
+//     not edited. Two people changing a row: the later save wins.
+//   - What the database refuses, such as a unique value twice or a
+//     referenced row deleted meanwhile, is a 500, not a form error.
+//   - A row that rows refer to is not deleted, even when those rows are of
+//     a hidden model (D-135); nor is a chosen row that another chosen row
+//     refers to, though a row that refers to itself is.
+//   - The list is in the model's ordering, or newest first by ID, with
+//     no other sort. A filter of a pointer field cannot choose NULL. The
+//     search lowercases, which SQLite does to ASCII letters only (D-134),
+//     and LOWER(column) LIKE on PostgreSQL may use no index.
+//   - Groups of permissions, changing a password, and pages of your own
+//     or templates in place of the admin's (D-42, v1) are not in v0.
 package admin
 
 import (
