@@ -35,10 +35,14 @@ github.com/maago-web/maago
 │                          Form·Field·Messages·Invalid·InvalidForm(D-119, D-120), UserFrom·WithUser
 │                          (D-121), Prefix(D-122).
 │                          M5가 더한 것: SetCookie(D-125), RemoteAddrFrom(D-128).
+│                          M7이 더한 것: Config.MaxBody·MediaDir(D-139, D-140), File·FileKinds(D-139),
+│                          Media·SaveMedia·OpenMedia·DeleteMedia·ServeMedia·WithMediaDir(D-140), 생성기와 함께 쓰는
+│                          StaticName(D-136).
 │                          생성 코드(와 contrib/admin, D-131)만 부르는 것: One·Many·Exec, Placeholders,
 │                          SQLiteTime·SQLiteNullTime·ScanSQLiteTime·ScanNullSQLiteTime(D-105),
 │                          NewApp·AppRoute·Pages·Render·ParseQuery·Query·Bind*·FinishForm·FormValues·JSONValues·Unprocessable·
-│                          Rule·FieldError·URLFunc·PathSegment·DateFunc·NoRow …
+│                          Rule·FieldError·URLFunc·PathSegment·DateFunc·NoRow, Static·StaticFunc·
+│                          App.WithStatic(D-136, D-137), MultipartValues·BindFile(D-139) …
 │                          런타임이 기대는 내부 패키지는 internal/diag·internal/project뿐(시험이 본다)
 ├── maagotest/          시험 전용 도우미: DB (M4, D-113), Mailbox (M5, D-126). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
 ├── contrib/
@@ -47,7 +51,8 @@ github.com/maago-web/maago
 │   │                      프로젝트에 복사한다(D-123)                     D-50, D-51
 │   └── admin/           admin 런타임과 admin_gen.go의 타입 (M6)  D-48, D-49, D-131
 │
-├── cmd/maago/           CLI 진입점. flag 디스패치만 한다 (D-68)
+├── cmd/maago/           CLI 진입점. 명령은 flag 디스패치이고 일은 internal에 (D-68). 예외는 `maago tailwind`의
+│                          받기·확인·실행(실행 파일을 다루는 CLI의 일, D-138)
 │                          별도 모듈(자체 go.mod). DB 드라이버는 여기에만
 │
 └── internal/            생성기. 사용자는 import할 수 없다
@@ -146,7 +151,7 @@ blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
 
 ## 5. 사용자 프로젝트와 생성 코드
 
-사용자 프로젝트의 모양 (M1~M6에 걸쳐 채워진다):
+사용자 프로젝트의 모양 (M1~M7에 걸쳐 채워진다):
 
 ```
 myapp/
@@ -158,8 +163,12 @@ myapp/
 │   ├── urls.go            라우트 표                      사람
 │   ├── views.go           뷰                           사람
 │   ├── templates/*.html   html/template                 사람
+│   ├── static/*           정적 파일, /static/blog/에서     사람 (D-136, D-137)
+│   ├── tailwind.css       Tailwind 입력                  사람
+│   ├── static/tailwind.css  maago tailwind의 출력          maago tailwind, 커밋은 사람 (D-138)
 │   └── *_gen.go           생성 코드                      maago
 ├── auth/                  maago add auth가 쓴 앱          처음은 maago, 그 뒤 사람
+├── media/                 Config.MediaDir: SaveMedia의 파일   파일은 커밋하지 않는다(디렉터리는 .gitignore로 둔다, D-140)
 └── migrations/
     └── 0001_initial.sql   초안은 maago, 고치는 건 사람
 ```

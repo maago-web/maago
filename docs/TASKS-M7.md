@@ -70,12 +70,34 @@
 7. **게시판 튜토리얼의 M7 단계**: Tailwind와 `{{static}}`로 화면(복사본 auth의 `base.html`은 손대지 않으니 게시판 화면만인지 계획에서), `Attachment` 모델과 글 폼의 파일 칸(413), 첨부 내려받기 뷰(숨긴 글의 첨부는 404, 초안의 첨부는 작성자·staff만이고 남은 403), 글 지우기가 첨부 행과 파일도(`DeleteMedia`), 일부러 틀리는 단계 `{{static "board/없는.css"}}`. → 확인: `TestBoardTutorial`, `TestBoardTutorialCatches`
 8. **완료 조건과 문서**: "M7 끝"에 조건마다 시험 이름, 상한(동적 클래스, 낡은 Tailwind CSS를 `check`가 보지 않음, 고아 파일, 외부 저장소·이미지 처리 없음, API의 파일 없음), D-66의 `net/url`, ARCHITECTURE·MILESTONES·TUTORIAL-FUTURE
 
+
+## 8. 완료 조건과 문서
+
+### 계획
+
+"M7 끝"에 조건마다 시험 이름(M6 10번의 모양, `TestM7Done`은 만들지 않는다), 상한은 루트 패키지 문서(`doc.go`, `go doc maago`: 압축 없음, 동적 클래스와 낡은 `tailwind.css`, 파일 칸 하나·API 없음·종류 표·요청 동안만, 미디어는 이 기계의 디렉터리·이미지 처리 없음·고아 파일·공개 라우트 없음), D-66의 `net/url`, ARCHITECTURE §2(M7이 더한 공개 API, `cmd/maago`의 tailwind)·§5(앱의 `static/`·`tailwind.css`·출력, `media/`, "M1~M7"). MILESTONES의 M7 체크박스와 push 뒤 CI는 "M7 끝"에서. TUTORIAL-FUTURE는 고치지 않는다(정적 파일·업로드가 없는 짧은 튜토리얼)
+
+계획 리뷰는 fable 하나: 문서 작업(WORKFLOW 3). 구현 리뷰도 fable 하나
+
+단계
+1. 문서와 이름 → 확인: 적은 시험 이름이 모두 있음(grep), 두 모듈 확인 명령, `go doc maago`
+
+### 리뷰
+
+- fable(계획과 구현 한 번에): 시험 이름 14개 모두 있고 조건을 잡음, doc.go의 상한은 코드와 맞음. 고친 것: DECISIONS 변경 기록의 M7 1~7번·8번 줄, README의 다음 작업, MILESTONES의 "정적 파일 URL의 접두어는 M7"에 D-137, doc.go의 고아 출처(저장 실패는 뷰가 지운다: admin의 행 지우기, `DeleteMedia`를 빠뜨린 뷰, 저장과 행 쓰기 사이의 중단)와 "gen and check", ARCHITECTURE의 `media/`는 디렉터리를 `.gitignore`로 둔다. 받음(선택): `StaticName`을 공개 API 줄로, `cmd/maago`의 "만"과 "도", `site`의 PG는 `TestM4Done`, 조건 5·6에 `TestUpload`·`TestMediaDirConfig`
+
 ---
 
 ## M7 끝
 
-- [ ] 1~8 완료
-- [ ] 위 M7 완료 조건을 실제로 돌려 확인(PG는 `MAAGO_TEST_PG_URL`로), 조건마다 시험 이름
+- [x] 1~8 완료 (2026-10-13)
+- [x] 위 M7 완료 조건을 실제로 돌려 확인(PG는 로컬 서버의 `MAAGO_TEST_PG_URL`로 돌렸다, Tailwind는 캐시의 v4.3.3). 조건마다의 시험(게시판의 시험은 `TestBoardTutorial`이 0025~0028에서, `site`의 시험은 `cmd/maago`의 `TestWeb`(SQLite)과 `TestM4Done`(PG)이 돌린다)
+  1. 튜토리얼의 M7 커밋(0025~0028): `TestBoardTutorial`(0026의 `Maago-Expect`, 끝에서 커밋된 CSS와 standalone의 출력 비교), 망가진 단계는 `TestBoardTutorialCatches`(초안 첨부의 검사 빼기). SQLite(D-103)
+  2. `{{static "없는.css"}}`는 생성 오류, 있는 파일은 해시 이름: `TestStaticTemplates`(`internal/web`), `TestStaticGen`(`cmd/maago`, `build.Gen`을 지나며), `site`의 `TestStatic`, 튜토리얼 0026
+  3. 내용이 바뀌면 이름이 바뀌고 해시 이름은 오래 캐시: `TestStatic`(루트), 게시판 `TestStylesheet`
+  4. Node 없이 Tailwind 클래스가 든 CSS: `TestTailwind`(`cmd/maago`, `PATH`를 비우고 진짜 v4.3.3, 쓴 클래스는 있고 쓰지 않은 것은 없음; CI는 늘 받아 돌린다)
+  5. 413과 `../`: `TestMaxBody`·`TestMultipart`·`TestMedia`(루트), `site`의 `TestUpload`(413), 게시판 `TestAttachments`(10MB 넘음, `../evil.txt`가 열쇠 이름으로만)
+  6. 권한 없는 사용자는 비공개 미디어를 받지 못함: 게시판 `TestAttachments`(남의 초안 첨부 403)·`TestHiddenAttachments`(숨긴 글 404), `TestServeMedia`(루트, attachment·`nosniff`), 미디어를 서빙하는 라우트가 없고 `MediaDir`이 필수: `TestMediaDirConfig`(루트)·`site`의 `TestUpload`
 - [ ] MILESTONES.md의 M7 체크박스 갱신
 - [ ] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인
 - [ ] TASKS-M8 초안
