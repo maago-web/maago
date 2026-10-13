@@ -255,6 +255,20 @@ func (h *handler) serve(route *AppRoute) http.Handler {
 		ctx = context.WithValue(ctx, remoteAddrKey{}, r.RemoteAddr)
 		r = r.WithContext(context.WithValue(ctx, cookiesKey{}, ww))
 		r.Body = http.MaxBytesReader(w, r.Body, h.cfg.MaxBody) // w, not ww: net/http closes the connection only when its own writer hears of it
+		// The multipart files of r as it is last: net/http removes only
+		// those of its own request, not of this copy.
+		defer func() {
+			if r.MultipartForm == nil {
+				return
+			}
+			if err := r.MultipartForm.RemoveAll(); err != nil { // the request is answered; a file left on disk is still news
+				if h.cfg.OnError != nil {
+					h.cfg.OnError(r.Context(), r, fmt.Errorf("removing the temporary files of a form: %w", err))
+				} else {
+					log.Printf("maago: %s %s: removing the temporary files of a form: %v", r.Method, r.URL.Path, err)
+				}
+			}
+		}()
 		defer func() {
 			p := recover()
 			if p == nil {

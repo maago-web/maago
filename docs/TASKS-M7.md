@@ -208,3 +208,46 @@ API(루트, 새 파일 `static.go`)
 - codex: 결함 없음(샌드박스가 GOCACHE를 막아 시험은 돌리지 못함). `Auth`가 본문을 읽는 경우의 시험은 하지 않음(`Auth` 앞에서 감싸는 한 줄이 같다)
 - fable: 결함 없음, 변형 15개 중 둘 살아남음 → 시험: 기본값은 정확히 10MB가 200, 객체 뒤의 공백이 넘치면 413(끝 토큰의 `%w`). 주석의 까닭(`ww`가 아닌 이유), 같은 값을 두 이름으로, `JSONValues` 문서의 괄호 → 고침. 받음(결함 아님): 손으로 만든 `Body == nil` 요청은 이제 500(서버와 `httptest`는 늘 본문이 있다). ARCHITECTURE의 `Config` 목록에 `MaxBody`·`Static`이 없음 → 8번
 
+
+## 4. 파일 칸 (D-139)
+
+### 계획
+
+이 작업의 끝에 폼이 `maago.Field[maago.File]` 칸을 가질 수 있고, 그런 폼은 `multipart/form-data`로 온다. 저장(`SaveMedia`)과 내려받기는 5번.
+
+런타임(루트, `form.go`·새 파일 `file.go`)
+- `type File struct { Name string; Size int64; Type string; … }`: 보낸 이름(경로를 뗀 마지막 조각, multipart가 이미 뗀다), 크기, 내용의 앞 512바이트로 본 형식(`http.DetectContentType`, 보낸 Content-Type은 쓰지 않는다). `func (f File) Open() (multipart.File, error)`. 칸의 `Raw`는 보낸 이름(다시 그릴 때 보이는 글, 파일은 다시 그려지지 않는다)
+- `MultipartValues(r, keys...) (url.Values, error)`: `FormValues`의 multipart 짝. GET·HEAD는 nil, Content-Type이 `multipart/form-data`가 아니면 400("the form has a file: send it as multipart/form-data", urlencoded로 오면 파일이 조용히 사라지므로), `r.ParseMultipartForm(1MB)`(파일 내용을 메모리에 둘 문턱, 넘는 것은 임시 파일. 글 값은 stdlib가 따로 10MB를 잡는다. 본문 상한은 3번의 `MaxBody`), 오류는 `%w`로 싼 400(사슬에 `MaxBytesError`면 3번의 `status`가 413, 파서의 제 한도 `multipart.ErrMessageTooLarge`는 400 그대로), 폼의 키마다 `Value[k]`와 `File[k]`를 합쳐 둘 이상이면 400(파일 여럿, 글과 파일). 고르지 않은 파일 칸은 브라우저가 `filename=""`로 보내 stdlib가 `Value[k]=[""]`에 둔다. 글 값은 `r.MultipartForm.Value`
+- 임시 파일: `serve`가 `defer`로 마지막 `r`의 `MultipartForm`이 있으면 `RemoveAll()`(net/http는 원래 요청의 것만 지우는데 `serve`의 `r`은 `WithContext`의 복사본이고 `Auth` 뒤에 다시 바뀐다, panic에도 돈다). `File.Open`은 요청 안에서만: `SaveMedia`(5번)는 뷰 안에서 복사한다(`File` 문서에)
+- `BindFile(r *http.Request, vals url.Values, f *Field[File], rule Rule)`: 다른 Bind와 달리 `r`을 받는다(파일은 `vals`에 없다). `File[k]`가 없으면 보내지 않은 것: 필수면 Required(같은 키에 글이 와도: `MultipartValues`는 어느 키가 파일인지 모르고, 폼 오류가 까닭을 다시 그린다. 구현 때 400에서 바꿈). GET은 `vals`가 nil이라 그리기만. 열어 앞부분을 읽어 형식을 보고 `rule.Accept`(아래)에 없으면 `Messages.NotAccepted`(기본 "This kind of file is not allowed."), 크기 0인 파일도 보낸 것(이름이 있으면)
+- `Rule.Accept []string`: 종류 이름. 닫힌 표 `png`·`jpeg`·`gif`·`webp`·`pdf`·`zip` → `DetectContentType`의 미디어 타입(매개변수를 뗀). 표는 루트 하나(`maago.FileKinds()`가 이름들, 생성기가 did you mean에 쓴다, 2번의 `StaticName` 선례). `text`는 넣지 않는다(UTF-16·빈 파일의 답이 갈린다). `zip`은 docx·xlsx도 받는다(문서에). 형식은 늘 본다(`File.Type`, 5번이 모델에 둔다). ★빈 `Accept` → 에이전트 편의로 결정: 아무 종류나(`choices`·`max`가 없으면 제한 없음과 같은 규칙, 특별한 말이 늘지 않는다. 내려받기는 늘 attachment·`nosniff`라 올린 HTML·SVG가 사이트에서 돌지 않는다, D-140)
+- `Messages.NotAccepted`: 기본값 사슬과 `check()`의 표에도
+
+생성(`internal/web`)
+- `formTypes`에 `maago.File`(칸 타입은 `maago.Field[maago.File]`). 태그: `label`·`help`·`optional`과 새 `accept=png/jpeg`(파일 칸에만, 표에 없는 종류는 did you mean, `formKeys`에 더함). `choices`·`min`·`max`·`*_value`는 파일 칸에 오류(지금의 "applies to strings" 꼴)
+- 모델 폼(`model=X`)의 파일 칸은 오류 "a model form takes its fields from model X, which holds no file", fix "read the file with a form of its own on its own route". ★게시판의 첨부(7번) → 에이전트 편의로 결정: 첨부는 제 폼(`AttachmentForm`)과 제 라우트(규칙이 하나로 남는다: 모델 폼은 모델의 칸, In의 폼은 하나. 이미 있는 오류의 fix가 그 길을 말한다)
+- `fieldType`은 `maago.File`을 `isMaago`로(가져오기 별칭)
+- 파일 칸이 있는 폼을 읽는 라우트: API면 오류(D-139: v0에 없음, "send the file from an HTML form"), 어댑터는 `FormValues` 대신 `MultipartValues`, 바인딩은 `maago.BindFile(r, vals, &f.X, rule)`
+- 생성물의 import 목록은 그대로(`mime/multipart`는 루트만)
+
+- ★`enctype` → 에이전트 편의로 결정: 생성 검사. 파일 폼을 읽는 라우트의 페이지 템플릿 묶음(페이지와 `base.html`)의 글에 `enctype="multipart/form-data"`가 없으면 오류 "route X reads form F, which has a file, but its page draws no form with enctype=\"multipart/form-data\""(HTML의 4xx는 상태 글만 보여 런타임 400은 에이전트에게 까닭을 말하지 않는다). 다른 템플릿에서 그리는 폼이면 거짓 양성: fix가 페이지나 `base.html`에 그리라고 한다
+
+하지 않기로 한 것: 칸마다의 크기 상한(D-139 기각), 파일 여럿(`multiple`, 한 칸에 둘 오면 400), 저장(5번), admin의 파일 칸(모델에 파일 타입이 없다)
+
+결정에 없는 선택: `BindFile`이 `r`을 받는 모양(`bind{{.Name}}`이 이미 `r`을 받는다), 종류 표 여섯, 메모리 문턱 1MB(요청마다의 메모리를 묶고, 기본 `MaxBody` 아래에서 임시 파일 길을 시험할 수 있다), `Messages.NotAccepted`
+
+단계
+1. 런타임 → 확인: `TestMultipart`(400: urlencoded·boundary 없음·두 번 온 키·글과 파일·파일 칸의 글, `MaxBody`를 넘으면 413, 1MB 넘는 파일의 임시 파일이 `Auth`를 둔 `Handler`의 라우트 뒤와 panic 뒤에 없음), `TestBindFile`(브라우저 모양의 빈 칸 `filename=""`, 필수·선택, 종류 맞음·틀림, 이름이 `.png`인 HTML은 png 거절, 보낸 Content-Type을 믿지 않음, GET은 그리기만, 다시 그릴 때 `Raw`는 보낸 이름)
+2. 생성 → 확인: 진단 표(`accept`의 모르는 종류, 파일 칸의 `max`, API 라우트의 파일 폼, 모델 폼의 파일 칸, `enctype` 없는 페이지), 골든에 `MultipartValues`·`BindFile`, `cmd/maago`의 web 픽스처에 파일 폼과 요청 시험(올림·형식 거절·413·urlencoded 400)
+
+### 계획 리뷰
+
+- codex: `RemoveAll`은 `defer`로(Auth·panic도), 메모리 문턱의 실제 뜻(글 값 10MB 따로), `ErrMessageTooLarge`(400)와 `MaxBytesError`(413)를 둘 다 시험, 이름 없는 파일 부분은 `Value`에 간다, 키는 두 맵을 합쳐 센다, `Filename`의 경로 떼기는 플랫폼마다 달라 보안이 아니다(D-140의 열쇠가 막는다), `DetectContentType`은 앞 512바이트뿐이고 SVG·`text`가 갈린다 → `text` 뺌, `File.Open`의 수명 → 문서. 받지 않음: `BindFile`에 `*multipart.FileHeader`만(생성물의 `bind`가 이미 `r`을 받아 바뀌는 것이 없다)
+- fable: ★게시판 첨부와 모델 폼, ★빈 `Accept`, ★`enctype` → 사람이 "에이전트가 마고로 서비스를 만들 때 편한가"로 결정하라고 함(위 셋에 적음). 빈 칸의 실제 모양, `RemoveAll`의 자리와 nil, 문턱(1MB로), 모델 폼의 진단 글, `isMaago`, 종류 표 하나, `text`의 갈림, `Messages`의 사슬, 빠진 시험(GET, boundary 없음, `Raw`) → 받음
+
+### 구현 리뷰
+
+- ponytail(나): 종류 표는 루트 하나(`fileKinds`, 생성기는 `maago.FileKinds()`), 바인딩은 생성물 모양 그대로(`bind{{.Name}}`이 이미 `r`을 받는다). 파일만 있는 폼은 `ctx`를 내지 않는다(쓰지 않는 변수는 컴파일 오류: `cmd/maago`의 픽스처 `UploadForm`이 본다). 변형으로 확인: `RemoveAll`이 처음 `r`을 잡으면 `Auth`를 둔 시험이 임시 파일을 찾는다, 픽스처의 기대를 바꾸면 `TestWeb` 안의 `TestUpload`가 잡는다. Go 1.25에서도 돎
+- codex: `enctype` 글자 그대로의 검색 → 정규식(대소문자·따옴표·공백, `TestFileForm`에 대문자·홑따옴표), `RemoveAll`의 오류를 버림 → `OnError`나 로그(시험 없음: 임시 파일을 지우지 못하게 만들 길이 플랫폼마다 다르다). 주석 안의 같은 글은 거짓 양성으로 받음(fix가 정확한 글을 준다)(샌드박스가 GOCACHE를 막아 시험은 돌리지 못함)
+- fable: 막는 결함 없음, 변형 13개 중 11개 잡힘. 살아남은 둘 → 큰 파일이 실제로 임시 파일로 갔는지 단언, `MultipartValues`의 Content-Type 검사는 `ParseMultipartForm`의 오류와 같은 400이라 지움(`FormValues`의 것은 남김: `ParseForm`은 multipart를 조용히 버린다). 칸마다 바인딩 인자 하나(`r`나 `r.Context()`)로 `Ctx` 표지와 분기를 지움. 진단 글을 `unknown kind "jpg" in accept of …`로, 시험은 `jpg`(did you mean "jpeg"). `Messages.NotAccepted`는 `NotKind`로(`NotNumber`·`NotChoice`와 맞춤). 7번에 넘김: `enctype` 검사는 폼을 읽는 라우트의 페이지만 본다 → 첨부 POST가 글 상세 GET과 같은 페이지 타입을 돌려 템플릿을 같이 쓰거나 `base.html`. 5번에 넘김: D-140의 "`MediaDir`이 비면 `Handler` 오류"에 런타임 신호가 없다(파일 칸은 생성기만 안다) → 생성물이 알린다(2번의 `WithStatic` 꼴), `File.Type`의 zip 계열(docx)은 문서에
+

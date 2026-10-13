@@ -60,8 +60,9 @@ type Rule struct {
 	Name, Label, Help  string
 	Choices            []string
 	Optional           bool
-	Min, Max           int    // the length of a string, in characters; 0: none
-	MinValue, MaxValue string // the bounds of a number, as the tag wrote them; "": none
+	Min, Max           int      // the length of a string, in characters; 0: none
+	MinValue, MaxValue string   // the bounds of a number, as the tag wrote them; "": none
+	Accept             []string // the kinds of file a file field takes (FileKinds); none: any
 }
 
 // Messages are the errors forms show to the people using the site. A
@@ -78,6 +79,7 @@ type Messages struct {
 	BadBool   string // a checkbox sent what it cannot send
 	BadTime   string // the text is not a date and time
 	NoRow     string // the number is of no row: an fk field in the admin
+	NotKind   string // the file is not of a kind the field accepts
 }
 
 // DefaultMessages are the messages a project has not replaced.
@@ -92,6 +94,7 @@ var DefaultMessages = Messages{
 	BadBool:   "Check the box or leave it.",
 	BadTime:   "Enter a date and time.",
 	NoRow:     "Select a row that exists.",
+	NotKind:   "This kind of file is not allowed.",
 }
 
 // formSettings are the Config values forms read, put in each request's
@@ -108,7 +111,7 @@ func newFormSettings(m Messages, tz *time.Location) *formSettings {
 	m.Required, m.NotNumber, m.TooSmall = cmp.Or(m.Required, d.Required), cmp.Or(m.NotNumber, d.NotNumber), cmp.Or(m.TooSmall, d.TooSmall)
 	m.TooLarge, m.TooShort, m.TooLong = cmp.Or(m.TooLarge, d.TooLarge), cmp.Or(m.TooShort, d.TooShort), cmp.Or(m.TooLong, d.TooLong)
 	m.NotChoice, m.BadBool, m.BadTime = cmp.Or(m.NotChoice, d.NotChoice), cmp.Or(m.BadBool, d.BadBool), cmp.Or(m.BadTime, d.BadTime)
-	m.NoRow = cmp.Or(m.NoRow, d.NoRow)
+	m.NoRow, m.NotKind = cmp.Or(m.NoRow, d.NoRow), cmp.Or(m.NotKind, d.NotKind)
 	if tz == nil {
 		tz = time.UTC
 	}
@@ -299,7 +302,7 @@ func (m Messages) check() error {
 		args      []any
 	}{
 		{"Required", m.Required, nil}, {"NotNumber", m.NotNumber, nil}, {"NotChoice", m.NotChoice, nil},
-		{"BadBool", m.BadBool, nil}, {"BadTime", m.BadTime, nil}, {"NoRow", m.NoRow, nil},
+		{"BadBool", m.BadBool, nil}, {"BadTime", m.BadTime, nil}, {"NoRow", m.NoRow, nil}, {"NotKind", m.NotKind, nil},
 		{"TooSmall", m.TooSmall, []any{"1"}}, {"TooLarge", m.TooLarge, []any{"1"}},
 		{"TooShort", m.TooShort, []any{1}}, {"TooLong", m.TooLong, []any{1}},
 	} {

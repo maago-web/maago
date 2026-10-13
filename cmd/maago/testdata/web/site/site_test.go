@@ -2,9 +2,11 @@ package site
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"database/sql"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -57,6 +59,48 @@ func TestStatic(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest("GET", link[1], nil))
 	if w.Code != 200 || w.Body.String() != "body { margin: 0 }\n" || w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
 		t.Errorf("%s: %d %q %v", link[1], w.Code, w.Body, w.Header())
+	}
+}
+
+// A file field: the file, its kind by its content, a field error for the
+// wrong kind or none, 400 for a body that is not multipart, 413 past
+// Config.MaxBody (D-139).
+func TestUpload(t *testing.T) {
+	h, _, _ := handler(t)
+	post := func(name string, body []byte) *httptest.ResponseRecorder {
+		var b bytes.Buffer
+		mw := multipart.NewWriter(&b)
+		part, _ := mw.CreateFormFile("doc", name)
+		part.Write(body)
+		mw.Close()
+		r := httptest.NewRequest("POST", UploadSaveURL(), &b)
+		r.Header.Set("Content-Type", mw.FormDataContentType())
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 100)...)
+	for _, c := range []struct {
+		name string
+		w    *httptest.ResponseRecorder
+		code int
+		body string
+	}{
+		{"a png", post("a.png", png), 200, "<p>got a.png image/png</p>"},
+		{"html named png", post("a.png", []byte("<!DOCTYPE html><p>x")), 200, "This kind of file is not allowed."},
+		{"no file chosen", post("", nil), 200, "This field is required."},
+		{"past MaxBody", post("big.png", append(png, make([]byte, 10<<20)...)), 413, ""},
+	} {
+		if c.w.Code != c.code || !strings.Contains(c.w.Body.String(), c.body) {
+			t.Errorf("%s: %d %q", c.name, c.w.Code, c.w.Body)
+		}
+	}
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("POST", UploadSaveURL(), strings.NewReader("doc=a.png"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	h.ServeHTTP(w, r)
+	if w.Code != 400 {
+		t.Errorf("urlencoded: %d", w.Code)
 	}
 }
 

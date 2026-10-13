@@ -16,4 +16,6 @@ var Routes = maago.Routes{
 	maago.GET("/export/{format}", "post_export", PostExport),
 	maago.GET("/secret", "secret", Secret, maago.LoginRequired),
 	maago.GET("/api/secret", "api_secret", Secret, maago.API, maago.LoginRequired),
+	maago.GET("/upload", "upload", Upload),
+	maago.POST("/upload", "upload_save", Upload),
 }

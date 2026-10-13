@@ -1,0 +1,1 @@
+{{define "content"}}<form method="post" enctype="multipart/form-data"><input type="file" name="{{.Form.Doc.Name}}">{{.Form.Doc.Error}}</form>{{if .Got}}<p>got {{.Got}}</p>{{end}}{{end}}

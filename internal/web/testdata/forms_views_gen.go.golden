@@ -108,9 +108,8 @@ func serveAPINoticeCreate(w http.ResponseWriter, r *http.Request) error {
 // for a GET or HEAD, which sends none, only describes its fields, for
 // drawing it empty (D-119).
 func bindBoardForm(r *http.Request, vals url.Values, f *BoardForm) {
-	ctx := r.Context()
-	maago.BindString(ctx, vals, &f.Name, maago.Rule{Name: "name", Label: "이름", Max: 50})
-	maago.BindString(ctx, vals, &f.Kind, maago.Rule{Name: "kind", Label: "Kind", Choices: []string{"free", "notice"}, Optional: true})
+	maago.BindString(r.Context(), vals, &f.Name, maago.Rule{Name: "name", Label: "이름", Max: 50})
+	maago.BindString(r.Context(), vals, &f.Kind, maago.Rule{Name: "kind", Label: "Kind", Choices: []string{"free", "notice"}, Optional: true})
 	ok := func() bool {
 		return f.Name.Error == "" && f.Kind.Error == ""
 	}
@@ -121,12 +120,11 @@ func bindBoardForm(r *http.Request, vals url.Values, f *BoardForm) {
 // for a GET or HEAD, which sends none, only describes its fields, for
 // drawing it empty (D-119).
 func bindNoticeForm(r *http.Request, vals url.Values, f *NoticeForm) {
-	ctx := r.Context()
-	maago.BindString(ctx, vals, &f.Title, maago.Rule{Name: "title", Label: "제목", Help: "짧게", Min: 2, Max: 200})
-	maago.BindInt32(ctx, vals, &f.Days, maago.Rule{Name: "days", Label: "Days", MinValue: "1", MaxValue: "30"})
-	maago.BindFloat64(ctx, vals, &f.Rate, maago.Rule{Name: "rate", Label: "Rate", Optional: true})
-	maago.BindBool(ctx, vals, &f.Pinned, maago.Rule{Name: "pinned", Label: "Pinned"})
-	maago.BindTime(ctx, vals, &f.Start, maago.Rule{Name: "start", Label: "Start", Optional: true})
+	maago.BindString(r.Context(), vals, &f.Title, maago.Rule{Name: "title", Label: "제목", Help: "짧게", Min: 2, Max: 200})
+	maago.BindInt32(r.Context(), vals, &f.Days, maago.Rule{Name: "days", Label: "Days", MinValue: "1", MaxValue: "30"})
+	maago.BindFloat64(r.Context(), vals, &f.Rate, maago.Rule{Name: "rate", Label: "Rate", Optional: true})
+	maago.BindBool(r.Context(), vals, &f.Pinned, maago.Rule{Name: "pinned", Label: "Pinned"})
+	maago.BindTime(r.Context(), vals, &f.Start, maago.Rule{Name: "start", Label: "Start", Optional: true})
 	ok := func() bool {
 		return f.Title.Error == "" && f.Days.Error == "" && f.Rate.Error == "" && f.Pinned.Error == "" && f.Start.Error == ""
 	}

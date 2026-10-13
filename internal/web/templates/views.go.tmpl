@@ -44,7 +44,7 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	var in {{.In}}
 {{- range .Fields}}
 {{- if eq .Source "form"}}
-	vals, err := maago.{{if $route.API}}JSONValues{{else}}FormValues{{end}}(r{{range .Keys}}, {{.}}{{end}})
+	vals, err := maago.{{if $route.API}}JSONValues{{else if .Multipart}}MultipartValues{{else}}FormValues{{end}}(r{{range .Keys}}, {{.}}{{end}})
 	if err != nil {
 		return err
 	}
@@ -96,9 +96,8 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 // for a GET or HEAD, which sends none, only describes its fields, for
 // drawing it empty (D-119).
 func bind{{.Name}}(r *http.Request, vals url.Values, f *{{.Name}}) {
-	ctx := r.Context()
 {{- range .Fields}}
-	maago.{{.Bind}}(ctx, vals, &f.{{.Name}}, {{.Rule}})
+	maago.{{.Bind}}({{.Arg}}, vals, &f.{{.Name}}, {{.Rule}})
 {{- end}}
 	ok := func() bool {
 		return {{range $i, $f := .Fields}}{{if $i}} && {{end}}f.{{$f.Name}}.Error == ""{{else}}true{{end}}

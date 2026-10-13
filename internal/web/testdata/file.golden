@@ -1,0 +1,24 @@
+# an unknown kind
+up/urls.go:17:51: unknown kind "jpg" in accept of form field Doc
+  fix: did you mean "jpeg"? allowed: gif, jpeg, pdf, png, webp, zip
+
+# accept on text
+up/urls.go:16:36: accept applies to file fields, but form field Title is string
+  fix: remove accept, or make the field maago.Field[maago.File]
+
+# max on a file
+up/urls.go:17:40: max applies to strings, but form field Doc is maago.File
+  fix: remove max
+
+# an API route
+up/urls.go:21:2: UpIn.Form reads form UpForm, which has a file, but route up_save is an API route, which reads JSON
+  fix: send the file from an HTML form, to a route without maago.API
+
+# a model form
+up/urls.go:23:8: form field Doc is a file, but a model form takes its fields from model Up, which holds no file
+  fix: read the file with a form of its own, on a route of its own
+
+# no enctype
+up/templates/up_page.html: route up_form reads a form with a file, but its page draws no form with enctype="multipart/form-data"
+  fix: write <form method="post" enctype="multipart/form-data"> in the page or base.html; without it the browser sends the file's name, not the file
+

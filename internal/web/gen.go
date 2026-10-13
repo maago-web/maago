@@ -90,7 +90,7 @@ func ViewsFile(app *App, apps []*App) []byte {
 		for _, f := range v.fields {
 			query = query || f.source == "query"
 			fields = append(fields, map[string]any{"Name": f.name, "Source": f.source, "Key": f.key, "Pointer": f.pointer,
-				"Parser": strings.ToUpper(f.typ[:1]) + f.typ[1:], "Form": f.typ, "Keys": keysOf(app.forms[f.typ])})
+				"Parser": strings.ToUpper(f.typ[:1]) + f.typ[1:], "Form": f.typ, "Keys": keysOf(app.forms[f.typ]), "Multipart": app.forms[f.typ] != nil && app.forms[f.typ].hasFile()})
 		}
 		api := hasOption(r.Options, "API")
 		html = html || !v.escape && !api
@@ -214,7 +214,11 @@ func formsData(app *App) []map[string]any {
 		}
 		var fields []map[string]string
 		for _, ff := range f.fields {
-			fields = append(fields, map[string]string{"Name": ff.name, "Bind": binds[ff.typ], "Rule": ruleLit(ff), "Key": strconv.Quote(model.Snake(ff.name))})
+			arg := "r.Context()"
+			if ff.typ == "maago.File" {
+				arg = "r" // BindFile reads the files from the request
+			}
+			fields = append(fields, map[string]string{"Name": ff.name, "Bind": binds[ff.typ], "Arg": arg, "Rule": ruleLit(ff), "Key": strconv.Quote(model.Snake(ff.name))})
 		}
 		fs = append(fs, map[string]any{"Name": name, "Validate": f.validate, "Fields": fields, "API": f.api})
 	}
@@ -222,7 +226,7 @@ func formsData(app *App) []map[string]any {
 }
 
 // binds are the Bind functions of the form field types.
-var binds = map[string]string{"string": "BindString", "int64": "BindInt64", "int32": "BindInt32", "float64": "BindFloat64", "bool": "BindBool", "time.Time": "BindTime"}
+var binds = map[string]string{"string": "BindString", "int64": "BindInt64", "int32": "BindInt32", "float64": "BindFloat64", "bool": "BindBool", "time.Time": "BindTime", "maago.File": "BindFile"}
 
 // ModelRule is the Bind function and the maago.Rule, as Go, of a model
 // form's field for mf: the rules a model form takes from its model
@@ -262,6 +266,13 @@ func ruleLit(ff formField) string {
 	}
 	if ff.maxValue != "" {
 		parts = append(parts, "MaxValue: "+strconv.Quote(ff.maxValue))
+	}
+	if ff.accept != nil {
+		var qs []string
+		for _, k := range ff.accept {
+			qs = append(qs, strconv.Quote(k))
+		}
+		parts = append(parts, "Accept: []string{"+strings.Join(qs, ", ")+"}")
 	}
 	return "maago.Rule{" + strings.Join(parts, ", ") + "}"
 }

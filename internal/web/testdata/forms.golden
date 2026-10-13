@@ -1,14 +1,14 @@
 # unknown tag
 board/urls.go:34:40: unknown key "mim" in the tag of form field Title
-  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, optional
+  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, optional, accept
 
 # not a Field
 board/urls.go:36:9: form field Rate is float64, not maago.Field[T]
-  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time; a file field comes with M7
+  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time, maago.File
 
 # a type forms do not read
 board/urls.go:36:9: form field Rate is maago.Field[uint8], not maago.Field[T]
-  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time; a file field comes with M7
+  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time, maago.File
 
 # unexported
 board/urls.go:36:2: form field rate is not exported
@@ -108,7 +108,7 @@ board/urls.go:41:21: Validate of form NoticeForm has a value receiver: the error
 board/urls.go:27:27: form BoardForm names model Bord, which this package does not declare
   fix: did you mean "Board"?
 board/urls.go:34:40: unknown key "mim" in the tag of form field Title
-  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, optional
+  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, optional, accept
 
 # Validate's signature
 board/urls.go:41:22: Validate of form NoticeForm is not a method func()

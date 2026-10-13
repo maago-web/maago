@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/model"
 )
@@ -34,11 +35,12 @@ type formField struct {
 	optional           bool
 	min, max           int
 	minValue, maxValue string
+	accept             []string // the kinds of file a file field takes
 }
 
 var (
-	formTypes = []string{"string", "int64", "int32", "float64", "bool", "time.Time"}
-	formKeys  = []string{"label", "help", "choices", "min", "max", "min_value", "max_value", "optional"}
+	formTypes = []string{"string", "int64", "int32", "float64", "bool", "time.Time", "maago.File"}
+	formKeys  = []string{"label", "help", "choices", "min", "max", "min_value", "max_value", "optional", "accept"}
 )
 
 // readFormField reads an In field tagged maago:"form": a form type of the
@@ -92,6 +94,10 @@ func Forms(fset *token.FileSet, apps []*App, models func(dir string) *model.App)
 				if r.Method == "DELETE" {
 					ds = append(ds, diag.New(fset.Position(in.pos), fmt.Sprintf("%s.%s reads a form, but route %s is a DELETE, which names what it removes in its path", r.view.in, in.name, r.Name),
 						"send the form with POST; DELETE takes its values from the path"))
+				}
+				if f := app.forms[in.typ]; f != nil && f.hasFile() && hasOption(r.Options, "API") {
+					ds = append(ds, diag.New(fset.Position(in.pos), fmt.Sprintf("%s.%s reads form %s, which has a file, but route %s is an API route, which reads JSON", r.view.in, in.name, in.typ, r.Name),
+						"send the file from an HTML form, to a route without maago.API"))
 				}
 				if api := hasOption(r.Options, "API"); api && (r.Method == "GET" || r.Method == "HEAD") {
 					ds = append(ds, diag.New(fset.Position(in.pos), fmt.Sprintf("%s.%s reads a form, but API route %s is a %s, which sends no body", r.view.in, in.name, r.Name, r.Method),
@@ -174,7 +180,7 @@ func readForm(fset *token.FileSet, ts *ast.TypeSpec, names []string, models *mod
 		typ, ok := fieldType(fd.Type, names)
 		if !ok {
 			errAt(fd.Type.Pos(), fmt.Sprintf("form field %s is %s, not maago.Field[T]", fd.Names[0].Name, types.ExprString(fd.Type)),
-				"use maago.Field[T] with T one of "+strings.Join(formTypes, ", ")+"; a file field comes with M7")
+				"use maago.Field[T] with T one of "+strings.Join(formTypes, ", "))
 			continue
 		}
 		for _, name := range fd.Names {
@@ -200,8 +206,11 @@ func fieldType(e ast.Expr, names []string) (string, bool) {
 	if !ok || !isMaago(ix.X, "Field", names) {
 		return "", false
 	}
+	if isMaago(ix.Index, "File", names) {
+		return "maago.File", true
+	}
 	t := types.ExprString(ix.Index)
-	return t, slices.Contains(formTypes, t)
+	return t, slices.Contains(formTypes, t) && t != "maago.File"
 }
 
 // tagRules reads the rules of a plain form's field from its tag.
@@ -273,6 +282,23 @@ func tagRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ident
 					ff.maxValue = v
 				}
 			}
+		case "accept":
+			switch {
+			case ff.typ != "maago.File":
+				errAt(o.KeyPos, fmt.Sprintf("accept applies to file fields, but %s is %s", where, ff.typ), "remove accept, or make the field maago.Field[maago.File]")
+			case shape(o, model.Bare, -1, "list the kinds with /, like accept=png/jpeg"):
+				kinds := maago.FileKinds()
+				for i, k := range o.Values {
+					if !slices.Contains(kinds, k) {
+						fix := "allowed: " + strings.Join(kinds, ", ")
+						if m := diag.Suggest(k, kinds); m != "" {
+							fix = fmt.Sprintf("did you mean %q? %s", m, fix)
+						}
+						errAt(o.ValuePos[i], fmt.Sprintf("unknown kind %q in accept of %s", k, where), fix)
+					}
+				}
+				ff.accept = o.Values
+			}
 		case "optional":
 			switch {
 			case ff.typ == "bool":
@@ -323,6 +349,11 @@ func modelRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ide
 		return ds
 	}
 	errAt := func(pos token.Pos, msg, fix string) { ds = append(ds, diag.New(fset.Position(pos), msg, fix)) }
+	if ff.typ == "maago.File" { // its tag is not a model field's: one error says it all
+		errAt(fd.Type.Pos(), fmt.Sprintf("form field %s is a file, but a model form takes its fields from model %s, which holds no file", name.Name, m.Name),
+			"read the file with a form of its own, on a route of its own")
+		return ds
+	}
 	for _, o := range opts {
 		switch {
 		case o.Key == "optional" && ff.typ == "bool":
@@ -360,4 +391,10 @@ func modelRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ide
 	}
 	ff.help, ff.choices, ff.max = mf.Help, mf.Choices, mf.Max
 	return ds
+}
+
+// hasFile reports whether the form has a file field: it comes as
+// multipart/form-data (D-139).
+func (f *form) hasFile() bool {
+	return slices.ContainsFunc(f.fields, func(ff formField) bool { return ff.typ == "maago.File" })
 }

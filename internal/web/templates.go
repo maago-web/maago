@@ -29,11 +29,16 @@ var funcNames = template.FuncMap{
 	"static": func(string) (string, error) { return "", nil },
 }
 
+// multipartForm finds a form's enctype="multipart/form-data", as HTML
+// lets it be written: any case, either quote or none, spaces round =.
+var multipartForm = regexp.MustCompile(`(?i)\benctype\s*=\s*["']?multipart/form-data\b`)
+
 // page is an HTML route's page, as checkTemplates sees it.
 type page struct {
-	route *Route
-	typ   *types.Named
-	label string // the view's position, for errors about its template
+	route     *Route
+	typ       *types.Named
+	label     string // the view's position, for errors about its template
+	multipart bool   // its route reads a form with a file (D-139)
 }
 
 // checkTemplates checks the templates of one app (D-42): the files, then
@@ -93,6 +98,12 @@ func checkTemplates(fset *token.FileSet, root, dir string, pkg *types.Package, p
 		return token.Position{Filename: path.Join(tdir, file), Line: line, Column: col}
 	}
 	for _, file := range files {
+		if i := slices.IndexFunc(byFile[file], func(p page) bool { return p.multipart }); i >= 0 &&
+			!multipartForm.Match(append(srcs[file], srcs["base.html"]...)) {
+			ds = append(ds, diag.New(token.Position{Filename: path.Join(tdir, file)},
+				fmt.Sprintf(`route %s reads a form with a file, but its page draws no form with enctype="multipart/form-data"`, byFile[file][i].route.Name),
+				`write <form method="post" enctype="multipart/form-data"> in the page or base.html; without it the browser sends the file's name, not the file`))
+		}
 		parsed, err := maago.ParsePages(fsys, funcNames, file)
 		if err != nil {
 			ds = append(ds, templateDiag(tdir, err))
