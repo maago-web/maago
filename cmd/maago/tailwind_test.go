@@ -90,6 +90,9 @@ func TestTailwindDownload(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(root, "site", "static", "tailwind.css")); string(b) != "/* fake */\n" {
 		t.Errorf("output %q", b)
 	}
+	if info, _ := os.Stat(filepath.Join(root, "site", "static", "tailwind.css")); info.Mode().Perm() != 0o644 {
+		t.Errorf("output mode %v", info.Mode())
+	}
 	entries, _ := os.ReadDir(cache)
 	if len(entries) != 1 || entries[0].Name() != "tailwindcss-"+tailwindVersion+"-tailwindcss-test" {
 		t.Errorf("cache: %v", entries)

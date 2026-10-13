@@ -1,0 +1,530 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Tue, 13 Oct 2026 20:41:30 +0900
+Subject: [PATCH] Attach files to posts
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+글에 파일을 붙인다. 원본의 파일 업로드(fastapi-storages)에 해당한다.
+
+- 모델 Attachment: 글, 열쇠, 원래 이름, 형식, 크기. maago.SaveMedia가
+  돌려주는 maago.Media를 칸 넷으로 옮긴 것이다. 파일은 행이 아니라
+  Config.MediaDir(main에서 media/)에 있다
+- 폼 AttachmentForm: maago.Field[maago.File] 하나. accept= 태그가 없으니
+  아무 종류나 받는다. 형식은 보낸 이름이나 브라우저의 말이 아니라 내용의
+  앞부분으로 본다. 파일 칸이 있는 폼은 multipart/form-data로만 오고,
+  페이지에 enctype="multipart/form-data"인 폼이 없으면 maago gen이 막는다
+- 올리기 attachment_add: 작성자와 staff만. 글 페이지와 같은 PostPage를
+  돌려주어 오류가 난 폼은 그 자리에 다시 그린다. 본문이 Config.MaxBody(기본
+  10MB)를 넘으면 413
+- 내려받기 attachment: func(w, r) 뷰. 미디어 디렉터리를 그대로 서빙하는
+  라우트는 없다. 뷰가 글을 보고 숨긴 글이면 404, 초안이면 작성자와 staff만,
+  그다음 maago.ServeMedia. 늘 내려받기(attachment)로 가서 올린 HTML도
+  사이트의 페이지로 열리지 않는다
+
+파일 이름은 Maago가 만든 무작위 열쇠다. 보낸 이름에 ../가 있어도 미디어
+디렉터리 밖에 쓰이지 않는다(보낸 이름은 경로가 되지 않는다). 보낸 이름은
+행에만 남고 내려받을 때 쓰인다. 숨긴 글에는 올릴 수도 없다(404).
+
+댓글 없는 글을 지우면 첨부 행을 먼저 지우고(글을 가리킨다: 외래 키) 그다음
+파일을 지운다. 지우지 못한 파일은 로그에 남기고 둔다(글은 이미 없다). 댓글 있는 글은 숨겨지고 첨부도 함께 숨는다. 행 쓰기가
+실패하면 저장한 파일을 지운다. 그래도 남는 파일(행을 admin에서 지운 것
+따위)은 그대로 남는다.
+
+media/.gitignore가 디렉터리를 저장소에 둔다: Handler는 MediaDir이 없으면
+만들지 않고 멈춘다.
+
+diff --git a/board/attach_test.go b/board/attach_test.go
+new file mode 100644
+index 0000000..50a62e9
+--- /dev/null
++++ b/board/attach_test.go
+@@ -0,0 +1,145 @@
++package board
++
++import (
++	"bytes"
++	"fmt"
++	"mime/multipart"
++	"net/http"
++	"net/http/httptest"
++	"os"
++	"strings"
++	"testing"
++
++	"github.com/maago-web/maago"
++	"github.com/maago-web/maago/maagotest"
++)
++
++// upload sends file as the form of attachment_add of post id.
++func upload(h http.Handler, id int64, name string, file []byte) *httptest.ResponseRecorder {
++	var b bytes.Buffer
++	mw := multipart.NewWriter(&b)
++	if name != "" || file != nil {
++		part, _ := mw.CreateFormFile("file", name)
++		part.Write(file)
++	} else { // no file chosen, as a browser sends it
++		part, _ := mw.CreateFormFile("file", "")
++		part.Write(nil)
++	}
++	mw.Close()
++	r := httptest.NewRequest("POST", AttachmentAddURL(id), &b)
++	r.Header.Set("Content-Type", mw.FormDataContentType())
++	w := httptest.NewRecorder()
++	h.ServeHTTP(w, r)
++	return w
++}
++
++// Files of a post: its author keeps them with it, whoever may see the post
++// gets them, to download; a draft's only its author and staff, a hidden
++// post's no one. Deleting the post deletes them.
++func TestAttachments(t *testing.T) {
++	db := maagotest.DB(t)
++	cfg := config(t, db)
++	h, err := maago.Handler(cfg)
++	if err != nil {
++		t.Fatal(err)
++	}
++	ctx := t.Context()
++	ann, annUser := signedIn(t, h, db, "ann@example.com")
++	bob, _ := signedIn(t, h, db, "bob@example.com")
++	b, _ := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "첨부", Status: maago.Set("published"), AuthorID: &annUser.ID})
++	if err != nil {
++		t.Fatal(err)
++	}
++	body := []byte("결과표")
++
++	if w := upload(h, p.ID, "a.txt", body); w.Code != 401 {
++		t.Errorf("without a sign-in: %d", w.Code)
++	}
++	if w := upload(bob, p.ID, "a.txt", body); w.Code != 403 {
++		t.Errorf("not its author: %d", w.Code)
++	}
++	if w := upload(ann, p.ID, "", nil); w.Code != 200 || !strings.Contains(w.Body.String(), "This field is required.") {
++		t.Errorf("no file: %d %s", w.Code, w.Body)
++	}
++	if w := upload(ann, p.ID, "../evil.txt", body); w.Code != 303 {
++		t.Fatalf("upload: %d %s", w.Code, w.Body)
++	}
++	as, _ := PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID})
++	if len(as) != 1 || as[0].Size != int64(len(body)) {
++		t.Fatalf("rows: %+v", as)
++	}
++	a := as[0]
++	if entries, _ := os.ReadDir(cfg.MediaDir); len(entries) != 1 || entries[0].Name() != a.Key {
++		t.Errorf("the media directory: %v", entries)
++	}
++	if code, page := get(h, PostDetailURL(p.ID)); code != 200 || !strings.Contains(page, `href="`+AttachmentURL(fmt.Sprint(a.ID))+`"`) {
++		t.Errorf("the post: %d %s", code, page)
++	}
++
++	// Anyone gets a published post's file, to download.
++	r := httptest.NewRequest("GET", AttachmentURL(fmt.Sprint(a.ID)), nil)
++	w := httptest.NewRecorder()
++	h.ServeHTTP(w, r)
++	if w.Code != 200 || w.Body.String() != string(body) || !strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") {
++		t.Errorf("download: %d %v", w.Code, w.Header())
++	}
++	if code, _ := get(h, AttachmentURL(fmt.Sprint(a.ID+1))); code != 404 {
++		t.Errorf("no attachment: %d", code)
++	}
++	if w := upload(ann, p.ID, "big.bin", make([]byte, 10<<20+1)); w.Code != 413 {
++		t.Errorf("past 10MB: %d", w.Code)
++	}
++
++	// A draft's files: its author and staff only (M7's condition 6).
++	p.Status = "draft"
++	if err := UpdatePost(ctx, db, &p); err != nil {
++		t.Fatal(err)
++	}
++	for who, c := range map[string]struct {
++		h    http.Handler
++		code int
++	}{"no one signed in": {h, 403}, "bob": {bob, 403}, "ann": {ann, 200}} {
++		if code, _ := get(c.h, AttachmentURL(fmt.Sprint(a.ID))); code != c.code {
++			t.Errorf("a draft's file to %s: %d, want %d", who, code, c.code)
++		}
++	}
++
++	// Deleting a post without comments deletes its files.
++	if code, _, _ := post(ann, PostDeleteURL(p.ID), nil); code != 303 {
++		t.Fatalf("delete: %d", code)
++	}
++	if as, _ := PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID}); len(as) != 0 {
++		t.Errorf("rows left: %+v", as)
++	}
++	if entries, _ := os.ReadDir(cfg.MediaDir); len(entries) != 0 {
++		t.Errorf("files left: %v", entries)
++	}
++}
++
++// A post with comments is hidden, not deleted: its files stay, and no one
++// gets them, nor adds more.
++func TestHiddenAttachments(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	ann, annUser := signedIn(t, h, db, "ann@example.com")
++	b, _ := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	p, _ := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "첨부", Status: maago.Set("published"), AuthorID: &annUser.ID})
++	if w := upload(ann, p.ID, "a.txt", []byte("x")); w.Code != 303 {
++		t.Fatalf("upload: %d", w.Code)
++	}
++	InsertComment(ctx, db, NewCommentInput{PostID: p.ID, Text: "댓글"})
++	if code, _, _ := post(ann, PostDeleteURL(p.ID), nil); code != 303 {
++		t.Fatalf("delete: %d", code)
++	}
++	as, _ := PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID})
++	if len(as) != 1 {
++		t.Fatalf("rows: %+v", as)
++	}
++	if code, _ := get(ann, AttachmentURL(fmt.Sprint(as[0].ID))); code != 404 {
++		t.Errorf("a hidden post's file: %d", code)
++	}
++	if w := upload(ann, p.ID, "b.txt", []byte("x")); w.Code != 404 {
++		t.Errorf("a file to a hidden post: %d", w.Code)
++	}
++}
+diff --git a/board/forms.go b/board/forms.go
+index 198bc37..3ae5782 100644
+--- a/board/forms.go
++++ b/board/forms.go
+@@ -13,6 +13,13 @@ type BoardForm struct {
+ 	Name       maago.Field[string]
+ }
+ 
++// AttachmentForm is one file to keep with a post: of any kind, up to the
++// size of a request's body (Config.MaxBody, 10MB).
++type AttachmentForm struct {
++	maago.Form
++	File maago.Field[maago.File] `maago:"label='파일'"`
++}
++
+ // PostForm is the post's title and body, and when to pin and publish it.
+ // The board comes from the path. The model's times are pointers, NULL when
+ // not set; a form field is optional instead, and Given says it was set.
+diff --git a/board/models.go b/board/models.go
+index 5f00642..d6143a3 100644
+--- a/board/models.go
++++ b/board/models.go
+@@ -48,6 +48,26 @@ type Comment struct {
+ 	CreatedAt time.Time `maago:"auto=create"`
+ }
+ 
++// Attachment is a file kept with a post: what maago.SaveMedia returns,
++// field by field, and when it came. The file itself is in the media
++// directory under Key.
++type Attachment struct {
++	maago.Model `maago:"admin_list=(PostID,Name,Type,Size,CreatedAt),admin_search=(Name)"`
++
++	ID        int64
++	PostID    int64  `maago:"fk=Post"`
++	Key       string `maago:"unique"`
++	Name      string
++	Type      string
++	Size      int64
++	CreatedAt time.Time `maago:"auto=create"`
++}
++
++// media is the attachment's file, as maago.ServeMedia takes it.
++func (a Attachment) media() maago.Media {
++	return maago.Media{Key: a.Key, Name: a.Name, Type: a.Type, Size: a.Size}
++}
++
+ // next is where a post of each status may go: draft, then published, then
+ // archived, one way.
+ var next = map[string]string{"draft": "published", "published": "archived"}
+diff --git a/board/queries/post_attachments.sql b/board/queries/post_attachments.sql
+new file mode 100644
+index 0000000..b591a56
+--- /dev/null
++++ b/board/queries/post_attachments.sql
+@@ -0,0 +1,7 @@
++-- name: PostAttachments :many Attachment
++-- The files of a post, in the order they came.
++-- param: post_id int64
++SELECT id, post_id, key, name, type, size, created_at
++FROM board_attachment
++WHERE post_id = :post_id
++ORDER BY id
+diff --git a/board/templates/post_page.html b/board/templates/post_page.html
+index eaf4667..4c1d362 100644
+--- a/board/templates/post_page.html
++++ b/board/templates/post_page.html
+@@ -6,6 +6,16 @@
+ {{if eq .Post.Status "draft"}}<form method="post" action="{{url "post_publish" .Post.ID}}"><button>게시하기</button></form>{{end}}
+ {{if eq .Post.Status "published"}}<form method="post" action="{{url "post_archive" .Post.ID}}"><button>보관하기</button></form>{{end}}
+ <form method="post" action="{{url "post_delete" .Post.ID}}"><button>지우기</button></form>
++<h2>첨부</h2>
++<ul>{{range .Attachments}}
++<li><a href="{{url "attachment" (print .ID)}}">{{.Name}}</a> <small>{{.Size}} bytes</small></li>{{else}}
++<li>첨부가 없습니다.</li>{{end}}
++</ul>
++<form method="post" action="{{url "attachment_add" .Post.ID}}" enctype="multipart/form-data">
++<input type="file" name="file">
++{{with .AttachForm.File}}{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
++<button>올리기</button>
++</form>
+ <h2>댓글</h2>
+ <ul>{{range .Comments}}
+ <li>{{.Text}} <small>{{date "2006-01-02 15:04" .CreatedAt}}</small></li>{{else}}
+diff --git a/board/urls.go b/board/urls.go
+index ad5eaf2..971ca00 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -18,6 +18,8 @@ var Routes = maago.Routes{
+ 	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/delete", "post_delete", RemovePost, maago.LoginRequired),
++	maago.POST("/posts/{id}/attachments", "attachment_add", Attach, maago.LoginRequired),
++	maago.GET("/attachments/{id}", "attachment", DownloadAttachment),
+ 
+ 	// JSON for a frontend on another origin: main trusts it in Config.Origins.
+ 	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
+diff --git a/board/views.go b/board/views.go
+index 7e3aeb2..9c33387 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -2,9 +2,11 @@ package board
+ 
+ import (
+ 	"context"
++	"database/sql"
+ 	"errors"
+ 	"log"
+ 	"net/http"
++	"strconv"
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
+@@ -82,9 +84,11 @@ type ShowPostIn struct {
+ }
+ 
+ type PostPage struct {
+-	Post     PostWithBoard
+-	Comments []Comment
+-	Form     CommentForm
++	Post        PostWithBoard
++	Comments    []Comment
++	Form        CommentForm
++	Attachments []Attachment
++	AttachForm  AttachmentForm
+ }
+ 
+ // ShowPost shows one post and its comments on GET, and adds a comment on
+@@ -102,8 +106,87 @@ func ShowPost(ctx context.Context, in ShowPostIn) (maago.Result[PostPage], error
+ 		}
+ 		return maago.SeeOther[PostPage](PostDetailURL(p.ID)), nil
+ 	}
+-	cs, err := PostComments(ctx, db, PostCommentsParams{PostID: p.ID})
+-	return maago.Show(PostPage{p, cs, f}), err
++	return showPost(ctx, PostPage{Post: p, Form: f})
++}
++
++// showPost fills page with the post's comments and attachments.
++func showPost(ctx context.Context, page PostPage) (maago.Result[PostPage], error) {
++	db := maago.DBFrom(ctx)
++	var err error
++	if page.Comments, err = PostComments(ctx, db, PostCommentsParams{PostID: page.Post.ID}); err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	page.Attachments, err = PostAttachments(ctx, db, PostAttachmentsParams{PostID: page.Post.ID})
++	return maago.Show(page), err
++}
++
++type AttachIn struct {
++	ID   int64          `maago:"path=id"`
++	Form AttachmentForm `maago:"form"`
++}
++
++// Attach keeps a file with a post, for its author or staff. The page is
++// the post's, so a form with an error draws again where it was sent from.
++func Attach(ctx context.Context, in AttachIn) (maago.Result[PostPage], error) {
++	db := maago.DBFrom(ctx)
++	post, err := GetPost(ctx, db, in.ID)
++	switch {
++	case err != nil:
++		return maago.Result[PostPage]{}, err
++	case post.Hidden:
++		return maago.Result[PostPage]{}, sql.ErrNoRows
++	}
++	if err := mayChange(ctx, post); err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	if in.Form.Valid() {
++		m, err := maago.SaveMedia(ctx, in.Form.File.Value)
++		if err != nil {
++			return maago.Result[PostPage]{}, err
++		}
++		if _, err := InsertAttachment(ctx, db, NewAttachmentInput{PostID: post.ID, Key: m.Key, Name: m.Name, Type: m.Type, Size: m.Size}); err != nil {
++			maago.DeleteMedia(ctx, m.Key) // no row points at it: it would stay for nothing
++			return maago.Result[PostPage]{}, err
++		}
++		return maago.SeeOther[PostPage](PostDetailURL(post.ID)), nil
++	}
++	p, err := PostDetail(ctx, db, PostDetailParams{ID: post.ID})
++	if err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	return showPost(ctx, PostPage{Post: p, AttachForm: in.Form})
++}
++
++// DownloadAttachment sends an attachment down, to whoever may see its
++// post: none of a hidden post, and of a draft only to its author and
++// staff. The view checks it: no route serves the media directory as it is.
++func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
++	ctx := r.Context()
++	db := maago.DBFrom(ctx)
++	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++	if err != nil {
++		http.NotFound(w, r)
++		return
++	}
++	a, err := GetAttachment(ctx, db, id)
++	var post Post
++	if err == nil {
++		post, err = GetPost(ctx, db, a.PostID)
++	}
++	switch {
++	case errors.Is(err, sql.ErrNoRows) || err == nil && post.Hidden:
++		http.NotFound(w, r)
++		return
++	case err != nil:
++		panic(err) // nothing is written yet: a 500, and Config.OnError hears it
++	}
++	if post.Status == "draft" {
++		if err := mayChange(ctx, post); err != nil {
++			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
++			return
++		}
++	}
++	maago.ServeMedia(w, r, a.media())
+ }
+ 
+ // RemovePost deletes a post. One without comments goes from the database;
+@@ -124,7 +207,7 @@ func RemovePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error)
+ 		return maago.Result[PostPage]{}, err
+ 	}
+ 	if len(cs) == 0 {
+-		err = DeletePost(ctx, db, p.ID)
++		err = deletePost(ctx, p.ID)
+ 	} else {
+ 		p.Hidden = true
+ 		err = UpdatePost(ctx, db, &p)
+@@ -314,3 +397,28 @@ func mayChange(ctx context.Context, p Post) error {
+ 	}
+ 	return maago.Status(http.StatusForbidden, errors.New("only its author or staff may change a post"))
+ }
++
++// deletePost deletes a post and its attachments: their rows first, which
++// point at the post, then their files. A file that will not go is logged
++// and left: the post is gone already, and a second try would find nothing.
++func deletePost(ctx context.Context, id int64) error {
++	db := maago.DBFrom(ctx)
++	as, err := PostAttachments(ctx, db, PostAttachmentsParams{PostID: id})
++	if err != nil {
++		return err
++	}
++	for _, a := range as {
++		if err := DeleteAttachment(ctx, db, a.ID); err != nil {
++			return err
++		}
++	}
++	if err := DeletePost(ctx, db, id); err != nil {
++		return err
++	}
++	for _, a := range as {
++		if err := maago.DeleteMedia(ctx, a.Key); err != nil {
++			log.Printf("post %d: the file of attachment %d stays: %v", id, a.ID, err)
++		}
++	}
++	return nil
++}
+diff --git a/board/web_test.go b/board/web_test.go
+index 1c6cd18..05f9c10 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -27,17 +27,17 @@ func init() {
+ // front is the origin main trusts, a frontend of its own.
+ const front = "http://localhost:5173"
+ 
+-// config is main's, on db.
+-func config(db *sql.DB) maago.Config {
++// config is main's, on db, with a media directory of the test's.
++func config(t *testing.T, db *sql.DB) maago.Config {
+ 	adminApp := admin.App(admin.Config{Models: [][]admin.Model{Admin, auth.Admin}, Can: auth.Can})
+-	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login"}
++	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login", MediaDir: t.TempDir()}
+ }
+ 
+ // app serves the board on a new database, as main does.
+ func app(t *testing.T) (http.Handler, *sql.DB) {
+ 	t.Helper()
+ 	db := maagotest.DB(t)
+-	h, err := maago.Handler(config(db))
++	h, err := maago.Handler(config(t, db))
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -446,7 +446,7 @@ func TestStylesheet(t *testing.T) {
+ func TestUnderApp(t *testing.T) {
+ 	// The prefix is the process's, the last Handler's: make it first.
+ 	db := maagotest.DB(t)
+-	cfg := config(db)
++	cfg := config(t, db)
+ 	cfg.Prefix, cfg.LoginURL = "/app", "/app/login"
+ 	h, err := maago.Handler(cfg)
+ 	if err != nil {
+@@ -454,7 +454,7 @@ func TestUnderApp(t *testing.T) {
+ 	}
+ 	// Back to no prefix for the tests after.
+ 	t.Cleanup(func() {
+-		if _, err := maago.Handler(config(db)); err != nil {
++		if _, err := maago.Handler(config(t, db)); err != nil {
+ 			t.Error(err)
+ 		}
+ 	})
+diff --git a/main.go b/main.go
+index 9857f8f..8621478 100644
+--- a/main.go
++++ b/main.go
+@@ -65,6 +65,10 @@ func main() {
+ 		// The site is under /app, beside what else the server serves. Links
+ 		// and URL functions start with it.
+ 		Prefix: "/app",
++		// Where the attachments' files are kept, under names maago makes:
++		// a directory beside the binary, which the server does not serve
++		// as it is. The view that sends one down checks who asks.
++		MediaDir: "media",
+ 		// Every 5xx: a view's error or a panic. Send it where you watch
+ 		// errors; the log will do here.
+ 		OnError: func(ctx context.Context, r *http.Request, err error) {
+diff --git a/media/.gitignore b/media/.gitignore
+new file mode 100644
+index 0000000..d6b7ef3
+--- /dev/null
++++ b/media/.gitignore
+@@ -0,0 +1,2 @@
++*
++!.gitignore
+diff --git a/migrations/0008_attachments.sql b/migrations/0008_attachments.sql
+new file mode 100644
+index 0000000..7b53bff
+--- /dev/null
++++ b/migrations/0008_attachments.sql
+@@ -0,0 +1,14 @@
++CREATE TABLE "board_attachment" (
++    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
++    "post_id" INTEGER NOT NULL,
++    "key" TEXT NOT NULL,
++    "name" TEXT NOT NULL,
++    "type" TEXT NOT NULL,
++    "size" INTEGER NOT NULL,
++    "created_at" TEXT NOT NULL,
++    CONSTRAINT "board_attachment_post_id_fkey" FOREIGN KEY ("post_id") REFERENCES "board_post" ("id") ON DELETE NO ACTION
++) STRICT;
++
++CREATE UNIQUE INDEX "board_attachment_key_key" ON "board_attachment" ("key");
++
++CREATE INDEX "board_attachment_post_id_idx" ON "board_attachment" ("post_id");

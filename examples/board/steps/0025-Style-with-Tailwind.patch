@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Tue, 13 Oct 2026 20:39:20 +0900
+Subject: [PATCH] Style with Tailwind
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+화면을 Tailwind CSS로 꾸민다. Node도 npm도 없다. maago tailwind가 Tailwind
+CSS의 standalone 실행 파일(고정한 버전, 체크섬을 확인해 사용자 캐시에 한 번
+받는다)을 돌린다.
+
+- board/tailwind.css: 입력. source(none)과 @source "./templates"로 게시판의
+  템플릿에서만 클래스를 찾는다. 복사한 auth의 화면은 그대로 둔다
+- board/static/tailwind.css: maago tailwind의 출력. 사람이 쓰는 파일이 아니지만
+  커밋한다(생성물 표시가 없는 보통 파일). maago check는 이 파일이 낡았는지
+  보지 않으므로 템플릿의 클래스를 바꾸면 maago tailwind를 다시 돌린다
+
+base.html은 {{static "board/tailwind.css"}}로 링크한다. 앱마다 static/의
+파일을 /static/<앱>/에서 서빙하고, 링크에는 내용의 해시가 붙은 이름이
+나간다. 그 이름은 브라우저가 한 해 동안 다시 묻지 않는다. 내용이 바뀌면
+이름이 바뀌니 낡은 CSS가 남지 않는다. 접두어 /app 아래에서는
+/app/static/board/tailwind.<해시>.css.
+
+diff --git a/board/static/tailwind.css b/board/static/tailwind.css
+new file mode 100644
+index 0000000..b4ed895
+--- /dev/null
++++ b/board/static/tailwind.css
+@@ -0,0 +1,2 @@
++/*! tailwindcss v4.3.3 | MIT License | https://tailwindcss.com */
++@layer properties{@supports (((-webkit-hyphens:none)) and (not (margin-trim:inline))) or ((-moz-orient:inline) and (not (color:rgb(from red r g b)))){*,:before,:after,::backdrop{--tw-space-y-reverse:0;--tw-border-style:solid;--tw-font-weight:initial}}}@layer theme{:root,:host{--font-sans:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";--font-mono:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;--color-gray-900:oklch(21% .034 264.665);--spacing:.25rem;--container-2xl:42rem;--font-weight-bold:700;--default-font-family:var(--font-sans);--default-mono-font-family:var(--font-mono)}}@layer base{*,:after,:before,::backdrop{box-sizing:border-box;border:0 solid;margin:0;padding:0}::file-selector-button{box-sizing:border-box;border:0 solid;margin:0;padding:0}html,:host{-webkit-text-size-adjust:100%;tab-size:4;line-height:1.5;font-family:var(--default-font-family,-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji");font-feature-settings:var(--default-font-feature-settings,normal);font-variation-settings:var(--default-font-variation-settings,normal);-webkit-tap-highlight-color:transparent}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,samp,pre{font-family:var(--default-mono-font-family,ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);font-feature-settings:var(--default-mono-font-feature-settings,normal);font-variation-settings:var(--default-mono-font-variation-settings,normal);font-size:1em}small{font-size:80%}sub,sup{vertical-align:baseline;font-size:75%;line-height:0;position:relative}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}:-moz-focusring:where(:not(iframe)){outline:auto}progress{vertical-align:baseline}summary{display:list-item}ol,ul,menu{list-style:none}img,svg,video,canvas,audio,iframe,embed,object{vertical-align:middle;display:block}img,video{max-width:100%;height:auto}button,input,select,optgroup,textarea{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}::file-selector-button{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}:where(select:is([multiple],[size])) optgroup{font-weight:bolder}:where(select:is([multiple],[size])) optgroup option{padding-inline-start:20px}::file-selector-button{margin-inline-end:4px}::placeholder{opacity:1}@supports (not ((-webkit-appearance:-apple-pay-button))) or (contain-intrinsic-size:1px){::placeholder{color:currentColor}@supports (color:color-mix(in lab, red, red)){::placeholder{color:color-mix(in oklab, currentcolor 50%, transparent)}}}textarea{resize:vertical}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-date-and-time-value{min-height:1lh;text-align:inherit}::-webkit-datetime-edit{display:inline-flex}::-webkit-datetime-edit-fields-wrapper{padding:0}::-webkit-datetime-edit{padding-block:0}::-webkit-datetime-edit-year-field{padding-block:0}::-webkit-datetime-edit-month-field{padding-block:0}::-webkit-datetime-edit-day-field{padding-block:0}::-webkit-datetime-edit-hour-field{padding-block:0}::-webkit-datetime-edit-minute-field{padding-block:0}::-webkit-datetime-edit-second-field{padding-block:0}::-webkit-datetime-edit-millisecond-field{padding-block:0}::-webkit-datetime-edit-meridiem-field{padding-block:0}::-webkit-calendar-picker-indicator{line-height:1}:-moz-ui-invalid{box-shadow:none}button,input:where([type=button],[type=reset],[type=submit]){appearance:button}::file-selector-button{appearance:button}::-webkit-inner-spin-button{height:auto}::-webkit-outer-spin-button{height:auto}[hidden]:where(:not([hidden=until-found])){display:none!important}}@layer components;@layer utilities{.mx-auto{margin-inline:auto}.mb-6{margin-bottom:calc(var(--spacing) * 6)}.flex{display:flex}.max-w-2xl{max-width:var(--container-2xl)}.items-center{align-items:center}.gap-4{gap:calc(var(--spacing) * 4)}:where(.space-y-4>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing) * 4) * var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing) * 4) * calc(1 - var(--tw-space-y-reverse)))}.border-b{border-bottom-style:var(--tw-border-style);border-bottom-width:1px}.p-4{padding:calc(var(--spacing) * 4)}.pb-2{padding-bottom:calc(var(--spacing) * 2)}.font-bold{--tw-font-weight:var(--font-weight-bold);font-weight:var(--font-weight-bold)}.text-gray-900{color:var(--color-gray-900)}}@property --tw-space-y-reverse{syntax:"*";inherits:false;initial-value:0}@property --tw-border-style{syntax:"*";inherits:false;initial-value:solid}@property --tw-font-weight{syntax:"*";inherits:false}
+\ No newline at end of file
+diff --git a/board/tailwind.css b/board/tailwind.css
+new file mode 100644
+index 0000000..1811d95
+--- /dev/null
++++ b/board/tailwind.css
+@@ -0,0 +1,2 @@
++@import "tailwindcss" source(none);
++@source "./templates";
+diff --git a/board/templates/base.html b/board/templates/base.html
+index a7f4dab..3df11d2 100644
+--- a/board/templates/base.html
++++ b/board/templates/base.html
+@@ -1,10 +1,11 @@
+ <!doctype html>
+ <html lang="ko">
+-<head><meta charset="utf-8"><title>게시판</title></head>
+-<body>
+-<header><a href="{{url "home"}}">게시판</a>
++<head><meta charset="utf-8"><title>게시판</title>
++<link rel="stylesheet" href="{{static "board/tailwind.css"}}"></head>
++<body class="mx-auto max-w-2xl p-4 text-gray-900">
++<header class="mb-6 flex items-center gap-4 border-b pb-2"><a class="font-bold" href="{{url "home"}}">게시판</a>
+ <a href="{{url "login"}}">로그인</a> <a href="{{url "signup"}}">가입</a>
+ <form method="post" action="{{url "logout"}}"><button>로그아웃</button></form></header>
+-<main>{{block "content" .}}{{end}}</main>
++<main class="space-y-4">{{block "content" .}}{{end}}</main>
+ </body>
+ </html>
+diff --git a/board/web_test.go b/board/web_test.go
+index 53d4649..1c6cd18 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -7,6 +7,7 @@ import (
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"net/url"
++	"regexp"
+ 	"strings"
+ 	"testing"
+ 	"time"
+@@ -425,6 +426,23 @@ func TestExport(t *testing.T) {
+ 	}
+ }
+ 
++// The pages link the stylesheet by a name with its content's hash, which
++// browsers keep for a year (D-137).
++func TestStylesheet(t *testing.T) {
++	h, _ := app(t)
++	_, body := get(h, HomeURL())
++	link := regexp.MustCompile(`href="(/static/board/tailwind\.[0-9a-f]{16}\.css)"`).FindStringSubmatch(body)
++	if link == nil {
++		t.Fatalf("no stylesheet:\n%s", body)
++	}
++	r := httptest.NewRequest("GET", link[1], nil)
++	w := httptest.NewRecorder()
++	h.ServeHTTP(w, r)
++	if w.Code != 200 || !strings.Contains(w.Body.String(), "tailwindcss") || w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
++		t.Errorf("%s: %d %v", link[1], w.Code, w.Header())
++	}
++}
++
+ func TestUnderApp(t *testing.T) {
+ 	// The prefix is the process's, the last Handler's: make it first.
+ 	db := maagotest.DB(t)
+@@ -446,7 +464,8 @@ func TestUnderApp(t *testing.T) {
+ 	if code, loc, _ := post(srv, BoardCreateURL(), url.Values{"name": {"자유"}}); code != 303 || loc != "/app/boards/1" {
+ 		t.Fatalf("save: %d %q", code, loc)
+ 	}
+-	if code, body := get(srv, "/app/boards/1"); code != 200 || !strings.Contains(body, `<a href="/app/">게시판</a>`) || !strings.Contains(body, `href="/app/boards/1/posts/new"`) {
++	if code, body := get(srv, "/app/boards/1"); code != 200 || !strings.Contains(body, `href="/app/">게시판</a>`) || !strings.Contains(body, `href="/app/boards/1/posts/new"`) ||
++		!strings.Contains(body, `href="/app/static/board/tailwind.`) {
+ 		t.Errorf("board: %d %s", code, body)
+ 	}
+ 	if code, _ := get(srv, "/boards/1"); code != 404 {

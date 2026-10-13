@@ -7,7 +7,8 @@ Maago로 게시판을 만드는 긴 튜토리얼([MILESTONES.md](../../docs/MILE
   커밋 메시지에 `Maago-Expect: <오류 첫 줄>`이 있는 단계는 일부러 틀린 단계이고, `maago gen`이 정확히 그 오류를 내야 한다.
   `Maago-Run: maago add <앱>`이 있는 단계는 패치를 적용하기 전에 그 명령을 돌린다. 끝에서 `main`의 `-createsuperuser`를 한 번 돌린다
 - 고치기: `./steps.sh unpack DIR`로 풀면 단계마다 커밋이 있는 git 저장소가 된다(`Maago-Run:`의 명령도 그 자리에서 돈다).
-  `git rebase`로 고치고 `./steps.sh pack DIR`로 다시 패치를 뽑는다. 풀어 둔 곳에는 `.env`와 이 저장소를 가리키는 `go.work`,
+  `git rebase`로 고치고 `./steps.sh pack DIR`로 다시 패치를 뽑는다. 템플릿의 클래스를 바꾼 단계는 `DIR/.git/maago tailwind`로
+  `board/static/tailwind.css`를 다시 만들어 그 단계에 함께 커밋한다(`TestBoardTutorial`이 마지막 단계의 CSS를 비교한다). 풀어 둔 곳에는 `.env`와 이 저장소를 가리키는 `go.work`,
   그리고 이 저장소의 maago를 빌드한 `DIR/.git/maago`가 있다
 - 패치에는 생성물(`*_gen.go`), `maago add`가 쓴 앱(`auth/`), `.env`, DB 파일이 없다. 명령이 만드는 것은 그 명령이 다시 만든다:
   복사된 앱의 코드를 고쳐도 패치는 낡지 않는다(그 모델이 바뀌면 그 단계의 마이그레이션은 다시 만든다, M6 5번). 그래서 단계는 `auth/`를 손으로 고치지 않는다. 공개할 저장소를 만들 때는 커밋마다

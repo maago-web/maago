@@ -16,10 +16,27 @@ import (
 const steps = "../../examples/board/steps"
 
 // The board tutorial walks from its first step to its last as each step
-// expects (D-103).
+// expects (D-103). The stylesheet the last step holds is what maago
+// tailwind makes of it: a step that changed the classes and not the CSS
+// fails, when the standalone build is there (D-138).
 func TestBoardTutorial(t *testing.T) {
-	if err := walk(t, steps); err != nil {
+	root, err := walk(t, steps)
+	if err != nil {
 		t.Fatal(err)
+	}
+	b, ok := tailwindBuilds[tailwindPlatform()]
+	cache, _ := os.UserCacheDir()
+	if _, err := os.Stat(filepath.Join(cache, "maago", "tailwindcss-"+tailwindVersion+"-"+b.asset)); !ok || err != nil && os.Getenv("CI") == "" {
+		t.Skip("tailwindcss " + tailwindVersion + " is not in the cache: the stylesheet is not compared; run maago tailwind once, or set CI")
+	}
+	css := filepath.Join(root, "board", "static", "tailwind.css")
+	committed := readFile(t, css)
+	t.Chdir(root)
+	if code, stdout, stderr := runCmd("tailwind"); code != 0 {
+		t.Fatalf("maago tailwind: %s%s", stdout, stderr)
+	}
+	if readFile(t, css) != committed {
+		t.Error("board/static/tailwind.css is not what maago tailwind makes of the last step: run it, and commit the CSS in the step that changed the classes")
 	}
 }
 
@@ -43,6 +60,8 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"an unknown trailer", "0019-Add-accounts.patch", "Maago-Run: maago add auth", "Maago-Run: maago add auth now", "unknown trailer "},
 		{"author check", "0021-Posts-have-authors.patch", "+\tif u.IsStaff || p.AuthorID != nil && *p.AuthorID == u.ID {", "+\tif u.IsStaff || true {", "go test: "},
 		{"admin columns", "0024-Board-in-the-admin.patch", ",admin_list=(Title,BoardID,Status,AuthorID,CreatedAt)", "", "go test: "},
+		// Who gets a draft's file is the view's to check (D-140).
+		{"a draft's file", "0028-Attach-files-to-posts.patch", "+\tif post.Status == \"draft\" {", "+\tif false {", "go test: "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -55,7 +74,7 @@ func TestBoardTutorialCatches(t *testing.T) {
 				t.Fatalf("%s has no %q", c.patch, c.old)
 			}
 			writeFile(t, p, strings.Replace(src, c.old, c.new, 1))
-			if err := walk(t, dir); err == nil || !strings.HasPrefix(err.Error(), c.patch+": "+c.by) {
+			if _, err := walk(t, dir); err == nil || !strings.HasPrefix(err.Error(), c.patch+": "+c.by) {
 				t.Errorf("walk: %v", err)
 			}
 		})
@@ -68,34 +87,34 @@ func TestBoardTutorialCatches(t *testing.T) {
 // those diagnostics; any other step must pass gen, check and migrate, and
 // the app's tests. The steps share the database maago migrate makes, as a
 // reader's would; the app's tests get their own from maagotest (D-113).
-func walk(t *testing.T, dir string) error {
+func walk(t *testing.T, dir string) (root string, err error) {
 	t.Helper()
 	noEnv(t) // maago reads .env, as for the reader
 	patches, _ := filepath.Glob(filepath.Join(dir, "*.patch"))
 	if len(patches) == 0 {
-		return fmt.Errorf("no patches in %s", dir)
+		return "", fmt.Errorf("no patches in %s", dir)
 	}
 	// The go command compares go.work's directory with the real path.
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	root, err = filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
-		return err
+		return "", err
 	}
 	repo, err := filepath.EvalSymlinks("../..")
 	if err != nil {
-		return err
+		return "", err
 	}
 	if repo, err = filepath.Abs(repo); err != nil {
-		return err
+		return "", err
 	}
 	// A repository of its own, so git apply works on root and nowhere else.
 	if out, err := osexec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
-		return fmt.Errorf("git init: %v\n%s", err, out)
+		return "", fmt.Errorf("git init: %v\n%s", err, out)
 	}
 	writeFile(t, filepath.Join(root, "go.work"), "go 1.25.0\n\nuse .\n\nreplace github.com/maago-web/maago => "+repo+"\n")
 	writeFile(t, filepath.Join(root, ".env"), "MAAGO_DATABASE_URL=sqlite:board.db\n")
 	for _, p := range patches {
 		if err := walkStep(root, p); err != nil {
-			return fmt.Errorf("%s: %w", filepath.Base(p), err)
+			return "", fmt.Errorf("%s: %w", filepath.Base(p), err)
 		}
 	}
 	// The last main makes the first staff account (D-130) on the steps'
@@ -103,9 +122,9 @@ func walk(t *testing.T, dir string) error {
 	run := goCmd(root, "run", ".", "-createsuperuser")
 	run.Env = append(run.Env, "MAAGO_SUPERUSER_EMAIL=boss@example.com", "MAAGO_SUPERUSER_PASSWORD=correct horse battery staple")
 	if out, err := run.CombinedOutput(); err != nil || !strings.Contains(string(out), "created boss@example.com") {
-		return fmt.Errorf("go run . -createsuperuser: %v\n%s", err, out)
+		return "", fmt.Errorf("go run . -createsuperuser: %v\n%s", err, out)
 	}
-	return nil
+	return root, nil
 }
 
 // goCmd is the go command in root, offline, on root's go.work.

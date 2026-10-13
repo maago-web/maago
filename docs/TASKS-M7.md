@@ -67,7 +67,7 @@
 4. **파일 칸**(D-139): `Field[File]`, 생성기의 파일 칸(모델 폼 밖의 칸만), 루트의 multipart 해석과 `RemoveAll`, 파일 칸 있는 폼의 urlencoded 400, `accept`의 닫힌 종류(모르는 종류는 did you mean)와 내용으로 확인. → 확인: 틀린 형식은 폼 오류, 임시 파일이 남지 않음, 파일 칸 없는 폼의 multipart 400 그대로, 진단 표
 5. **미디어**(D-140): `Config.MediaDir`(파일 칸이 있으면 비면 `Handler` 오류), 무작위 열쇠, `SaveMedia`·`OpenMedia`·`DeleteMedia`(ctx, 열쇠 형식 검사), `ServeMedia`(attachment, `mime.FormatMediaType`, `nosniff`, Range). → 확인: `../`가 든 이름의 파일이 `MediaDir` 아래 열쇠 이름으로만 생김(완료 조건 5), `OpenMedia("../x")` 거절, 따옴표·CR/LF·한글 이름의 `Content-Disposition`, Range 206
 6. **`maago tailwind`**(D-138): 고정 버전·플랫폼별 SHA-256, 사용자 캐시(임시 파일 → 확인 → rename), 받기·확인 실패의 오류, `<앱>/tailwind.css`가 있는 앱마다 돌리기, 입력이 보는 파일. → 확인: 템플릿의 클래스가 든 CSS(완료 조건 4, `node`를 부르지 않음), 틀린 체크섬 거절, CI에서 받기
-7. **게시판 튜토리얼의 M7 단계**: Tailwind와 `{{static}}`로 화면(복사본 auth의 `base.html`은 손대지 않으니 게시판 화면만인지 계획에서), `Attachment` 모델과 글 폼의 파일 칸(413), 첨부 내려받기 뷰(글을 볼 수 있는 사람만, 숨긴 글의 첨부는 403), 글 지우기가 첨부 행과 파일도(`DeleteMedia`), 일부러 틀리는 단계 `{{static "board/없는.css"}}`. → 확인: `TestBoardTutorial`, `TestBoardTutorialCatches`
+7. **게시판 튜토리얼의 M7 단계**: Tailwind와 `{{static}}`로 화면(복사본 auth의 `base.html`은 손대지 않으니 게시판 화면만인지 계획에서), `Attachment` 모델과 글 폼의 파일 칸(413), 첨부 내려받기 뷰(숨긴 글의 첨부는 404, 초안의 첨부는 작성자·staff만이고 남은 403), 글 지우기가 첨부 행과 파일도(`DeleteMedia`), 일부러 틀리는 단계 `{{static "board/없는.css"}}`. → 확인: `TestBoardTutorial`, `TestBoardTutorialCatches`
 8. **완료 조건과 문서**: "M7 끝"에 조건마다 시험 이름, 상한(동적 클래스, 낡은 Tailwind CSS를 `check`가 보지 않음, 고아 파일, 외부 저장소·이미지 처리 없음, API의 파일 없음), D-66의 `net/url`, ARCHITECTURE·MILESTONES·TUTORIAL-FUTURE
 
 ---
@@ -331,4 +331,38 @@ CI: 워크플로는 그대로, `CI`가 있으면 `TestTailwind`가 진짜 실행
 - codex: 출력 임시 파일 이름이 고정이라 동시에 덮는다 → `CreateTemp`. 받지 않음: 캐시를 쓸 때마다 체크섬과 그 시험(계획 리뷰의 fable과 갈림, 받을 때 한 번으로: 캐시를 바꿀 수 있는 자는 maago 실행 파일도 바꾼다)(샌드박스가 빌드 디렉터리를 막아 시험은 돌리지 못함)
 - fable: 체크섬 표 다섯 줄은 공식 `sha256sums.txt`와 같음. 실패한 첫 실행이 빈 `static/`을 남겨 `maago gen`이 거절 → `static/`은 rename 직전에(시험). 체크섬 불일치의 fix가 네트워크 탓 → 다시 돌려도 같으니 "그 파일을 쓰지 말라"로(시험). 변형 16개 중 살아남은 것 → 실패하는 스탠드인이 출력 반쪽을 쓰고 끝남·임시 파일 없음·`static/` 없이 시작·앱 디렉터리 안에서 돌리기(`cmd.Dir`, `project.Root`의 위로 찾기). Tailwind가 말했으면 "exit status 1"은 빼고 그 말만. D-138 본문(입력 찾기의 범위, 플랫폼, 캐시, 실패 때 옛 출력)과 계획의 낡은 두 줄 → 고침. 받지 않음: ANSI 색 지우기(에이전트는 읽는다), 상태 코드 시험(404 본문은 체크섬에서 막힌다)
 - CI(실행 38388589578): musl 빌드는 정적이 아니다. musl의 로더(`/lib/ld-musl-*.so.1`)가 없는 Ubuntu에서 `fork/exec …: no such file or directory`(파일은 있다). 계획 리뷰가 "CI가 증명한다"고 한 대로 → Linux는 glibc 빌드, musl의 로더가 있으면 musl(`tailwindPlatform`, 분기 하나)
+
+
+## 7. 게시판 튜토리얼의 M7 단계 (D-103)
+
+### 계획
+
+이 작업의 끝에 게시판이 Tailwind로 꾸며지고, 글에 파일을 붙이고, 글을 볼 수 있는 사람만 첨부를 받는다. 패치 넷(0025~0028), 커밋 메시지는 한국어(D-103). 결정의 기준은 "Claude·Codex가 Maago로 서비스를 만들 때 편한가".
+
+단계(패치)
+- 0025 `Style with Tailwind`: `board/tailwind.css`는 `@import "tailwindcss" source(none); @source "./templates";`(6번 리뷰: 소스를 보이는 대로 고정, 작성자의 `.git/info/exclude`와 독자의 저장소가 같은 CSS를 만든다. 게시판 화면만 꾸민다: 복사본 auth의 화면은 손대지 않는다), `base.html`에 `<link rel="stylesheet" href="{{static "board/tailwind.css"}}">`와 몇 클래스, `maago tailwind`의 출력 `board/static/tailwind.css`(패치에 든다, `Maago-Run:` 트레일러 없음). 메시지: Node 없이 `maago tailwind`, 출력은 커밋, 해시 이름과 캐시(D-137), 클래스를 바꾸면 다시 돌린다(`check`는 낡음을 보지 않는다)
+- 0026 `Try a stylesheet that is not there`: `{{static "board/style.css"}}` → `Maago-Expect: board/templates/base.html:…: static "board/style.css": no file board/static/style.css`(완료 조건 2, 0009처럼 기계가 막는 모습)
+- 0027 `Fix the stylesheet`: 되돌림
+- 0028 `Attach files to posts`: `Attachment` 모델(`PostID fk=Post`·`Key`·`Name`·`Type`·`Size`·`CreatedAt auto=create`, `Key` unique), 마이그레이션 0008, `AttachmentForm{File maago.Field[maago.File]}`(accept 없음: 아무 종류, 4번 결정), 라우트 `POST /posts/{id}/attachments` `attachment_add`(LoginRequired, 작성자·staff만 `mayChange`, 실패하면 `PostPage`를 다시 그림: 4번 리뷰가 넘긴 대로 같은 페이지 타입이라 `post_page.html`의 multipart 폼이 `enctype` 검사를 지난다), `GET /attachments/{id}` `attachment`(탈출구 뷰: 행을 읽고 그 글을 `PostDetail`로 — 숨긴 글은 없다(404), 글이 보이는 사람이면 `ServeMedia`), `PostPage`에 `Attachments`·`AttachForm`, 저장 뒤 행 쓰기가 실패하면 `DeleteMedia`, 글 지우기(댓글 없는 글)는 첨부 행 먼저·파일 다음(FK `NO ACTION`, 5번 리뷰), `main.go`의 `MediaDir: "media"`와 `media/.gitignore`(`*`, `!.gitignore`), `web_test.go`의 `config(t, db)`에 `MediaDir: t.TempDir()`. 새 시험 `attach_test.go`: 작성자가 올림(303, 상세에 이름과 링크), 남은 403, 로그인 없이 303, 내려받기 200·attachment·내용, 숨긴 글의 첨부 404, 10MB 넘으면 413, 댓글 없는 글을 지우면 행과 파일이 없음, 댓글 있는 글은 숨겨지고 첨부는 404
+
+이 저장소의 시험
+- `TestBoardTutorial`: 걷기가 끝난 저장소에서 standalone이 있으면(`CI`면 받는다, D-91 꼴) `board/tailwind.css`로 다시 만들어 커밋된 `board/static/tailwind.css`와 바이트 비교(6번 리뷰: 뒤 단계가 클래스를 더하고 CSS를 잊으면 잡는다. 걷기 자체는 오프라인 그대로)
+- `TestBoardTutorialCatches`에 하나: 0028에서 `mayChange` 검사 빼기 → `go test:`
+
+하지 않기로 한 것: 복사본 auth의 화면 꾸미기(복사본은 손대지 않는다, README), 이미지 미리보기(D-72), 첨부 여럿 한 번에(4번), 첨부 지우기 화면(admin이 행을 지운다, 파일은 고아: 8번 문서)
+
+계획 리뷰는 fable 하나: 정해진 틀(M5 12번·M6 9번의 걷기·패치) 안에서 1~6번의 API를 쓰기만 한다(WORKFLOW 3). 구현 리뷰도 fable 하나: 새 로직은 튜토리얼의 뷰와 시험 코드
+
+단계
+1. 0025~0028을 풀어 둔 저장소에서 커밋하고 `steps.sh pack` → 확인: `TestBoardTutorial`, 0001~0024는 바이트 그대로
+2. CSS 비교와 잡기 한 줄 → 확인: `TestBoardTutorialCatches`, CSS를 일부러 낡게 하면 실패
+
+### 계획 리뷰
+
+- fable(스크래치에서 0025·0028의 모델과 Tailwind를 실측): 로그인 없는 올리기는 401(POST) → 고침. 조건 6을 못 잡는다(글은 공개라 "글이 보이는 사람"은 모두) → 내려받기 뷰는 `GetPost`로 읽어 숨긴 글은 404, 초안이면 `mayChange`(익명·남은 403): 시험 "남의 초안 첨부 403"이 조건 6의 이름. 숨긴 글에 올리기 404. `Attachment`는 `maago.Media`를 임베드하지 않는다(모델 읽기는 `maago.Model`만), 칸 넷. `ShowPostIn`에 첨부 폼을 넣지 않는다(댓글 POST가 multipart가 된다) → 템플릿은 `name="file"` 글자 그대로, 오류만 다시 그림. `config(t, db)`는 `TestUnderApp`의 둘도. 탈출구 라우트의 URL 인자는 문자열(`{{url "attachment" (print .ID)}}`). `TestAdmin`은 깨지지 않음(실측). `source(none)`은 꼭 필요하고(빼면 작성자와 독자의 CSS가 다르다, 실측) 경로는 입력 파일 기준, 같은 입력은 같은 바이트(Linux는 CI 첫 실행이 확인). 0025에도 시험(`TestPages`·`TestUnderApp`에 해시 이름의 링크와 그 URL의 200·`immutable`), 빈 파일 칸은 다시 그림, 없는 첨부 404, 익명의 내려받기, 내려받기 파일 이름을 `../evil.txt`로. `walk`가 루트를 돌려주고 커밋된 CSS를 먼저 읽는다. 0028의 마크업은 0025의 클래스만(아니면 CSS도 다시). README에 `maago tailwind`. 6번 몫: 출력 모드가 0600 → rename 전 0644(시험). 0026·0027은 둘 다 둔다(0006/0007·0009/0010 선례)
+
+### 구현 리뷰
+
+- ponytail(나): 첨부의 뷰는 `showPost` 하나로 글 페이지를 채운다(댓글과 첨부, `ShowPost`와 `Attach`가 함께). 글 지우기는 `deletePost`(행 → 글 → 파일). 0028의 마크업은 0025의 클래스만 써 CSS가 그대로다(`maago tailwind` 뒤 diff 없음). 패치는 풀어 둔 저장소에서 커밋하고 `steps.sh pack`, 0001~0024는 바이트 그대로. 변형으로 확인: 0028에서 초안 검사를 빼면 `TestBoardTutorialCatches`가 잡는다, 0028에 새 클래스를 넣고 CSS를 그대로 두면 `TestBoardTutorial`이 "is not what maago tailwind makes"로 잡는다. 0026의 진단에는 did you mean이 없다(`style.css`와 `tailwind.css`는 멀다)
+- fable(새 스크래치에 풀어 실측): 막는 결함 없음, 계획 리뷰의 것은 다 반영, 0028의 뷰를 바꾼 변형 7개 모두 잡힘, `TestBoardTutorial`의 CSS 비교가 실제로 돈다. `deletePost`가 파일 지우기 실패를 500으로 돌려주면 글은 이미 없어 다시 누르면 404 → 로그에 남기고 계속(메시지의 "남는 파일은 그대로"와 맞춤). 메시지의 "원래 이름"(Go의 multipart가 경로를 뗀다)과 숨긴 글에 올리기 404 → 메시지 손질. 작업 7 본문의 "숨긴 글의 첨부는 403" → 404·초안 403으로. 받음: 행 쓰기 실패 뒤 `DeleteMedia`는 실패를 주입할 길이 없어 읽기로만
 

@@ -101,6 +101,9 @@ func runTailwind(bin, root, in, out string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
+	if err := os.Chmod(f.Name(), 0o644); err != nil { // a file to commit, not CreateTemp's 0600
+		return err
+	}
 	return os.Rename(f.Name(), filepath.Join(dir, "tailwind.css"))
 }
 

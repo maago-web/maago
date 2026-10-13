@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Tue, 13 Oct 2026 20:39:33 +0900
+Subject: [PATCH] Fix the stylesheet
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+board/tailwind.css로 되돌린다. maago gen이 다시 통과한다.
+
+diff --git a/board/templates/base.html b/board/templates/base.html
+index df2bf4c..3df11d2 100644
+--- a/board/templates/base.html
++++ b/board/templates/base.html
+@@ -1,7 +1,7 @@
+ <!doctype html>
+ <html lang="ko">
+ <head><meta charset="utf-8"><title>게시판</title>
+-<link rel="stylesheet" href="{{static "board/style.css"}}"></head>
++<link rel="stylesheet" href="{{static "board/tailwind.css"}}"></head>
+ <body class="mx-auto max-w-2xl p-4 text-gray-900">
+ <header class="mb-6 flex items-center gap-4 border-b pb-2"><a class="font-bold" href="{{url "home"}}">게시판</a>
+ <a href="{{url "login"}}">로그인</a> <a href="{{url "signup"}}">가입</a>
