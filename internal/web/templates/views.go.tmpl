@@ -5,7 +5,14 @@ package {{.Package}}
 import (
 {{range .Imports}}{{if .}}	"{{.}}"{{end}}
 {{end}})
-{{if .HTML}}
+{{if .Static}}
+//go:embed static
+var maagoStaticFiles embed.FS
+
+// maagoStatic are the files of static/, with the names the project's
+// templates ask for (D-136).
+var maagoStatic = maago.Static({{printf "%q" .Package}}, maagoStaticFiles{{range .Used}}, {{printf "%q" .}}{{end}})
+{{end}}{{if .HTML}}
 //go:embed templates/*.html
 var maagoTemplateFiles embed.FS
 
@@ -16,7 +23,7 @@ var maagoRoutes = map[string]string{
 
 // maagoPages are the template sets of the pages: base.html, if there is
 // one, and the page.
-var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes), "date": maago.DateFunc},
+var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes), "date": maago.DateFunc, "static": maago.StaticFunc},
 {{range .Pages}}	{{printf "%q" .}},
 {{end}})
 {{end}}{{range $route := .Routes}}

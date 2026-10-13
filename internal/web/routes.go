@@ -32,11 +32,13 @@ type App struct {
 	Routes     []Route
 	Funcs      []string // the package's top-level functions
 	Used       bool     // another package's code uses its App
+	Static     []string // the files of its static/, by ReadStatic (D-136)
 
 	funcs map[string]*ast.FuncDecl // the top-level functions, for Views
 	types map[string]*ast.TypeSpec // the top-level types
 	maago map[string][]string      // each type's file's names for maago
 	forms map[string]*form         // the form structs, by name: Forms fills it
+	used  map[string]bool          // the static files a template asks for, of any app
 }
 
 // Route is one line of a route table, as written: Check judges it.
@@ -340,7 +342,13 @@ func Check(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 		pos token.Position
 	}
 	names := map[string]seen{}
-	var valid []seen // routes whose pattern parses, in order
+	var valid []seen    // routes whose pattern parses, in order
+	var static []*Route // the patterns Handler serves the static files at (D-137)
+	for _, app := range apps {
+		if len(app.Static) > 0 {
+			static = append(static, &Route{Method: "GET", Path: "/static/" + app.Name + "/{name}"})
+		}
+	}
 	for _, app := range apps {
 		if len(app.Routes) == 0 {
 			errAt(app.Pos, "route table of "+app.Name+" is empty", "add a route, or remove the table")
@@ -383,6 +391,15 @@ func Check(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 			}
 			if msg, fix := checkPath(r); msg != "" {
 				errAt(r.PathPos, msg, fix)
+				continue
+			}
+			if r.Path == "/static" || strings.HasPrefix(r.Path, "/static/") {
+				errAt(r.PathPos, fmt.Sprintf("route path %q is under /static/, where maago serves the apps' static files (D-137)", r.Path), "move the route to another path")
+				continue
+			}
+			if i := slices.IndexFunc(static, func(s *Route) bool { return conflicts(s, r) }); i >= 0 {
+				errAt(r.PathPos, fmt.Sprintf("route %s %s conflicts with %s, where maago serves static files: a request could match both", r.Method, r.Path, static[i].Path),
+					"make the route more specific than the static files' pattern, or move it")
 				continue
 			}
 			for _, v := range valid {

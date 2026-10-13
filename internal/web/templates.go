@@ -24,8 +24,9 @@ import (
 // funcNames are the functions templates may call beside text/template's
 // own: a closed list, enforced by parsing with only these.
 var funcNames = template.FuncMap{
-	"url":  func(string, ...any) (string, error) { return "", nil },
-	"date": func(string, any) (string, error) { return "", nil },
+	"url":    func(string, ...any) (string, error) { return "", nil },
+	"date":   func(string, any) (string, error) { return "", nil },
+	"static": func(string) (string, error) { return "", nil },
 }
 
 // page is an HTML route's page, as checkTemplates sees it.
@@ -39,7 +40,7 @@ type page struct {
 // each page's set, walked with the page type as its dot, then executed
 // once on nil to let html/template find what it cannot escape. The walk
 // comes first, since executing rewrites the trees.
-func checkTemplates(fset *token.FileSet, root, dir string, pkg *types.Package, pages []page, routes map[string][]param, viewPos map[*Route]token.Position) []diag.Diagnostic {
+func checkTemplates(fset *token.FileSet, root, dir string, pkg *types.Package, pages []page, routes map[string][]param, statics map[string]*App, viewPos map[*Route]token.Position) []diag.Diagnostic {
 	tdir := path.Join(dir, "templates")
 	fsys := os.DirFS(filepath.Join(root, filepath.FromSlash(dir)))
 	entries, _ := fs.ReadDir(fsys, "templates")
@@ -102,7 +103,7 @@ func checkTemplates(fset *token.FileSet, root, dir string, pkg *types.Package, p
 		tds := topLevel(set, file, layout, pos)
 		typ := byFile[file][0].typ // a file is one page type's
 		dot := val{t: typ, label: typ.Obj().Name()}
-		w := &walker{pkg: pkg, set: set, routes: routes, pos: pos, done: map[string]bool{}}
+		w := &walker{pkg: pkg, set: set, routes: routes, statics: statics, pos: pos, done: map[string]bool{}}
 		w.template(entry(file), dot, nil)
 		var blocks []string
 		for _, p := range byFile[file] {

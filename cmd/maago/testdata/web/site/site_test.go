@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -36,6 +37,27 @@ func handler(t *testing.T) (http.Handler, *sql.DB, *[]error) {
 		t.Fatal(err)
 	}
 	return h, db, &reported
+}
+
+// The page links the static file by its hashed name, which is served for
+// a year (D-137, M7's condition 2).
+func TestStatic(t *testing.T) {
+	h, db, _ := handler(t)
+	p, err := InsertPost(context.Background(), db, NewPostInput{Title: "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", PostDetailURL(p.ID), nil))
+	link := regexp.MustCompile(`href="(/static/site/app\.[0-9a-f]{16}\.css)"`).FindStringSubmatch(w.Body.String())
+	if link == nil {
+		t.Fatalf("no hashed link:\n%s", w.Body)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", link[1], nil))
+	if w.Code != 200 || w.Body.String() != "body { margin: 0 }\n" || w.Header().Get("Cache-Control") != "public, max-age=31536000, immutable" {
+		t.Errorf("%s: %d %q %v", link[1], w.Code, w.Body, w.Header())
+	}
 }
 
 func TestRequests(t *testing.T) {

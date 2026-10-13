@@ -73,7 +73,8 @@ func checking(root string) [][]pipeline.Step {
 		return append(ds, wds...)
 	}
 	early := func() (ds []diag.Diagnostic) { // what makemigrations does not need
-		ds = append(web.Check(s.fset, s.web), web.Views(s.fset, s.web)...)
+		ds = web.ReadStatic(s.root, s.parsed, s.web) // before Check, which keeps routes off the static files
+		ds = append(append(ds, web.Check(s.fset, s.web)...), web.Views(s.fset, s.web)...)
 		ds = append(ds, web.Forms(s.fset, s.web, s.app)...)
 		var ads []diag.Diagnostic
 		s.admin, ads = admingen.Use(s.fset, s.parsed, s.mod, s.apps, s.web)

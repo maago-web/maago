@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
-	"net/url"
 	"path"
 	"strings"
 	"time"
@@ -40,11 +40,11 @@ func Static(app string, fsys fs.FS, names ...string) *StaticFiles {
 	s := &StaticFiles{app, map[string]staticFile{}}
 	for _, e := range entries {
 		name := e.Name()
-		switch {
-		case e.IsDir():
-			panic(fmt.Sprintf("maago: static/%s of app %s is a directory; static/ holds files only; run maago gen", name, app))
-		case url.PathEscape(name) != name:
-			panic(fmt.Sprintf("maago: static/%s of app %s: a URL would escape the name; run maago gen", name, app))
+		if e.IsDir() {
+			panic(fmt.Sprintf("maago: static/%s of app %s: directory in static/; run maago gen", name, app))
+		}
+		if err := StaticName(name); err != nil {
+			panic(fmt.Sprintf("maago: static/%s of app %s: %v; run maago gen", name, app, err))
 		}
 		body, err := fs.ReadFile(fsys, "static/"+name)
 		if err != nil {
@@ -67,13 +67,27 @@ func Static(app string, fsys fs.FS, names ...string) *StaticFiles {
 	return s
 }
 
+// StaticName says what is wrong with name as the name of a static file,
+// if anything: it starts with a letter or digit, and holds letters,
+// digits, '.', '-' and '_' only. So //go:embed keeps the file and a URL
+// keeps the name as it is. maago gen checks with it too.
+func StaticName(name string) error {
+	for i, c := range name {
+		ok := 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
+		if !ok && (i == 0 || c != '.' && c != '-' && c != '_') {
+			return fmt.Errorf("static file name %q does not start with a letter or digit and hold only letters, digits, '.', '-' and '_'", name)
+		}
+	}
+	if name == "" {
+		return errors.New("empty static file name")
+	}
+	return nil
+}
+
 // hashedName puts the hash before the last extension: app.css is
 // app.<hash>.css; a name with no extension ends in .<hash>.
 func hashedName(name, hash string) string {
 	ext := path.Ext(name)
-	if ext == name { // .env: all extension, no stem
-		ext = ""
-	}
 	return strings.TrimSuffix(name, ext) + "." + hash + ext
 }
 

@@ -62,7 +62,7 @@ func URLsFile(app *App, stub bool) []byte {
 			"Params": strings.Join(params, ", "), "URLExpr": expr,
 		})
 	}
-	return execute("urls.go.tmpl", imports, map[string]any{"Package": app.Name, "ImportPath": app.ImportPath, "Stub": stub, "Routes": rs})
+	return execute("urls.go.tmpl", imports, map[string]any{"Package": app.Name, "ImportPath": app.ImportPath, "Stub": stub, "Routes": rs, "Static": len(app.Static) > 0})
 }
 
 // param is the URL function's parameter for wildcard name.
@@ -102,10 +102,12 @@ func ViewsFile(app *App, apps []*App) []byte {
 			pages = append(pages, v.template)
 		}
 	}
+	static := len(app.Static) > 0
 	if html {
 		imports["embed"], imports["html/template"] = true, true
 	}
-	imports["maago"] = slices.ContainsFunc(app.Routes, func(r Route) bool { return !r.view.escape })
+	imports["embed"] = imports["embed"] || static
+	imports["maago"] = static || slices.ContainsFunc(app.Routes, func(r Route) bool { return !r.view.escape })
 	forms := formsData(app)
 	if len(forms) > 0 {
 		imports["net/url"] = true // bindXxx takes url.Values
@@ -117,7 +119,8 @@ func ViewsFile(app *App, apps []*App) []byte {
 		}
 	}
 	slices.SortFunc(all, func(a, b map[string]string) int { return strings.Compare(a["Name"], b["Name"]) })
-	return execute("views.go.tmpl", imports, map[string]any{"Package": app.Name, "HTML": html, "Routes": rs, "Pages": pages, "AllRoutes": all, "Forms": forms})
+	return execute("views.go.tmpl", imports, map[string]any{"Package": app.Name, "HTML": html, "Routes": rs, "Pages": pages, "AllRoutes": all, "Forms": forms,
+		"Static": static, "Used": slices.Sorted(maps.Keys(app.used))})
 }
 
 // execute writes the file name. imports are the standard packages it uses;
@@ -185,6 +188,11 @@ func More(fset *token.FileSet, app *App) *mapper.More {
 					m.Names = append(m.Names, mapper.Name{Name: n, By: "form " + f.typ, Pos: fset.Position(f.pos), Fix: "rename what else declares " + n})
 				}
 			}
+		}
+	}
+	if len(app.Static) > 0 {
+		for _, n := range []string{"maagoStaticFiles", "maagoStatic"} {
+			m.Names = append(m.Names, mapper.Name{Name: n, By: "the static files of app " + app.Name, Pos: at, Fix: "rename what else declares " + n})
 		}
 	}
 	if html {

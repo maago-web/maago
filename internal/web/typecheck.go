@@ -17,7 +17,11 @@ import (
 // need. Views ran before, and the routes it rejected have no view.
 func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) []diag.Diagnostic {
 	routes := map[string][]param{} // every route of the project, for {{url}}
+	statics := map[string]*App{}   // the apps with static files, by package name, for {{static}}
 	for _, app := range apps {
+		if len(app.Static) > 0 {
+			statics[app.Name] = app
+		}
 		for _, r := range app.Routes {
 			if r.view != nil {
 				routes[r.Name] = r.view.wildcards
@@ -70,7 +74,7 @@ func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) [
 		}
 		ds = append(ds, validates(res, pkg, app)...)
 		if !failed { // a template is walked with the page types, which must be right
-			ds = append(ds, checkTemplates(fset, root, app.Dir, pkg, pages, routes, viewPos)...)
+			ds = append(ds, checkTemplates(fset, root, app.Dir, pkg, pages, routes, statics, viewPos)...)
 		}
 	}
 	return ds

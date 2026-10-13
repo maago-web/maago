@@ -1,0 +1,46 @@
+# a directory
+blog/static/img: directory in static/
+  fix: keep the static files in static/ itself
+
+# names embed leaves out or a URL escapes
+blog/static/.keep: static file name ".keep" does not start with a letter or digit and hold only letters, digits, '.', '-' and '_'
+  fix: rename it, such as app.css
+blog/static/_draft.css: static file name "_draft.css" does not start with a letter or digit and hold only letters, digits, '.', '-' and '_'
+  fix: rename it, such as app.css
+blog/static/a b.css: static file name "a b.css" does not start with a letter or digit and hold only letters, digits, '.', '-' and '_'
+  fix: rename it, such as app.css
+blog/static/a:b.css: static file name "a:b.css" does not start with a letter or digit and hold only letters, digits, '.', '-' and '_'
+  fix: rename it, such as app.css
+
+# no file
+blog/static: static/ holds no file to serve
+  fix: add a file, or remove the directory: //go:embed needs one
+blog/static/x: directory in static/
+  fix: keep the static files in static/ itself
+
+# a package without routes
+lib/static: static/ of a package without routes
+  fix: keep static files in an app with a route table, which serves them at /static/APP/ (D-137)
+static: static/ of a package without routes
+  fix: keep static files in an app with a route table, which serves them at /static/APP/ (D-137)
+
+# two packages of one name
+more/blog/static: apps blog and more/blog are both package blog, so both would serve /static/blog/
+  fix: rename one package, or keep the static files in one of them
+
+# routes under /static/
+blog/urls.go:16:12: route path "/static/x" is under /static/, where maago serves the apps' static files (D-137)
+  fix: move the route to another path
+blog/urls.go:17:12: route path "/static" is under /static/, where maago serves the apps' static files (D-137)
+  fix: move the route to another path
+
+# a route the static files' pattern conflicts with
+blog/urls.go:16:12: route GET /{x}/blog/a.css conflicts with /static/blog/{name}, where maago serves static files: a request could match both
+  fix: make the route more specific than the static files' pattern, or move it
+
+# a name the static files' code declares
+blog/urls.go:11:5: the static files of app blog would declare maagoStatic, which blog/more.go:3 declares already
+  fix: rename what else declares maagoStatic
+
+# no static/, no pattern
+

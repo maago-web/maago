@@ -5,7 +5,10 @@ import (
 	"go/token"
 	"go/types"
 	"html/template"
+	"maps"
+	"path"
 	"slices"
+	"strings"
 	"text/template/parse"
 	"unicode"
 	"unicode/utf8"
@@ -26,13 +29,14 @@ type val struct {
 // walker walks one page's template set with the page type as the dot,
 // as text/template would execute it (D-42).
 type walker struct {
-	pkg    *types.Package
-	set    *template.Template
-	routes map[string][]param
-	pos    func(file string, offset int) token.Position
-	done   map[string]bool // (template, dot type) walked
-	file   string          // the file of the template walked now
-	ds     []diag.Diagnostic
+	pkg     *types.Package
+	set     *template.Template
+	routes  map[string][]param
+	statics map[string]*App // the apps with static files, by package name
+	pos     func(file string, offset int) token.Position
+	done    map[string]bool // (template, dot type) walked
+	file    string          // the file of the template walked now
+	ds      []diag.Diagnostic
 }
 
 type scope struct {
@@ -440,6 +444,9 @@ func (w *walker) call(id *parse.IdentifierNode, args []parse.Node, dot val, sc *
 	case "date":
 		w.date(id, args, vs)
 		return val{t: types.Typ[types.String]}
+	case "static":
+		w.static(id, args)
+		return val{t: types.Typ[types.String]}
 	}
 	return val{label: "the result of " + id.Ident} // index, slice, call, and, or: no type known
 }
@@ -538,4 +545,43 @@ func (w *walker) date(id *parse.IdentifierNode, args []parse.Node, vs []val) {
 	case types.TypeString(t.t, nil) != "time.Time" && types.TypeString(t.t, nil) != "*time.Time":
 		w.errAt(at, 0, fmt.Sprintf("date shows a time.Time, not %s", kindOf(t)), "pass a time.Time or *time.Time")
 	}
+}
+
+// static checks {{static "board/app.css"}}: a string literal naming an
+// app with static files, by its package name, and a file of its static/
+// (D-137). It notes the file for the app's generated code, which makes
+// sure the process has it.
+func (w *walker) static(id *parse.IdentifierNode, args []parse.Node) {
+	if len(args) != 1 {
+		w.errAt(id, 0, fmt.Sprintf("static takes the name of a file, not %d values", len(args)), `write {{static "board/app.css"}}`)
+		return
+	}
+	lit, ok := args[0].(*parse.StringNode)
+	if !ok {
+		w.errAt(args[0], 0, "cannot check static: the name is not a string literal", `write it in quotes: {{static "board/app.css"}}`)
+		return
+	}
+	appName, file, ok := strings.Cut(lit.Text, "/")
+	if !ok {
+		w.errAt(lit, 0, fmt.Sprintf("static %q names no app", lit.Text), `write the app's package name first: {{static "board/app.css"}}`)
+		return
+	}
+	app := w.statics[appName]
+	if app == nil {
+		fix := "name an app with routes and a static/ directory by its package name"
+		if m := diag.Suggest(appName, slices.Sorted(maps.Keys(w.statics))); m != "" {
+			fix = fmt.Sprintf("did you mean %q?", m)
+		}
+		w.errAt(lit, 0, fmt.Sprintf("static %q: no app %s with static files", lit.Text, appName), fix)
+		return
+	}
+	if !slices.Contains(app.Static, file) {
+		fix := "add it to " + path.Join(app.Dir, "static") + ", or name one of its files"
+		if m := diag.Suggest(file, app.Static); m != "" {
+			fix = fmt.Sprintf("did you mean %q?", appName+"/"+m)
+		}
+		w.errAt(lit, 0, fmt.Sprintf("static %q: no file %s", lit.Text, path.Join(app.Dir, "static", file)), fix)
+		return
+	}
+	app.used[file] = true
 }

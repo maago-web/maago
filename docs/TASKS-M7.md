@@ -127,3 +127,51 @@ API(루트, 새 파일 `static.go`)
 - codex: 결함 없음(샌드박스가 스크래치 디렉터리를 막아 시험은 돌리지 못함, 코드만 읽은 리뷰)
 - fable: 결함 없음. 변형 15개 중 살아남은 둘 → 시험: 해시 이름을 `names`로 주면 panic, `POST`는 405. `TestStaticFunc`가 앞 시험의 `current`를 물려받아 "Handler 전"을 지나지 않음 → 머리에서 비움. 디렉터리의 오류 글, 충돌 글은 정렬 순서에 따라 같은 이름 둘을 적음 → 두 파일을 적음. 문서의 `PathEscape`·시험 이름 → 고침. 2번에 넘길 것: 파일 없는 `static/`(`//go:embed static`이 컴파일 오류)은 생성 오류, `names`가 다른 앱의 템플릿 때문에 바뀔 때 진단이 그 템플릿을 말함, `{{static "board/…"}}`의 앱은 패키지 이름, 이름 규칙의 진단을 런타임 글과 맞춤
 
+
+## 2. `{{static}}` 생성 (D-136, D-137)
+
+### 계획
+
+이 작업의 끝에 `maago gen`이 `static/`이 있는 앱의 생성물에 정적 파일을 싣고, 템플릿의 `{{static "앱/이름"}}`을 검사한다. 런타임(1번)은 그대로.
+
+읽기(`internal/web`, 새 파일 `static.go`): `ReadStatic(root, apps, dirs)`를 build의 `early`에서 `web.Check` 앞에 부른다
+- 라우트가 있는 앱의 `static/`을 읽어 `App.Static`(이름, 정렬)에. 진단(위치는 `board/static/x`, 템플릿의 파일 진단과 같은 꼴): 디렉터리("directory in static/"), `.`·`_`로 시작하는 이름(`//go:embed static`이 빼서 런타임에 없다), URL이 escape하는 이름(1번의 런타임 글과 같은 말), 파일이 하나도 없는 `static/`(`//go:embed`가 컴파일 오류)
+- 라우트가 없는 패키지(Go 파일이 있는 디렉터리, `s.parsed`의 키)의 `static/`은 오류: "static/ of a package without routes", fix "serve it from an app with routes, or add a route table" (1번 계획: `App`이 없어 서빙할 자리가 없다)
+- 패키지 이름이 같은 두 앱의 `static/`은 오류(둘 다 `/static/<이름>/`, 1번의 `Handler` 오류를 생성에서 먼저)
+
+`Check`(`routes.go`)
+- 사용자 라우트의 경로가 `/static/`으로 시작하면 늘 오류(D-137): "route path … is under /static/, where maago serves the apps' static files"
+- 정적 파일이 있는 앱마다 패턴 `GET /static/<이름>/{name}`을 `conflicts()`로 사용자 라우트와 비교(`/{a}/board/x` 같은 꼴은 `Handler`에서 panic했을 것)
+
+템플릿(`templates.go`·`walk.go`)
+- `funcNames`에 `static`. `walker.static`: 인자 하나, 글자 그대로("cannot check static: …"), `앱/이름` 꼴, 앱은 정적 파일이 있는 앱의 패키지 이름(did you mean), 이름은 그 앱의 `static/`에(did you mean). 맞으면 그 앱의 `App`에 부른 이름을 모은다(다른 앱의 템플릿이 부른 것도: 걷기는 앱마다지만 표는 프로젝트 하나, `Types`가 `url`의 표처럼 넘긴다)
+
+생성물
+- `views_gen.go`: 정적 파일이 있으면 `//go:embed static` + `var maagoStaticFiles embed.FS`, `var maagoStatic = maago.Static("board", maagoStaticFiles, 부른 이름…)`(정렬, 골든이 안정). HTML 블록 밖(API·탈출구만 있는 앱의 `static/`도). HTML이면 함수 표에 `"static": maago.StaticFunc`(모든 HTML 앱: 다른 앱의 파일도 부른다)
+- `urls_gen.go`: `var App = maago.NewApp(…)` 뒤에 `.WithStatic(maagoStatic)`
+- 예약 이름(`More`): `maagoStaticFiles`·`maagoStatic`
+- import 허용 목록은 그대로(`embed`는 이미 있다)
+
+결정에 없는 선택
+- 부른 이름이 다른 앱의 템플릿 때문에 바뀌면 그 앱의 `views_gen.go`가 바뀐다(`maagoRoutes`가 이미 그렇다). `check`는 어느 파일이 낡았는지만 말한다
+- 사람이 만든 `a.<해시>.css`와 `a.css`가 같은 해시 이름이 되는 겹침은 생성에서 보지 않는다(해시가 생성물에 없다, D-136): 기동 panic(1번)
+- 정적 파일이 바뀌어도 생성물은 그대로다: 이름을 더하거나 지울 때만 바뀐다(부른 이름은 템플릿에서)
+
+하지 않기로 한 것: 하위 디렉터리, 압축, Tailwind(6번)
+
+단계
+1. 읽기·진단과 `Check` → 확인: 진단 표(`TestStaticDiags`: 디렉터리·점 이름·밑줄 이름·escape·빈 `static/`·라우트 없는 패키지·같은 패키지 이름·`/static/` 아래 라우트·정적 패턴과의 충돌)
+2. 템플릿 검사 → 확인: `{{static "board/없는.css"}}`가 생성 오류이고 did you mean(완료 조건 2), 모르는 앱, 글자 그대로 아님, 인자 수
+3. 생성물 → 확인: 골든(`static/`이 있는 앱과 다른 앱의 템플릿이 부른 이름), `cmd/maago`에서 생성한 프로젝트가 빌드되고 `/static/…`이 해시 이름으로 200(완료 조건 2의 "있는 파일은 해시가 붙은 이름"), 두 모듈 확인 명령
+
+### 계획 리뷰
+
+- codex: 정적 파일만 있는 API·탈출구 앱의 `maago`·`embed` import → 켬(시험: 탈출구만 + `static/`이 빌드됨). 심볼릭 링크와 보통 파일이 아닌 것(embed가 무시해 빈 embed면 빌드 실패) → 오류. embed의 이름 규칙은 URL escape보다 넓다(`a:b` 같은 이름) → 이름 규칙 하나로 닫음: 글자·숫자로 시작하고 글자·숫자·`.`·`-`·`_`만(`maago.StaticName`, 런타임 `Static`과 생성이 같은 함수·같은 글). `s.parsed`는 시험·생성물 아닌 Go 파일이 있는 디렉터리뿐 → 문구를 "Go 파일(시험 아닌)이 있는 패키지"로. 이름 모음은 `Types`가 성공했을 때만 생성에 닿는다(파이프라인이 멈춘다). `More`에 둘 → 받음. 디렉터리를 다시 훑지 않음 → `ReadStatic(root, parsed, apps)`
+- fable: 끝에서 끝 시험이 `build.Gen`을 지나야 build.go에서 `ReadStatic`을 빠뜨린 회귀를 잡는다 → `cmd/maago`의 web 픽스처(`site`)에 `static/app.css`, `base.html`에 `{{static}}`, `TestStaticGen`(없는 파일의 진단 글 그대로, `build.Gen`)과 `site`의 요청 시험에 해시 이름 200·`immutable`(완료 조건 2의 시험 이름). `internal/web`의 `generate` 헬퍼에 `ReadStatic`. `TestNoRoutesNoGo`가 `site/static/`도 지운다. 진단 글은 생성 글을 런타임이 되풀이. `/static`도 막음(admin의 `/admin` 선례). 아직 조용한 것: Go 파일 없는 디렉터리의 `static/`. 생성물이 바뀌는 때: `static/`이 생기거나 없어질 때와 템플릿의 참조가 바뀔 때(참조 없는 파일은 그대로). `More`는 "앱에 static이 있음"으로 가름. 다른 앱 템플릿이 부른 없는 파일 → 그 템플릿의 위치를 시험에. 골든의 함수 표가 모든 HTML 앱에서 바뀜
+
+### 구현 리뷰
+
+- ponytail(나): `maps.Keys`를 다시 짠 도우미를 지움. 이름 규칙은 함수 하나(`maago.StaticName`)를 생성과 런타임이 함께 써 `.env`의 해시 이름 가지가 닿지 않게 되어 지움. 변형으로 확인: build.go에서 `ReadStatic`을 빼면 `cmd/maago`의 `TestStaticGen`·`TestWeb`이 잡고, 픽스처의 캐시 헤더를 바꾸면 `TestWeb` 안의 `TestStatic`이 잡는다. Go 1.25에서도 돎. 계획과 다른 곳: 부른 이름은 골든이 아니라 `TestStaticTemplates`의 단언(생성물 전체의 골든은 `views_gen.go.golden`이 함수 표를 본다), 라우트 없는 패키지의 fix는 "keep static files in an app with a route table"(라우트 표를 더하라는 길은 그 앱이 서빙할 것이 없으면 맞지 않는다)
+- codex: `fs.ReadDir`의 모든 오류를 "없음"으로 → `fs.ErrNotExist`만 넘기고 나머지는 진단. `-foo.css`를 embed는 받는데 규칙이 막음 → 일부러: D-136에 규칙을 적음(샌드박스가 스크래치를 막아 시험은 돌리지 못함)
+- fable: 결함 없음, 변형 15개 중 14개 잡힘. 살아남은 `More`의 예약 이름 → 시험 한 줄. "not a regular file"이 위치의 이름을 되풀이 → 줄임. 모르는 앱의 fix가 앱을 나열 → `url`처럼 did you mean만. `used`의 늦은 초기화 → `ReadStatic`에서. 받지 않음: `StaticName`의 빈 이름 가지(공개 함수라 남김)
+

@@ -78,11 +78,26 @@ func TestWebTypeError(t *testing.T) {
 	}
 }
 
+// maago gen stops at a {{static}} of no file, at the template (D-137,
+// M7's condition 2).
+func TestStaticGen(t *testing.T) {
+	root := webProject(t)
+	writeFile(t, filepath.Join(root, "site", "templates", "base.html"), "<link href=\"{{static \"site/ap.css\"}}\">{{block \"content\" .}}{{end}}\n")
+	_, ds := build.Gen(root)
+	want := "site/templates/base.html:1:22: static \"site/ap.css\": no file site/static/ap.css\n  fix: did you mean \"site/app.css\"?\n"
+	if got := text(ds); got != want {
+		t.Errorf("got\n%s", got)
+	}
+}
+
 // A project without routes is not type-checked, so maago runs without the
 // go command (D-117).
 func TestNoRoutesNoGo(t *testing.T) {
 	root := webProject(t)
 	if err := os.Remove(filepath.Join(root, "site", "urls.go")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(filepath.Join(root, "site", "static")); err != nil { // nothing would serve it
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", "")

@@ -21,7 +21,7 @@ func staticFS(files map[string]string) fstest.MapFS {
 // is 404 (D-136, D-137, M7's condition 3).
 func TestStatic(t *testing.T) {
 	t.Cleanup(func() { current.Store(nil) })
-	s := Static("board", staticFS(map[string]string{"static/app.css": "body{}", "static/same.css": "body{}", "static/README": "hi", "static/.env": "x"}), "app.css")
+	s := Static("board", staticFS(map[string]string{"static/app.css": "body{}", "static/same.css": "body{}", "static/README": "hi"}), "app.css")
 	if again := Static("board", staticFS(map[string]string{"static/app.css": "body{}"})); again.files["app.css"].hashed != s.files["app.css"].hashed {
 		t.Error("the same content has another name")
 	}
@@ -32,9 +32,6 @@ func TestStatic(t *testing.T) {
 	}
 	if h := s.files["README"].hashed; !strings.HasPrefix(h, "README.") || len(h) != len("README.")+16 {
 		t.Errorf("README: %q", h)
-	}
-	if h := s.files[".env"].hashed; len(h) != len(".env.")+16 || !strings.HasPrefix(h, ".env.") {
-		t.Errorf(".env: %q", h)
 	}
 	if s.files["same.css"].hashed == hashed {
 		t.Error("two names, one hashed name")
@@ -121,8 +118,9 @@ func TestStaticPanics(t *testing.T) {
 	}{
 		{map[string]string{"static/app.css": ""}, []string{"gone.css"}, "maago: app board has no static/gone.css; run maago gen"},
 		{map[string]string{"static/app.css": "x"}, []string{"app.2d711642b726b044.css"}, "maago: app board has no static/app.2d711642b726b044.css; run maago gen"},
-		{map[string]string{"static/app.css": "x", "static/sub/a.css": ""}, nil, "maago: static/sub of app board is a directory; static/ holds files only"},
-		{map[string]string{"static/a b.css": ""}, nil, "maago: static/a b.css of app board: a URL would escape the name"},
+		{map[string]string{"static/app.css": "x", "static/sub/a.css": ""}, nil, "maago: static/sub of app board: directory in static/; run maago gen"},
+		{map[string]string{"static/.env": ""}, nil, "maago: static/.env of app board: static file name \".env\" does not start"},
+		{map[string]string{"static/a b.css": ""}, nil, "maago: static/a b.css of app board: static file name \"a b.css\" does not start"},
 		{map[string]string{"static/app.css": "x", "static/app.2d711642b726b044.css": ""}, nil, "maago: static/app.2d711642b726b044.css and static/app.css of app board would share the name app.2d711642b726b044.css"},
 		{map[string]string{}, nil, "maago: static files of app board: "},
 	} {

@@ -23,6 +23,13 @@ import (
 // check and the files. It returns the diagnostics and the generated files.
 func generate(t *testing.T, files map[string]string) (string, map[string][]byte) {
 	t.Helper()
+	return generateWith(t, files, nil)
+}
+
+// generateWith is generate with more done to the project's directory
+// before the run, such as what a map of files cannot say.
+func generateWith(t *testing.T, files map[string]string, more func(root string)) (string, map[string][]byte) {
+	t.Helper()
 	repo, _ := filepath.Abs("../..")
 	root := t.TempDir()
 	files["go.mod"] = "module " + mod + "\n\ngo 1.25\n\nrequire github.com/maago-web/maago v0.0.0\n\nreplace github.com/maago-web/maago => " + repo + "\n"
@@ -32,6 +39,9 @@ func generate(t *testing.T, files map[string]string) (string, map[string][]byte)
 		if err := os.WriteFile(p, []byte(src), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if more != nil {
+		more(root)
 	}
 	text := func(ds []diag.Diagnostic) string {
 		var b strings.Builder
@@ -43,9 +53,10 @@ func generate(t *testing.T, files map[string]string) (string, map[string][]byte)
 		t.Fatal(text(ds))
 	}
 	fset := token.NewFileSet()
-	apps, ds := Read(fset, Parse(fset, root, gofiles), mod)
+	parsed := Parse(fset, root, gofiles)
+	apps, ds := Read(fset, parsed, mod)
 	if ds == nil {
-		ds = append(Check(fset, apps), Views(fset, apps)...)
+		ds = append(append(ReadStatic(root, parsed, apps), Check(fset, apps)...), Views(fset, apps)...)
 		pkgs, mds := model.Read(fset, root, gofiles)
 		mapps, cds := model.Check(fset, pkgs)
 		ds = append(append(append(ds, mds...), cds...), Forms(fset, apps, func(dir string) *model.App {
