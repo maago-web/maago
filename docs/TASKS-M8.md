@@ -131,12 +131,24 @@
    - 계획·구현 리뷰는 fable 하나(문서와 그것을 맞추는 시험, WORKFLOW 3·6), 표가 결과물이라 둘을 한 번에. 막는 지적 없음, 89줄의 해시·제목이 원본과 같음을 확인. 받음: 원본 12는 달력의 날짜 계산이라 대응 없음, 68은 목록 응답의 모양(0008·0029), 0024는 일부러 틀리는 단계라 시험이 돌지 않으니 admin 줄(55·56·60·63)은 0025로, 1·2·7·79는 셋째 머리 말 "main이 쓴다"(시험이 부르지 않는다), 56의 `auth.Admin`은 `maago gen`이 쓴다, 26·28도 0020, 9·59의 이유, D-22 → D-71, 17의 D-101 → D-114, 시험의 칸 수 검사와 4자리 번호만(regexp 없이). 8번으로: MILESTONES M8 표의 "필드는 그 User에 더한다"가 D-142와 어긋남. 받지 않음: 0030 시험에 JSON 키 단언(원본 22, `MePage` 타입이 모양을 정한다)
 8. **완료 조건과 문서**: "M8 끝"에 조건마다 시험 이름, README(일부러 틀리는 단계를 찾는 법 `grep -l Maago-Expect steps/*.patch`), MILESTONES의 M8 표·할일, TUTORIAL-FUTURE
 
+   계획
+   - "M8 끝"에 조건마다 시험 이름, 1~8 체크. 조건을 PG로 실제로 돌린다(`cmd/maago`의 `go test ./...`, 루트의 `go test ./...`)
+   - MILESTONES: M8 표의 User 줄("필드는 그 User에 더한다")을 D-142대로, 할일의 대응표·배포에 MAP.md와 0033. 체크박스는 CI 뒤("M8 끝", M7과 같은 순서)
+   - README(게시판): `grep -l Maago-Expect steps/*.patch` 한 줄
+   - TUTORIAL-FUTURE: 가정 목록에 남은 줄(§7의 오류 문구)은 0020의 `Maago-Expect`가 같은 진단을 글자 그대로 강제한다: 그 줄을 "남은 가정 없음"으로(fable)
+   - CI: `cmd/maago`의 `go test`에 `-timeout 30m`. Catches 16줄이 줄마다 걷기를 한 번 돌아 로컬에서 약 7분, 기본 10분에 가깝다(fable)
+   - 계획·구현 리뷰는 fable 하나(문서·완료 조건, WORKFLOW 3·6): 막는 지적 없음. 받음: TUTORIAL-FUTURE의 마지막 가정, CI 시간 제한, MILESTONES M8 표의 "할일" 칸을 단계 번호로, 조건 2에 일부러 틀리는 단계의 예외, TODO의 낡은 번호. 알아 둘 것: 같은 서버에서 걷기 둘이 동시에 돌면 스키마가 겹친다(fable의 실측과 내 실행이 겹쳐 둘 다 한 번씩 실패, 따로 다시 돌려 통과)
+
 ---
 
 ## M8 끝
 
-- [ ] 1~8 완료
-- [ ] 위 M8 완료 조건을 실제로 돌려 확인(PG는 `MAAGO_TEST_PG_URL`로), 조건마다 시험 이름
+- [x] 1~8 완료 (2026-10-14)
+- [x] 위 M8 완료 조건을 실제로 돌려 확인(PG는 로컬 서버의 `MAAGO_TEST_PG_URL`로, Tailwind는 캐시의 v4.3.3). 조건마다의 시험(모두 `cmd/maago`)
+  1. 원본 89 커밋이 대응표에 있고 대응한 것은 단계로: `TestBoardMap`(`examples/board/MAP.md`의 89줄 차례, 표의 단계가 모두 `steps/`에, 모든 단계가 표에, 대응 없음은 이유)
+  2. 첫 단계부터 마지막까지 `maago check`와 시험, 0013부터 PG: `TestBoardTutorial`(단계마다 gen·gofmt·check·migrate·앱의 `go test`(일부러 틀리는 단계는 gen의 오류만), 끝에 교차 빌드·`-createsuperuser`·`PORT` 기동·CSS 비교), PG 없이 `CI`면 실패: `TestBoardTutorialPostgresTrailer`. 망가진 단계를 걷기가 잡는지: `TestBoardTutorialCatches`(단계마다 권한 빼기·쿼리·gofmt·PG 마이그레이션·`PORT` 따위 16줄)
+  3. 일부러 틀리는 단계(0006·0009·0020·0024·0027, `grep -l Maago-Expect`)마다 기대한 오류: `TestBoardTutorial`이 `Maago-Expect`의 줄과 `maago gen`의 오류가 같은지 본다, 틀린 기대는 `TestBoardTutorialCatches`의 "expected error"·"short expectation"·"one template error of two"·"no maago add"
+  4. 에이전트가 처음부터 따라 하기: M9 게이트
 - [ ] MILESTONES.md의 M8 체크박스 갱신
 - [ ] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인
 - [ ] TASKS-M9 초안

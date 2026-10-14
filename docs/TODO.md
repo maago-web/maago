@@ -39,7 +39,7 @@
 
 ## M4
 
-- [x] 탈출구 뷰(D-41)의 경로 값은 URL 함수에서 `string`이라 템플릿 검사가 정수를 거절한다(런타임 `URLFunc`은 정수도 받는다). M8에서 튜토리얼을 PG로 다시 묶을 때 검사기를 고치고 0016의 `{{url "board_export" (print .Board.ID)}}`에서 `print`를 지운다(M4 12·13번, 사람의 결정) → M8 1번: 템플릿 검사는 탈출구 라우트의 값을 `string or int`로 본다(`TestTemplatesPass`의 `feed`)
+- [x] 탈출구 뷰(D-41)의 경로 값은 URL 함수에서 `string`이라 템플릿 검사가 정수를 거절한다(런타임 `URLFunc`은 정수도 받는다). M8에서 튜토리얼을 PG로 다시 묶을 때 검사기를 고치고 0016(지금 0017)의 `{{url "board_export" (print .Board.ID)}}`에서 `print`를 지운다(M4 12·13번, 사람의 결정) → M8 1번: 템플릿 검사는 탈출구 라우트의 값을 `string or int`로 본다(`TestTemplatesPass`의 `feed`)
 
 - [ ] `web`의 모델 폼은 `default=''`를 보지 않아 그 문자열 칸의 빈 입력을 거절한다. admin은 받는다(D-132, M6 5번). 사용자 폼도 받을지
 

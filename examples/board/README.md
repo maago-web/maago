@@ -5,7 +5,7 @@ Maago로 게시판을 만드는 긴 튜토리얼([MILESTONES.md](../../docs/MILE
 원본 튜토리얼의 89 커밋이 어느 단계로 갔는지는 [MAP.md](MAP.md)(`TestBoardMap`이 `steps/`와 맞춘다).
 
 - 걷기: `cmd/maago`의 `TestBoardTutorial`이 패치를 하나씩 적용하며 `maago gen`·`check`·`migrate`와 앱의 `go test`를 돌린다.
-  커밋 메시지에 `Maago-Expect: <오류 첫 줄>`이 있는 단계는 일부러 틀린 단계이고, `maago gen`이 정확히 그 오류를 내야 한다.
+  커밋 메시지에 `Maago-Expect: <오류 첫 줄>`이 있는 단계는 일부러 틀린 단계이고, `maago gen`이 정확히 그 오류를 내야 한다(찾기: `grep -l Maago-Expect steps/*.patch`).
   `Maago-Run: maago add <앱>`이 있는 단계는 패치를 적용하기 전에 그 명령을 돌린다. 끝에서 마지막 단계를 내보내듯이 확인한다: cgo 없이 리눅스용으로 짓고, 이 기계용 바이너리 하나로 `-createsuperuser`를 돌린 뒤 빈 `PORT`로 띄워 `/app/`이 200인지 본다(Docker는 돌리지 않는다). 여기서 난 오류는 마지막 패치의 것이다.
   `Maago-Database: postgres`가 있는 단계부터는 PostgreSQL이다(D-141): 걷기가 `MAAGO_TEST_PG_URL`의 서버에 걷기마다 스키마를 만들어 `.env`를 그리로 바꾼다.
   그 변수가 없으면 로컬은 그 단계 앞에서 건너뛰고(뒤 단계의 `TestBoardTutorialCatches` 줄과 CSS 비교도 건너뛴다. 로컬 통과는 거기까지의 증명이다) CI는 실패한다
