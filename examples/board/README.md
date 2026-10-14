@@ -2,6 +2,7 @@
 
 Maago로 게시판을 만드는 긴 튜토리얼([MILESTONES.md](../../docs/MILESTONES.md)의 M8). 커밋 하나에 기능 하나를 더한다.
 `steps/`의 패치가 그 커밋들이고(D-103), 커밋 메시지가 튜토리얼 글과 짝이다.
+원본 튜토리얼의 89 커밋이 어느 단계로 갔는지는 [MAP.md](MAP.md)(`TestBoardMap`이 `steps/`와 맞춘다).
 
 - 걷기: `cmd/maago`의 `TestBoardTutorial`이 패치를 하나씩 적용하며 `maago gen`·`check`·`migrate`와 앱의 `go test`를 돌린다.
   커밋 메시지에 `Maago-Expect: <오류 첫 줄>`이 있는 단계는 일부러 틀린 단계이고, `maago gen`이 정확히 그 오류를 내야 한다.

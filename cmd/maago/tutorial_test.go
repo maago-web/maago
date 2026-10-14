@@ -97,6 +97,55 @@ func TestBoardTutorialCatches(t *testing.T) {
 	}
 }
 
+// The map takes every commit of the original, in order, to the board's
+// steps or to why there is none, and says why each other step is there
+// (D-142): every step it names is in steps/, and every step is named.
+func TestBoardMap(t *testing.T) {
+	named := map[string]bool{}
+	n := 0
+	for _, line := range strings.Split(readFile(t, filepath.Join(steps, "..", "MAP.md")), "\n") {
+		cells := strings.Split(strings.TrimPrefix(line, "| "), " | ")
+		if !strings.HasPrefix(line, "| ") || len(cells) < 3 {
+			continue
+		}
+		i, err := strconv.Atoi(cells[0])
+		switch {
+		case err == nil && len(cells[0]) == 4: // a step of the board's own
+			named[cells[0]] = true
+		case err == nil: // a commit of the original
+			if n++; i != n {
+				t.Errorf("row %d of the map is commit %d", n, i)
+			}
+			if len(cells) < 4 || cells[3] == "" || cells[3] == "—" {
+				t.Errorf("commit %d: nothing on what Maago does, or why not", i)
+			}
+			if cells[2] == "—" {
+				continue
+			}
+			for _, s := range strings.Split(cells[2], "·") {
+				if _, err := strconv.Atoi(s); err != nil || len(s) != 4 {
+					t.Errorf("commit %d: %q is not a step", i, s)
+				}
+				named[s] = true
+			}
+		}
+	}
+	if n != 89 {
+		t.Errorf("the map has %d commits of the original, want 89", n)
+	}
+	patches, _ := filepath.Glob(filepath.Join(steps, "*.patch"))
+	for _, p := range patches {
+		num := filepath.Base(p)[:4]
+		if !named[num] {
+			t.Errorf("the map does not name step %s", num)
+		}
+		delete(named, num)
+	}
+	for s := range named {
+		t.Errorf("the map names step %s, which is not in steps/", s)
+	}
+}
+
 // The walk reads a step's trailers before it applies the step: a database
 // it does not know, and a second move, are errors, and without a server CI
 // fails at the move, where a local run skips (D-91). In CI, so that none
