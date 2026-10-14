@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Wed, 14 Oct 2026 23:05:15 +0900
+Subject: [PATCH] Ship it
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+게시판을 내보낸다. 바이너리 하나와 환경 변수, 그리고 컨테이너 예시.
+
+- go build 하나가 게시판 전부다. 템플릿과 static(Tailwind의 출력도)은
+  생성된 코드가 //go:embed로 싣고, DB 드라이버는 main이 import한다.
+  바이너리 밖에 있는 것은 DB와 첨부의 media/뿐이다
+- 듣는 포트는 PORT(없으면 8000). 호스팅과 컨테이너가 주는 이름이다. 로그
+  줄과 BOARD_SITE_URL의 기본도 같은 포트를 쓴다
+- 설정은 모두 환경 변수다: MAAGO_DATABASE_URL, PORT, BOARD_SITE_URL(메일의
+  링크가 가는 곳, 운영 주소로), BOARD_WEBHOOK_URL과 BOARD_WEBHOOK_TOKEN.
+  .env는 개발용이고 이미지에 넣지 않는다(.dockerignore)
+- 마이그레이션은 바이너리가 하지 않는다. 새 판을 띄우기 전에 소스에서
+  운영 주소로 maago migrate를 돌린다:
+
+      MAAGO_DATABASE_URL=postgres://… maago migrate
+
+- Dockerfile은 두 단계다. golang 이미지에서 cgo 없이 짓고(C 라이브러리가
+  필요 없는 정적 바이너리), 셸도 없는 distroless의 nonroot 이미지에
+  바이너리와 빈 media/를 옮긴다. media/는 볼륨이고 그 사용자(65532)의
+  것이다. 생성물(*_gen.go)을 커밋한 저장소에서 짓는다. 빌드에는 maago
+  명령이 필요 없다
+- 이 튜토리얼의 go.mod는 go.work가 가리키는 maago를 쓴다. 이미지는 go.work
+  없이 지으니, 내놓은 maago 판을 go get한 뒤에 빌드된다
+
+      docker build -t board .
+      docker run --rm -e MAAGO_DATABASE_URL=postgres://… board -createsuperuser
+      docker run -p 8000:8000 -e MAAGO_DATABASE_URL=postgres://… \
+          -e BOARD_SITE_URL=https://board.example.com -v board-media:/srv/media board
+
+  첫 staff 계정은 -createsuperuser에 MAAGO_SUPERUSER_EMAIL과
+  MAAGO_SUPERUSER_PASSWORD를 -e로 함께 준다. 컨테이너 안의 localhost는
+  호스트 기계가 아니다: DB 주소는 컨테이너에서 닿는 이름으로 쓴다. SQLite로
+  내보낸다면 DB 파일도 볼륨에 둔다
+- 운영 전에 main에서 고칠 것 둘: 메일은 아직 로그로 간다
+  (authlib.ConsoleMail). 실제로 보내려면 authlib.SMTP(addr, from, auth)
+  한 줄과 그 설정이다. Config.Origins의 localhost:5173은 개발 서버다.
+  운영 프런트엔드의 출처로 바꾼다
+- 프록시가 /app을 떼고 넘기면 main의 StripPrefix를 뺀다(0019)
+
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..5b4e58c
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,5 @@
++.git
++.env
++*.db
++go.work*
++media/
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..ae2bd27
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,22 @@
++# The board as a container: a static binary on a base image with no shell.
++# Build it from a checkout with the generated files committed.
++
++FROM golang:1.25 AS build
++WORKDIR /src
++# The modules first: they stay cached while only the code changes.
++COPY go.mod go.sum ./
++RUN go mod download
++COPY . .
++# No cgo: the binary needs no C library at run time.
++RUN CGO_ENABLED=0 go build -trimpath -o /board . && mkdir /media
++
++FROM gcr.io/distroless/static-debian12:nonroot
++WORKDIR /srv
++COPY --from=build /board /srv/board
++# Where the attachments go: a volume, owned by the image's user (nonroot,
++# 65532), so the server may write there.
++COPY --from=build --chown=65532:65532 /media /srv/media
++VOLUME /srv/media
++ENV PORT=8000
++EXPOSE 8000
++ENTRYPOINT ["/srv/board"]
+diff --git a/main.go b/main.go
+index f7df456..21ed1d8 100644
+--- a/main.go
++++ b/main.go
+@@ -40,10 +40,12 @@ func main() {
+ 		log.Printf("created %s", u.Email)
+ 		return
+ 	}
++	// The port to listen on: PORT, as hosts and containers set it.
++	port := cmp.Or(os.Getenv("PORT"), "8000")
+ 	// The links of the mails go to SiteURL, never to the request's Host.
+ 	// The mails go to the log here; a real server sends them with
+ 	// authlib.SMTP(addr, from, auth).
+-	auth.SiteURL = cmp.Or(os.Getenv("BOARD_SITE_URL"), "http://localhost:8000")
++	auth.SiteURL = cmp.Or(os.Getenv("BOARD_SITE_URL"), "http://localhost:"+port)
+ 	authlib.Mail = authlib.ConsoleMail
+ 	// Where to announce published posts. Settings of the app are the app's own
+ 	// package variables, filled in here.
+@@ -80,6 +82,6 @@ func main() {
+ 	}
+ 	// StripPrefix takes /app off the path before the routes see it. A proxy
+ 	// in front that takes it off already gets h alone.
+-	log.Print("listening on http://localhost:8000/app/")
+-	log.Fatal(http.ListenAndServe(":8000", http.StripPrefix("/app", h)))
++	log.Printf("listening on http://localhost:%s/app/", port)
++	log.Fatal(http.ListenAndServe(":"+port, http.StripPrefix("/app", h)))
+ }

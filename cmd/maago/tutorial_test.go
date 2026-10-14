@@ -1,15 +1,20 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
+	"net"
+	"net/http"
 	"net/url"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maago-web/maago/internal/build"
 	"github.com/maago-web/maago/internal/scaffold"
@@ -71,6 +76,8 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"me without a sign-in", "0030-Me.patch", `+	maago.GET("/me", "me", Me, maago.LoginRequired),`, `+	maago.GET("/me", "me", Me),`, "go test: "},
 		{"anybody edits", "0031-Edit-a-post.patch", "+\tif err := mayChange(ctx, p); err != nil {", "+\tif err := error(nil); err != nil {", "go test: "},
 		{"a draft to anybody", "0032-Drafts-are-their-author-s.patch", "+\tcase p.Status == \"draft\" || p.PublishAt != nil && p.PublishAt.After(time.Now()):", "+\tcase false:", "go test: "},
+		// The binary reads PORT, and serves on it (D-142).
+		{"another port", "0033-Ship-it.patch", `+	port := cmp.Or(os.Getenv("PORT"), "8000")`, `+	port := cmp.Or(os.Getenv("ADDR"), "8000")`, "serve: "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -172,22 +179,90 @@ func walk(t *testing.T, dir string) (root string, err error) {
 			return "", fmt.Errorf("%s: %w", filepath.Base(p), err)
 		}
 	}
-	// The last main makes the first staff account (D-130) on the steps'
-	// database, as its reader would.
-	run := goCmd(root, "run", ".", "-createsuperuser")
-	run.Env = append(run.Env, "MAAGO_SUPERUSER_EMAIL=boss@example.com", "MAAGO_SUPERUSER_PASSWORD=correct horse battery staple")
-	if out, err := run.CombinedOutput(); err != nil || !strings.Contains(string(out), "created boss@example.com") {
-		return "", fmt.Errorf("go run . -createsuperuser: %v\n%s", err, out)
+	// What goes wrong past the steps is the last one's: its main.
+	if err := ship(t, root, schema); err != nil {
+		return "", fmt.Errorf("%s: %w", filepath.Base(patches[len(patches)-1]), err)
 	}
-	if schema != "" { // .env's search_path reached the command
+	return root, nil
+}
+
+// ship does with the last step what its reader does to ship it (D-142):
+// it builds the binary as a container does, without cgo for Linux, then
+// builds one for this machine, which makes the first staff account (D-130)
+// on the steps' database and serves the board on PORT.
+func ship(t *testing.T, root, schema string) error {
+	cross := goCmd(root, "build", "-o", filepath.Join(t.TempDir(), "board"), ".")
+	cross.Env = append(cross.Env, "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64")
+	if out, err := cross.CombinedOutput(); err != nil {
+		return fmt.Errorf("CGO_ENABLED=0 GOOS=linux go build: %v\n%s", err, out)
+	}
+	bin := filepath.Join(t.TempDir(), "board")
+	if out, err := goCmd(root, "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		return fmt.Errorf("go build: %v\n%s", err, out)
+	}
+	su := osexec.Command(bin, "-createsuperuser")
+	su.Dir = root
+	su.Env = append(os.Environ(), "MAAGO_SUPERUSER_EMAIL=boss@example.com", "MAAGO_SUPERUSER_PASSWORD=correct horse battery staple")
+	if out, err := su.CombinedOutput(); err != nil || !strings.Contains(string(out), "created boss@example.com") {
+		return fmt.Errorf("board -createsuperuser: %v\n%s", err, out)
+	}
+	if schema != "" { // .env's search_path reached the binary
 		var n int
 		if err := withPostgres(func(db *sql.DB) error {
 			return db.QueryRow("SELECT count(*) FROM " + schema + ".auth_user WHERE email = 'boss@example.com'").Scan(&n)
 		}); err != nil || n != 1 {
-			return "", fmt.Errorf("the superuser is not in schema %s: %v", schema, err)
+			return fmt.Errorf("the superuser is not in schema %s: %v", schema, err)
 		}
 	}
-	return root, nil
+	return serve(root, bin)
+}
+
+// serve runs bin in root on a free PORT until its home page answers 200,
+// for 10 seconds at most, and stops it before it returns: the walk's
+// schema goes after, which a pool still open would hold.
+func serve(root, bin string) error {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	port := strconv.Itoa(l.Addr().(*net.TCPAddr).Port)
+	l.Close() // another process may take it in between: rare, and the error names the port
+	var out bytes.Buffer
+	cmd := osexec.Command(bin)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "PORT="+port)
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("serve: %v", err)
+	}
+	exited := make(chan struct{})
+	go func() { cmd.Wait(); close(exited) }()
+	client := http.Client{Timeout: time.Second}
+	up, died := false, false
+wait:
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
+		select {
+		case <-exited:
+			died = true
+			break wait
+		case <-time.After(100 * time.Millisecond):
+		}
+		if resp, err := client.Get("http://127.0.0.1:" + port + "/app/"); err == nil {
+			resp.Body.Close()
+			if up = resp.StatusCode == http.StatusOK; up {
+				break
+			}
+		}
+	}
+	cmd.Process.Kill()
+	<-exited // out is the server's no more
+	switch {
+	case died:
+		return fmt.Errorf("serve: board stopped before /app/ answered (PORT=%s):\n%s", port, out.String())
+	case !up:
+		return fmt.Errorf("serve: no 200 from /app/ in 10s (PORT=%s):\n%s", port, out.String())
+	}
+	return nil
 }
 
 // toPostgres moves the walk at root to a new schema of MAAGO_TEST_PG_URL's

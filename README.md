@@ -5,7 +5,7 @@
 
 M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·M4(HTTP)·M5(인증)·M6(admin)·M7(정적 파일과 업로드)이 끝났다. 문서부터 읽는다.
 
-**다음 작업: M8 6번**([TASKS-M8.md](docs/TASKS-M8.md)의 `Ship it`).
+**다음 작업: M8 7번**([TASKS-M8.md](docs/TASKS-M8.md)의 대응표 `examples/board/MAP.md`).
 
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙
