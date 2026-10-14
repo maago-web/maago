@@ -70,6 +70,7 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"a draft's file", "0029-Attach-files-to-posts.patch", "+\tif post.Status == \"draft\" {", "+\tif false {", "go test: "},
 		{"me without a sign-in", "0030-Me.patch", `+	maago.GET("/me", "me", Me, maago.LoginRequired),`, `+	maago.GET("/me", "me", Me),`, "go test: "},
 		{"anybody edits", "0031-Edit-a-post.patch", "+\tif err := mayChange(ctx, p); err != nil {", "+\tif err := error(nil); err != nil {", "go test: "},
+		{"a draft to anybody", "0032-Drafts-are-their-author-s.patch", "+\tcase p.Status == \"draft\" || p.PublishAt != nil && p.PublishAt.After(time.Now()):", "+\tcase false:", "go test: "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()

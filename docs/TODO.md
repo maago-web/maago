@@ -45,7 +45,7 @@
 
 ## M8
 
-- [ ] 게시판의 초안과 예약 글(미래 `publish_at`)은 상세 화면(`ShowPost`, `post_detail.sql`)에서 누구에게나 보인다. 첨부 파일은 0029가 초안이면 작성자·staff만으로 막았다. 막으려면 단계가 하나 더 생겨 D-142가 바뀐다: 사람이 정한다(M8 4번 codex·fable 리뷰)
+- [x] 게시판의 초안과 예약 글(미래 `publish_at`)은 상세 화면(`ShowPost`, `post_detail.sql`)에서 누구에게나 보인다. 첨부 파일은 0029가 초안이면 작성자·staff만으로 막았다. 막으려면 단계가 하나 더 생겨 D-142가 바뀐다: 사람이 정한다(M8 4번 codex·fable 리뷰). → 단계 0032 `Drafts are their author's`(M8 5번, 사람의 결정 2026-10-14)
 
 ## 언젠가
 

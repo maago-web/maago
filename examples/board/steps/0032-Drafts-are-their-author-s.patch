@@ -1,0 +1,566 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Wed, 14 Oct 2026 20:58:56 +0900
+Subject: [PATCH] Drafts are their author's
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+초안과 예약 글은 아직 나오지 않은 글이다. 쓴 사람과 staff만 본다.
+
+지금까지 초안은 상태의 이름일 뿐이었다. 게시판 목록에도 글 화면에도
+나왔고, 0029가 첨부 파일만 막았다. 이제 "나오지 않은 글"은 어디서나 같다.
+
+- 목록은 SQL이 거른다. post_list.sql과 search_posts.sql에
+  p.status <> 'draft'. 예약 글은 이미 publish_at <= :now로 빠진다.
+  export_rows.sql에는 :now와 두 조건을 함께 더하고, ExportBoard는 한 번
+  읽은 시각을 모든 쪽에 넘긴다. 목록에는 누구에게도 나오지 않는다. 쓴
+  사람은 /me(0030)에서, staff는 admin에서 본다. 보관한 글은 나온다
+- 한 글은 뷰가 거른다. maySee 하나: 숨긴 글, 또는 초안·예약 글인데
+  mayChange가 거절하는 사람이면 sql.ErrNoRows, 곧 404다. 읽기에서 403이
+  아닌 까닭은 나오지 않은 글이 있다는 것을 보여 주지 않으려는 것이다. 글을
+  바꾸는 요청(게시·보관·지우기·고치기·첨부 올리기)은 로그인한 사람의
+  것이라 지금처럼 mayChange의 403이다
+- ShowPost(글 화면과 댓글 달기)는 GetPost로 읽고 maySee에 묻고 나서
+  PostDetail. PostDetail의 결과에는 작성자와 publish_at이 없다
+- DownloadAttachment도 maySee에 묻는다. 0029에서 남의 초안 첨부는
+  403이었는데 이제 404다. 예약 글의 첨부도 막힌다. 탈출구 뷰라 오류를
+  돌려주지 않고 http.NotFound를 직접 쓴다
+
+새 글은 지금처럼 초안으로 시작한다. 그래서 둘이 함께 바뀐다.
+
+- 웹훅(0018)은 글을 쓸 때가 아니라 게시할 때 알린다. 쓴 직후에 알리면
+  받는 쪽이 여는 링크가 404다. 알림은 savePost에서 게시를 맡는 moveTo로
+  옮겼다. 보관은 알리지 않는다
+- API로 쓴 글도 초안이라, 프런트엔드가 게시할 길이 필요하다.
+  POST /api/posts/{id}/publish는 게시한 글을 JSON으로 돌려준다. HTML의
+  move와 API의 APIPublish가 moveTo를 함께 쓴다
+
+목록을 보던 시험은 글을 published로 만들거나 게시한 뒤에 본다. 새 시험
+TestDrafts는 익명·밥·앤·staff가 초안과 예약 글의 화면·댓글·첨부에서 무엇을
+받는지, 목록·검색·API·CSV에는 누구에게도 게시한 글만 나오는지, 웹훅이 쓸
+때와 보관할 때는 조용하고 게시할 때 우는지 본다.
+
+diff --git a/board/attach_test.go b/board/attach_test.go
+index 50a62e9..4ffb32a 100644
+--- a/board/attach_test.go
++++ b/board/attach_test.go
+@@ -91,7 +91,8 @@ func TestAttachments(t *testing.T) {
+ 		t.Errorf("past 10MB: %d", w.Code)
+ 	}
+ 
+-	// A draft's files: its author and staff only (M7's condition 6).
++	// A draft's files: its author and staff only (M7's condition 6). To
++	// anyone else they are not there.
+ 	p.Status = "draft"
+ 	if err := UpdatePost(ctx, db, &p); err != nil {
+ 		t.Fatal(err)
+@@ -99,7 +100,7 @@ func TestAttachments(t *testing.T) {
+ 	for who, c := range map[string]struct {
+ 		h    http.Handler
+ 		code int
+-	}{"no one signed in": {h, 403}, "bob": {bob, 403}, "ann": {ann, 200}} {
++	}{"no one signed in": {h, 404}, "bob": {bob, 404}, "ann": {ann, 200}} {
+ 		if code, _ := get(c.h, AttachmentURL(fmt.Sprint(a.ID))); code != c.code {
+ 			t.Errorf("a draft's file to %s: %d, want %d", who, code, c.code)
+ 		}
+diff --git a/board/export.go b/board/export.go
+index b3d93b8..75ad6b1 100644
+--- a/board/export.go
++++ b/board/export.go
+@@ -38,8 +38,9 @@ func ExportBoard(w http.ResponseWriter, r *http.Request) {
+ 	cw := csv.NewWriter(w)
+ 	cw.Write([]string{"id", "title", "status", "created_at", "comments"})
+ 	var after int64
++	now := time.Now() // one moment for every page
+ 	for {
+-		rows, err := ExportRows(ctx, db, ExportRowsParams{BoardID: id, After: after, Limit: exportPage})
++		rows, err := ExportRows(ctx, db, ExportRowsParams{BoardID: id, Now: now, After: after, Limit: exportPage})
+ 		if err != nil && after == 0 {
+ 			panic(err) // the csv.Writer still holds the first line: as above
+ 		}
+diff --git a/board/notify.go b/board/notify.go
+index 2b9b203..4bf6dd7 100644
+--- a/board/notify.go
++++ b/board/notify.go
+@@ -12,7 +12,7 @@ import (
+ // Hook is a webhook: where to post, and the token it wants.
+ type Hook struct{ URL, Token string }
+ 
+-// Webhook is where new posts are announced; main fills it in from the
++// Webhook is where posts are announced as they are published; main fills it in from the
+ // environment. With no URL, nothing is announced.
+ var Webhook Hook
+ 
+diff --git a/board/queries/export_rows.sql b/board/queries/export_rows.sql
+index 5d91e17..e5a49ee 100644
+--- a/board/queries/export_rows.sql
++++ b/board/queries/export_rows.sql
+@@ -1,13 +1,16 @@
+ -- name: ExportRows :many ExportRow
+--- The posts of a board that are not hidden, by id, the limit of them past
+--- id after: a page of the CSV.
++-- The posts of a board out by now, by id, the limit of them past id after:
++-- a page of the CSV.
+ -- param: board_id int64
++-- param: now      time.Time
+ -- param: after    int64
+ -- param: limit    int64
+ -- column: comments int64
+ SELECT p.id, p.title, p.status, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+-WHERE p.board_id = :board_id AND NOT p.hidden AND p.id > :after
++WHERE p.board_id = :board_id AND NOT p.hidden AND p.status <> 'draft'
++  AND (p.publish_at IS NULL OR p.publish_at <= :now)
++  AND p.id > :after
+ ORDER BY p.id
+ LIMIT :limit
+diff --git a/board/queries/post_list.sql b/board/queries/post_list.sql
+index a17bdad..96e2b35 100644
+--- a/board/queries/post_list.sql
++++ b/board/queries/post_list.sql
+@@ -10,7 +10,7 @@ SELECT p.id, p.title, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+ WHERE p.board_id = :board_id
+-  AND NOT p.hidden
++  AND NOT p.hidden AND p.status <> 'draft'
+   AND (p.publish_at IS NULL OR p.publish_at <= :now)
+ ORDER BY CASE WHEN p.pinned_from <= :now AND p.pinned_until > :now THEN 0 ELSE 1 END,
+          p.created_at DESC, p.id DESC
+diff --git a/board/queries/search_posts.sql b/board/queries/search_posts.sql
+index d0cce84..645a592 100644
+--- a/board/queries/search_posts.sql
++++ b/board/queries/search_posts.sql
+@@ -9,7 +9,7 @@ SELECT p.id, p.title, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+ WHERE p.board_id = :board_id
+-  AND NOT p.hidden
++  AND NOT p.hidden AND p.status <> 'draft'
+   AND (p.publish_at IS NULL OR p.publish_at <= :now)
+   {q} AND p.title LIKE '%' || :q || '%'
+ ORDER BY p.created_at DESC, p.id DESC
+diff --git a/board/queries_test.go b/board/queries_test.go
+index 213556a..d134276 100644
+--- a/board/queries_test.go
++++ b/board/queries_test.go
+@@ -32,7 +32,7 @@ func TestPostQueries(t *testing.T) {
+ 	}
+ 	var ids []int64
+ 	for i := 1; i <= 5; i++ {
+-		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: fmt.Sprintf("글 %d", i), Body: "본문"})
++		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: fmt.Sprintf("글 %d", i), Body: "본문", Status: maago.Set("published")})
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -79,7 +79,7 @@ func TestPostQueries(t *testing.T) {
+ 	}
+ 
+ 	page, err := PostDetail(ctx, db, PostDetailParams{ID: ids[0]})
+-	if err != nil || page.Title != "글 1" || page.BoardName != "목록" || page.Status != "draft" {
++	if err != nil || page.Title != "글 1" || page.BoardName != "목록" || page.Status != "published" {
+ 		t.Errorf("got %+v, %v", page, err)
+ 	}
+ 	if _, err := PostDetail(ctx, db, PostDetailParams{ID: -1}); !errors.Is(err, sql.ErrNoRows) {
+diff --git a/board/urls.go b/board/urls.go
+index 3cb7257..f6fb9fd 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -27,5 +27,6 @@ var Routes = maago.Routes{
+ 	// JSON for a frontend on another origin: main trusts it in Config.Origins.
+ 	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
+ 	maago.POST("/api/boards/{id}/posts", "api_post_create", APINewPost, maago.API, maago.LoginRequired),
++	maago.POST("/api/posts/{id}/publish", "api_post_publish", APIPublish, maago.API, maago.LoginRequired),
+ 	maago.GET("/api/me", "api_me", Me, maago.API, maago.LoginRequired),
+ }
+diff --git a/board/views.go b/board/views.go
+index f62f1bd..c0dac8b 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -92,10 +92,17 @@ type PostPage struct {
+ }
+ 
+ // ShowPost shows one post and its comments on GET, and adds a comment on
+-// POST. A hidden post is not found.
++// POST, to whoever may see it (maySee).
+ func ShowPost(ctx context.Context, in ShowPostIn) (maago.Result[PostPage], error) {
+ 	db := maago.DBFrom(ctx)
+-	p, err := PostDetail(ctx, db, PostDetailParams{ID: in.ID})
++	post, err := GetPost(ctx, db, in.ID)
++	if err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	if err := maySee(ctx, post); err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	p, err := PostDetail(ctx, db, PostDetailParams{ID: post.ID})
+ 	if err != nil {
+ 		return maago.Result[PostPage]{}, err
+ 	}
+@@ -158,8 +165,8 @@ func Attach(ctx context.Context, in AttachIn) (maago.Result[PostPage], error) {
+ }
+ 
+ // DownloadAttachment sends an attachment down, to whoever may see its
+-// post: none of a hidden post, and of a draft only to its author and
+-// staff. The view checks it: no route serves the media directory as it is.
++// post (maySee). The view checks it: no route serves the media directory
++// as it is.
+ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+ 	ctx := r.Context()
+ 	db := maago.DBFrom(ctx)
+@@ -173,19 +180,16 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+ 	if err == nil {
+ 		post, err = GetPost(ctx, db, a.PostID)
+ 	}
++	if err == nil {
++		err = maySee(ctx, post)
++	}
+ 	switch {
+-	case errors.Is(err, sql.ErrNoRows) || err == nil && post.Hidden:
++	case errors.Is(err, sql.ErrNoRows):
+ 		http.NotFound(w, r)
+ 		return
+ 	case err != nil:
+ 		panic(err) // nothing is written yet: a 500, and Config.OnError hears it
+ 	}
+-	if post.Status == "draft" {
+-		if err := mayChange(ctx, post); err != nil {
+-			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+-			return
+-		}
+-	}
+ 	maago.ServeMedia(w, r, a.media())
+ }
+ 
+@@ -284,8 +288,7 @@ func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], err
+ // only the database can check: the same title twice on one board would
+ // break the model's unique=(BoardID,Title) as a 500, and two notices may
+ // not be pinned at once. When one fails, it says so on f, as Validate
+-// would, and reports false. A saved post is announced to the webhook
+-// after the response.
++// would, and reports false.
+ func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Post, bool, error) {
+ 	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
+ 	if err != nil {
+@@ -313,12 +316,6 @@ func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Pos
+ 	if err != nil {
+ 		return Post{}, false, err
+ 	}
+-	hook := Webhook
+-	go func() {
+-		if err := notify(context.WithoutCancel(ctx), hook, p); err != nil {
+-			log.Printf("notify of post %d: %v", p.ID, err)
+-		}
+-	}()
+ 	return p, true, nil
+ }
+ 
+@@ -332,25 +329,42 @@ func Archive(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
+ 	return move(ctx, in.ID, "archived")
+ }
+ 
+-// move gives post id status to, if Post.Next allows it, and goes back to
+-// the post. What it does not allow is a 409 Conflict.
++// move moves post id to status to and goes back to the post.
+ func move(ctx context.Context, id int64, to string) (maago.Result[PostPage], error) {
++	if _, err := moveTo(ctx, id, to); err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	return maago.SeeOther[PostPage](PostDetailURL(id)), nil
++}
++
++// moveTo gives post id status to, if Post.Next allows it; what it does
++// not allow is a 409 Conflict. A post just published is out: the webhook
++// hears of it after the response.
++func moveTo(ctx context.Context, id int64, to string) (Post, error) {
+ 	db := maago.DBFrom(ctx)
+ 	p, err := GetPost(ctx, db, id)
+ 	if err != nil {
+-		return maago.Result[PostPage]{}, err
++		return Post{}, err
+ 	}
+ 	if err := mayChange(ctx, p); err != nil {
+-		return maago.Result[PostPage]{}, err
++		return Post{}, err
+ 	}
+ 	if err := p.Next(to); err != nil {
+-		return maago.Result[PostPage]{}, maago.Status(http.StatusConflict, err)
++		return Post{}, maago.Status(http.StatusConflict, err)
+ 	}
+ 	p.Status = to
+ 	if err := UpdatePost(ctx, db, &p); err != nil {
+-		return maago.Result[PostPage]{}, err
++		return Post{}, err
+ 	}
+-	return maago.SeeOther[PostPage](PostDetailURL(id)), nil
++	if to == "published" {
++		hook := Webhook
++		go func() {
++			if err := notify(context.WithoutCancel(ctx), hook, p); err != nil {
++				log.Printf("notify of post %d: %v", p.ID, err)
++			}
++		}()
++	}
++	return p, nil
+ }
+ 
+ type APIPostsIn struct {
+@@ -388,6 +402,28 @@ func APINewPost(ctx context.Context, in NewPostIn) (Post, error) {
+ 	}
+ }
+ 
++// APIPublish publishes a draft for a frontend, and returns it: what
++// APINewPost writes is a draft too.
++func APIPublish(ctx context.Context, in PostIn) (Post, error) {
++	return moveTo(ctx, in.ID, "published")
++}
++
++// maySee hides, as not found, a post that is not out from whoever may not
++// change it: a draft, or one to publish later. A hidden post is not found
++// at all. Not found, not forbidden: a post not out does not say it is
++// there.
++func maySee(ctx context.Context, p Post) error {
++	switch {
++	case p.Hidden:
++		return sql.ErrNoRows
++	case p.Status == "draft" || p.PublishAt != nil && p.PublishAt.After(time.Now()):
++		if mayChange(ctx, p) != nil {
++			return sql.ErrNoRows
++		}
++	}
++	return nil
++}
++
+ // mayChange refuses with 403 whoever neither wrote p nor is staff. A post
+ // from before there were accounts has no author: staff change it.
+ func mayChange(ctx context.Context, p Post) error {
+diff --git a/board/web_test.go b/board/web_test.go
+index 17c49e6..10314db 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -3,6 +3,7 @@ package board
+ import (
+ 	"database/sql"
+ 	"encoding/csv"
++	"encoding/json"
+ 	"fmt"
+ 	"net/http"
+ 	"net/http/httptest"
+@@ -88,7 +89,7 @@ func TestPages(t *testing.T) {
+ 	}
+ 	var first Post
+ 	for i := 1; i <= 12; i++ {
+-		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: fmt.Sprintf("글 %d", i), Body: "<b>본문</b>"})
++		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: fmt.Sprintf("글 %d", i), Body: "<b>본문</b>", Status: maago.Set("published")})
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -219,6 +220,16 @@ func TestPinAndSchedule(t *testing.T) {
+ 			t.Fatalf("%s: %d %s", w[0], code, body)
+ 		}
+ 	}
++	// A new post is a draft: out once published, tomorrow's then.
++	ps, err := RecentPosts(t.Context(), db, RecentPostsParams{Limit: 10})
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, p := range ps {
++		if code, _, body := post(h, PostPublishURL(p.ID), nil); code != 303 {
++			t.Fatalf("publish %s: %d %s", p.Title, code, body)
++		}
++	}
+ 
+ 	// The notice on top though older; tomorrow's post not yet.
+ 	_, body := get(h, BoardDetailURL(b.ID))
+@@ -367,8 +378,19 @@ func TestAPI(t *testing.T) {
+ 	if w := call("POST", APIPostCreateURL(b.ID), front, `{"title": "토큰 없이", "body": "본문"}`); w.Code != 401 || w.Header().Get("WWW-Authenticate") != "Bearer" {
+ 		t.Errorf("without a token: %d %v", w.Code, w.Header())
+ 	}
+-	if ps, err := RecentPosts(t.Context(), db, RecentPostsParams{Limit: 1}); err != nil || len(ps) != 1 || ps[0].AuthorID == nil || *ps[0].AuthorID != ann.ID {
+-		t.Errorf("the author of the API's post: %v %v", ps, err)
++	ps, err := RecentPosts(t.Context(), db, RecentPostsParams{Limit: 1})
++	if err != nil || len(ps) != 1 || ps[0].AuthorID == nil || *ps[0].AuthorID != ann.ID {
++		t.Fatalf("the author of the API's post: %v %v", ps, err)
++	}
++	// It is a draft: the list has it once the frontend publishes it.
++	if w := call("GET", APIPostsURL(b.ID), front, ""); strings.Contains(w.Body.String(), "API 글") {
++		t.Errorf("a draft in the list: %s", w.Body)
++	}
++	if w := call("POST", APIPostPublishURL(ps[0].ID), front, ""); w.Code != 401 {
++		t.Errorf("publish without a token: %d", w.Code)
++	}
++	if w := call("POST", APIPostPublishURL(ps[0].ID), front, "", bearer...); w.Code != 200 || !strings.Contains(w.Body.String(), `"Status":"published"`) {
++		t.Errorf("publish: %d %s", w.Code, w.Body)
+ 	}
+ 
+ 	w = call("GET", APIPostsURL(b.ID), front, "")
+@@ -388,7 +410,7 @@ func TestExport(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	for _, title := range []string{"하나", `"따옴표", 쉼표`, "셋", "=1+2", "숨김"} {
+-		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: title, Body: "본문"})
++		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: title, Body: "본문", Status: maago.Set("published")})
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -770,3 +792,145 @@ func TestEdit(t *testing.T) {
+ 		t.Errorf("the times changed: %v %v %v", got.PinnedFrom, got.PinnedUntil, got.PublishAt)
+ 	}
+ }
++
++// A draft, or a post to publish later, is not out: its author and staff
++// see it, and to anyone else it is not there. No list has it, whoever
++// asks: its author finds it on /me.
++func TestDrafts(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	asAnn, ann := signedIn(t, h, db, "ann@example.com")
++	asBob, _ := signedIn(t, h, db, "bob@example.com")
++	boss, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password)
++	if err != nil {
++		t.Fatal(err)
++	}
++	asBoss := as(h, login(t, h, boss.Email))
++	later := time.Now().Add(time.Hour)
++	var draft, scheduled Post
++	for _, p := range []struct {
++		to *Post
++		in NewPostInput
++	}{
++		{&draft, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 초안", Body: "본문"}},
++		{&scheduled, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 예약 글", Body: "본문", Status: maago.Set("published"), PublishAt: &later}},
++		{nil, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 게시 글", Body: "본문", Status: maago.Set("published")}},
++	} {
++		got, err := InsertPost(ctx, db, p.in)
++		if err != nil {
++			t.Fatal(err)
++		}
++		if p.to != nil {
++			*p.to = got
++		}
++	}
++	var files []Attachment
++	for _, p := range []Post{draft, scheduled} {
++		if w := upload(asAnn, p.ID, "a.txt", []byte("나오지 않은 글의 파일")); w.Code != 303 {
++			t.Fatalf("upload: %d %s", w.Code, w.Body)
++		}
++		as, err := PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID})
++		if err != nil || len(as) != 1 {
++			t.Fatalf("%v %v", as, err)
++		}
++		files = append(files, as[0])
++	}
++
++	type who struct {
++		name string
++		h    http.Handler
++	}
++	nobody, bob, annH, staff := who{"nobody", h}, who{"bob", asBob}, who{"ann", asAnn}, who{"staff", asBoss}
++	for _, c := range []struct {
++		who
++		method, path string
++		code         int
++	}{
++		{nobody, "GET", PostDetailURL(draft.ID), 404},
++		{bob, "GET", PostDetailURL(draft.ID), 404},
++		{bob, "GET", PostDetailURL(scheduled.ID), 404},
++		{annH, "GET", PostDetailURL(draft.ID), 200},
++		{annH, "GET", PostDetailURL(scheduled.ID), 200},
++		{staff, "GET", PostDetailURL(scheduled.ID), 200},
++		{nobody, "GET", AttachmentURL(fmt.Sprint(files[0].ID)), 404},
++		{bob, "GET", AttachmentURL(fmt.Sprint(files[0].ID)), 404},
++		{staff, "GET", AttachmentURL(fmt.Sprint(files[0].ID)), 200},
++		{bob, "GET", AttachmentURL(fmt.Sprint(files[1].ID)), 404},
++		{annH, "GET", AttachmentURL(fmt.Sprint(files[1].ID)), 200},
++		{nobody, "POST", CommentCreateURL(draft.ID), 401},
++		{bob, "POST", CommentCreateURL(draft.ID), 404},
++		{annH, "POST", CommentCreateURL(draft.ID), 303},
++	} {
++		var code int
++		if c.method == "GET" {
++			code, _ = get(c.h, c.path)
++		} else {
++			code, _, _ = post(c.h, c.path, url.Values{"text": {c.name + "의 댓글"}})
++		}
++		if code != c.code {
++			t.Errorf("%s %s %s: %d, want %d", c.name, c.method, c.path, code, c.code)
++		}
++	}
++	if cs, err := PostComments(ctx, db, PostCommentsParams{PostID: draft.ID}); err != nil || len(cs) != 1 {
++		t.Errorf("the draft's comments: %v %v", cs, err)
++	}
++
++	// out reports whether body has the published post and neither other.
++	out := func(body string) bool {
++		return strings.Contains(body, "앤의 게시 글") && !strings.Contains(body, "초안") && !strings.Contains(body, "예약")
++	}
++	for _, w := range []who{nobody, annH, staff} {
++		for _, path := range []string{BoardDetailURL(b.ID), BoardDetailURL(b.ID) + "?q=앤", APIPostsURL(b.ID), BoardExportURL(fmt.Sprint(b.ID))} {
++			if code, body := get(w.h, path); code != 200 || !out(body) {
++				t.Errorf("%s GET %s: %d\n%s", w.name, path, code, body)
++			}
++		}
++	}
++
++	// The webhook hears of a post when it is published, not when it is
++	// written: before, its link is not there.
++	heard := make(chan string, 2)
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		var p struct{ Title string }
++		json.NewDecoder(r.Body).Decode(&p)
++		heard <- p.Title
++	}))
++	defer srv.Close()
++	defer func(w Hook) { Webhook = w }(Webhook)
++	Webhook = Hook{URL: srv.URL}
++	if code, _, _ := post(asAnn, PostCreateURL(b.ID), url.Values{"title": {"새 초안"}, "body": {"본문"}}); code != 303 {
++		t.Fatalf("write: %d", code)
++	}
++	select {
++	case title := <-heard:
++		t.Errorf("heard of %q before it was published", title)
++	case <-time.After(100 * time.Millisecond):
++	}
++	if code, _, _ := post(asAnn, PostPublishURL(draft.ID), nil); code != 303 {
++		t.Fatalf("publish: %d", code)
++	}
++	select {
++	case title := <-heard:
++		if title != "앤의 초안" {
++			t.Errorf("heard of %q", title)
++		}
++	case <-time.After(5 * time.Second):
++		t.Error("the webhook heard nothing of the published post")
++	}
++	if _, body := get(h, BoardDetailURL(b.ID)); !strings.Contains(body, "앤의 초안") {
++		t.Errorf("published, not on the board:\n%s", body)
++	}
++	// Archiving is no news.
++	if code, _, _ := post(asAnn, PostArchiveURL(draft.ID), nil); code != 303 {
++		t.Fatalf("archive: %d", code)
++	}
++	select {
++	case title := <-heard:
++		t.Errorf("heard of %q when it was archived", title)
++	case <-time.After(100 * time.Millisecond):
++	}
++}
+diff --git a/main.go b/main.go
+index 22624d4..f7df456 100644
+--- a/main.go
++++ b/main.go
+@@ -45,7 +45,7 @@ func main() {
+ 	// authlib.SMTP(addr, from, auth).
+ 	auth.SiteURL = cmp.Or(os.Getenv("BOARD_SITE_URL"), "http://localhost:8000")
+ 	authlib.Mail = authlib.ConsoleMail
+-	// Where to announce new posts. Settings of the app are the app's own
++	// Where to announce published posts. Settings of the app are the app's own
+ 	// package variables, filled in here.
+ 	board.Webhook.URL = os.Getenv("BOARD_WEBHOOK_URL")
+ 	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")

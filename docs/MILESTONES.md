@@ -167,7 +167,7 @@ D-69(5분 흐름)에는 필요 없지만 v0에 넣는다. M4가 커지지 않게
   틀리는 커밋(과 그 오류 메시지)을 둔다
 - **DB는 하나(D-31)**: SQLite로 시작하고, 원본의 "sqlite3 & postgresql 동시 지원" 커밋 자리에 "PostgreSQL로
   바꾸기" 커밋을 둔다. 그 뒤로는 PG에서 통과한다
-- 작업 목록은 [TASKS-M8.md](TASKS-M8.md). M8 초안에서 정했다: 원본 39의 자리에서 PostgreSQL로 바꾸기 D-141, 더할 단계 셋(`Me`·`Edit a post`·`Ship it`)과 대응표 D-142
+- 작업 목록은 [TASKS-M8.md](TASKS-M8.md). M8 초안에서 정했다: 원본 39의 자리에서 PostgreSQL로 바꾸기 D-141, 더할 단계 넷(`Me`·`Edit a post`·`Drafts are their author's`·`Ship it`)과 대응표 D-142
 - 위치와 커밋을 하나씩 걷는 시험은 M3에서 정했다: 이 저장소의 `examples/board/`, `cmd/maago`의 `TestBoardTutorial`
   (D-103. 릴리스 전에는 `replace` 대신 태그한 버전을 쓴다, TODO)
 

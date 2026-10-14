@@ -5,15 +5,15 @@
 설계의 갈림길은 "Claude·Codex가 Maago로 서비스를 만들 때 편한가"로 정한다(사람의 결정, 2026-10-13).
 
 **M8 완료 조건** (MILESTONES)
-- 원본 89개 커밋이 모두 대응표에 있고(대응하지 않는 것은 이유와 함께), 대응한 것은 튜토리얼의 커밋으로 있다 → 6번(표), 3~5번(빈 곳)
+- 원본 89개 커밋이 모두 대응표에 있고(대응하지 않는 것은 이유와 함께), 대응한 것은 튜토리얼의 커밋으로 있다 → 7번(표), 3~6번(빈 곳)
 - 커밋을 하나씩 걷는 스크립트로 첫 커밋부터 마지막까지 `maago check`와 테스트가 통과한다(PostgreSQL로 바꾼 뒤는 PG에서) → 2·3번
-- 일부러 틀리는 커밋마다 기대한 오류 메시지가 나온다 → 이미 `Maago-Expect`가 걷기에서 강제(D-103), README에 찾는 법 한 줄(7번)
+- 일부러 틀리는 커밋마다 기대한 오류 메시지가 나온다 → 이미 `Maago-Expect`가 걷기에서 강제(D-103), README에 찾는 법 한 줄(8번)
 - 에이전트가 튜토리얼을 처음부터 따라 하는 확인은 M9 게이트의 셋째 항목과 함께 한다 → M9
 
 **앞에서 넘어온 것**
 - TODO M4: 탈출구 뷰의 경로 값은 URL 함수에서 `string`이라 템플릿 검사가 정수를 거절한다. "M8에서 튜토리얼을 PG로 다시 묶을 때 검사기를 고치고 0016의 `print`를 지운다" → 1번(0028의 `(print .ID)`도)
 - TODO 첫 릴리스 전: 튜토리얼도 `replace` 대신 태그한 버전 → M8 밖(릴리스, 태그는 사람의 일)
-- MILESTONES M8 할일: 배포(단일 바이너리, 설정, 컨테이너 이미지 예시) → 5번
+- MILESTONES M8 할일: 배포(단일 바이너리, 설정, 컨테이너 이미지 예시) → 6번
 
 ---
 
@@ -34,7 +34,7 @@
 초안의 Q1~Q5를 codex·fable 리뷰 뒤 정했다. 자세한 것은 DECISIONS.
 
 - **D-141 PostgreSQL로 바꾸기**: 원본 39의 자리(0012 뒤, MILESTONES가 정한 대로). 그 단계는 SQLite의 마이그레이션을 지우고 `makemigrations`로 PG의 첫 초안을 새로 쓴다(데이터는 옮기지 않는다: 새 DB에서 시작하는 연습, D-31). 트레일러 `Maago-Database: postgres`가 걷기와 `steps.sh unpack`의 `.env`를 그 단계부터 PG로(모르는 값·두 번은 오류). 걷기는 `MAAGO_TEST_PG_URL`의 서버에 걷기마다 스키마를 만들어(`search_path`, 끝에 지움) `.env`의 `MAAGO_DATABASE_URL`로 쓴다. 로컬에 PG가 없으면 그 단계 앞에서 건너뛰고(이유), `CI`면 실패(D-91). 뒤 단계의 마이그레이션 넷은 PG로 다시
-- **D-142 더할 단계 셋**: `Me`(`/me` 내 글 목록, `GET /api/me` 토큰으로. 복사한 auth는 손대지 않는다, 커스텀 User 필드는 메시지의 한 문단으로), `Edit a post`(작성자·staff), `Ship it`(마지막: 바이너리 하나, 환경 변수, `PORT`(기본 8000), `Dockerfile` 예시: 다단계·`CGO_ENABLED=0`·`gcr.io/distroless/static`·`media/` 볼륨. 걷기의 확인은 `CGO_ENABLED=0 GOOS=linux go build`와 이미 있는 `-createsuperuser`의 기동. Docker는 돌리지 않는다)
+- **D-142 더할 단계 셋**(넷째 `Drafts are their author's`는 4번 리뷰 뒤 사람의 결정, 5번): `Me`(`/me` 내 글 목록, `GET /api/me` 토큰으로. 복사한 auth는 손대지 않는다, 커스텀 User 필드는 메시지의 한 문단으로), `Edit a post`(작성자·staff), `Ship it`(마지막: 바이너리 하나, 환경 변수, `PORT`(기본 8000), `Dockerfile` 예시: 다단계·`CGO_ENABLED=0`·`gcr.io/distroless/static`·`media/` 볼륨. 걷기의 확인은 `CGO_ENABLED=0 GOOS=linux go build`와 이미 있는 `-createsuperuser`의 기동. Docker는 돌리지 않는다)
 - 대응표는 `examples/board/MAP.md`, 89줄 한 줄씩(원본 커밋 → 게시판 커밋 → Maago 기능 → 마일스톤, 대응 없음은 이유). "복사한 auth가 준다"와 "게시판이 시험한다"를 가른다. 원본 13·14·18(공개 프로필)은 대응 없음(작성자는 글에), 27(계정 변경)은 복사본의 비밀번호 바꾸기(이메일·이름 바꾸기는 v0에 없음), 39는 "같은 자리에 D-31의 답(분기 없이 하나로)"
 
 ## 작업
@@ -78,7 +78,7 @@
 4. **`Me`와 `Edit a post`**(D-142): 단계 둘. → 확인: `TestBoardTutorial`, `TestBoardTutorialCatches`에 단계마다 한 줄(권한 검사 빼기)
 
    계획 (풀어 둔 곳에서 먼저 해 봄: 두 단계 모두 PG로 gen·check·`go test`가 통과)
-   - 자리: 0029 뒤에 `0030-Me.patch`, `0031-Edit-a-post.patch`(앞 단계의 번호가 밀리지 않는다. `Ship it`은 5번에서 0032)
+   - 자리: 0029 뒤에 `0030-Me.patch`, `0031-Edit-a-post.patch`(앞 단계의 번호가 밀리지 않는다. `Ship it`은 5번에서 0032. 그 뒤 초안 단계가 0032, `Ship it`은 0033)
    - **0030 `Me`**(원본 44·24): `board/queries/my_posts.sql`(`MyPosts :many MyPost`, `author_id`의 글, 초안·예약도, 숨긴 글은 빼고, 게시판 이름과, 새것부터. 페이지 없음). 뷰 `Me(ctx, struct{}) (MePage, error)` 하나를 라우트 둘이 쓴다: `GET /me`(`me`, 템플릿 `me_page.html`)와 `GET /api/me`(`api_me`, `maago.API`), 둘 다 `maago.LoginRequired`. `MePage{Email, Posts}`: `auth.User`를 통째로 JSON에 넣지 않는다(비밀번호 해시). `base.html` 머리에 `내 글` 링크(클래스 없음: Tailwind 출력은 그대로)
      - 시험 `TestMe`: 앤의 초안·게시 글은 나오고 숨긴 글·밥의 글은 안 나온다(페이지와 JSON 둘), 로그인 없는 `/me`는 303, 토큰 없는 `/api/me`는 401과 `WWW-Authenticate: Bearer`, 토큰이면 200 JSON(`"Email":"ann@example.com"`)
      - 메시지: 한 뷰가 페이지와 JSON을 함께 하는 법, 사용자는 `maago.UserFrom`이 준다. 커스텀 User 필드 한 문단: `auth/models.go`의 `User`에 필드를 적고 `makemigrations`(복사한 앱은 내 코드다). 이 튜토리얼은 `auth/`를 패치에 넣지 않아 하지 않는다
@@ -90,15 +90,32 @@
    - 하지 않는 것: `/me`의 페이지 나누기, 글 고치기의 API, 고친 글의 웹훅 알림, 고치기의 기록(누가 언제)
    - 계획 리뷰 codex·fable(권한 검사): 막는 지적 없음. 받음: 비로그인 GET edit의 303, 고치기 뒤 고정·예약 시각이 그대로인지, `/me`에 예약 글, 다른 게시판의 같은 제목은 303, Catches를 컴파일되는 돌연변이로 고정하고 실측, `UpdatedAt`은 `!Equal`, 시험은 `TestAuthors`의 표 꼴, 편집 화면의 제목과 `Form.Errors`. 받지 않음(TODO로, 사람에게 묻는다): 초안·예약 글의 상세(`ShowPost`)가 누구에게나 보인다(codex). `/me`는 작성자에게 제 글의 링크를 보일 뿐 접근을 넓히지 않고, 고치면 단계가 하나 더 생겨 D-142가 바뀐다(fable)
    - 구현 리뷰는 fable 하나: codex는 이 기기에서 Codex CLI가 없다며 돌지 않았다(계획 리뷰 때는 돌았다). 막는 지적 없음, 복사본을 PG로 걸어 돌연변이 8개 중 7개를 잡는 것을 실측(Catches 두 줄도). 받음: 안 잡힌 하나(`my_posts.sql`의 순서)를 `TestMe`가 순서로 보게(뒤집으면 실패를 확인), 패키지 `auth`를 가리는 매개변수 이름, `PostEditPage`의 키 있는 리터럴. 알아 둘 것: 같은 서버·같은 데이터베이스에서 걷기 둘이 동시에 돌면 스키마가 겹친다(2번에서 받지 않은 그 경우). 리뷰어에게는 다른 데이터베이스를 준다
-5. **`Ship it`**(D-142): 마지막 단계. → 확인: 걷기의 교차 빌드
-6. **대응표** `examples/board/MAP.md`(번호가 정해진 뒤). → 확인: 시험이 표의 게시판 커밋 열을 `steps/*.patch`와 맞춤(모든 패치가 한 번은 나오고, 표의 단계가 다 있음), 원본 줄은 89
-7. **완료 조건과 문서**: "M8 끝"에 조건마다 시험 이름, README(일부러 틀리는 단계를 찾는 법 `grep -l Maago-Expect steps/*.patch`), MILESTONES의 M8 표·할일, TUTORIAL-FUTURE
+5. **`Drafts are their author's`**(D-142, 4번 리뷰에서 사람의 결정 2026-10-14): 초안과 예약 글(미래 `publish_at`)은 작성자와 staff만 본다. 목록·검색·API 목록·CSV·글 화면·댓글·첨부 모두. → 확인: `TestBoardTutorial`, `TestBoardTutorialCatches`에 한 줄
+
+   계획
+   - 자리: `0032-Drafts-are-their-author-s.patch`(`git format-patch`가 `'`를 `-`로). `Ship it`은 0033
+   - 뜻: 초안과 예약 글(`publish_at`이 미래)은 "아직 나오지 않은 글"이다. 게시판 목록·검색·API 목록·CSV에는 누구에게도 나오지 않는다(작성자는 `/me`, staff는 admin에서 본다. 목록에 작성자만의 예외를 두면 쿼리마다 보는 사람이 들어간다: 받지 않음, codex). 글 화면·댓글·첨부 내려받기는 작성자와 staff만, 그 밖은 404(있는지도 알리지 않는다). 바꾸기(게시·보관·지우기·고치기·첨부 올리기)는 지금처럼 `mayChange`의 403: 로그인한 사람의 요청이고 앞 단계의 시험이 그대로다
+   - 목록의 SQL: `post_list.sql`·`search_posts.sql`에 `AND p.status <> 'draft'`(예약은 이미 `publish_at <= :now`로 빠진다), `export_rows.sql`에 `now` 파라미터와 두 조건, `ExportBoard`가 `Now: time.Now()`를 넘긴다. 보관한 글은 나온다. `RecentPosts`는 뷰가 쓰지 않아(시험만) 그대로
+   - 한 글: `maySee(ctx, p Post) error`. 숨긴 글, 또는 초안·예약 글인데 `mayChange`가 거절하면 `sql.ErrNoRows`. `ShowPost`(GET과 댓글 POST)는 `GetPost` → `maySee` → `PostDetail`(`PostWithBoard`에는 `author_id`·`publish_at`이 없어 `GetPost`가 먼저다, `Attach`와 같은 순서). `DownloadAttachment`는 숨김·초안 검사를 `maySee`로 바꾸고 그 오류면 `http.NotFound`(탈출구 뷰라 오류를 돌려주지 않는다). 0029의 남의 초안 첨부 403이 404가 된다(메시지에 한 줄)
+   - 알림: 웹훅은 글을 쓸 때가 아니라 게시할 때 울린다(`savePost`에서 `move`의 `published`로). 쓴 직후에 울리면 받는 쪽이 여는 링크가 404다(fable). 0018의 "새 글이 올라오면"은 이제 "게시되면"(메시지에)
+   - API 게시: `POST /api/posts/{id}/publish`(`api_post_publish`, `maago.API`, `maago.LoginRequired`), 뷰는 게시된 `Post`를 JSON으로. `move`의 몸통을 `Post`를 돌려주는 함수로 나눠 HTML·API가 함께 쓴다. API로 쓴 글이 목록에 안 나오고 게시할 길도 없으면 프런트엔드의 함정이다(fable)
+   - 새 글은 지금처럼 초안으로 시작한다: 쓴 사람은 글 화면과 `/me`에서 보고, 게시하면 게시판에 나온다
+   - 앞 시험 고침(fable 실측 여섯): `TestPostQueries`·`TestPages`·`TestPinAndSchedule`·`TestExport`는 글을 `Status: maago.Set("published")`로, `TestAPI`는 만든 뒤 API로 게시하고 목록을 본다, `TestAttachments`의 남의 초안 첨부는 404, 알림 시험은 게시할 때 울리는지
+   - 새 시험 `TestDrafts`(표): 앤의 초안, 예약 글(`published`·미래 `publish_at`: `maySee`의 시각 분기), 게시 글. 익명·밥·앤·staff가 글 화면·댓글 POST(거절이면 댓글이 생기지 않음)·첨부에서 무엇을 받는지, 게시판 목록·검색·API 목록·CSV에는 누구에게도 게시 글만. 게시하면 목록에 나온다
+   - Catches: `maySee`의 초안 조건을 컴파일되는 글자로 `false`로 바꾼 줄(실측) → `go test: `(밥의 글 화면 404가 잡는다)
+   - D-142의 "단계 셋"을 넷으로, TODO의 M8 줄 체크, README 다음 작업
+   - 하지 않는 것: `RecentPosts`, 목록에서 작성자의 초안 보이기, 초안의 미리 보기 링크, admin(staff는 이미 다 본다)
+   - 계획 리뷰 codex·fable: 받음: 위의 CSV 호출, 내려받기 404의 `http.NotFound`, 댓글 POST, `TestExport`·`TestAttachments`, 예약 글의 상태, 읽기 404·바꾸기 403의 구분, 웹훅과 API 게시(fable, 사람의 결정 "어디서나"에서 따라 나온다고 보고 에이전트 편의로 정함). 받지 않음: 목록에 작성자·staff의 예외(codex, 위 "뜻")
+   - 구현 리뷰는 fable 하나: codex는 Codex CLI가 없다며 또 돌지 않았다(계획 리뷰는 돌았다: 쓰기·실행이 드는 요청에서만 실패). 대신 글을 읽는 라우트를 손으로 훑었다(`ShowBoard`·`APIPosts`·`ExportBoard`·`ShowPost`·`DownloadAttachment`·`Me`, 나머지는 `mayChange` 뒤의 쓰기). fable은 막는 지적 없음, PG로 돌연변이 11개 중 9개를 잡음, `-race -count=20`으로 웹훅 시험이 흔들리지 않음. 받음: 안 잡힌 둘(API 게시의 토큰 없음 401, 보관할 때는 알리지 않음)을 시험에, 예약 글의 첨부 404, 낡은 주석 둘(`notify.go`·`main.go`), 메시지의 "(0018)"과 404의 까닭을 읽기로 좁힘, 위 기록 절의 괄호
+6. **`Ship it`**(D-142): 마지막 단계. → 확인: 걷기의 교차 빌드
+7. **대응표** `examples/board/MAP.md`(번호가 정해진 뒤). → 확인: 시험이 표의 게시판 커밋 열을 `steps/*.patch`와 맞춤(모든 패치가 한 번은 나오고, 표의 단계가 다 있음), 원본 줄은 89
+8. **완료 조건과 문서**: "M8 끝"에 조건마다 시험 이름, README(일부러 틀리는 단계를 찾는 법 `grep -l Maago-Expect steps/*.patch`), MILESTONES의 M8 표·할일, TUTORIAL-FUTURE
 
 ---
 
 ## M8 끝
 
-- [ ] 1~7 완료
+- [ ] 1~8 완료
 - [ ] 위 M8 완료 조건을 실제로 돌려 확인(PG는 `MAAGO_TEST_PG_URL`로), 조건마다 시험 이름
 - [ ] MILESTONES.md의 M8 체크박스 갱신
 - [ ] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인
