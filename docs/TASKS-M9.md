@@ -44,6 +44,20 @@
 0. ~~M8 끝~~(앞선 일): CI의 PG 실행 확인, MILESTONES의 M8 체크, README의 다음 작업. 했다(2026-10-15, TASKS-M8 "M8 끝")
 1. ~~Q1~Q4의 답을 DECISIONS에~~: 초안에서 D-143~D-146으로 했다
 2. **(Q4가 a면) 첫 릴리스 준비**: `cmd/maago`의 `replace` 빼기, 루트 태그(사람), 튜토리얼의 `go.mod`가 태그한 판. 에이전트 게이트가 `go install`부터 시작하려면 그 앞이다 → 확인: 빈 디렉터리에서 `go install …/cmd/maago@태그`
+
+   계획 (사람의 결정 2026-10-15: 판은 v0.1.0, 저장소를 공개한 뒤 태그한다)
+   - 사실: 저장소가 private이다. 공개 프록시와 체크섬 DB가 받지 못해 `go install …@v0.1.0`이 되지 않는다 → 사람이 공개로 바꾼 뒤 태그한다. 하위 모듈의 태그는 `cmd/maago/v0.1.0`(경로에 `/v0` 없음). 판을 붙인 `go install`은 설치하는 모듈(`cmd/maago`)의 `go.mod`에 `replace`·`exclude`가 있으면 거부하고, 현재 디렉터리의 `go.mod`·`go.work`는 보지 않는다
+   - 차례, 태그 둘은 다른 커밋을 가리킨다: `cmd/maago`의 `go.sum`에 루트 v0.1.0의 체크섬이 들어가려면 루트 태그가 먼저 있어야 한다. 루트 v0.1.0은 그때의 런타임, `cmd/maago/v0.1.0`은 그것을 `require`하는 뒤 커밋이다(사이의 커밋은 `cmd/maago`·`examples`·문서·`go.work`만 바꾸고 런타임 코드는 바꾸지 않는다)
+     1. 사람: 저장소 공개, `main`의 머리(이 계획의 커밋을 push한 뒤)에 `v0.1.0` 태그와 push
+     2. 여기: 태그 확인 셋(`git ls-remote --tags`, `GOPROXY=direct go list -m github.com/maago-web/maago@v0.1.0`, 기본 프록시로 같은 것. 기본만 실패하면 프록시 반영 지연이라 기다린다)
+     3. 여기: `cmd/maago/go.mod`가 `github.com/maago-web/maago v0.1.0`을 `require`하고 `replace`를 뺀다(`GOWORK=off go mod tidy`). 저장소 루트에 `go.work`(`use .`·`use ./cmd/maago`)를 새로 커밋한다: 개발과 CI의 시험은 두 모듈을 함께 본다(`go.work.sum`이 생기면 함께 커밋). 게시판의 `go.mod`·`go.sum`(0001·0013 패치)은 풀어 둔 곳에서 `GOWORK=off go mod tidy`로 v0.1.0과 그 체크섬을. TODO "첫 릴리스 전" 셋 체크. `cmd/maago/testdata`의 자리표 판은 시험의 `replace`가 덮으니 그대로
+     4. CI: 지금의 두 단계(작업 공간으로 vet·test)에 릴리스 단계 하나를 더한다: `cd cmd/maago && GOWORK=off go mod tidy -diff && GOWORK=off go build ./...`(공개한 루트 판으로 짓힌다). 작업 공간의 `go mod tidy -diff`는 루트를 로컬로 풀어 공개 판의 증명이 아니다
+     5. 사람: 3·4의 커밋에 `cmd/maago/v0.1.0` 태그와 push
+     6. 여기: 빈 디렉터리·빈 `GOPATH`·`GOWORK=off`에서 `go install github.com/maago-web/maago/cmd/maago@v0.1.0`(2의 셋으로 실패를 가른다), 새로 clone한 저장소에서 CI의 릴리스 단계, `maago help`
+   - 결정에 없는 선택: 루트 `go.work`를 커밋한다(개발용, 릴리스의 증거는 `GOWORK=off`의 단계). 기각: `cmd/maago`가 늘 루트의 지난 태그를 쓰기(같은 커밋의 런타임과 CLI가 갈라진다)
+   - 하지 않는 것: TUTORIAL-FUTURE의 `go get …@v0.1.0` 고정(문서는 늘 마지막 판을 따른다, codex의 제안. 게시판의 `go.mod`가 판을 고정한다), 판 올리기의 자동화, CHANGELOG, 다음 릴리스의 두 모듈 판 맞추기
+   - 계획 리뷰는 codex 하나(fable은 사용 한도): 받음: 루트 `go.work`는 새로 만드는 것, CI의 `GOWORK=off` 릴리스 단계, 작업 공간의 `tidy -diff`는 증명이 아니다, 태그 둘의 커밋을 밝힌다, `go install`이 거부하는 경우의 문구, 게시판 `go.sum`, 프록시 지연을 가르는 확인 셋, `go.work.sum`. 받지 않음: 튜토리얼의 판 고정(위)
+
 3. **짧은 튜토리얼의 하네스**(M6 10번의 넘김): TUTORIAL-FUTURE §2~5의 명령과 파일을 빈 디렉터리에서 차례로 돌리고 admin 로그인·글 CRUD를 HTTP로 확인하는 스크립트 하나(`cmd/maago`의 시험이 돌린다). 문서를 실제 출력에 맞춘다(§3~5의 순서, 첫 오류 그대로). 3·5·6번이 이 하네스로 끝을 확인한다 → 확인: 하네스가 통과, 문서의 코드 블록과 하네스의 파일이 같다
 4. **5분 흐름 재기**(D-69, D-143): 6번의 에이전트 실행이 잰다(작업은 6번과 합칠 수 있다) → 확인: 시작부터 끝까지의 벽시계가 300초 이하, 막힌 곳의 목록
 5. **속도**(D-65): Q2의 예제와 재는 법을 시험으로, 넘으면 캐시(쿼리만 바뀐 `check`) → 확인: 판정 조건에서 SQLite 1초·PG 3초
