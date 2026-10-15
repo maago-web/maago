@@ -37,6 +37,12 @@ func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) [
 		}
 	}
 	var ds []diag.Diagnostic
+	project := map[string]bool{} // the project's packages, where a user type is declared
+	for _, p := range res.Packages {
+		project[p.Path()] = true
+	}
+	var user *types.Named // the user type of the first view that takes one
+	var userView string
 	for _, app := range apps {
 		pkg := res.Packages[app.Dir]
 		if pkg == nil {
@@ -65,6 +71,18 @@ func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) [
 				continue
 			}
 			msg, fix := r.view.signature(fn.Type().(*types.Signature), pkg, hasOption(r.Options, "API"))
+			if msg == "" && r.view.user {
+				var u *types.Named
+				u, msg, fix = r.view.userParam(fn.Type().(*types.Signature).Params().At(1).Type(), pkg, project)
+				switch {
+				case u == nil:
+				case user == nil:
+					user, userView = u, r.View
+				case !types.Identical(u, user):
+					msg, fix = fmt.Sprintf("takes the user as %s, but view %s takes %s", types.TypeString(u, qualifier(pkg)), userView, types.TypeString(user, qualifier(pkg))),
+						"Config.Auth returns one user type; take it in every view"
+				}
+			}
 			if msg != "" {
 				ds = append(ds, diag.New(pos, fmt.Sprintf("view %s %s", r.View, msg), fix))
 				failed = true
@@ -131,6 +149,41 @@ func (v *view) signature(sig *types.Signature, pkg *types.Package, api bool) (ms
 	}
 	v.page = n.Obj().Name()
 	return "", ""
+}
+
+// userParam checks t, the user parameter of the view, and records how
+// the adapter writes it: a struct declared in the project (D-149).
+func (v *view) userParam(t types.Type, pkg *types.Package, project map[string]bool) (*types.Named, string, string) {
+	written := types.TypeString(t, qualifier(pkg))
+	t = types.Unalias(t)
+	if p, ok := t.(*types.Pointer); ok {
+		t = types.Unalias(p.Elem())
+	}
+	for _, db := range []string{"DB", "Tx", "Conn"} {
+		if named(t, "database/sql", db) {
+			return nil, "takes *sql." + db + " where the user goes", "take db maago.DB, after the user"
+		}
+	}
+	n, ok := t.(*types.Named)
+	if _, isStruct := t.Underlying().(*types.Struct); !ok || !isStruct || n.TypeArgs().Len() > 0 || n.Obj().Pkg() == nil || !project[n.Obj().Pkg().Path()] {
+		return nil, "takes " + written + ", which is not a user type",
+			"between ctx and In a view takes the user, a struct of the project such as auth.User (*auth.User if it may be missing), then db maago.DB"
+	}
+	v.userType = n.Obj().Name()
+	if n.Obj().Pkg() != pkg {
+		v.userType, v.userImport = "maagouser."+v.userType, n.Obj().Pkg().Path()
+	}
+	return n, "", ""
+}
+
+// qualifier writes a type as code in pkg does: auth.User, not its path.
+func qualifier(pkg *types.Package) types.Qualifier {
+	return func(p *types.Package) string {
+		if p == pkg {
+			return ""
+		}
+		return p.Name()
+	}
 }
 
 func named(t types.Type, pkg, name string) bool {

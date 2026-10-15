@@ -106,11 +106,14 @@ func TestAuthConfig(t *testing.T) {
 	login.LoginRequired = true
 	api := route("GET", "/api", true, ok)
 	api.LoginRequired = true
+	maybe := route("GET", "/maybe", false, ok)
+	maybe.User = true // a view's u *User: no login, a user all the same (D-149)
 	for _, c := range []struct {
 		cfg  Config
 		want string
 	}{
 		{Config{DB: testDB, Apps: []App{NewApp("a", login)}, LoginURL: "/login"}, "Config.Auth is nil"},
+		{Config{DB: testDB, Apps: []App{NewApp("a", maybe)}}, "Config.Auth is nil"},
 		{Config{DB: testDB, Apps: []App{NewApp("a", login)}, Auth: fakeAuth}, "Config.LoginURL is empty"},
 		{Config{DB: testDB, Apps: []App{NewApp("a", login)}, Auth: fakeAuth, LoginURL: "%zz"}, "Config.LoginURL"},
 		{Config{DB: testDB, Apps: []App{NewApp("a", login)}, Auth: fakeAuth, LoginURL: "login"}, "is relative"},

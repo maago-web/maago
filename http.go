@@ -103,6 +103,7 @@ type AppRoute struct {
 	Method, Path, Name string
 	API                bool
 	LoginRequired      bool // a request without a user does not reach Serve (D-121)
+	User               bool // its view takes the user (D-149): Config.Auth is needed
 	Files              bool // it reads a form with a file: Config.MediaDir is needed (D-140)
 	Serve              func(w http.ResponseWriter, r *http.Request) error
 }
@@ -152,13 +153,13 @@ func Handler(cfg Config) (http.Handler, error) {
 			pattern := r.Method + " " + r.Path
 			h.routes[pattern] = r
 			h.mux.Handle(pattern, h.serve(r))
-			login, files = login || r.LoginRequired, files || r.Files
+			login, files = login || r.LoginRequired || r.User, files || r.Files
 			htmlLogin = htmlLogin || r.LoginRequired && !r.API
 		}
 	}
 	switch {
 	case login && cfg.Auth == nil:
-		return nil, errors.New("maago: routes require login, but Config.Auth is nil, so no request could reach them; set it to what tells the user of a request")
+		return nil, errors.New("maago: routes require login or take the user, but Config.Auth is nil, so none has a user; set it to what tells the user of a request")
 	case htmlLogin && cfg.LoginURL == "":
 		return nil, errors.New("maago: HTML routes require login, but Config.LoginURL is empty; set it to the login page")
 	}
@@ -551,7 +552,7 @@ func UserFrom[U any](ctx context.Context) (U, bool) {
 	}
 	u, ok := v.(U)
 	if !ok {
-		panic(fmt.Sprintf("maago: the user is a %T, not a %s; UserFrom must ask for the type Config.Auth returns", v, fmt.Sprintf("%T", &zero)[1:]))
+		panic(fmt.Sprintf("maago: the user is a %T, not a %s; a view's user parameter (u T or u *T) and UserFrom must be the type Config.Auth returns, a value, not a pointer", v, fmt.Sprintf("%T", &zero)[1:]))
 	}
 	return u, true
 }

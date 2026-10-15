@@ -4,6 +4,7 @@ package {{.Package}}
 
 import (
 {{range .Imports}}{{if .}}	"{{.}}"{{end}}
+{{end}}{{if .UserImport}}	maagouser "{{.UserImport}}"
 {{end}})
 {{if .Static}}
 //go:embed static
@@ -70,7 +71,17 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	}
 {{- end}}
 {{- end}}
-	p, err := {{.View}}(r.Context(), in)
+{{- if .User}}
+{{- if .UserPtr}}
+	var u *{{.User}}
+	if v, ok := maago.UserFrom[{{.User}}](r.Context()); ok {
+		u = &v
+	}
+{{- else}}
+	u, _ := maago.UserFrom[{{.User}}](r.Context()) // the route requires login
+{{- end}}
+{{- end}}
+	p, err := {{.View}}(r.Context(){{if .User}}, u{{end}}{{if .DB}}, maago.DBFrom(r.Context()){{end}}, in)
 	if err != nil {
 		return err
 	}

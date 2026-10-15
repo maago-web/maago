@@ -1,10 +1,38 @@
-# three values
-site/urls.go:65:6: view A takes 3 values and returns 2
+# five values
+site/urls.go:65:6: view A takes 5 values and returns 2
   fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
 
 # In of another package
 site/urls.go:65:32: the In of view A is not struct{} or a struct type named in package site
-  fix: declare type AIn struct{…} in package site with fields tagged maago:"path=name", maago:"query=name" or maago:"form", or take struct{}
+  fix: declare type AIn struct{…} in package site with fields tagged maago:"path=name", maago:"query=name" or maago:"form", or take struct{}; if it is the user, In comes after it: func A(ctx context.Context, u http.Request, in struct{}) …
+
+# no In after the user
+site/more.go:12:31: the In of view A is not struct{} or a struct type named in package site
+  fix: declare type AIn struct{…} in package site with fields tagged maago:"path=name", maago:"query=name" or maago:"form", or take struct{}; if it is the user, In comes after it: func A(ctx context.Context, u users.User, in struct{}) …
+
+# no In after the database
+site/more.go:12:47: view A takes no In: In comes last, even when empty
+  fix: write func A(ctx context.Context, u *users.User, db maago.DB, in struct{}) …
+
+# database before the user
+site/more.go:12:32: view A takes its values out of order
+  fix: write func A(ctx context.Context, u users.User, db maago.DB, in struct{}) …
+
+# two databases
+site/more.go:12:37: view A takes its values out of order
+  fix: write func A(ctx context.Context, db maago.DB, in struct{}) …
+
+# login twice
+site/urls.go:11:26: route a has maago.LoginRequired, but view A takes the user, which requires login already
+  fix: remove maago.LoginRequired
+
+# login with a user that may be missing
+site/urls.go:11:26: route a requires login, but view A takes the user as a pointer, which is for a user that may be missing
+  fix: take u users.User, not *users.User, and remove maago.LoginRequired: the view's user requires login
+
+# login on one route of a view
+site/urls.go:11:57: route a_post requires login, but view A serves a too, which does not
+  fix: split the view: the one without login takes u *users.User, the one with login u users.User, and neither route has maago.LoginRequired
 
 # untagged field
 site/urls.go:65:18: field X says not where its value comes from
@@ -62,7 +90,7 @@ site/urls.go:12:27: route post_detail would declare PostDetailURL, which site/mo
 
 # In with fields, not named
 site/urls.go:65:32: the In of view A is not struct{} or a struct type named in package site
-  fix: declare type AIn struct{…} in package site with fields tagged maago:"path=name", maago:"query=name" or maago:"form", or take struct{}
+  fix: declare type AIn struct{…} in package site with fields tagged maago:"path=name", maago:"query=name" or maago:"form", or take struct{}; if it is the user, In comes after it: func A(ctx context.Context, u struct{X int64}, in struct{}) …
 
 # two sources
 site/urls.go:65:42: field X names more than one source
@@ -79,6 +107,30 @@ site/urls.go:65:6: view A has type parameters
 # first not a context
 site/urls.go:65:6: view A takes int first, not a context.Context
   fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+
+# sql.DB for the database
+site/more.go:12:31: view A takes the database as *sql.DB, not maago.DB
+  fix: write func A(ctx context.Context, u users.User, db maago.DB, in struct{}) …
+
+# a pointer to maago.DB
+site/more.go:12:32: view A takes the database as *maago.DB, not maago.DB
+  fix: write func A(ctx context.Context, db maago.DB, in struct{}) …
+
+# login on one route of a view that requires it
+site/urls.go:11:57: route a_post has maago.LoginRequired, but view A takes the user, which requires login already
+  fix: remove maago.LoginRequired
+
+# a pointer that is no user
+site/more.go:12:6: view A takes *context.Context, which is not a user type
+  fix: between ctx and In a view takes the user, a struct of the project such as auth.User (*auth.User if it may be missing), then db maago.DB
+
+# a string for the user
+site/more.go:12:6: view A takes string, which is not a user type
+  fix: between ctx and In a view takes the user, a struct of the project such as auth.User (*auth.User if it may be missing), then db maago.DB
+
+# two user types
+site/more.go:14:6: view B takes the user as users.Other, but view A takes users.User
+  fix: Config.Auth returns one user type; take it in every view
 
 # second not an error
 site/urls.go:65:6: view A returns int second, not an error

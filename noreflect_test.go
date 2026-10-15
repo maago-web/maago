@@ -95,6 +95,9 @@ func TestGeneratedImportsGate(t *testing.T) {
 		"a/web_gen.go":      pipeline.Marker + "\n\npackage a\n\nimport (\n\t_ \"net/http\"\n\t_ \"strconv\"\n)\n",
 		"a/ok_gen.go":       pipeline.Marker + "\n\npackage a\n\nimport (\n\t_ \"context\"\n\t_ \"github.com/maago-web/maago\"\n)\n",
 		"a/admin_gen.go":    pipeline.Marker + "\n\npackage a\n\nimport _ \"github.com/maago-web/maago/contrib/admin\"\n",
+		"a/user_gen.go":     pipeline.Marker + "\n\npackage a\n\nimport maagouser \"board\"\n",
+		"a/userr_gen.go":    pipeline.Marker + "\n\npackage a\n\nimport maagouser \"reflect\"\n",
+		"a/other_gen.go":    pipeline.Marker + "\n\npackage a\n\nimport other \"board\"\n",
 	}
 	for p, src := range files {
 		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(p)), 0o755); err != nil {
@@ -108,7 +111,7 @@ func TestGeneratedImportsGate(t *testing.T) {
 	for _, p := range generatedImports(root) {
 		got = append(got, strings.SplitN(strings.TrimPrefix(p, root+string(filepath.Separator)), ":", 2)[0])
 	}
-	want := []string{"a/broken_gen.go", "a/crlf_gen.go", "a/gen.go.tmpl", "a/os_gen.go", "a/reflect_gen.go", "a/template_gen.go"}
+	want := []string{"a/broken_gen.go", "a/crlf_gen.go", "a/gen.go.tmpl", "a/os_gen.go", "a/other_gen.go", "a/reflect_gen.go", "a/template_gen.go", "a/userr_gen.go"}
 	if slices.Sort(got); !slices.Equal(got, want) {
 		t.Errorf("caught %q, want %q", got, want)
 	}
@@ -142,7 +145,11 @@ func generatedImports(root string) []string {
 				return nil
 			}
 			for _, imp := range f.Imports {
-				if p, _ := strconv.Unquote(imp.Path.Value); !slices.Contains(mapper.Imports, p) && !slices.Contains(web.Imports, p) && !slices.Contains(admingen.Imports, p) {
+				p, _ := strconv.Unquote(imp.Path.Value)
+				if imp.Name != nil && imp.Name.Name == "maagouser" && !slices.Contains([]string{"reflect", "text/template", "unsafe"}, p) {
+					continue // the package of the user type, a project's (D-149)
+				}
+				if !slices.Contains(mapper.Imports, p) && !slices.Contains(web.Imports, p) && !slices.Contains(admingen.Imports, p) {
 					problems = append(problems, fmt.Sprintf("%s: generated code imports %q\n  %s", fset.Position(imp.Path.Pos()), p, fix))
 				}
 			}

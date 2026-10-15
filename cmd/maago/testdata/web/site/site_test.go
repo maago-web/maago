@@ -388,6 +388,33 @@ func TestLogin(t *testing.T) {
 	}
 }
 
+// TestSignature: views that take the user in their signature (D-149).
+func TestSignature(t *testing.T) {
+	h, _, _ := handler(t)
+	for _, c := range []struct {
+		name, method, path, user string
+		code                     int
+		has, location            string
+	}{
+		{"required, nobody", "GET", MineURL(), "", 303, "", "/login?next=%2Fmine"},
+		{"required, a POST of nobody", "POST", MinePostURL(), "", 401, "", ""},
+		{"required, ann", "GET", MineURL(), "ann", 200, "<p>secret for ann</p>", ""},
+		{"required, an API GET of nobody", "GET", APIMineURL(), "", 401, `"status":401`, ""},
+		{"maybe, nobody", "GET", APIGreetURL(), "", 200, `{"Name":"nobody"}`, ""},
+		{"maybe, ann", "GET", APIGreetURL(), "ann", 200, `{"Name":"ann"}`, ""},
+	} {
+		r := httptest.NewRequest(c.method, c.path, nil)
+		if c.user != "" {
+			r.Header.Set("X-User", c.user)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != c.code || !strings.Contains(w.Body.String(), c.has) || w.Header().Get("Location") != c.location {
+			t.Errorf("%s: %d %q Location %q", c.name, w.Code, w.Body, w.Header().Get("Location"))
+		}
+	}
+}
+
 // TestPrefix serves the app under /app (D-122) behind http.StripPrefix, as
 // a proxy that keeps /app needs: every path the app makes has /app once,
 // and requests to those paths reach their routes.

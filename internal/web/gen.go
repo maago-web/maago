@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"cmp"
 	"embed"
 	"fmt"
 	"go/format"
@@ -57,7 +58,8 @@ func URLsFile(app *App, stub bool) []byte {
 		}
 		expr = strings.ReplaceAll(strings.TrimPrefix(expr, `"" + `), `" + "`, "")
 		rs = append(rs, map[string]any{
-			"Method": r.Method, "Path": r.Path, "Name": r.Name, "API": hasOption(r.Options, "API"), "LoginRequired": hasOption(r.Options, "LoginRequired"),
+			"Method": r.Method, "Path": r.Path, "Name": r.Name, "API": hasOption(r.Options, "API"),
+			"LoginRequired": hasOption(r.Options, "LoginRequired") || r.view != nil && r.view.user && !r.view.userPtr, "User": r.view != nil && r.view.user,
 			"Files": app.readsFile(&r),
 			"URL":   mapper.FieldName(r.Name) + "URL", "Serve": "serve" + mapper.FieldName(r.Name),
 			"Params": strings.Join(params, ", "), "URLExpr": expr,
@@ -80,6 +82,7 @@ func ViewsFile(app *App, apps []*App) []byte {
 	html := false
 	var rs []map[string]any
 	var pages []string
+	userImport := ""
 	for _, r := range app.Routes {
 		v := r.view
 		in := v.in
@@ -98,7 +101,9 @@ func ViewsFile(app *App, apps []*App) []byte {
 		rs = append(rs, map[string]any{
 			"Name": r.Name, "View": r.View, "Serve": "serve" + mapper.FieldName(r.Name), "Escape": v.escape,
 			"In": in, "Fields": fields, "Query": query, "Result": v.result, "API": api, "Template": v.template, "Block": blockOf(&r),
+			"User": v.userType, "UserPtr": v.userPtr, "DB": v.db,
 		})
+		userImport = cmp.Or(userImport, v.userImport) // one user type in the project
 		if v.template != "" && !slices.Contains(pages, v.template) {
 			pages = append(pages, v.template)
 		}
@@ -121,7 +126,7 @@ func ViewsFile(app *App, apps []*App) []byte {
 	}
 	slices.SortFunc(all, func(a, b map[string]string) int { return strings.Compare(a["Name"], b["Name"]) })
 	return execute("views.go.tmpl", imports, map[string]any{"Package": app.Name, "HTML": html, "Routes": rs, "Pages": pages, "AllRoutes": all, "Forms": forms,
-		"Static": static, "Used": slices.Sorted(maps.Keys(app.used))})
+		"Static": static, "Used": slices.Sorted(maps.Keys(app.used)), "UserImport": userImport})
 }
 
 // FormsFile is forms_gen.go of app: the Valid method of each form, read
@@ -174,7 +179,8 @@ func execute(name string, imports map[string]bool, data map[string]any) []byte {
 func More(fset *token.FileSet, app *App) *mapper.More {
 	at := fset.Position(app.Pos)
 	m := &mapper.More{Imports: Imports, Names: []mapper.Name{{Name: "App", By: "the routes of app " + app.Name, Pos: at,
-		Fix: "rename what else declares App; maago generates each app's App (D-114)"}}}
+		Fix: "rename what else declares App; maago generates each app's App (D-114)"},
+		{Name: "maagouser", By: "the views' adapters, which import the user's package under it", Pos: at, Fix: "rename what else declares maagouser"}}}
 	seen := map[string]bool{}
 	html := false
 	for _, r := range app.Routes {

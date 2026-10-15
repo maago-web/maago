@@ -36,7 +36,7 @@ type App struct {
 
 	funcs map[string]*ast.FuncDecl // the top-level functions, for Views
 	types map[string]*ast.TypeSpec // the top-level types
-	maago map[string][]string      // each type's file's names for maago
+	maago map[string][]string      // each type's and function's file's names for maago
 	forms map[string]*form         // the form structs, by name: Forms fills it
 	valid map[string]token.Pos     // the methods Valid, by their receiver's type
 	used  map[string]bool          // the static files a template asks for, of any app
@@ -126,6 +126,7 @@ func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath stri
 				if d.Recv == nil {
 					app.Funcs = append(app.Funcs, d.Name.Name)
 					app.funcs[d.Name.Name] = d
+					app.maago[d.Name.Name] = names // a view's file: maago.DB in its signature
 				} else if d.Name.Name == "Valid" && len(d.Recv.List) == 1 {
 					t := ast.Unparen(d.Recv.List[0].Type)
 					if star, ok := t.(*ast.StarExpr); ok {

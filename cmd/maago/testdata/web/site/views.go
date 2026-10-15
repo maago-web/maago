@@ -178,7 +178,7 @@ type Account struct{ Name string }
 // X-User header names. M5 brings sessions and tokens.
 func Auth(r *http.Request) (any, error) {
 	if name := r.Header.Get("X-User"); name != "" {
-		return &Account{name}, nil
+		return Account{name}, nil // a value: a view takes Account, or *Account for one who may be missing
 	}
 	return nil, nil
 }
@@ -189,6 +189,23 @@ type SecretPage struct {
 
 // Secret requires login; the route table says so.
 func Secret(ctx context.Context, in struct{}) (SecretPage, error) {
-	a, _ := maago.UserFrom[*Account](ctx)
+	a, _ := maago.UserFrom[Account](ctx)
 	return SecretPage{a.Name}, nil
+}
+
+// Mine takes the user and the database in its signature (D-149): the
+// route requires login because u is an Account, not a pointer.
+func Mine(ctx context.Context, u Account, db maago.DB, in struct{}) (SecretPage, error) {
+	if _, err := TitleTaken(ctx, db, TitleTakenParams{Title: u.Name}); err != nil {
+		return SecretPage{}, err
+	}
+	return SecretPage{u.Name}, nil
+}
+
+// Greet takes a user who may be missing.
+func Greet(ctx context.Context, u *Account, in struct{}) (SecretPage, error) {
+	if u == nil {
+		return SecretPage{"nobody"}, nil
+	}
+	return SecretPage{u.Name}, nil
 }

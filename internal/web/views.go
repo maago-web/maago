@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"maps"
 	"slices"
 	"strings"
 
@@ -16,14 +17,20 @@ import (
 // generated adapter and URL function need before the types are known.
 type view struct {
 	escape    bool      // func(http.ResponseWriter, *http.Request)
+	user      bool      // takes the user, between ctx and In (D-149)
+	userPtr   bool      // as *U: optional, nil without one
+	userExpr  string    // the user's type as the view writes it, for fixes
+	db        bool      // takes maago.DB
 	in        string    // the name of In's type, "" for struct{}
 	fields    []inField // In's fields
 	wildcards []param   // the path's wildcards in order: the URL function's parameters
 
 	// Types fills these.
-	result   bool   // returns maago.Result[page]
-	page     string // the page type of an HTML route
-	template string // its template file
+	userType   string // the user's type as the adapter writes it: User or maagouser.User
+	userImport string // the import path maagouser names, "" for the view's own package
+	result     bool   // returns maago.Result[page]
+	page       string // the page type of an HTML route
+	template   string // its template file
 }
 
 // inField is a field of In and where its value comes from.
@@ -56,6 +63,38 @@ func Views(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 			ds = append(ds, vds...)
 			r.view = v
 		}
+		ds = append(ds, loginOptions(fset, app)...)
+	}
+	return ds
+}
+
+// loginOptions checks maago.LoginRequired against the views that take the
+// user, whose signature says it already (D-149).
+func loginOptions(fset *token.FileSet, app *App) []diag.Diagnostic {
+	var ds []diag.Diagnostic
+	routes := map[string][]*Route{} // the routes of each view that takes the user
+	for i := range app.Routes {
+		if r := &app.Routes[i]; r.view != nil && r.view.user {
+			routes[r.View] = append(routes[r.View], r)
+		}
+	}
+	for _, view := range slices.Sorted(maps.Keys(routes)) {
+		rs := routes[view]
+		with := slices.DeleteFunc(slices.Clone(rs), func(r *Route) bool { return !hasOption(r.Options, "LoginRequired") })
+		switch {
+		case len(with) == 0:
+		case len(with) < len(rs) && rs[0].view.userPtr:
+			ds = append(ds, diag.New(fset.Position(optionPos(with[0], "LoginRequired")), fmt.Sprintf("route %s requires login, but view %s serves %s too, which does not", with[0].Name, view, rs[slices.IndexFunc(rs, func(r *Route) bool { return !hasOption(r.Options, "LoginRequired") })].Name),
+				"split the view: the one without login takes u "+rs[0].view.userExpr+", the one with login u "+strings.TrimPrefix(rs[0].view.userExpr, "*")+", and neither route has maago.LoginRequired"))
+		case rs[0].view.userPtr:
+			ds = append(ds, diag.New(fset.Position(optionPos(with[0], "LoginRequired")), fmt.Sprintf("route %s requires login, but view %s takes the user as a pointer, which is for a user that may be missing", with[0].Name, view),
+				"take u "+strings.TrimPrefix(rs[0].view.userExpr, "*")+", not "+rs[0].view.userExpr+", and remove maago.LoginRequired: the view's user requires login"))
+		default:
+			for _, r := range with {
+				ds = append(ds, diag.New(fset.Position(optionPos(r, "LoginRequired")), fmt.Sprintf("route %s has maago.LoginRequired, but view %s takes the user, which requires login already", r.Name, view),
+					"remove maago.LoginRequired"))
+			}
+		}
 	}
 	return ds
 }
@@ -83,22 +122,64 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 			v.wildcards = append(v.wildcards, param{w, "string"})
 		}
 		return v, ds
-	case len(params) != 2 || len(results) != 2:
+	case len(params) < 2 || len(params) > 4 || len(results) != 2:
 		errAt(fd.Name.Pos(), fmt.Sprintf("view %s takes %d values and returns %d", r.View, len(params), len(results)), shapes)
 		return nil, ds
 	}
 	v := &view{}
-	in := params[1]
+	last := params[len(params)-1]
+	in := last
 	if star, ok := in.(*ast.StarExpr); ok {
 		in = star.X
 	}
 	if id, ok := in.(*ast.Ident); ok && isForm(app, id.Name) {
-		errAt(params[1].Pos(), "view "+r.View+" takes form "+id.Name+" as its In",
+		errAt(last.Pos(), "view "+r.View+" takes form "+id.Name+" as its In",
 			"take it as a field: type "+r.View+"In struct{ Form "+id.Name+" `maago:\"form\"` }")
 		return nil, ds
 	}
+	// Between ctx and In, the user, then the database (D-149).
+	names := app.maago[r.View]
+	var user ast.Expr
+	order, wrongDB := false, ""
+	for _, p := range params[1 : len(params)-1] {
+		switch {
+		case isMaago(p, "DB", names) && !v.db:
+			v.db = true
+		case dbLike(p, names) != "" && !v.db: // *sql.DB, *maago.DB: the database all the same
+			v.db, wrongDB = true, dbLike(p, names)
+		case isMaago(p, "DB", names) || dbLike(p, names) != "" || user != nil:
+			order = true // a second one
+		default:
+			order = order || v.db // the user comes before the database
+			user = p
+		}
+	}
+	// A user or the database last, or a model: the In is missing. Read as
+	// an In, its fix would drop the user, and the login with it.
+	if in != last || isModel(app, in) || isMaago(last, "DB", names) || dbLike(last, names) != "" {
+		u, db := user, v.db
+		if isMaago(last, "DB", names) || dbLike(last, names) != "" {
+			db = true
+		} else if user == nil {
+			u = last
+		}
+		errAt(last.Pos(), "view "+r.View+" takes no In: In comes last, even when empty", "write "+viewSignature(r.View, u, db, "struct{}"))
+		return nil, ds
+	}
+	switch {
+	case order:
+		errAt(params[1].Pos(), "view "+r.View+" takes its values out of order", "write "+viewSignature(r.View, user, v.db, types.ExprString(last)))
+		return nil, ds
+	case wrongDB != "":
+		errAt(params[1].Pos(), "view "+r.View+" takes the database as "+wrongDB+", not maago.DB", "write "+viewSignature(r.View, user, true, types.ExprString(last)))
+		return nil, ds
+	}
+	if user != nil {
+		v.user, v.userExpr = true, types.ExprString(user)
+		_, v.userPtr = user.(*ast.StarExpr)
+	}
 	var st *ast.StructType
-	switch t := params[1].(type) {
+	switch t := last.(type) {
 	case *ast.StructType:
 		st = t
 	case *ast.Ident:
@@ -108,8 +189,8 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 		}
 	}
 	if st == nil || v.in == "" && len(st.Fields.List) > 0 {
-		errAt(params[1].Pos(), "the In of view "+r.View+" is not struct{} or a struct type named in package "+app.Name,
-			"declare type "+r.View+"In struct{…} in package "+app.Name+" with fields tagged maago:\"path=name\", maago:\"query=name\" or maago:\"form\", or take struct{}")
+		errAt(last.Pos(), "the In of view "+r.View+" is not struct{} or a struct type named in package "+app.Name,
+			"declare type "+r.View+"In struct{…} in package "+app.Name+" with fields tagged maago:\"path=name\", maago:\"query=name\" or maago:\"form\", or take struct{}; if it is the user, In comes after it: "+viewSignature(r.View, last, false, "struct{}"))
 		return nil, ds
 	}
 	var bad []inField // path fields of a type Views rejected
@@ -238,6 +319,47 @@ func fields(fl *ast.FieldList) []ast.Expr {
 	return ts
 }
 
+// viewSignature is a typed view's signature in the order D-149 gives, for a
+// fix.
+func viewSignature(view string, user ast.Expr, db bool, in string) string {
+	s := "func " + view + "(ctx context.Context, "
+	if user != nil {
+		s += "u " + types.ExprString(user) + ", "
+	}
+	if db {
+		s += "db maago.DB, "
+	}
+	return s + "in " + in + ") …"
+}
+
+// dbLike is how e names a database that is not maago.DB, *sql.DB or
+// *maago.DB say, or "".
+func dbLike(e ast.Expr, names []string) string {
+	t := e
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	sel, ok := t.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	if x, ok := sel.X.(*ast.Ident); ok && (x.Name == "sql" && slices.Contains([]string{"DB", "Tx", "Conn"}, sel.Sel.Name) || slices.Contains(names, x.Name) && sel.Sel.Name == "DB" && t != e) {
+		return types.ExprString(e)
+	}
+	return ""
+}
+
+// isModel reports whether e names a struct of app that embeds maago.Model:
+// a user, say, but no In.
+func isModel(app *App, e ast.Expr) bool {
+	id, ok := e.(*ast.Ident)
+	if !ok || app.types[id.Name] == nil {
+		return false
+	}
+	st, ok := app.types[id.Name].Type.(*ast.StructType)
+	return ok && slices.ContainsFunc(st.Fields.List, func(f *ast.Field) bool { return len(f.Names) == 0 && isMaago(f.Type, "Model", app.maago[id.Name]) })
+}
+
 // isForm reports whether app declares name as a struct that embeds
 // maago.Form, as Forms will find.
 func isForm(app *App, name string) bool {
@@ -250,4 +372,14 @@ func isForm(app *App, name string) bool {
 		return false
 	}
 	return slices.ContainsFunc(st.Fields.List, func(f *ast.Field) bool { return len(f.Names) == 0 && isMaago(f.Type, "Form", app.maago[name]) })
+}
+
+// optionPos is where route r names option name.
+func optionPos(r *Route, name string) token.Pos {
+	for _, o := range r.Options {
+		if o.Name == name {
+			return o.Pos
+		}
+	}
+	return r.Pos
 }
