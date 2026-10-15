@@ -5,7 +5,7 @@
 
 M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·M4(HTTP)·M5(인증)·M6(admin)·M7(정적 파일과 업로드)·M8(튜토리얼 검증: 게시판)이 끝났다. 문서부터 읽는다.
 
-**다음 작업: M9 3번**([TASKS-M9.md](docs/TASKS-M9.md)의 짧은 튜토리얼 하네스. 하는 차례는 그 파일의 "작업" 머리).
+**다음 작업: M9 10번**(연구 [RESEARCH-AGENT-FIT.md](docs/RESEARCH-AGENT-FIT.md)의 "사람이 정할 것"에 답을 받아 반영. 하는 차례는 [TASKS-M9.md](docs/TASKS-M9.md)의 "작업" 머리).
 
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙
