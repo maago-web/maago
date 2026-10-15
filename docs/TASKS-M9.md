@@ -67,8 +67,9 @@
    - `cmd/maago/short_tutorial_test.go`의 `TestShortTutorial`(SQLite): TUTORIAL-FUTURE에서 코드 블록과 출력 블록을 뽑아(`block`: 언어와 첫 글자로 찾는다) 빈 디렉터리에서 차례로. `blog/models.go`·`main.go`·`.env`는 문서의 블록 그대로, `maago` 명령은 문서가 보인 출력과 글자 그대로 같아야 한다(§3의 `maxlen` 오류와 `auth.App` 오류, `makemigrations`·`showmigrations`·`migrate`), 초안에는 문서의 `CREATE TABLE "posts"`·`CREATE INDEX` 문장이 그대로 있어야 한다. 끝은 바이너리를 지어 `-createsuperuser`, 빈 `PORT`로 띄워(게시판의 `serve`를 나눠 씀: `/admin/`이 303이면 뜬 것) 로그인 → admin에서 글 만들기·목록·고치기·지우기를 HTTP로
    - 릴리스 전의 대신: §2의 `go get github.com/maago-web/maago`는 `go mod edit -require -replace`로 이 저장소(D-146, 릴리스 뒤 11번이 진짜로), 드라이버는 `go get modernc.org/sqlite@v1.59.0`(오프라인, `cmd/maago`의 판). 문서의 §2에 그 줄이 있는지는 본다
    - 문서 고침(하네스가 찾은 것): §2에 `go get modernc.org/sqlite`가 없었다(`main`이 import하는데 `go.mod`에 없어 `maago gen`이 막힌다. 그 오류의 `fix:`는 좋았다), §4의 초안에 `max=20`의 `CHECK (length("status") <= 20)`가 빠져 있었다, §5의 `main`이 `PORT`를 읽는다(하네스가 빈 포트로 띄우게. 게시판 0033과 같은 꼴)
-   - 9번(연구)에 넘길 것: 손으로 따라 할 때 `go mod init`이 쓴 `go 1.26.3`보다 낮은 `go.work`에서 `maago gen`이 `go list failed: \tgo work use` 한 줄만 보였다(go의 여러 줄 오류의 마지막 줄만: 무엇을 고칠지 안 보인다)
-   - 확인: 문서를 일부러 옛 것으로 되돌리면 실패(초안 SQL, 오류 글, `PORT` 지우기는 `main`이 컴파일되지 않아) → 셋 다 실측
+   - 9번(연구)에 넘길 것: 문서의 §2에 드라이버가 없어도 아무도 몰랐다(M6 10번의 실측은 손으로 고쳐 따라 했다: 시험이 읽지 않는 문서는 낡는다). 손으로 따라 할 때 `go mod init`이 쓴 `go 1.26.3`보다 낮은 `go.work`에서 `maago gen`이 `go list failed: \tgo work use` 한 줄만 보였다(go의 여러 줄 오류의 마지막 줄만: 무엇을 고칠지 안 보인다)
+   - 확인: 문서를 일부러 옛 것으로 되돌리면 실패(초안 SQL, 오류 글, `PORT`를 읽지 않는 `main`) → 실측
+   - 리뷰: fable은 사용 한도로 돌지 못해 같은 프롬프트를 일반 서브에이전트(Opus)에게. 막는 지적 없음. 받음: 명령(`sh` 블록)을 문서에서 읽지 않아 명령을 바꿔도 통과했다 → 시험이 §2~5의 `sh` 블록마다 제가 돌리는 명령과 글자 그대로 같은지 보고, 끝에 §2~5의 모든 블록을 썼는지 본다(이름 바꾸기의 `--rename` 예는 같은지만), 초안 비교가 주석으로 시작하는 덩어리를 통째로 건너뛰었다 → 주석 줄을 벗기고 비교, 실패한 `gen`이 파일을 쓰지 않는다는 §3의 말도 본다, 문서의 Go 파일은 gofmt 그대로(바로 내 `main.go`의 주석 맞춤을 잡았다), 쓸데없던 `GOFLAGS=-mod=mod`를 뺌, 문서: `SiteURL`도 `PORT`를 따른다, pgx의 import 경로, 낡은 머리말, 비밀번호 자리표시의 규칙. 리뷰어의 돌연변이 다섯(모듈 경로, `add authx`, AUTOINCREMENT, sh 대신 bash 펜스, `-superuser`)이 이제 모두 실패(실측). 받지 않음: 초안이 문서보다 많은 문장을 가진 것(문서는 일부만 보인다: auth 앱의 테이블은 생략), `-createsuperuser`의 출력(문서의 `main`은 찍지 않는다)
    - 하지 않는 것: §4의 이름 바꾸기(5분 흐름 밖), §6 뒤(SQL·뷰·템플릿: 6번의 에이전트가 간다), PG
 
 4. **5분 흐름 재기**(D-69, D-143): 6번의 에이전트 실행이 잰다(작업은 6번과 합칠 수 있다) → 확인: 시작부터 끝까지의 벽시계가 300초 이하, 막힌 곳의 목록
