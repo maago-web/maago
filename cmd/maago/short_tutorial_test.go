@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The short tutorial (docs/TUTORIAL-FUTURE.md §2–5) followed as written,
@@ -123,7 +124,9 @@ func TestShortTutorial(t *testing.T) {
 }
 
 // useAdmin signs in at base and writes, changes and deletes a post in the
-// admin, as the end of §5 says it can.
+// admin, as the end of §5 says it can: as email, whose account it takes
+// for the post's author. The rows it finds by what they say, so the
+// database may have others.
 func useAdmin(base, email, password string) error {
 	jar, _ := cookiejar.New(nil)
 	client := http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -138,40 +141,57 @@ func useAdmin(base, email, password string) error {
 		}
 		return nil
 	}
-	// list wants the admin's list of posts to have, or not, title.
-	list := func(title string, has bool) error {
-		resp, err := client.Get(base + "/admin/blog/Post/")
+	// row is the id of the row of the admin's list at path that shows
+	// text, or "" for none.
+	row := func(path, text string) (string, error) {
+		resp, err := client.Get(base + path)
 		if err != nil {
-			return err
+			return "", err
 		}
 		defer resp.Body.Close()
 		b, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return err
+			return "", err
 		}
-		if resp.StatusCode != http.StatusOK || strings.Contains(string(b), title) != has {
-			return fmt.Errorf("the list of posts (%d) has %q: %v, want %v", resp.StatusCode, title, !has, has)
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("GET %s: %d", path, resp.StatusCode)
 		}
-		return nil
+		m := regexp.MustCompile(`value="(\d+)">[^\n]*>` + regexp.QuoteMeta(text) + `<`).FindSubmatch(b)
+		if m == nil {
+			return "", nil
+		}
+		return string(m[1]), nil
 	}
-	post1 := url.Values{"author_id": {"1"}, "title": {"첫 글"}, "text": {"본문"}, "status": {"draft"}, "published_at": {""}}
-	for _, step := range []func() error{
-		func() error { return post("/login", url.Values{"email": {email}, "password": {password}}) },
-		func() error { return post("/admin/blog/Post/add/", post1) },
-		func() error { return list("첫 글", true) },
-		func() error {
-			post1.Set("title", "고친 글")
-			post1.Set("status", "published")
-			post1.Set("published_at", "2026-10-15T09:00")
-			return post("/admin/blog/Post/1/", post1)
-		},
-		func() error { return list("고친 글", true) },
-		func() error { return post("/admin/blog/Post/delete/", url.Values{"id": {"1"}}) },
-		func() error { return list("고친 글", false) },
-	} {
-		if err := step(); err != nil {
-			return err
-		}
+	if err := post("/login", url.Values{"email": {email}, "password": {password}}); err != nil {
+		return err
+	}
+	author, err := row("/admin/auth/User/", email)
+	if err != nil || author == "" {
+		return fmt.Errorf("the admin's users have no %s: %v", email, err)
+	}
+	title := fmt.Sprintf("게이트의 글 %d", time.Now().UnixNano())
+	form := url.Values{"author_id": {author}, "title": {title}, "text": {"본문"}, "status": {"draft"}, "published_at": {""}}
+	if err := post("/admin/blog/Post/add/", form); err != nil {
+		return err
+	}
+	id, err := row("/admin/blog/Post/", title)
+	if err != nil || id == "" {
+		return fmt.Errorf("the new post is not in the list: %v", err)
+	}
+	form.Set("title", title+" 고침")
+	form.Set("status", "published")
+	form.Set("published_at", "2026-10-15T09:00")
+	if err := post("/admin/blog/Post/"+id+"/", form); err != nil {
+		return err
+	}
+	if got, err := row("/admin/blog/Post/", title+" 고침"); err != nil || got != id {
+		return fmt.Errorf("the changed post is not in the list: %q %v", got, err)
+	}
+	if err := post("/admin/blog/Post/delete/", url.Values{"id": {id}}); err != nil {
+		return err
+	}
+	if got, err := row("/admin/blog/Post/", title+" 고침"); err != nil || got != "" {
+		return fmt.Errorf("the deleted post is still in the list: %q %v", got, err)
 	}
 	return nil
 }
@@ -245,5 +265,34 @@ func (tu *tutorial) allUsed() {
 		if !tu.used[i] {
 			tu.t.Errorf("the test does not follow the tutorial's ```%s block\n%s", b[0], b[1])
 		}
+	}
+}
+
+// A project someone made by following the short tutorial, in
+// MAAGO_TUTORIAL_DIR, gets to where it ends: built, with a staff account,
+// serving the admin, where a post is written, changed and deleted (the
+// agent gate, D-143, D-145). Without the variable it is skipped.
+func TestTutorialProject(t *testing.T) {
+	root := os.Getenv("MAAGO_TUTORIAL_DIR")
+	if root == "" {
+		t.Skip("MAAGO_TUTORIAL_DIR is not set: the agent gate sets it to the project to check")
+	}
+	bin := filepath.Join(t.TempDir(), "project")
+	build := osexec.Command("go", "build", "-o", bin, ".")
+	build.Dir = root
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	email, password := fmt.Sprintf("gate%d@example.com", time.Now().UnixNano()), "correct horse battery staple"
+	su := osexec.Command(bin, "-createsuperuser")
+	su.Dir = root
+	su.Env = append(os.Environ(), "MAAGO_SUPERUSER_EMAIL="+email, "MAAGO_SUPERUSER_PASSWORD="+password)
+	if out, err := su.CombinedOutput(); err != nil {
+		t.Fatalf("-createsuperuser: %v\n%s", err, out)
+	}
+	if err := serve(root, bin, "/admin/", http.StatusSeeOther, func(base string) error {
+		return useAdmin(base, email, password)
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
