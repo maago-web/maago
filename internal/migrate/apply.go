@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"go/token"
+	"path"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/dialect"
@@ -19,7 +21,7 @@ import (
 // them after, as migrate does.
 func Apply(ctx context.Context, db *practicedb.DB, d project.Dialect, files []File) []diag.Diagnostic {
 	for _, f := range files {
-		if ds := applyFile(ctx, db, d, f, true, nil); len(ds) > 0 {
+		if _, ds := applyFile(ctx, db, d, f, true, false); len(ds) > 0 {
 			return ds
 		}
 	}
@@ -30,20 +32,28 @@ func Apply(ctx context.Context, db *practicedb.DB, d project.Dialect, files []Fi
 // a rebuild that leaves columns behind for its marker: a draft never has
 // one, and check asks for it once the draft is a file.
 func ApplyDraft(ctx context.Context, db *practicedb.DB, d project.Dialect, f File) []diag.Diagnostic {
-	return applyFile(ctx, db, d, f, false, nil)
+	_, ds := applyFile(ctx, db, d, f, false, false)
+	return ds
 }
 
-// applyFile applies f. With record, the statements that record it as
-// applied, it runs in a transaction of its own with them, as migrate does
-// on a real database: all of it or none. A practice database has no
-// record and needs no transaction of its own (D-96).
-func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File, checkLost bool, record []string) (ds []diag.Diagnostic) {
+// lockKey is the PostgreSQL advisory lock of a migration's transaction:
+// two migrates apply one file after the other, each looking for its
+// record first.
+const lockKey = 0x6d6161676f // "maago"
+
+// applyFile applies f. To record it, as migrate does on a real database,
+// it runs in a transaction of its own with its record: all of it or
+// none. The transaction first takes the write lock (SQLite) or the
+// advisory lock (PostgreSQL), then skips the file if another migrate
+// has recorded it since this one looked (D-153). A practice database has
+// no record and needs no transaction of its own (D-96).
+func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File, checkLost, record bool) (skipped bool, ds []diag.Diagnostic) {
 	at := token.Position{Filename: f.Path}
 	if d == project.SQLite {
 		// Before BEGIN, and back on only after the transaction ends:
 		// SQLite ignores the pragma inside one.
 		if ds := db.Exec(ctx, at, "PRAGMA foreign_keys = OFF"); len(ds) > 0 {
-			return ds
+			return false, ds
 		}
 		defer func() {
 			if on := db.Exec(ctx, at, "PRAGMA foreign_keys = ON"); len(ds) == 0 {
@@ -51,9 +61,18 @@ func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File
 			}
 		}()
 	}
-	if record != nil {
-		if ds := db.Exec(ctx, at, "BEGIN"); len(ds) > 0 {
-			return ds
+	name := path.Base(f.Path)
+	if record {
+		begin := "BEGIN"
+		if d == project.SQLite {
+			begin = "BEGIN IMMEDIATE" // the write lock, before the record is read
+		}
+		if ds := db.Exec(ctx, at, begin); len(ds) > 0 {
+			if d == project.SQLite {
+				return false, []diag.Diagnostic{diag.New(at, "cannot take the write lock of the database to apply this migration",
+					"another migrate, or the app, held it for 10 minutes; let it end, then run this again")}
+			}
+			return false, ds
 		}
 		defer func() {
 			if len(ds) > 0 {
@@ -64,35 +83,50 @@ func applyFile(ctx context.Context, db *practicedb.DB, d project.Dialect, f File
 		}()
 		if d == project.Postgres {
 			// Backslashes in '…' are plain, as dialect.Split reads them.
-			if ds := db.Exec(ctx, at, "SET LOCAL standard_conforming_strings = on"); len(ds) > 0 {
-				return ds
+			for _, st := range []string{"SET LOCAL standard_conforming_strings = on", fmt.Sprintf("SELECT pg_advisory_xact_lock(%d)", lockKey)} {
+				if ds := db.Exec(ctx, at, st); len(ds) > 0 {
+					return false, ds
+				}
 			}
+		}
+		if ds := db.Exec(ctx, at, "CREATE TABLE IF NOT EXISTS "+Table+" (name TEXT PRIMARY KEY, hash TEXT NOT NULL, applied_at TEXT NOT NULL)"); len(ds) > 0 {
+			return false, ds
+		}
+		var n int64
+		r := &dialect.Reader{Ctx: ctx, Q: db}
+		if err := r.Rows("SELECT count(*) FROM "+Table+" WHERE name = "+dialect.String(name), func(v []any) { n = dialect.Num(v[0]) }); err != nil {
+			return false, dialect.Bug(err)
+		}
+		if n > 0 { // another migrate applied it
+			return true, db.Exec(ctx, at, "ROLLBACK")
 		}
 	}
 	for i, st := range f.Stmts {
 		if cp := rebuild(f.Stmts, i); checkLost && cp != nil && !st.AllowDrop.IsValid() {
 			if ds := lost(ctx, db, st, cp); len(ds) > 0 {
-				return ds
+				return false, ds
 			}
 		}
 		if ds := db.Exec(ctx, st.Pos, st.SQL); len(ds) > 0 {
-			return ds
+			return false, ds
 		}
 	}
-	for _, stmt := range record {
-		if ds := db.Exec(ctx, at, stmt); len(ds) > 0 {
-			return ds
+	if record {
+		insert := fmt.Sprintf("INSERT INTO %s (name, hash, applied_at) VALUES (%s, %s, %s)", Table,
+			dialect.String(name), dialect.String(f.Hash), dialect.String(time.Now().UTC().Format(time.RFC3339)))
+		if ds := db.Exec(ctx, at, insert); len(ds) > 0 {
+			return false, ds
 		}
 	}
 	if d == project.SQLite {
 		if ds := foreignKeyCheck(ctx, db, at); len(ds) > 0 {
-			return ds
+			return false, ds
 		}
 	}
-	if record != nil {
-		return db.Exec(ctx, at, "COMMIT")
+	if record {
+		return false, db.Exec(ctx, at, "COMMIT")
 	}
-	return nil
+	return false, nil
 }
 
 // foreignKeyCheck reports rows whose foreign keys point nowhere.

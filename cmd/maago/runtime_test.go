@@ -49,7 +49,7 @@ func TestOpenDBAddress(t *testing.T) {
 	t.Setenv("MAAGO_DATABASE_URL", "sqlite:other.db")
 	wd, _ := os.Getwd()
 	if _, err := maago.OpenDB(ctx(t), maago.DBConfig{}); err == nil || !strings.Contains(err.Error(), `cannot open SQLite file "other.db": it is not in the working directory `+wd) ||
-		!strings.Contains(err.Error(), "run maago migrate") {
+		!strings.Contains(err.Error(), "call maago.Migrate before OpenDB") {
 		t.Errorf("the environment should win over .env and other.db not exist; got %v", err)
 	}
 

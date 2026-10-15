@@ -23,15 +23,7 @@ func Migrate(dir string) (applied []string, ds []diag.Diagnostic) {
 			return ds
 		}
 		defer db.Close()
-		records, ds := migrate.Records(ctx, db, s.d)
-		if len(ds) > 0 {
-			return ds
-		}
-		pending, ds := migrate.Match(s.migrations, records)
-		if len(ds) > 0 {
-			return ds
-		}
-		applied, ds = migrate.Run(ctx, db, s.d, pending)
+		applied, ds = migrate.Up(ctx, db, s.d, s.migrations)
 		return ds
 	})
 	return applied, ds

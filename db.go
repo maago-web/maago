@@ -46,22 +46,11 @@ type DBConfig struct {
 // _ "github.com/jackc/pgx/v5/stdlib" (D-90). SQLite connections enforce
 // foreign keys, wait up to 5 seconds for a lock, and use WAL.
 func OpenDB(ctx context.Context, cfg DBConfig) (*sql.DB, error) {
-	// The same rules and messages as the CLI (D-97). DBConfig.URL wins,
-	// and .env is not read then.
-	var d project.Dialect
-	var ds []diag.Diagnostic
-	url := cfg.URL
-	if url != "" {
-		d, ds = project.URLDialect(url, token.Position{}, "DBConfig.URL")
-	} else {
-		d, url, ds = project.Database(".", os.LookupEnv)
+	d, url, driver, err := database(cfg)
+	if err != nil {
+		return nil, err
 	}
-	if ds != nil {
-		var b strings.Builder
-		diag.Write(&b, ds)
-		return nil, errors.New("maago: " + strings.TrimSpace(b.String()))
-	}
-	driver, dsn := "pgx", url
+	dsn := url
 	open, idle, life, idleTime := 20, 5, 30*time.Minute, 5*time.Minute
 	file := strings.TrimPrefix(url, "sqlite:")
 	if d == project.SQLite {
@@ -70,14 +59,9 @@ func OpenDB(ctx context.Context, cfg DBConfig) (*sql.DB, error) {
 		// keeps them per connection. _txlock=immediate: a transaction takes
 		// the write lock when it begins, so two that read then write wait
 		// for each other instead of one failing with SQLITE_BUSY (D-150).
-		driver = "sqlite"
 		dsn = "file:" + strings.NewReplacer("%", "%25", "#", "%23").Replace(file) +
 			"?mode=rw&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 		open, idle, life, idleTime = 4, 4, 0, 0
-	}
-	if !slices.Contains(sql.Drivers(), driver) {
-		return nil, errors.New(`maago: no "` + driver + `" database driver; import _ "` + map[string]string{
-			"sqlite": "modernc.org/sqlite", "pgx": "github.com/jackc/pgx/v5/stdlib"}[driver] + `" in package main`)
 	}
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
@@ -92,7 +76,7 @@ func OpenDB(ctx context.Context, cfg DBConfig) (*sql.DB, error) {
 		if d == project.SQLite {
 			if _, serr := os.Stat(file); serr != nil {
 				wd, _ := os.Getwd()
-				return nil, fmt.Errorf("maago: cannot open SQLite file %q: it is not in the working directory %s; run maago migrate, or start the app from the project root",
+				return nil, fmt.Errorf("maago: cannot open SQLite file %q: it is not in the working directory %s; call maago.Migrate before OpenDB, which makes it, or start the app from the project root",
 					file, wd)
 			}
 			return nil, fmt.Errorf("maago: cannot open SQLite file %q: %s; check that the file and its directory can be written (WAL writes %s-wal and %s-shm)",
@@ -102,4 +86,33 @@ func OpenDB(ctx context.Context, cfg DBConfig) (*sql.DB, error) {
 		return nil, errors.New("maago: cannot open the database: " + diag.OneLine(project.HidePassword(err.Error(), url)))
 	}
 	return db, nil
+}
+
+// database is the dialect, address and driver of cfg's database, by the
+// same rules and messages as the CLI (D-97): DBConfig.URL wins, and .env
+// is not read then. The driver must be registered.
+func database(cfg DBConfig) (d project.Dialect, url, driver string, err error) {
+	var ds []diag.Diagnostic
+	url = cfg.URL
+	if url != "" {
+		d, ds = project.URLDialect(url, token.Position{}, "DBConfig.URL")
+	} else {
+		d, url, ds = project.Database(".", os.LookupEnv)
+	}
+	if ds != nil {
+		return "", "", "", diagError(ds)
+	}
+	driver = map[project.Dialect]string{project.SQLite: "sqlite", project.Postgres: "pgx"}[d]
+	if !slices.Contains(sql.Drivers(), driver) {
+		return "", "", "", errors.New(`maago: no "` + driver + `" database driver; import _ "` + map[string]string{
+			"sqlite": "modernc.org/sqlite", "pgx": "github.com/jackc/pgx/v5/stdlib"}[driver] + `" in package main`)
+	}
+	return d, url, driver, nil
+}
+
+// diagError is ds as one error, as the CLI writes them.
+func diagError(ds []diag.Diagnostic) error {
+	var b strings.Builder
+	diag.Write(&b, ds)
+	return errors.New("maago: " + strings.TrimSpace(b.String()))
 }

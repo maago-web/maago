@@ -53,11 +53,14 @@ func Open(ctx context.Context, d project.Dialect, url string) (*DB, []diag.Diagn
 // after sqlite:, from the project root, with foreign keys on; PostgreSQL
 // as its address says, outside any transaction.
 func OpenDatabase(ctx context.Context, d project.Dialect, url, root string) (*DB, []diag.Diagnostic) {
-	dsn := url
+	dsn, what, fix := url, "the database", "check MAAGO_DATABASE_URL and that the database is running"
 	if d == project.SQLite {
 		dsn = SQLitePath(url, root)
+		abs, _ := filepath.Abs(dsn)
+		what = fmt.Sprintf("SQLite file %q", abs)
+		fix = "check that its directory exists and can be written (WAL writes " + filepath.Base(dsn) + "-wal and -shm beside it); a relative sqlite: path is from the working directory"
 	}
-	return open(ctx, d, dsn, url, "the database", "check MAAGO_DATABASE_URL and that the database is running", false)
+	return open(ctx, d, dsn, url, what, fix, false)
 }
 
 // SQLitePath is the file of a sqlite:FILE address, from the project root
@@ -121,8 +124,18 @@ func (p *DB) setUp(ctx context.Context, practice bool) error {
 	case p.d == project.Postgres && !practice:
 		return nil
 	case p.d == project.SQLite:
-		if _, err := p.conn.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
-			return err
+		pragmas := []string{"PRAGMA foreign_keys = ON"}
+		if !practice {
+			// A migrate waits for another, which may take long, and for the
+			// app's writes (D-153). WAL from the start, as the app's
+			// connections set it: switching needs the file alone, which
+			// replicas that start at once do not leave it.
+			pragmas = append(pragmas, "PRAGMA busy_timeout = 600000", "PRAGMA journal_mode = WAL")
+		}
+		for _, pragma := range pragmas {
+			if _, err := p.conn.ExecContext(ctx, pragma); err != nil {
+				return err
+			}
 		}
 		q, want = "PRAGMA foreign_keys", "1"
 	default:

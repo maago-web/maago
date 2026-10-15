@@ -9,7 +9,6 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -41,7 +40,13 @@ type File struct {
 // in number order. Numbers run from 1 without gaps or repeats (D-94).
 // Without a migrations directory there are no files.
 func ReadFiles(root string) ([]File, []diag.Diagnostic) {
-	entries, err := os.ReadDir(filepath.Join(root, Dir))
+	return ReadFS(os.DirFS(root))
+}
+
+// ReadFS is ReadFiles of a project's files in fsys, as a binary embeds
+// them (D-153).
+func ReadFS(fsys fs.FS) ([]File, []diag.Diagnostic) {
+	entries, err := fs.ReadDir(fsys, Dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -61,7 +66,7 @@ func ReadFiles(root string) ([]File, []diag.Diagnostic) {
 				"name it with four digits, _, then lower-case letters, digits and _"))
 			continue
 		}
-		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(p)))
+		src, err := fs.ReadFile(fsys, p)
 		if err != nil {
 			ds = append(ds, diag.New(token.Position{Filename: p}, "cannot read the migration: "+diag.OneLine(err.Error()), "make sure it can be read"))
 			continue

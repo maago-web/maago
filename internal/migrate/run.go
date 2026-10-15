@@ -8,7 +8,6 @@ import (
 	"path"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/dialect"
@@ -76,6 +75,11 @@ func Match(files []File, records map[string]string) (pending []File, ds []diag.D
 		}
 		switch len(same) {
 		case 0:
+			if len(files) == 0 || name > path.Base(files[len(files)-1].Path) { // a later version's
+				ds = append(ds, diag.New(token.Position{}, fmt.Sprintf("applied migration %s has no file: the database is newer than this code", name),
+					"run the version of the app that has it, or restore its file from version control"))
+				continue
+			}
 			ds = append(ds, diag.New(token.Position{}, fmt.Sprintf("applied migration %s has no file", name), "restore it from version control"))
 		case 1:
 			// Renumbered, as when merging two branches.
@@ -99,21 +103,34 @@ func Match(files []File, records map[string]string) (pending []File, ds []diag.D
 
 // Run applies files to db, each in a transaction of its own with its
 // record, and stops at the first failure: the files before it stay. It
-// returns the names of the files it applied.
+// returns the names of the files it applied, not those another migrate
+// applied meanwhile.
 func Run(ctx context.Context, db *practicedb.DB, d project.Dialect, files []File) (applied []string, ds []diag.Diagnostic) {
 	for _, f := range files {
-		name := path.Base(f.Path)
-		record := []string{
-			"CREATE TABLE IF NOT EXISTS " + Table + " (name TEXT PRIMARY KEY, hash TEXT NOT NULL, applied_at TEXT NOT NULL)",
-			fmt.Sprintf("INSERT INTO %s (name, hash, applied_at) VALUES (%s, %s, %s)", Table,
-				dialect.String(name), dialect.String(f.Hash), dialect.String(time.Now().UTC().Format(time.RFC3339))),
-		}
-		if ds := applyFile(ctx, db, d, f, true, record); len(ds) > 0 {
+		skipped, ds := applyFile(ctx, db, d, f, true, true)
+		if len(ds) > 0 {
 			return applied, ds
 		}
-		applied = append(applied, name)
+		if !skipped {
+			applied = append(applied, path.Base(f.Path))
+		}
 	}
 	return applied, nil
+}
+
+// Up applies to db the files it has not applied, as maago migrate and
+// maago.Migrate do (D-153): the records, their match with the files, then
+// the files.
+func Up(ctx context.Context, db *practicedb.DB, d project.Dialect, files []File) (applied []string, ds []diag.Diagnostic) {
+	records, ds := Records(ctx, db, d)
+	if len(ds) > 0 {
+		return nil, ds
+	}
+	pending, ds := Match(files, records)
+	if len(ds) > 0 {
+		return nil, ds
+	}
+	return Run(ctx, db, d, pending)
 }
 
 // Show lists each file as applied [x] or not [ ], then how many are.

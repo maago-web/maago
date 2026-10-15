@@ -81,15 +81,18 @@ func TestOpenDBWithoutDriver(t *testing.T) {
 }
 
 // The runtime depends on the standard library and, of this module, only
-// on what reads the address the way the CLI does. A package added to
-// internal/project must not bring more (D-09).
+// on what reads the address the way the CLI does, and on the migrations
+// Migrate shares with it (D-153). A package added to internal/project
+// must not bring more (D-09).
 func TestRuntimeDependencies(t *testing.T) {
 	out, err := exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", ".").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := strings.Fields(string(out))
-	want := []string{"github.com/maago-web/maago/internal/diag", "github.com/maago-web/maago/internal/project", "github.com/maago-web/maago"}
+	want := []string{"github.com/maago-web/maago/internal/diag", "github.com/maago-web/maago/internal/model", "github.com/maago-web/maago/internal/schema",
+		"github.com/maago-web/maago/internal/dialect", "github.com/maago-web/maago/internal/project", "github.com/maago-web/maago/internal/practicedb",
+		"github.com/maago-web/maago/internal/migrate", "github.com/maago-web/maago"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("the runtime depends on %q, want %q", got, want)
 	}
