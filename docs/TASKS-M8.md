@@ -149,9 +149,9 @@
   2. 첫 단계부터 마지막까지 `maago check`와 시험, 0013부터 PG: `TestBoardTutorial`(단계마다 gen·gofmt·check·migrate·앱의 `go test`(일부러 틀리는 단계는 gen의 오류만), 끝에 교차 빌드·`-createsuperuser`·`PORT` 기동·CSS 비교), PG 없이 `CI`면 실패: `TestBoardTutorialPostgresTrailer`. 망가진 단계를 걷기가 잡는지: `TestBoardTutorialCatches`(단계마다 권한 빼기·쿼리·gofmt·PG 마이그레이션·`PORT` 따위 16줄)
   3. 일부러 틀리는 단계(0006·0009·0020·0024·0027, `grep -l Maago-Expect`)마다 기대한 오류: `TestBoardTutorial`이 `Maago-Expect`의 줄과 `maago gen`의 오류가 같은지 본다, 틀린 기대는 `TestBoardTutorialCatches`의 "expected error"·"short expectation"·"one template error of two"·"no maago add"
   4. 에이전트가 처음부터 따라 하기: M9 게이트
-- [ ] MILESTONES.md의 M8 체크박스 갱신
-- [ ] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인
-- [ ] TASKS-M9 초안
+- [x] MILESTONES.md의 M8 체크박스 갱신(넷째 조건은 M9 7번)
+- [x] push 뒤 GitHub Actions에서 PG 시험이 돈 것을 확인: 실행 38668348613(postgres:18 서비스) 통과, `cmd/maago` 13분 25초(기본 10분을 넘어 `-timeout 30m`이 필요했다). 그 앞의 실행 38667242072가 0031 `TestEdit`의 시각 비교(Go는 나노초, PG는 마이크로초: macOS에서는 통과)를 잡았다(b81a111) (2026-10-15)
+- [x] TASKS-M9 초안 (2026-10-15)
 
 ## 초안 리뷰 (2026-10-13)
 
