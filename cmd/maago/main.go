@@ -11,12 +11,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/maago-web/maago/internal/build"
 	"github.com/maago-web/maago/internal/diag"
+	"github.com/maago-web/maago/internal/pipeline"
 	"github.com/maago-web/maago/internal/practicedb"
+	"github.com/maago-web/maago/internal/project"
 	"github.com/maago-web/maago/internal/scaffold"
 
 	// The practice database opens drivers by name (D-89, D-90).
@@ -184,7 +187,20 @@ func gen(stdout, stderr io.Writer) int {
 		diag.Write(stderr, ds)
 		return 1
 	}
+	// A line that says it worked: an agent does not have to look (M10 task 3).
+	if root, ds := project.Root("."); ds == nil {
+		if files, ds := pipeline.Owned(root); ds == nil {
+			fmt.Fprintf(stdout, "generated %d file%s\n", len(files), plural(len(files)))
+		}
+	}
 	return 0
+}
+
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func check(_, stderr io.Writer) int {
@@ -214,8 +230,27 @@ func cmdMakeMigrations(fs *flag.FlagSet) func(stdout, stderr io.Writer) int {
 			fmt.Fprintln(stdout, "no changes")
 		default:
 			fmt.Fprintf(stdout, "created %s\n", written)
+			warn(stderr, written)
 		}
 		return 0
+	}
+}
+
+// warn repeats the draft's ⚠ comments, which only a reader of the file
+// would see otherwise. They are no diagnostics: the draft is written.
+func warn(stderr io.Writer, written string) {
+	root, ds := project.Root(".")
+	if ds != nil {
+		return
+	}
+	b, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(written)))
+	if err != nil {
+		return
+	}
+	for i, line := range strings.Split(string(b), "\n") {
+		if w, ok := strings.CutPrefix(line, "-- ⚠ "); ok {
+			fmt.Fprintf(stderr, "%s:%d: ⚠ %s\n", written, i+1, w)
+		}
 	}
 }
 

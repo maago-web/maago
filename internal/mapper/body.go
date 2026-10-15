@@ -276,6 +276,7 @@ func (b *bodyReader) text(cond *Cond, toks []dialect.Token) bool {
 	src := b.q.Src
 	l.Pos = toks[0].Pos
 	from := toks[0].Pos // where the next SQL part starts
+	undeclared := false
 	for i, t := range toks {
 		var next dialect.Token
 		glued := false // next starts right where t ends
@@ -294,9 +295,10 @@ func (b *bodyReader) text(cond *Cond, toks []dialect.Token) bool {
 		case is(t, ":") && glued && next.Kind == dialect.Word &&
 			!(i > 0 && is(toks[i-1], ":") && toks[i-1].Pos.Offset+1 == t.Pos.Offset):
 			p, ok := b.params[next.Text]
-			if !ok {
+			if !ok { // the line's others too, in the same run
 				b.unknownParam(t.Pos, next.Text, "; if it is not a parameter, put a space after the colon, like a[1: 2]")
-				return false
+				undeclared = true
+				continue
 			}
 			b.used[p.Name] = true
 			if from.Offset < t.Pos.Offset {
@@ -307,6 +309,9 @@ func (b *bodyReader) text(cond *Cond, toks []dialect.Token) bool {
 			from.Offset += len(next.Text)
 			from.Column += len(next.Text)
 		}
+	}
+	if undeclared {
+		return false
 	}
 	last := toks[len(toks)-1]
 	if end := last.Pos.Offset + len(last.Text); from.Offset < end {
@@ -323,7 +328,7 @@ func (b *bodyReader) unknownParam(pos token.Position, name, more string) {
 	for i, p := range b.q.Params {
 		names[i] = p.Name
 	}
-	fix := "declare it with -- param: " + name + " type" + more
+	fix := "declare it with -- param: " + name + " TYPE, TYPE one of int64, int32, float64, string, bool, time.Time (" + name + "? for an optional one)" + more
 	if !sqlName.MatchString(name) {
 		fix = "parameter names are lowercase snake_case" + more
 	}

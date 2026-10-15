@@ -40,11 +40,11 @@ blog/queries/q.sql:1:18: :exec returns no rows, so it has no result type
 
 "-- name: Q :many\n"
 blog/queries/q.sql:1:17: query Q :many has no result type
-  fix: name a model or a new type after :many, like :many PostSummary
+  fix: name a model or a new type after :many, like :many PostSummary, or a type of one column, like :many bool
 
 "-- name: Q :one r\n"
-blog/queries/q.sql:1:17: result type "r" is not an exported Go name
-  fix: start it with an uppercase ASCII letter, followed by letters, digits or _
+blog/queries/q.sql:1:17: unknown result type "r"
+  fix: use one of int64, int32, bool, float64, string, time.Time for one column, or name a new type, like :one PostSummary
 
 "-- name: Q :one R S\n"
 blog/queries/q.sql:1:19: unexpected "S" after the result type

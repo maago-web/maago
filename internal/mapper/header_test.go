@@ -101,7 +101,7 @@ func TestParseErrors(t *testing.T) {
 		{"-- name: Q many R\n", `1:12: query kind "many" has no colon` + "\n  fix: write :many"},
 		{"-- name: Q :exec R\n", `1:18: :exec returns no rows, so it has no result type`},
 		{"-- name: Q :many\n", `1:17: query Q :many has no result type`},
-		{"-- name: Q :one r\n", `1:17: result type "r" is not an exported Go name`},
+		{"-- name: Q :one r\n", `1:17: unknown result type "r"`},
 		{"-- name: Q :one R S\n", `1:19: unexpected "S" after the result type`},
 		{"-- name : Q :one R\n", `1:8: space between name and its colon` + "\n  fix: write -- name: with no space before the colon"},
 		{name + "-- name: P :exec\n", `2:4: second -- name: line`},

@@ -1,15 +1,15 @@
 blog/models.go:9:22: unknown tag key "tabel" in Post
   fix: did you mean "table"? allowed: table, ordering, unique, index, admin, admin_list, admin_search, admin_filter
 blog/models.go:9:43: unknown column field "Titel" in Post
-  fix: did you mean "Title"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
+  fix: did you mean "Title"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, Kind, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
 blog/models.go:9:64: field Title appears twice in unique of Post
   fix: remove the repeated field
 blog/models.go:9:71: index in Post is not written as expected
   fix: list fields in parentheses, like index=(AuthorID,Title)
 blog/models.go:9:91: unknown column field "Foo" in Post
-  fix: allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
+  fix: allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, Kind, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
 blog/models.go:9:95: unknown column field "Bar" in Post
-  fix: did you mean "Bare"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
+  fix: did you mean "Bare"? allowed: ID, Title, Status, Count, Rate, Small, On, At, Name, Mood, Kind, AuthorID, OwnerID, Made, Seen, Word, Bare, ViaID, ByID, SameID, CutID, DeepID, DotID, BothID, GoodID
 blog/models.go:12:33: max in Post.Title is "0", not a positive whole number
   fix: use a positive whole number, like max=200
 blog/models.go:12:35: unknown tag key "uniqe" in Post.Title
@@ -40,93 +40,95 @@ blog/models.go:19:51: tag key "label" given twice in Post.Name
   fix: keep one of them
 blog/models.go:20:37: default "x" of Post.Mood is not one of its choices
   fix: use one of: a, b
-blog/models.go:21:32: unknown model "Autor" in Post.AuthorID
+blog/models.go:21:29: choices in Post.Kind are separated by /
+  fix: list them with /, like choices=draft/published
+blog/models.go:22:32: unknown model "Autor" in Post.AuthorID
   fix: did you mean "Author"? allowed: Post, Author, Tag, Dup, Nullable, Adm, Adm2
-blog/models.go:22:29: Post.OwnerID refers to Post by ID, so it must be int64, not string
+blog/models.go:23:29: Post.OwnerID refers to Post by ID, so it must be int64, not string
   fix: declare the field as int64, or *int64 to allow NULL
-blog/models.go:23:29: Post.Legacy is not a column (type int is not supported), so its maago options would be ignored
+blog/models.go:24:29: Post.Legacy is not a column (type int is not supported), so its maago options would be ignored
   fix: remove the maago tag, or make the field a column: exported, of type int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one (D-77)
-blog/models.go:24:29: Post.secret is not a column (unexported field), so its maago options would be ignored
+blog/models.go:25:29: Post.secret is not a column (unexported field), so its maago options would be ignored
   fix: remove the maago tag, or make the field a column: exported, of type int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one (D-77)
-blog/models.go:25:35: unknown auto value "crate" in Post.Made
+blog/models.go:26:35: unknown auto value "crate" in Post.Made
   fix: did you mean "create"? allowed: create, update
-blog/models.go:26:30: auto fills a time.Time, but Post.Seen is *time.Time
+blog/models.go:27:30: auto fills a time.Time, but Post.Seen is *time.Time
   fix: declare the field as time.Time, or remove auto
-blog/models.go:27:30: auto fills a time.Time, but Post.Word is string
+blog/models.go:28:30: auto fills a time.Time, but Post.Word is string
   fix: declare the field as time.Time, or remove auto
-blog/models.go:28:30: auto in Post.Bare is not written as expected
+blog/models.go:29:30: auto in Post.Bare is not written as expected
   fix: write auto=create or auto=update
-blog/models.go:29:33: unknown app "autth" in Post.ViaID
+blog/models.go:30:33: unknown app "autth" in Post.ViaID
   fix: did you mean "auth"? allowed: auth, blog
-blog/models.go:30:33: unknown model "auth.Usr" in Post.ByID
+blog/models.go:31:33: unknown model "auth.Usr" in Post.ByID
   fix: did you mean "auth.User"? allowed: auth.User
-blog/models.go:31:33: app "blog" in Post.SameID is ambiguous: blog/, shop/
+blog/models.go:32:33: app "blog" in Post.SameID is ambiguous: blog/, shop/
   fix: rename one of the packages
-blog/models.go:32:30: fk in Post.CutID is not written as expected
+blog/models.go:33:30: fk in Post.CutID is not written as expected
   fix: name a model, like fk=Post or fk=auth.User
-blog/models.go:33:30: fk in Post.DeepID is not written as expected
+blog/models.go:34:30: fk in Post.DeepID is not written as expected
   fix: name a model, like fk=Post or fk=auth.User
-blog/models.go:34:30: fk in Post.DotID is not written as expected
+blog/models.go:35:30: fk in Post.DotID is not written as expected
   fix: name a model, like fk=Post or fk=auth.User
-blog/models.go:35:30: Post.BothID refers to Nope by ID, so it must be int64, not string
+blog/models.go:36:30: Post.BothID refers to Nope by ID, so it must be int64, not string
   fix: declare the field as int64, or *int64 to allow NULL
-blog/models.go:35:33: unknown model "Nope" in Post.BothID
+blog/models.go:36:33: unknown model "Nope" in Post.BothID
   fix: allowed: Post, Author, Tag, Dup, Nullable, Adm, Adm2
-blog/models.go:40:28: table name "Blog-Authors" of Author is not a plain SQL name
+blog/models.go:41:28: table name "Blog-Authors" of Author is not a plain SQL name
   fix: use lowercase letters, digits and _, like table=blog_posts
-blog/models.go:42:2: Author.ID is the primary key and must be int64, not string
+blog/models.go:43:2: Author.ID is the primary key and must be int64, not string
   fix: declare it as ID int64 (D-74)
-blog/models.go:42:22: Author.ID is the primary key and cannot have "unique"
+blog/models.go:43:22: Author.ID is the primary key and cannot have "unique"
   fix: remove it; ID may only have label and help
-blog/models.go:46:6: model Tag has no primary key
+blog/models.go:47:6: model Tag has no primary key
   fix: add the field ID int64 (D-74)
-blog/models.go:46:6: table "blog_post" of blog: Tag is also the table of blog: Post
+blog/models.go:47:6: table "blog_post" of blog: Tag is also the table of blog: Post
   fix: give one of them another name with table=…
-blog/models.go:53:22: unique on Slug is declared twice in Dup
+blog/models.go:54:22: unique on Slug is declared twice in Dup
   fix: remove one of them
-blog/models.go:53:52: index on Slug, ID is declared twice in Dup
+blog/models.go:54:52: index on Slug, ID is declared twice in Dup
   fix: remove one of them
-blog/models.go:53:85: unique on Slug, ID is declared twice in Dup
+blog/models.go:54:85: unique on Slug, ID is declared twice in Dup
   fix: remove one of them
-blog/models.go:58:2: fields AuthorID and AuthorId of Dup both become column "author_id"
+blog/models.go:59:2: fields AuthorID and AuthorId of Dup both become column "author_id"
   fix: rename one of them
-blog/models.go:64:2: Nullable.ID is the primary key and must be int64, not *int64
+blog/models.go:65:2: Nullable.ID is the primary key and must be int64, not *int64
   fix: declare it as ID int64 (D-74)
-blog/models.go:68:28: unknown admin value "shown" in Adm
+blog/models.go:69:28: unknown admin value "shown" in Adm
   fix: allowed: hidden
-blog/models.go:68:34: admin_search in Adm is not written as expected
+blog/models.go:69:34: admin_search in Adm is not written as expected
   fix: list fields in parentheses, like admin_search=(Title)
-blog/models.go:68:67: Adm.Title in admin_filter has no choices, and is neither a bool nor an fk field
+blog/models.go:69:67: Adm.Title in admin_filter has no choices, and is neither a bool nor an fk field
   fix: filter by a field with choices, a bool, or an fk field
-blog/models.go:68:73: Adm.Views in admin_filter has no choices, and is neither a bool nor an fk field
+blog/models.go:69:73: Adm.Views in admin_filter has no choices, and is neither a bool nor an fk field
   fix: filter by a field with choices, a bool, or an fk field
-blog/models.go:68:79: Adm.Secret in admin_filter has no choices, and is neither a bool nor an fk field
+blog/models.go:69:79: Adm.Secret in admin_filter has no choices, and is neither a bool nor an fk field
   fix: filter by a field with choices, a bool, or an fk field
-blog/models.go:68:79: Adm.Secret is admin=hidden, but admin_filter of Adm lists it
+blog/models.go:69:79: Adm.Secret is admin=hidden, but admin_filter of Adm lists it
   fix: remove it from admin_filter, or remove admin=hidden
-blog/models.go:68:86: unknown column field "Nope" in Adm
+blog/models.go:69:86: unknown column field "Nope" in Adm
   fix: allowed: ID, Title, Views, Secret
-blog/models.go:68:110: field Title appears twice in admin_list of Adm
+blog/models.go:69:110: field Title appears twice in admin_list of Adm
   fix: remove the repeated field
-blog/models.go:68:116: Adm.Secret is admin=hidden, but admin_list of Adm lists it
+blog/models.go:69:116: Adm.Secret is admin=hidden, but admin_list of Adm lists it
   fix: remove it from admin_list, or remove admin=hidden
-blog/models.go:68:124: tag key "admin_list" given twice in Adm
+blog/models.go:69:124: tag key "admin_list" given twice in Adm
   fix: keep one of them
-blog/models.go:70:24: Adm.ID is the primary key and cannot have "admin"
+blog/models.go:71:24: Adm.ID is the primary key and cannot have "admin"
   fix: remove it; ID may only have label and help
-blog/models.go:71:30: unknown admin value "hiden" in Adm.Title
+blog/models.go:72:30: unknown admin value "hiden" in Adm.Title
   fix: did you mean "hidden"? allowed: hidden, readonly
-blog/models.go:72:24: admin in Adm.Views is not written as expected
+blog/models.go:73:24: admin in Adm.Views is not written as expected
   fix: write admin=hidden or admin=readonly
-blog/models.go:77:36: admin_search applies to strings, but Adm2.Views is int32
+blog/models.go:78:36: admin_search applies to strings, but Adm2.Views is int32
   fix: remove it from admin_search, or make the field a string
-blog/models.go:77:42: Adm2.Code is admin=hidden, but admin_search of Adm2 lists it
+blog/models.go:78:42: Adm2.Code is admin=hidden, but admin_search of Adm2 lists it
   fix: remove it from admin_search, or remove admin=hidden
-blog/models.go:77:42: admin_search applies to strings, but Adm2.Code is int32
+blog/models.go:78:42: admin_search applies to strings, but Adm2.Code is int32
   fix: remove it from admin_search, or make the field a string
-blog/models.go:77:62: Adm2.Page in admin_filter would be the list's key page, which the page or the search has
+blog/models.go:78:62: Adm2.Page in admin_filter would be the list's key page, which the page or the search has
   fix: rename the field, or filter by another
-blog/models.go:77:67: Adm2.Q in admin_filter would be the list's key q, which the page or the search has
+blog/models.go:78:67: Adm2.Q in admin_filter would be the list's key q, which the page or the search has
   fix: rename the field, or filter by another
 shop/models.go:5:6: table "blog_post" of shop: Post is also the table of blog: Post
   fix: give one of them another name with table=…

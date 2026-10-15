@@ -37,6 +37,7 @@ func TestBodyErrors(t *testing.T) {
 	}{
 		// From the task.
 		{"SELECT :x\n", `8:8: parameter x is not declared`, false},
+		{"SELECT 1 LIMIT :lim OFFSET :off\n", `8:16: parameter lim is not declared`, false}, // and offset, in the same run
 		{"SELECT 1\n{status & flag | ids} AND 1\n", `9:16: condition mixes & and |`, false},
 		{"SELECT 1\n{(status)} AND 1\n", `9:2: parentheses in a condition`, false},
 		{"SELECT 1\n{sort=oldest} AND 1\n", `9:7: oldest is not a choice of sort`, false},

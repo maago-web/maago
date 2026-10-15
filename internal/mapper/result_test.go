@@ -222,3 +222,41 @@ func TestFieldName(t *testing.T) {
 		}
 	}
 }
+
+// A result that is a type, like :one bool, is its one column (M10 task 3).
+func TestScalarResult(t *testing.T) {
+	for _, c := range []struct {
+		head, body string
+		cols       []practicedb.Column
+	}{
+		{"-- name: Q :one bool\n", "SELECT EXISTS (SELECT 1 FROM posts)", []practicedb.Column{col("EXISTS (SELECT 1 FROM posts)", "", 0)}},
+		{"-- name: Q :one bool\n", "SELECT EXISTS (SELECT 1 FROM posts)", []practicedb.Column{col("exists", "", 16)}},
+		{"-- name: Q :many string\n", "SELECT title FROM posts", []practicedb.Column{col("title", "posts.title", 0)}},
+	} {
+		rs, errs := results(t, []string{c.head + c.body + "\n"}, [][]practicedb.Column{c.cols})
+		if errs != "" || rs[0].Model != nil || len(rs[0].Fields) != 1 {
+			t.Errorf("%s%s:\ngot %v %s", c.head, c.body, rs[0], errs)
+		}
+	}
+	// Two of one type share nothing: the columns' names differ.
+	if _, errs := results(t, []string{"-- name: A :one bool\nSELECT true AS a\n", "-- name: B :one bool\nSELECT false AS b\n"},
+		[][]practicedb.Column{{col("a", "", 0)}, {col("b", "", 0)}}); errs != "" {
+		t.Errorf("two :one bool: %s", errs)
+	}
+	var all string
+	for _, c := range []struct {
+		head, body string
+		cols       []practicedb.Column
+	}{
+		{"-- name: Q :one bool\n", "SELECT id, title FROM posts", postColumns[:2]},
+		{"-- name: Q :one bool\n", "SELECT title FROM posts", []practicedb.Column{col("title", "posts.title", 0)}},
+		{"-- name: Q :one string\n", "SELECT author_name FROM posts", []practicedb.Column{col("author_name", "posts.author_name", 0)}},
+		{"-- name: Q :one string\n", "SELECT b.name FROM posts p LEFT JOIN boards b ON true", []practicedb.Column{col("name", "boards.name", 0)}},
+		{"-- name: Q :one int32\n", "SELECT count(*) FROM posts", []practicedb.Column{col("count", "", 20)}},
+		{"-- name: Q :one bool\n-- column: b bool\n", "SELECT true AS b", []practicedb.Column{col("b", "", 0)}},
+	} {
+		_, errs := results(t, []string{c.head + c.body + "\n"}, [][]practicedb.Column{c.cols})
+		all += c.head + c.body + "\n" + errs + "\n"
+	}
+	golden.Check(t, "testdata/scalar_result_errors.golden", []byte(all))
+}

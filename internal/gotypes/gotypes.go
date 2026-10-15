@@ -327,14 +327,27 @@ func goList(root string, args ...string) ([]listed, []diag.Diagnostic) {
 			"install Go, or put the go command on PATH")}
 	}
 	if err != nil {
-		// The last line: the first may be "go: downloading …".
-		lines := strings.Split(strings.TrimSpace(stderr.String()), "\n")
-		line := lines[len(lines)-1]
-		if line == "" {
-			line = err.Error()
+		// All that go says, on one line, but the "go: downloading …" lines:
+		// its last line alone may be only what to run ("go work use").
+		var said []string
+		for _, line := range strings.Split(stderr.String(), "\n") {
+			if line = strings.TrimSpace(line); line != "" && !strings.HasPrefix(line, "go: downloading ") {
+				said = append(said, line)
+			}
+		}
+		if said == nil {
+			said = []string{err.Error()}
+		}
+		line := said[0]
+		for _, s := range said[1:] { // "to update it:" and what to run go together
+			if strings.HasSuffix(line, ":") {
+				line += " " + s
+			} else {
+				line += "; " + s
+			}
 		}
 		return nil, []diag.Diagnostic{diag.New(token.Position{}, "go list failed: "+diag.OneLine(line),
-			"run go mod tidy, and make sure go build works")}
+			"do what go says above, then make sure go build works")}
 	}
 	var list []listed
 	for dec := json.NewDecoder(bytes.NewReader(out)); dec.More(); {

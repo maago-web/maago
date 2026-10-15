@@ -159,5 +159,5 @@ func lost(ctx context.Context, db *practicedb.DB, drop dialect.Stmt, cp *dialect
 		return nil
 	}
 	return []diag.Diagnostic{diag.New(drop.Pos, fmt.Sprintf("DROP TABLE %q loses the values of %s, which the copy above does not select", dialect.Name(t), dialect.QuoteAll(gone)),
-		`copy them in the INSERT above, or if that is intended, put "-- maago: allow-drop" on the line right before the DROP`)}
+		fmt.Sprintf(`if a column was renamed, delete the file and run maago makemigrations --rename %s.%s:NEW; otherwise copy them in the INSERT above, or if losing them is intended, put "-- maago: allow-drop" on the line right before the DROP`, dialect.Name(t), gone[0]))}
 }

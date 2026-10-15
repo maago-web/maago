@@ -111,11 +111,11 @@ func CheckFiles(files []File) []diag.Diagnostic {
 			drops := dropping(st.Tokens)
 			switch {
 			case drops && !st.AllowDrop.IsValid() && rebuild(f.Stmts, i) == nil:
-				what := "ALTER TABLE … DROP COLUMN"
+				what, fix := "ALTER TABLE … DROP COLUMN", `if the column was renamed, delete the file and run maago makemigrations --rename TABLE.OLD:NEW; if losing it is intended, put "-- maago: allow-drop" on the line right before it`
 				if word(st.Tokens, 0) == "DROP" {
-					what = "DROP TABLE"
+					what, fix = "DROP TABLE", `if that is intended, put "-- maago: allow-drop" on the line right before it`
 				}
-				ds = append(ds, diag.New(st.Pos, what+" deletes data", `if that is intended, put "-- maago: allow-drop" on the line right before it`))
+				ds = append(ds, diag.New(st.Pos, what+" deletes data", fix))
 			case !drops && st.AllowDrop.IsValid():
 				ds = append(ds, diag.New(st.AllowDrop, "-- maago: allow-drop is not before a DROP TABLE or DROP COLUMN statement", "remove it, or move it to the line right before the DROP"))
 			}

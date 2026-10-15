@@ -260,7 +260,7 @@ MAAGO_SUPERUSER_EMAIL=me@example.com MAAGO_SUPERUSER_PASSWORD='…' go run . -cr
 go run .
 ```
 
-`'…'`에는 비밀번호를 적습니다(8자 이상, 흔한 비밀번호와 이메일을 닮은 것은 거절합니다). 만들면 `created superuser me@example.com (id 1)`을 찍습니다. 관리자 계정은 묻지 않고 셸의 환경 변수로 받습니다. 비밀번호를 플래그로 받지 않는 것은 `ps`와 셸 기록에
+`'…'`에는 비밀번호를 적습니다(8자 이상, 흔한 비밀번호와 이메일을 닮은 것은 거절합니다). `maago gen`은 만든 파일 수(`generated 8 files`)를, `-createsuperuser`는 `created superuser me@example.com (id 1)`을 찍습니다. 관리자 계정은 묻지 않고 셸의 환경 변수로 받습니다. 비밀번호를 플래그로 받지 않는 것은 `ps`와 셸 기록에
 남기 때문입니다.
 
 <http://localhost:8000/admin/>에서 로그인하면 글 목록·쓰기·고치기·지우기가 됩니다.

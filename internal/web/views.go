@@ -88,6 +88,15 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 		return nil, ds
 	}
 	v := &view{}
+	in := params[1]
+	if star, ok := in.(*ast.StarExpr); ok {
+		in = star.X
+	}
+	if id, ok := in.(*ast.Ident); ok && isForm(app, id.Name) {
+		errAt(params[1].Pos(), "view "+r.View+" takes form "+id.Name+" as its In",
+			"take it as a field: type "+r.View+"In struct{ Form "+id.Name+" `maago:\"form\"` }")
+		return nil, ds
+	}
 	var st *ast.StructType
 	switch t := params[1].(type) {
 	case *ast.StructType:
@@ -100,7 +109,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 	}
 	if st == nil || v.in == "" && len(st.Fields.List) > 0 {
 		errAt(params[1].Pos(), "the In of view "+r.View+" is not struct{} or a struct type named in package "+app.Name,
-			"declare type "+r.View+"In struct{…} in package "+app.Name+" with path= and query= fields, or take struct{}")
+			"declare type "+r.View+"In struct{…} in package "+app.Name+" with fields tagged maago:\"path=name\", maago:\"query=name\" or maago:\"form\", or take struct{}")
 		return nil, ds
 	}
 	var bad []inField // path fields of a type Views rejected
@@ -227,4 +236,18 @@ func fields(fl *ast.FieldList) []ast.Expr {
 		}
 	}
 	return ts
+}
+
+// isForm reports whether app declares name as a struct that embeds
+// maago.Form, as Forms will find.
+func isForm(app *App, name string) bool {
+	ts := app.types[name]
+	if ts == nil {
+		return false
+	}
+	st, ok := ts.Type.(*ast.StructType)
+	if !ok {
+		return false
+	}
+	return slices.ContainsFunc(st.Fields.List, func(f *ast.Field) bool { return len(f.Names) == 0 && isMaago(f.Type, "Form", app.maago[name]) })
 }

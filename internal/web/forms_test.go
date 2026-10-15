@@ -131,6 +131,8 @@ func TestFormErrors(t *testing.T) {
 		{"Validate on the value", "func (f *NoticeForm) Validate() {}", "func (f NoticeForm) Validate() {}", []string{`board/urls.go:41:21: Validate of form NoticeForm has a value receiver`}},
 		{"a Valid method", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() {}\n\nfunc (f NoticeForm) Valid() bool { return true }", []string{`board/urls.go:43:21: form NoticeForm declares Valid, which maago gen writes for it`}},
 		{"a field named Valid", "Pinned maago.Field[bool]", "Valid  maago.Field[bool]", []string{`board/urls.go:37:2: form field Valid takes the name of the form's method Valid`}},
+		{"a form as the In", "in BoardIn) (BoardPage, error) { return BoardPage{in.Form}, nil }", "f *BoardForm) (BoardPage, error) { return BoardPage{*f}, nil }", []string{`board/urls.go:49:38: view BoardNew takes form BoardForm as its In`}},
+		{"a form value as the In", "in BoardIn) (BoardPage, error) { return BoardPage{in.Form}, nil }", "f BoardForm) (BoardPage, error) { return BoardPage{f}, nil }", []string{`board/urls.go:49:38: view BoardNew takes form BoardForm as its In`}},
 		{"two forms at once", "`maago:\"min=2,", "`maago:\"mim=2,", nil}, // with the next edit too: see below
 		{"Validate's signature", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() error { return nil }", []string{`board/urls.go:41:22: Validate of form NoticeForm is not a method func()`}},
 	}
@@ -164,5 +166,19 @@ func TestFormValidUnread(t *testing.T) {
 	}
 	if !strings.Contains(string(files["board/forms_gen.go"]), "func (f DraftForm) Valid() bool {\n\treturn maago.FormValid(f.Form) && f.Note.Error == \"\"\n}") {
 		t.Errorf("no Valid of DraftForm:\n%s", files["board/forms_gen.go"])
+	}
+}
+
+// A model form's field whose model field is a pointer, which may be NULL,
+// is optional without saying so.
+func TestModelFormPointerOptional(t *testing.T) {
+	files := boardFiles("\tCreated time.Time", "\tNote    *string\n\tCreated time.Time")
+	files["board/urls.go"] = strings.Replace(files["board/urls.go"], "\tKind       maago.Field[string] `maago:\"optional\"`\n", "\tKind       maago.Field[string] `maago:\"optional\"`\n\tNote       maago.Field[string]\n", 1)
+	out, gen := generate(t, files)
+	if out != "" {
+		t.Fatalf("errors:\n%s", out)
+	}
+	if want := `maago.Rule{Name: "note", Label: "Note", Optional: true}`; !strings.Contains(string(gen["board/views_gen.go"]), want) {
+		t.Errorf("no %s in\n%s", want, gen["board/views_gen.go"])
 	}
 }

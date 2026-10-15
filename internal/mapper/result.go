@@ -56,7 +56,7 @@ func Results(apps []*model.App, dir string, qs []*Query, cols [][]practicedb.Col
 			ds = append(ds, rds...)
 			continue
 		}
-		if r.Model == nil {
+		if r.Model == nil && q.Scalar == 0 {
 			if prev, ok := shared[r.Name]; ok {
 				if !slices.Equal(prev.Fields, r.Fields) {
 					ds = append(ds, diag.New(q.NamePos, fmt.Sprintf("result type %s has another shape in %s: %s", r.Name, prev.Pos.Filename, firstDifference(prev.Fields, r.Fields)),
@@ -101,6 +101,9 @@ func (q *Query) result(app *model.App, tables map[string]*model.Model, cols []pr
 			}
 		}
 		return nil
+	}
+	if q.Scalar != 0 {
+		return r, q.scalarResult(r, cols, src, j, typeName)
 	}
 	if r.Model = modelNamed(app, q.Result); r.Model != nil {
 		return r, q.modelResult(r, cols, src, j)
@@ -169,7 +172,7 @@ func (q *Query) modelResult(r *Result, cols []practicedb.Column, src func(practi
 		return nil
 	}
 	return []diag.Diagnostic{diag.New(q.bodyPos(), fmt.Sprintf("result columns do not match model %s: %s", m.Name, strings.Join(problems, "; ")),
-		fmt.Sprintf("select every column of %s, or declare a new result type name (e.g. \"%s %sSummary\")", m.Name, q.Kind, m.Name))}
+		fmt.Sprintf("select every column of %s, like SELECT * or SELECT p.*, or declare a new result type name (e.g. \"%s %sSummary\")", m.Name, q.Kind, m.Name))}
 }
 
 // bodyPos is the start of the SQL's first line.
@@ -264,6 +267,44 @@ func (q *Query) newResult(r *Result, cols []practicedb.Column, src func(practice
 		}
 	}
 	return ds
+}
+
+// scalarResult checks the one column of a query whose result is a type,
+// like :one bool. An expression is taken to be of that type and not NULL,
+// as -- column: x T says (no driver knows whether an expression is NULL).
+func (q *Query) scalarResult(r *Result, cols []practicedb.Column, src func(practicedb.Column) *model.Field, j joins, typeName func(uint32) string) []diag.Diagnostic {
+	if len(q.Columns) > 0 {
+		return []diag.Diagnostic{diag.New(q.Columns[0].Pos, fmt.Sprintf("-- column: declares a column of a new result type, but %s returns %s", q.Name, q.Scalar),
+			"remove the -- column: lines; "+q.Scalar.String()+" is the column's type")}
+	}
+	if len(cols) != 1 {
+		return []diag.Diagnostic{diag.New(q.bodyPos(), fmt.Sprintf("query %s returns %s, but selects %d columns", q.Name, q.Scalar, len(cols)),
+			fmt.Sprintf("select one column, or name a new result type, like %s %sRow", q.Kind, q.Name))}
+	}
+	c := cols[0]
+	if f := src(c); f != nil {
+		switch {
+		case f.Type != q.Scalar:
+			return []diag.Diagnostic{diag.New(q.NamePos, fmt.Sprintf("query %s returns %s, but its column is %s.%s, a %s", q.Name, q.Scalar, c.Table, c.Origin, f.Type),
+				fmt.Sprintf("write %s %s", q.Kind, f.Type))}
+		case f.Pointer || j.nullable(c):
+			fix := fmt.Sprintf("COALESCE it, or name a new result type, like %s %sRow, which has it as *%s", q.Kind, q.Name, f.Type)
+			if !f.Pointer { // the join's: a new type declares it
+				fix = fmt.Sprintf("COALESCE it, or name a new result type and declare -- column: %s? %s", c.Name, f.Type)
+			}
+			return []diag.Diagnostic{diag.New(q.NamePos, fmt.Sprintf("query %s returns %s, but its column %s.%s may be NULL", q.Name, q.Scalar, c.Table, c.Origin), fix)}
+		}
+	} else if c.Type != 0 && !slices.Contains(pgTypes[q.Scalar].oids, c.Type) {
+		fix := fmt.Sprintf("cast the expression to %s, like …::%s", pgTypes[q.Scalar].name, pgTypes[q.Scalar].name)
+		for t, pt := range pgTypes {
+			if slices.Contains(pt.oids, c.Type) && t != model.Bytes {
+				fix = fmt.Sprintf("write %s %s", q.Kind, t)
+			}
+		}
+		return []diag.Diagnostic{diag.New(q.NamePos, fmt.Sprintf("query %s returns %s, but PostgreSQL gives %s", q.Name, q.Scalar, typeName(c.Type)), fix)}
+	}
+	r.Fields = []ResultField{{Column: c.Name, Type: q.Scalar}}
+	return nil
 }
 
 func fieldType(t model.Type, pointer bool) string {

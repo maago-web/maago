@@ -106,7 +106,9 @@ func TestShortTutorial(t *testing.T) {
 	// go run . builds main as go build does; the binary serves on a free
 	// PORT, which main reads.
 	doc.commands("maago gen\nMAAGO_SUPERUSER_EMAIL=me@example.com MAAGO_SUPERUSER_PASSWORD='…' go run . -createsuperuser\ngo run .\n")
-	maago(0, "", "gen")
+	if code, stdout, stderr := runCmd("gen"); code != 0 || stderr != "" || !strings.Contains(doc.text, "`"+strings.TrimSpace(stdout)+"`") {
+		t.Fatalf("maago gen: %d %q %q; §5 shows not what it prints", code, stdout, stderr)
+	}
 	bin := filepath.Join(t.TempDir(), "myblog")
 	goRun("build", "-o", bin, ".")
 	const email, password = "me@example.com", "correct horse battery staple"
@@ -209,6 +211,7 @@ func useAdmin(base, email, password string) error {
 // them a test has used: a block it never reads is one it does not follow.
 type tutorial struct {
 	t      *testing.T
+	text   string      // the part, prose and blocks
 	blocks [][2]string // language, text
 	used   []bool
 }
@@ -222,7 +225,7 @@ func newTutorial(t *testing.T, path, from, to string) *tutorial {
 	if start < 0 || end < start {
 		t.Fatalf("%s has no %q before %q", path, from, to)
 	}
-	tu := &tutorial{t: t}
+	tu := &tutorial{t: t, text: src[start:end]}
 	for _, m := range regexp.MustCompile("(?s)```(\\w*)\n(.*?)```").FindAllStringSubmatch(src[start:end], -1) {
 		tu.blocks = append(tu.blocks, [2]string{m[1], m[2]})
 	}

@@ -308,7 +308,20 @@ func TestGoListFails(t *testing.T) {
 	b, _ := os.ReadFile(mod)
 	os.WriteFile(mod, append(b, "require example.org/missing\n"...), 0o644) // no version
 	_, got := run(t, root, nil)
-	if !strings.HasPrefix(got, "go list failed: ") || !strings.HasSuffix(got, "  fix: run go mod tidy, and make sure go build works\n") {
+	if !strings.HasPrefix(got, "go list failed: ") || !strings.HasSuffix(got, "  fix: do what go says above, then make sure go build works\n") {
+		t.Errorf("got %q", got)
+	}
+}
+
+// What go says over several lines comes whole: the last line alone, here
+// "go work use", says not what is wrong (M9 task 3).
+func TestGoListFailsLines(t *testing.T) {
+	root := module(t, "1.25.0", map[string]string{"a/a.go": "package a\n"})
+	work := filepath.Join(t.TempDir(), "go.work")
+	os.WriteFile(work, []byte("go 1.25\n\nuse "+root+"\n"), 0o644) // lower than the module's go
+	t.Setenv("GOWORK", work)
+	_, got := run(t, root, nil)
+	if !strings.Contains(got, "requires go >= 1.25.0") || !strings.Contains(got, "to update it: go work use\n") {
 		t.Errorf("got %q", got)
 	}
 }

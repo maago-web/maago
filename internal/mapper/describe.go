@@ -85,7 +85,12 @@ func Describe(ctx context.Context, db *practicedb.DB, q *Query, axes []Axis, vs 
 			switch {
 			case colsFrom < 0:
 				cols, colsFrom = desc.Columns, vi
-			case differ == nil && !slices.Equal(cols, desc.Columns):
+			case differ == nil && !slices.EqualFunc(cols, desc.Columns, func(a, b practicedb.Column) bool {
+				if q.Scalar != 0 { // its one column's name is no field's; SQLite names an expression by its text
+					a.Name, b.Name = "", ""
+				}
+				return a == b
+			}):
 				dg := diag.New(q.NamePos,
 					fmt.Sprintf("result columns differ: %s gives %s, but %s gives %s",
 						describe(axes, vs[colsFrom].Combos[0]), columnNames(cols), describe(axes, v.Combos[0]), columnNames(desc.Columns)),

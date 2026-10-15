@@ -398,6 +398,7 @@ func modelRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ide
 		ff.label = mf.Label
 	}
 	ff.help, ff.choices, ff.max = mf.Help, mf.Choices, mf.Max
+	ff.optional = ff.optional || mf.Pointer && ff.typ != "bool" // an empty input stands for NULL
 	return ds
 }
 

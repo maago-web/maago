@@ -90,6 +90,7 @@ type Post struct {
 	At       time.Time ` + q + `maago:"default='now'"` + q + `
 	Name     string    ` + q + `maago:"default=bob,label='a',label='b'"` + q + `
 	Mood     string    ` + q + `maago:"default='x',choices=a/b"` + q + `
+	Kind     string    ` + q + `maago:"choices=draft|published,default='draft'"` + q + `
 	AuthorID int64     ` + q + `maago:"fk=Autor"` + q + `
 	OwnerID  string    ` + q + `maago:"fk=Post"` + q + `
 	Legacy   int       ` + q + `maago:"index"` + q + `

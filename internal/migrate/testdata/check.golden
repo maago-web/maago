@@ -75,11 +75,11 @@ migrations/0001_refused.sql:42:1: triggers are not supported
 migrations/0003_drops.sql:1:1: DROP TABLE deletes data
   fix: if that is intended, put "-- maago: allow-drop" on the line right before it
 migrations/0003_drops.sql:2:1: ALTER TABLE … DROP COLUMN deletes data
-  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+  fix: if the column was renamed, delete the file and run maago makemigrations --rename TABLE.OLD:NEW; if losing it is intended, put "-- maago: allow-drop" on the line right before it
 migrations/0003_drops.sql:3:1: ALTER TABLE … DROP COLUMN deletes data
-  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+  fix: if the column was renamed, delete the file and run maago makemigrations --rename TABLE.OLD:NEW; if losing it is intended, put "-- maago: allow-drop" on the line right before it
 migrations/0003_drops.sql:4:1: ALTER TABLE … DROP COLUMN deletes data
-  fix: if that is intended, put "-- maago: allow-drop" on the line right before it
+  fix: if the column was renamed, delete the file and run maago makemigrations --rename TABLE.OLD:NEW; if losing it is intended, put "-- maago: allow-drop" on the line right before it
 migrations/0003_drops.sql:5:1: -- maago: allow-drop is not before a DROP TABLE or DROP COLUMN statement
   fix: remove it, or move it to the line right before the DROP
 migrations/0003_drops.sql:7:1: DROP TABLE deletes data

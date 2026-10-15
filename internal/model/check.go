@@ -305,6 +305,8 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, app *App) 
 			case !c.shape(o, where, Bare, -1, "list them with /, like choices=draft/published"):
 			case f.Type != String:
 				c.errf(o.KeyPos, "remove choices, or make the field a string", "choices apply to strings, but %s is %s", where, f.Type)
+			case slices.ContainsFunc(o.Values, func(v string) bool { return strings.ContainsAny(v, "|;") }):
+				c.errf(o.KeyPos, "list them with /, like choices=draft/published", "choices in %s are separated by /", where)
 			default:
 				for j, v := range o.Values {
 					if slices.Contains(o.Values[:j], v) {

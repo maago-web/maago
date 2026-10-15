@@ -82,7 +82,7 @@ func Names(fset *token.FileSet, root, dir string, app *model.App, qs []*Query, m
 				add(typ+FieldName(v), by, p.Pos, fix)
 			}
 		}
-		if q.Kind != Exec && modelNamed(app, q.Result) == nil && !results[q.Result] {
+		if q.Kind != Exec && q.Scalar == 0 && modelNamed(app, q.Result) == nil && !results[q.Result] {
 			results[q.Result] = true
 			add(q.Result, "the result type of query "+q.Name, q.NamePos, "rename the result type, or what else declares that name")
 		}

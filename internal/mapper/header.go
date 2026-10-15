@@ -33,7 +33,8 @@ type Query struct {
 	Name      string
 	NamePos   token.Position
 	Kind      Kind
-	Result    string // "" for :exec
+	Result    string     // "" for :exec
+	Scalar    model.Type // the result's type when Result names one, like bool; 0 for a struct
 	Params    []Param
 	Columns   []Column
 	Lines     []Line          // the body
@@ -289,12 +290,22 @@ func (h *header) name(fs []field) {
 		h.errf(fs[2].i, fmt.Sprintf("remove %s, or use :one or :many", fs[2].s), ":exec returns no rows, so it has no result type")
 		return
 	case kind != Exec && len(fs) == 2:
-		h.errf(len(h.text), fmt.Sprintf("name a model or a new type after %s, like %s PostSummary", kind, kind), "query %s %s has no result type", fs[0].s, kind)
+		h.errf(len(h.text), fmt.Sprintf("name a model or a new type after %s, like %s PostSummary, or a type of one column, like %s bool", kind, kind, kind), "query %s %s has no result type", fs[0].s, kind)
 		return
 	case kind != Exec:
 		result = fs[2].s
-		if !goName.MatchString(result) {
-			h.errf(fs[2].i, "start it with an uppercase ASCII letter, followed by letters, digits or _", "result type %q is not an exported Go name", result)
+		if t, ok := baseTypes[result]; ok && t != model.Bytes {
+			h.q.Scalar = t // one column of that type (M10 task 3)
+		} else if r := result[0]; r == '[' || r == '*' || 'a' <= r && r <= 'z' {
+			scalars := slices.DeleteFunc(slices.Clone(typeNames), func(n string) bool { return n == "[]byte" })
+			fix := "use one of " + strings.Join(scalars, ", ") + " for one column, or name a new type, like " + kind.String() + " PostSummary"
+			if s := diag.Suggest(result, scalars); s != "" {
+				fix = fmt.Sprintf("did you mean %q? or %s", s, fix)
+			}
+			h.errf(fs[2].i, fix, "unknown result type %q", result)
+			return
+		} else if !goName.MatchString(result) {
+			h.errf(fs[2].i, "start it with an uppercase ASCII letter, followed by letters, digits or _; or, for one column, use bool, int64, int32, float64, string or time.Time", "result type %q is not an exported Go name", result)
 			return
 		}
 		if len(fs) > 3 {

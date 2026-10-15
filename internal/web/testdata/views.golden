@@ -4,7 +4,7 @@ site/urls.go:65:6: view A takes 3 values and returns 2
 
 # In of another package
 site/urls.go:65:32: the In of view A is not struct{} or a struct type named in package site
-  fix: declare type AIn struct{…} in package site with path= and query= fields, or take struct{}
+  fix: declare type AIn struct{…} in package site with fields tagged maago:"path=name", maago:"query=name" or maago:"form", or take struct{}
 
 # untagged field
 site/urls.go:65:18: field X says not where its value comes from
@@ -62,7 +62,7 @@ site/urls.go:12:27: route post_detail would declare PostDetailURL, which site/mo
 
 # In with fields, not named
 site/urls.go:65:32: the In of view A is not struct{} or a struct type named in package site
-  fix: declare type AIn struct{…} in package site with path= and query= fields, or take struct{}
+  fix: declare type AIn struct{…} in package site with fields tagged maago:"path=name", maago:"query=name" or maago:"form", or take struct{}
 
 # two sources
 site/urls.go:65:42: field X names more than one source

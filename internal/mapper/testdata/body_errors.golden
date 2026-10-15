@@ -1,6 +1,12 @@
 "SELECT :x\n"
 blog/queries/q.sql:8:8: parameter x is not declared
-  fix: declare it with -- param: x type; if it is not a parameter, put a space after the colon, like a[1: 2]
+  fix: declare it with -- param: x TYPE, TYPE one of int64, int32, float64, string, bool, time.Time (x? for an optional one); if it is not a parameter, put a space after the colon, like a[1: 2]
+
+"SELECT 1 LIMIT :lim OFFSET :off\n"
+blog/queries/q.sql:8:16: parameter lim is not declared
+  fix: did you mean "limit"? or declare it with -- param: lim TYPE, TYPE one of int64, int32, float64, string, bool, time.Time (lim? for an optional one); if it is not a parameter, put a space after the colon, like a[1: 2]
+blog/queries/q.sql:8:28: parameter off is not declared
+  fix: declare it with -- param: off TYPE, TYPE one of int64, int32, float64, string, bool, time.Time (off? for an optional one); if it is not a parameter, put a space after the colon, like a[1: 2]
 
 "SELECT 1\n{status & flag | ids} AND 1\n"
 blog/queries/q.sql:9:16: condition mixes & and |
@@ -36,7 +42,7 @@ blog/queries/q.sql:8:8: parameter 한글 is not declared
 
 "SELECT :x\n{sort} AND 1\nWHERE x = {"
 blog/queries/q.sql:8:8: parameter x is not declared
-  fix: declare it with -- param: x type; if it is not a parameter, put a space after the colon, like a[1: 2]
+  fix: declare it with -- param: x TYPE, TYPE one of int64, int32, float64, string, bool, time.Time (x? for an optional one); if it is not a parameter, put a space after the colon, like a[1: 2]
 blog/queries/q.sql:9:2: {sort} is always true: sort always has a choice
   fix: compare it with a choice, like {sort=latest}
 blog/queries/q.sql:10:11: unexpected {
@@ -116,7 +122,7 @@ blog/queries/q.sql:9:2: {sort} is always true: sort always has a choice
 
 "SELECT 1\n{stauts} AND 1\n"
 blog/queries/q.sql:9:2: parameter stauts is not declared
-  fix: did you mean "status"? or declare it with -- param: stauts type
+  fix: did you mean "status"? or declare it with -- param: stauts TYPE, TYPE one of int64, int32, float64, string, bool, time.Time (stauts? for an optional one)
 
 "SELECT 1\n{status &} AND 1\n"
 blog/queries/q.sql:9:9: condition ends with &

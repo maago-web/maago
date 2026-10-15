@@ -1,0 +1,31 @@
+-- name: Q :one bool
+SELECT id, title FROM posts
+blog/queries/q1.sql:2:1: query Q returns bool, but selects 2 columns
+  fix: select one column, or name a new result type, like :one QRow
+
+-- name: Q :one bool
+SELECT title FROM posts
+blog/queries/q1.sql:1:10: query Q returns bool, but its column is posts.title, a string
+  fix: write :one string
+
+-- name: Q :one string
+SELECT author_name FROM posts
+blog/queries/q1.sql:1:10: query Q returns string, but its column posts.author_name may be NULL
+  fix: COALESCE it, or name a new result type, like :one QRow, which has it as *string
+
+-- name: Q :one string
+SELECT b.name FROM posts p LEFT JOIN boards b ON true
+blog/queries/q1.sql:1:10: query Q returns string, but its column boards.name may be NULL
+  fix: COALESCE it, or name a new result type and declare -- column: name? string
+
+-- name: Q :one int32
+SELECT count(*) FROM posts
+blog/queries/q1.sql:1:10: query Q returns int32, but PostgreSQL gives bigint
+  fix: write :one int64
+
+-- name: Q :one bool
+-- column: b bool
+SELECT true AS b
+blog/queries/q1.sql:2:12: -- column: declares a column of a new result type, but Q returns bool
+  fix: remove the -- column: lines; bool is the column's type
+

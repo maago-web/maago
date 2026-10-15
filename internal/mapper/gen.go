@@ -191,7 +191,10 @@ func (g *gen) query(c Checked, declared map[*Result]bool) queryView {
 		}
 	}
 	zero := "0"
-	if r := c.Result; r != nil {
+	if r := c.Result; r != nil && q.Scalar != 0 {
+		g.imports["database/sql"], g.imports["fmt"] = true, true
+		v.Row, v.Scan = g.typ(q.Scalar, false), g.dest("v", q.Scalar, false)
+	} else if r != nil {
 		g.imports["database/sql"], g.imports["fmt"] = true, true
 		v.Row = r.Name
 		if r.Model == nil && !declared[r] {
@@ -210,6 +213,9 @@ func (g *gen) query(c Checked, declared map[*Result]bool) queryView {
 	switch q.Kind {
 	case One:
 		v.Returns, zero = "("+v.Row+", error)", v.Row+"{}"
+		if q.Scalar != 0 {
+			zero = scalarZero[q.Scalar]
+		}
 	case Many:
 		v.Returns, zero = "([]"+v.Row+", error)", "nil"
 	case Exec:
@@ -218,6 +224,9 @@ func (g *gen) query(c Checked, declared map[*Result]bool) queryView {
 	v.Body = g.body(c, zero)
 	return v
 }
+
+// scalarZero is the zero value of a result that is a type (:one bool).
+var scalarZero = map[model.Type]string{model.Int64: "0", model.Int32: "0", model.Float64: "0", model.Bool: "false", model.String: `""`, model.Time: "time.Time{}"}
 
 func (g *gen) paramType(q *Query, p Param) string {
 	switch {

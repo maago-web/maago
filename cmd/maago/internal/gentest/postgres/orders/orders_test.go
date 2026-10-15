@@ -209,6 +209,33 @@ func TestOneAndExec(t *testing.T) {
 	}
 }
 
+// A result of one column comes as its type: bool, int64, time.Time.
+func TestScalarResults(t *testing.T) {
+	ctx, db := gentest.Open(t, fixture)
+	all := seed(t, ctx, db)
+	for amounts, want := range map[int64]bool{300: true, 1: false} {
+		if got, err := OrderExists(ctx, db, OrderExistsParams{Amounts: []int64{amounts, 2}}); got != want || err != nil {
+			t.Errorf("OrderExists(%d): %v %v", amounts, got, err)
+		}
+	}
+	if got, err := OrderExists(ctx, db, OrderExistsParams{}); got || !errors.Is(err, maago.ErrEmptySlice) {
+		t.Errorf("OrderExists(): %v %v", got, err)
+	}
+	if got, err := OrderAmounts(ctx, db); !slices.Equal(got, []int64{50, 300, 999, 10, 200, 120}) || err != nil {
+		t.Errorf("OrderAmounts: %v %v", got, err)
+	}
+	read, err := GetOrder(ctx, db, all[1].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := OrderCreated(ctx, db, OrderCreatedParams{IDs: []int64{all[1].ID}}); !got.Equal(read.CreatedAt) || err != nil {
+		t.Errorf("OrderCreated: %v %v, want %v", got, err, read.CreatedAt)
+	}
+	if _, err := OrderCreated(ctx, db, OrderCreatedParams{IDs: []int64{-1}}); !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("OrderCreated of no row: %v", err)
+	}
+}
+
 // Each slice's placeholders follow the scalar and the slices before it:
 // were any argument off, the rows would differ.
 func TestOrdersMatching(t *testing.T) {

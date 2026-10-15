@@ -74,6 +74,19 @@ func DeleteOrders(ctx context.Context, db maago.DB, p DeleteOrdersParams) (int64
 	return maago.Exec(ctx, db, query, args...)
 }
 
+// OrderAmounts runs queries/order_amounts.sql.
+func OrderAmounts(ctx context.Context, db maago.DB) ([]int64, error) {
+	return maago.Many(ctx, db, scanOrderAmounts, `SELECT amount FROM orders ORDER BY id`)
+}
+
+func scanOrderAmounts(rows *sql.Rows) (int64, error) {
+	var v int64
+	if err := rows.Scan(&v); err != nil {
+		return v, fmt.Errorf("OrderAmounts: %w", err)
+	}
+	return v, nil
+}
+
 // OrderByAmountParams is what OrderByAmount takes.
 type OrderByAmountParams struct {
 	Amount int64
@@ -90,6 +103,60 @@ func scanOrderByAmount(rows *sql.Rows) (Order, error) {
 	var v Order
 	if err := rows.Scan(&v.Amount, &v.Status, &v.ID, maago.ScanSQLiteTime(&v.UpdatedAt), &v.CustomerID, maago.ScanSQLiteTime(&v.CreatedAt), &v.Priority); err != nil {
 		return v, fmt.Errorf("OrderByAmount: %w", err)
+	}
+	return v, nil
+}
+
+// OrderCreatedParams is what OrderCreated takes.
+type OrderCreatedParams struct {
+	IDs []int64
+}
+
+// OrderCreated runs queries/order_created.sql.
+func OrderCreated(ctx context.Context, db maago.DB, p OrderCreatedParams) (time.Time, error) {
+	var query string
+	var args []any
+	if len(p.IDs) == 0 {
+		return time.Time{}, fmt.Errorf("OrderCreated: ids: %w", maago.ErrEmptySlice)
+	}
+	query = `SELECT created_at FROM orders WHERE id IN (` + maago.Placeholders("?", 1, len(p.IDs)) + `)`
+	for _, x := range p.IDs {
+		args = append(args, x)
+	}
+	return maago.One(ctx, db, scanOrderCreated, query, args...)
+}
+
+func scanOrderCreated(rows *sql.Rows) (time.Time, error) {
+	var v time.Time
+	if err := rows.Scan(maago.ScanSQLiteTime(&v)); err != nil {
+		return v, fmt.Errorf("OrderCreated: %w", err)
+	}
+	return v, nil
+}
+
+// OrderExistsParams is what OrderExists takes.
+type OrderExistsParams struct {
+	Amounts []int64
+}
+
+// OrderExists runs queries/order_exists.sql.
+func OrderExists(ctx context.Context, db maago.DB, p OrderExistsParams) (bool, error) {
+	var query string
+	var args []any
+	if len(p.Amounts) == 0 {
+		return false, fmt.Errorf("OrderExists: amounts: %w", maago.ErrEmptySlice)
+	}
+	query = `SELECT EXISTS (SELECT 1 FROM orders WHERE amount IN (` + maago.Placeholders("?", 1, len(p.Amounts)) + `))`
+	for _, x := range p.Amounts {
+		args = append(args, x)
+	}
+	return maago.One(ctx, db, scanOrderExists, query, args...)
+}
+
+func scanOrderExists(rows *sql.Rows) (bool, error) {
+	var v bool
+	if err := rows.Scan(&v); err != nil {
+		return v, fmt.Errorf("OrderExists: %w", err)
 	}
 	return v, nil
 }

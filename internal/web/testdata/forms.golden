@@ -112,6 +112,14 @@ board/urls.go:43:21: form NoticeForm declares Valid, which maago gen writes for 
 board/urls.go:37:2: form field Valid takes the name of the form's method Valid
   fix: rename the field
 
+# a form as the In
+board/urls.go:49:38: view BoardNew takes form BoardForm as its In
+  fix: take it as a field: type BoardNewIn struct{ Form BoardForm `maago:"form"` }
+
+# a form value as the In
+board/urls.go:49:38: view BoardNew takes form BoardForm as its In
+  fix: take it as a field: type BoardNewIn struct{ Form BoardForm `maago:"form"` }
+
 # two forms at once
 board/urls.go:27:27: form BoardForm names model Bord, which this package does not declare
   fix: did you mean "Board"?
