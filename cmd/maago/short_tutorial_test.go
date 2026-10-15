@@ -5,7 +5,6 @@ import (
 	"go/format"
 	"io"
 	"net/http"
-	"net/http/cookiejar"
 	"net/url"
 	"os"
 	osexec "os/exec"
@@ -128,8 +127,10 @@ func TestShortTutorial(t *testing.T) {
 // for the post's author. The rows it finds by what they say, so the
 // database may have others.
 func useAdmin(base, email, password string) error {
-	jar, _ := cookiejar.New(nil)
-	client := http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	// The session cookie is Secure, which Go 1.25's cookiejar drops on
+	// http: the client keeps it itself until M10 task 2 decides Secure
+	// by auth.SiteURL's scheme (D-128).
+	client := http.Client{Jar: &keepAllJar{}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	post := func(path string, form url.Values) error {
 		resp, err := client.PostForm(base+path, form)
 		if err != nil {
@@ -194,6 +195,27 @@ func useAdmin(base, email, password string) error {
 		return fmt.Errorf("the deleted post is still in the list: %q %v", got, err)
 	}
 	return nil
+}
+
+// keepAllJar keeps every cookie a response sets, Secure or not, and sends
+// them all back: one site, in a test.
+type keepAllJar struct{ cookies map[string]*http.Cookie }
+
+func (j *keepAllJar) SetCookies(_ *url.URL, cs []*http.Cookie) {
+	if j.cookies == nil {
+		j.cookies = map[string]*http.Cookie{}
+	}
+	for _, c := range cs {
+		j.cookies[c.Name] = c
+	}
+}
+
+func (j *keepAllJar) Cookies(*url.URL) []*http.Cookie {
+	var cs []*http.Cookie
+	for _, c := range j.cookies {
+		cs = append(cs, &http.Cookie{Name: c.Name, Value: c.Value})
+	}
+	return cs
 }
 
 // tutorial is the fenced blocks of a part of a document, and which of
