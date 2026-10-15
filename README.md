@@ -5,7 +5,7 @@
 
 M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·M4(HTTP)·M5(인증)·M6(admin)·M7(정적 파일과 업로드)·M8(튜토리얼 검증: 게시판)·M9(v0 게이트)가 끝났다. 게이트 뒤의 [연구](docs/RESEARCH-AGENT-FIT.md)를 M10이 반영한다. 문서부터 읽는다.
 
-**다음 작업: TASKS-M10 초안**([MILESTONES.md](docs/MILESTONES.md)의 M10, 결정 D-147~D-153, M9에서 넘어온 2·11·8번).
+**다음 작업: [TASKS-M10](docs/TASKS-M10.md) 1번**([MILESTONES.md](docs/MILESTONES.md)의 M10, 결정 D-147~D-153, M9에서 넘어온 2·11·8번).
 
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙
@@ -14,7 +14,7 @@ M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·
 - [MILESTONES.md](docs/MILESTONES.md) — 만드는 순서
 - [WORKFLOW.md](docs/WORKFLOW.md) — 구현 루프
 - [RESEARCH-AGENT-FIT.md](docs/RESEARCH-AGENT-FIT.md) — 에이전트에게 정말 편하고 안전한가(M9 연구)
-- [TASKS-M9.md](docs/TASKS-M9.md) — 마지막으로 끝낸 마일스톤의 작업 목록, M10의 것은 초안 전 (지난 것: [M0](docs/TASKS-M0.md), [M1](docs/TASKS-M1.md), [M2](docs/TASKS-M2.md), [M3](docs/TASKS-M3.md), [M4](docs/TASKS-M4.md), [M5](docs/TASKS-M5.md), [M6](docs/TASKS-M6.md), [M7](docs/TASKS-M7.md), [M8](docs/TASKS-M8.md))
+- [TASKS-M10.md](docs/TASKS-M10.md) — 진행 중인 마일스톤의 작업 목록 (지난 것: [M0](docs/TASKS-M0.md), [M1](docs/TASKS-M1.md), [M2](docs/TASKS-M2.md), [M3](docs/TASKS-M3.md), [M4](docs/TASKS-M4.md), [M5](docs/TASKS-M5.md), [M6](docs/TASKS-M6.md), [M7](docs/TASKS-M7.md), [M8](docs/TASKS-M8.md), [M9](docs/TASKS-M9.md))
 - [examples/board](examples/board/README.md) — 게시판 튜토리얼(M8)의 단계들
 - [TODO.md](docs/TODO.md) — 남은 일
 
