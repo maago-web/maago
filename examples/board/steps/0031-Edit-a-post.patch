@@ -159,10 +159,10 @@ index b02f07d..f62f1bd 100644
 +	return maago.SeeOther[PostEditPage](PostDetailURL(p.ID)), nil
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 7b884f4..17c49e6 100644
+index 7b884f4..1d7528b 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -682,3 +682,91 @@ func TestMe(t *testing.T) {
+@@ -682,3 +682,97 @@ func TestMe(t *testing.T) {
  		t.Errorf("/api/me without a token: %d %v", w.Code, w.Header())
  	}
  }
@@ -205,6 +205,12 @@ index 7b884f4..17c49e6 100644
 +		t.Fatal(err)
 +	}
 +	hidden := PostEditURL(h2.ID)
++	// As the database keeps it: to the microsecond, where Go's clock may
++	// say more.
++	before, err := GetPost(ctx, db, p.ID)
++	if err != nil {
++		t.Fatal(err)
++	}
 +
 +	if code, body := get(asAnn, PostEditURL(p.ID)); code != 200 || !strings.Contains(body, `value="앤의 글"`) || !strings.Contains(body, ">본문</textarea>") {
 +		t.Errorf("the form: %d %s", code, body)
@@ -247,10 +253,10 @@ index 7b884f4..17c49e6 100644
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	if got.Title != "고친 제목" || got.Body != "고친 본문" || got.UpdatedAt.Equal(p.UpdatedAt) {
++	if got.Title != "고친 제목" || got.Body != "고친 본문" || got.UpdatedAt.Equal(before.UpdatedAt) {
 +		t.Errorf("after: %q %q %v", got.Title, got.Body, got.UpdatedAt)
 +	}
-+	if !got.PinnedFrom.Equal(*p.PinnedFrom) || !got.PinnedUntil.Equal(*p.PinnedUntil) || !got.PublishAt.Equal(*p.PublishAt) {
++	if !got.PinnedFrom.Equal(*before.PinnedFrom) || !got.PinnedUntil.Equal(*before.PinnedUntil) || !got.PublishAt.Equal(*before.PublishAt) {
 +		t.Errorf("the times changed: %v %v %v", got.PinnedFrom, got.PinnedUntil, got.PublishAt)
 +	}
 +}
