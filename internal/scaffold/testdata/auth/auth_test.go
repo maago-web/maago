@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -124,6 +125,57 @@ func TestLogin(t *testing.T) {
 	}
 	if got := whoami(h, ""); got != "" {
 		t.Errorf("no cookie: %q", got)
+	}
+}
+
+// TestAccess walks the route table as nobody: the pages for signing in
+// answer, and the ones of an account send to the login page, or refuse a
+// POST with 401. A change to a view's signature keeps this (D-149).
+func TestAccess(t *testing.T) {
+	h, db := site(t)
+	routes := []struct {
+		method, path string
+		code         int
+	}{
+		{"GET", "/login", 200}, {"POST", "/login", 200}, {"POST", "/logout", 303},
+		{"GET", "/signup", 200}, {"POST", "/signup", 200},
+		{"GET", "/verify", 200}, {"POST", "/verify", 200},
+		{"GET", "/verify/resend", 200}, {"POST", "/verify/resend", 200},
+		{"GET", "/password", 303}, {"POST", "/password", 401},
+		{"GET", "/password/reset", 200}, {"POST", "/password/reset", 200},
+		{"GET", "/password/reset/confirm", 200}, {"POST", "/password/reset/confirm", 200},
+		{"GET", "/tokens", 303}, {"POST", "/tokens", 401}, {"POST", "/tokens/1/delete", 401},
+		{"GET", "/account/close", 303}, {"POST", "/account/close", 401},
+	}
+	// Each route of the table, once.
+	src, err := os.ReadFile("urls.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(src), "maago.GET(") + strings.Count(string(src), "maago.POST("); n != len(routes) {
+		t.Errorf("urls.go has %d routes, the test %d", n, len(routes))
+	}
+	for _, c := range routes {
+		body := ""
+		if c.method == "POST" {
+			body = "x=1" // a form, empty of what it asks
+		}
+		w := do(h, c.method, c.path, body, "")
+		if w.Code != c.code {
+			t.Errorf("%s %s: %d, want %d", c.method, c.path, w.Code, c.code)
+		}
+		if c.code == 303 && c.method == "GET" && !strings.HasPrefix(w.Header().Get("Location"), "/login?next=") {
+			t.Errorf("%s %s: to %q, want the login page", c.method, c.path, w.Header().Get("Location"))
+		}
+	}
+	// An API token is a user too, for the pages of an account.
+	newUser(t, db, "ann@example.com", nil)
+	token := makeToken(t, h, login(t, h, "ann@example.com", "").Value, "test")
+	if w := bearer(h, "GET", "/tokens", "", token); w.Code != 200 {
+		t.Errorf("GET /tokens with a token: %d", w.Code)
+	}
+	if w := bearer(h, "GET", "/tokens", "", "x"+token[1:]); w.Code != 303 {
+		t.Errorf("GET /tokens with a wrong token: %d", w.Code)
 	}
 }
 
@@ -992,16 +1044,27 @@ func TestSignupTakenFirst(t *testing.T) {
 	}
 }
 
+// limit refuses a transaction: its attempt would not count for other
+// requests until the commit, so a burst would pass (D-150).
+func TestLimitInTx(t *testing.T) {
+	_, db := site(t)
+	defer func() {
+		if p := recover(); p == nil || !strings.Contains(fmt.Sprint(p), "maago.NoTx") {
+			t.Errorf("got %v", p)
+		}
+	}()
+	maago.WithTx(context.Background(), db, func(ctx context.Context, tx maago.Tx) error {
+		_, err := limit(ctx, tx, "login", "ann@example.com")
+		return err
+	})
+}
+
 func TestRequireStaff(t *testing.T) {
-	ctx := context.Background()
-	if _, err := RequireStaff(ctx); err == nil {
-		t.Error("nobody passed")
-	}
-	if _, err := RequireStaff(maago.WithUser(ctx, User{ID: 1})); err == nil {
+	if err := RequireStaff(User{ID: 1}); err == nil {
 		t.Error("a user not staff passed")
 	}
-	if u, err := RequireStaff(maago.WithUser(ctx, User{ID: 2, IsStaff: true})); err != nil || u.ID != 2 {
-		t.Errorf("staff: %v %v", u, err)
+	if err := RequireStaff(User{ID: 2, IsStaff: true}); err != nil {
+		t.Errorf("staff: %v", err)
 	}
 }
 

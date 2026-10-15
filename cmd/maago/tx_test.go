@@ -114,6 +114,17 @@ func TestWithTx(t *testing.T) {
 					return maago.WithTx(ctx, db, write(nil))
 				})
 			}()
+			// WithTx of a Tx, or of a DB that begins nothing, says so.
+			for what, of := range map[string]maago.DB{"inside a transaction": maago.Tx{}, "begins no transaction": noBegin{db}} {
+				func() {
+					defer func() {
+						if p := recover(); p == nil || !strings.Contains(fmt.Sprint(p), what) {
+							t.Errorf("WithTx of %T: %v", of, p)
+						}
+					}()
+					maago.WithTx(ctx(t), of, write(nil))
+				}()
+			}
 			// A Tx not from WithTx says so.
 			func() {
 				defer func() {
@@ -126,6 +137,9 @@ func TestWithTx(t *testing.T) {
 		})
 	}
 }
+
+// noBegin is a DB without BeginTx.
+type noBegin struct{ maago.DB }
 
 // Two transactions that read, then write, both commit on SQLite: they
 // take the write lock when they begin, so the second waits (D-150).

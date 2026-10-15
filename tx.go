@@ -59,18 +59,25 @@ func (t Tx) QueryRowContext(ctx context.Context, query string, args ...any) *sql
 	return row
 }
 
-// WithTx runs f in a transaction of db and commits it when f returns nil
+// WithTx runs f in a transaction of db (the database a view with maago.NoTx
+// takes, or Config.DB) and commits it when f returns nil
 // (D-150). Any error f returns, a 422 included, rolls it back and comes
 // back as it is; a panic rolls it back and goes on. After the commit,
 // the work AfterCommit gave runs, in order. A view that takes Tx runs in
 // one; a test that calls such a view makes one with WithTx. WithTx inside
 // another panics: a request's second transaction waits on its first. When
 // ctx ends (the client went away), database/sql rolls the transaction back.
-func WithTx(ctx context.Context, db *sql.DB, f func(ctx context.Context, tx Tx) error) error {
-	if ctx.Value(txKey{}) != nil {
+func WithTx(ctx context.Context, db DB, f func(ctx context.Context, tx Tx) error) error {
+	if _, in := db.(Tx); in || ctx.Value(txKey{}) != nil {
 		panic("maago: WithTx inside a transaction; use the Tx you have")
 	}
-	tx, err := db.BeginTx(ctx, nil)
+	b, ok := db.(interface {
+		BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
+	})
+	if !ok {
+		panic(fmt.Sprintf("maago: WithTx of a %T, which begins no transaction; pass the db a view with maago.NoTx takes", db))
+	}
+	tx, err := b.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}

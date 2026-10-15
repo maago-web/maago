@@ -124,6 +124,26 @@ site/more.go:12:31: view A takes both maago.Tx and maago.DB
 site/more.go:12:32: view A takes the transaction as *sql.Tx, not maago.Tx
   fix: write func A(ctx context.Context, tx maago.Tx, in struct{}) …
 
+# NoTx on a GET
+site/urls.go:11:26: route a has maago.NoTx, but a GET writes nothing
+  fix: remove maago.NoTx
+
+# NoTx with a transaction
+site/urls.go:11:27: route a has maago.NoTx, but view A takes maago.Tx
+  fix: remove maago.NoTx, or take db maago.DB
+
+# NoTx without the database
+site/urls.go:11:27: route a has maago.NoTx, but view A takes no maago.DB
+  fix: take db maago.DB, or remove maago.NoTx
+
+# NoTx on a func(w, r)
+site/urls.go:11:27: route a has maago.NoTx, but view A is a func(w, r), which has no transaction
+  fix: remove maago.NoTx
+
+# NoTx on one route of a view
+site/urls.go:11:27: route a has maago.NoTx, but route a_put of the same view A does not
+  fix: give both maago.NoTx, or split the view
+
 # a pointer to maago.DB
 site/more.go:12:32: view A takes the database as *maago.DB, not maago.DB
   fix: write func A(ctx context.Context, db maago.DB, in struct{}) …

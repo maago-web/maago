@@ -10,7 +10,7 @@ type Routes []Route
 type Route struct{}
 
 // RouteOption is what a route may add after its view: LoginRequired, API,
-// Block("name").
+// NoTx, Block("name").
 type RouteOption struct{ name, block string }
 
 var (
@@ -18,6 +18,12 @@ var (
 	LoginRequired = RouteOption{name: "LoginRequired"}
 	// API makes the route answer JSON, and its errors RFC 9457 problems.
 	API = RouteOption{name: "API"}
+	// NoTx lets a route that writes run its view without the request's
+	// transaction: the view takes db maago.DB, each write commits at once,
+	// and it may run a part in maago.WithTx (D-150). For a write that other
+	// requests must see before this one ends, such as an attempt a rate
+	// limit counts, or long work that must not hold the database.
+	NoTx = RouteOption{name: "NoTx"}
 )
 
 // Block makes the route render only the block name of its view's page:

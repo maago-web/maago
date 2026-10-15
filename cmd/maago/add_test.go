@@ -134,7 +134,7 @@ var staffApp = map[string]string{
 import "github.com/maago-web/maago"
 
 var Routes = maago.Routes{
-	maago.GET("/staff", "staff", Staff, maago.LoginRequired),
+	maago.GET("/staff", "staff", Staff),
 	maago.GET("/api/me", "api_me", Me, maago.API, maago.LoginRequired),
 }
 `,
@@ -159,9 +159,8 @@ func Me(ctx context.Context, in struct{}) (MeOut, error) {
 	return MeOut{u.Email}, nil
 }
 
-func Staff(ctx context.Context, in struct{}) (StaffPage, error) {
-	u, err := auth.RequireStaff(ctx)
-	if err != nil {
+func Staff(ctx context.Context, u auth.User, in struct{}) (StaffPage, error) {
+	if err := auth.RequireStaff(u); err != nil {
 		return StaffPage{}, err
 	}
 	return StaffPage{u.Email}, nil

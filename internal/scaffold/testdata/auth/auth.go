@@ -45,8 +45,8 @@ var SiteURL string
 var PasswordRules = []authlib.PasswordRule{authlib.MinLength(8), authlib.NotCommon, authlib.NotSimilar}
 
 // Current is the Config.Auth of the project: the user of the request's
-// API token or session, so that a view reads it with
-// maago.UserFrom[auth.User].
+// API token or session, which a view takes as u User (signed in) or
+// u *User (maybe not, nil then).
 var Current = authlib.FromSession(
 	func(ctx context.Context, hash string) (User, error) {
 		return SessionUser(ctx, maago.DBFrom(ctx), SessionUserParams{Hash: hash, Now: time.Now()})
@@ -56,19 +56,16 @@ var Current = authlib.FromSession(
 	},
 )
 
-// RequireStaff returns the signed-in user if staff, else a 403: a view
-// for staff only starts with
+// RequireStaff is a 403 unless u is staff: a view for staff only takes
+// u User, which sends whoever is not signed in to the login page first,
+// and starts with
 //
-//	u, err := auth.RequireStaff(ctx)
-//
-// on a route with maago.LoginRequired, which sends whoever is not signed
-// in to the login page first.
-func RequireStaff(ctx context.Context) (User, error) {
-	u, ok := maago.UserFrom[User](ctx)
-	if !ok || !u.IsStaff {
-		return User{}, maago.Status(http.StatusForbidden, errors.New("staff only"))
+//	if err := auth.RequireStaff(u); err != nil {
+func RequireStaff(u User) error {
+	if !u.IsStaff {
+		return maago.Status(http.StatusForbidden, errors.New("staff only"))
 	}
-	return u, nil
+	return nil
 }
 
 // appName is this package's name, as the admin calls the app: rename it

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"cmp"
 	"fmt"
 	"go/ast"
 	"go/token"
@@ -65,6 +66,7 @@ func Views(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 			r.view = v
 		}
 		ds = append(ds, loginOptions(fset, app)...)
+		ds = append(ds, noTxOptions(fset, app)...)
 	}
 	return ds
 }
@@ -403,6 +405,50 @@ func isForm(app *App, name string) bool {
 		return false
 	}
 	return slices.ContainsFunc(st.Fields.List, func(f *ast.Field) bool { return len(f.Names) == 0 && isMaago(f.Type, "Form", app.maago[name]) })
+}
+
+// noTxOptions checks maago.NoTx against the routes and their views: it is
+// for a view that writes and takes maago.DB, on every route it serves
+// (D-150).
+func noTxOptions(fset *token.FileSet, app *App) []diag.Diagnostic {
+	var ds []diag.Diagnostic
+	routes := map[string][]*Route{} // the routes of each view, in order
+	for i := range app.Routes {
+		r := &app.Routes[i]
+		routes[r.View] = append(routes[r.View], r)
+		if !hasOption(r.Options, "NoTx") || r.view == nil {
+			continue
+		}
+		at, fix := fset.Position(optionPos(r, "NoTx")), "remove maago.NoTx"
+		switch {
+		case r.Method == "GET" || r.Method == "HEAD":
+			ds = append(ds, diag.New(at, "route "+r.Name+" has maago.NoTx, but a "+r.Method+" writes nothing", fix))
+		case r.view.escape:
+			ds = append(ds, diag.New(at, "route "+r.Name+" has maago.NoTx, but view "+r.View+" is a func(w, r), which has no transaction", fix))
+		case r.view.tx:
+			ds = append(ds, diag.New(at, "route "+r.Name+" has maago.NoTx, but view "+r.View+" takes maago.Tx", "remove maago.NoTx, or take db maago.DB"))
+		case !r.view.db:
+			ds = append(ds, diag.New(at, "route "+r.Name+" has maago.NoTx, but view "+r.View+" takes no maago.DB", "take db maago.DB, or remove maago.NoTx"))
+		}
+	}
+	for _, view := range slices.Sorted(maps.Keys(routes)) {
+		var with, without *Route
+		for _, r := range routes[view] {
+			if r.Method == "GET" || r.Method == "HEAD" {
+				continue
+			}
+			if hasOption(r.Options, "NoTx") {
+				with = cmp.Or(with, r)
+			} else {
+				without = cmp.Or(without, r)
+			}
+		}
+		if with != nil && without != nil {
+			ds = append(ds, diag.New(fset.Position(optionPos(with, "NoTx")), fmt.Sprintf("route %s has maago.NoTx, but route %s of the same view %s does not", with.Name, without.Name, view),
+				"give both maago.NoTx, or split the view"))
+		}
+	}
+	return ds
 }
 
 // optionPos is where route r names option name.

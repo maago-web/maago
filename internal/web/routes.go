@@ -62,7 +62,7 @@ type Option struct {
 // route options.
 var (
 	methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
-	options = []string{"LoginRequired", "API", "Block"}
+	options = []string{"LoginRequired", "API", "Block", "NoTx"}
 )
 
 // Parse parses the project's Go files by directory, for Read and the
@@ -197,7 +197,7 @@ func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath stri
 		r, ok := readRoute(e, tableNames)
 		if !ok {
 			errAt(e.Pos(), "route is not written as maago.METHOD(\"/path\", \"name\", View, options…)",
-				"write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API or maago.Block(\"name\")")
+				"write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block(\"name\")")
 			continue
 		}
 		app.Routes = append(app.Routes, r)
