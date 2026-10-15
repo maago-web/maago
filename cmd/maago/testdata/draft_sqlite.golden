@@ -60,6 +60,31 @@ ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
 
 CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
 
+-- add version field
+
+CREATE TABLE "maago_new_blog_post" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "author_id" INTEGER NOT NULL,
+    "title" TEXT NOT NULL CHECK (length("title") <= 200),
+    "updated_at" TEXT NOT NULL,
+    "views" INTEGER NOT NULL DEFAULT 0,
+    CONSTRAINT "blog_post_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "blog_author" ("id") ON DELETE NO ACTION
+) STRICT;
+
+-- ⚠ Column "updated_at" of "blog_post" is NOT NULL without a default, so this fails if "blog_post" has rows. Give the field a default, or add it as a pointer, fill it, then make it NOT NULL.
+-- ⚠ Fill "updated_at" as maago writes a time, UTC to the microsecond: strftime('%Y-%m-%d %H:%M:%f', 'now') || '000'. As CURRENT_TIMESTAMP writes it, every Update of the row is a conflict.
+INSERT INTO "maago_new_blog_post" ("id", "author_id", "title", "views") SELECT "id", "author_id", "title", "views" FROM "blog_post";
+
+DELETE FROM sqlite_sequence WHERE name = 'maago_new_blog_post';
+
+INSERT INTO sqlite_sequence (name, seq) SELECT 'maago_new_blog_post', seq FROM sqlite_sequence WHERE name = 'blog_post';
+
+DROP TABLE "blog_post";
+
+ALTER TABLE "maago_new_blog_post" RENAME TO "blog_post";
+
+CREATE INDEX "blog_post_author_id_idx" ON "blog_post" ("author_id");
+
 -- add field with max and default
 
 ALTER TABLE "blog_post" ADD COLUMN "lang" TEXT NOT NULL DEFAULT 'ko' CHECK (length("lang") <= 5);

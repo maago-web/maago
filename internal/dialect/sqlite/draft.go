@@ -152,6 +152,9 @@ func rebuilt(apps []*model.App, from, to *schema.Table) []string {
 			kept = append(kept, f.Column)
 		} else if !f.Pointer && f.Default == nil {
 			warn += dialect.NoDefault(to.Name, f.Column)
+			if f == m.Version() { // compared as text: CURRENT_TIMESTAMP's never equals maago's (D-150)
+				warn += fmt.Sprintf("-- ⚠ Fill %q as maago writes a time, UTC to the microsecond: strftime('%%Y-%%m-%%d %%H:%%M:%%f', 'now') || '000'. As CURRENT_TIMESTAMP writes it, every Update of the row is a conflict.\n", f.Column)
+			}
 		}
 	}
 	for _, c := range from.Columns {

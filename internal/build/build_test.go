@@ -214,3 +214,15 @@ func TestGenVersion(t *testing.T) {
 		t.Error("gen wrote files")
 	}
 }
+
+// gen checks that a query that UPDATEs a table with a version sets it
+// (D-150), before it needs the database.
+func TestVersionCheck(t *testing.T) {
+	root := example(t)
+	write(t, filepath.Join(root, "blog", "queries", "rename.sql"),
+		"-- name: Rename :exec\n-- param: name string\n-- param: id int64\nUPDATE people SET name = :name WHERE id = :id\n")
+	_, ds := Gen(root)
+	if out := text(ds); !strings.Contains(out, "blog/queries/rename.sql:4:1: query Rename updates people without its version updated_at") {
+		t.Errorf("got:\n%s", out)
+	}
+}

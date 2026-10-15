@@ -363,7 +363,8 @@ func (s *site) form(w http.ResponseWriter, r *http.Request, m *Model, id int64, 
 		}
 	}
 	f, err := m.Form(ctx, maago.DBFrom(ctx), id, vals)
-	if err != nil {
+	conflict := errors.Is(err, maago.ErrConflict) // drawn again, the inputs as given
+	if err != nil && !conflict {
 		return err
 	}
 	if f.Saved {
@@ -399,9 +400,31 @@ func (s *site) form(w http.ResponseWriter, r *http.Request, m *Model, id int64, 
 			deleteURL = listURL(m) + "delete/?id=" + strconv.FormatInt(id, 10)
 		}
 	}
+	version := ""
+	if !f.Version.IsZero() {
+		version = strconv.FormatInt(f.Version.UnixMicro(), 10)
+	}
+	if conflict {
+		w = &conflicted{ResponseWriter: w}
+	}
 	return maago.Render(w, pages, "form.html", "", map[string]any{
 		"Home": home(), "App": m.App, "Name": m.Name, "List": listURL(m), "Title": title, "Inputs": inputs, "Save": save, "Delete": deleteURL,
+		"Version": version, "Conflict": conflict,
 	})
+}
+
+// conflicted is w for a form whose row changed since it was opened: a 409.
+type conflicted struct {
+	http.ResponseWriter
+	wrote bool
+}
+
+func (w *conflicted) Write(p []byte) (int, error) {
+	if !w.wrote {
+		w.wrote = true
+		w.WriteHeader(http.StatusConflict)
+	}
+	return w.ResponseWriter.Write(p)
 }
 
 // delete deletes the rows of the ids, all of them or none (D-135): a GET

@@ -43,6 +43,8 @@ func blocks(m *model.Model) string {
 // updateSQL is the UPDATE of the admin's form of m: only the fields it
 // changes, and the auto=update times, so that it never writes back a
 // hidden field another writer changed (D-132). "" when it changes none.
+// After the id, a model with a version takes the one the form was opened
+// with (D-150).
 func updateSQL(m *model.Model, d project.Dialect) (string, []*model.Field) {
 	var set []string
 	var args []*model.Field
@@ -55,12 +57,21 @@ func updateSQL(m *model.Model, d project.Dialect) (string, []*model.Field) {
 	if !slices.ContainsFunc(m.Fields, editable) {
 		return "", nil
 	}
-	return "UPDATE " + dialect.Quote(m.Table) + " SET " + strings.Join(set, ", ") + ` WHERE "id" = ` + mark(d, len(args)+1), args
+	where := ` WHERE "id" = ` + mark(d, len(args)+1)
+	if v := m.Version(); v != nil {
+		where += " AND " + dialect.Quote(v.Column) + " = " + mark(d, len(args)+2)
+	}
+	return "UPDATE " + dialect.Quote(m.Table) + " SET " + strings.Join(set, ", ") + where, args
 }
 
 // existsSQL is the check that an fk field's number is of a row.
 func existsSQL(f *model.Field, d project.Dialect) string {
 	return "SELECT 1 FROM " + dialect.Quote(f.FK) + ` WHERE "id" = ` + mark(d, 1)
+}
+
+// rowSQL is the check that m's row of an id is there.
+func rowSQL(m *model.Model, d project.Dialect) string {
+	return "SELECT 1 FROM " + dialect.Quote(m.Table) + ` WHERE "id" = ` + mark(d, 1)
 }
 
 // mark is placeholder n: $n, or ?n for SQLite, numbered so that one
@@ -79,13 +90,28 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
 	add := blocks(m) == ""
 	update, updateArgs := updateSQL(m, d)
+	version := m.Version()
+	if update == "" {
+		version = nil // nothing to save
+	}
+	form := "admin.Form{Inputs: in" // its fields but Saved
 	w("func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {")
 	w("var o %s", m.Name)
+	if version != nil {
+		imports["time"] = true
+		form += ", Version: ver"
+		w("var ver time.Time")
+	}
 	w("if id != 0 {")
 	w("var err error")
 	w("if o, err = Get%s(ctx, db, id); err != nil {", m.Name)
 	w("return admin.Form{}, err")
 	w("}")
+	if version != nil {
+		w("if ver, err = admin.Version(vals, o.%s); err != nil {", version.Name)
+		w("return admin.Form{}, err")
+		w("}")
+	}
 	w("}")
 	var fields []*model.Field
 	for _, f := range m.Fields {
@@ -170,7 +196,7 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 		ok = append(ok, "f."+f.Name+".Error == \"\"")
 	}
 	w("if vals == nil || !(%s) {", strings.Join(ok, " && "))
-	w("return admin.Form{Inputs: in}, nil")
+	w("return %s}, nil", form)
 	w("}")
 	if add {
 		w("if id == 0 {")
@@ -203,8 +229,15 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 	if slices.ContainsFunc(updateArgs, func(f *model.Field) bool { return f.Auto == "update" }) {
 		w("now := time.Now().Truncate(time.Microsecond)")
 	}
-	w("err := admin.Updated(maago.Exec(ctx, db, %s, %s, id))", mapper.GoString(update), strings.Join(args, ", "))
-	w("return admin.Form{Inputs: in, Saved: err == nil}, err")
+	args = append(args, "id")
+	if version != nil {
+		args = append(args, sqlArg(d, "ver", version))
+	}
+	w("err := admin.Updated(maago.Exec(ctx, db, %s, %s))", mapper.GoString(update), strings.Join(args, ", "))
+	if version != nil {
+		w("err = admin.Changed(ctx, db, %s, id, err)", mapper.GoString(rowSQL(m, d)))
+	}
+	w("return %s, Saved: err == nil}, err", form)
 	w("}")
 	return strings.TrimSuffix(b.String(), "\n")
 }

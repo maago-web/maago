@@ -5,6 +5,7 @@ package orders
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/maago-web/maago"
@@ -103,16 +104,25 @@ func InsertOrder(ctx context.Context, db maago.DB, in NewOrderInput) (Order, err
 
 // UpdateOrder writes every column of o to the row of its ID,
 // so pass what GetOrder returned, changed: sql.ErrNoRows if there is no
-// such row.
+// such row. o.UpdatedAt is the version you read: if the row's
+// is another, someone changed it since, and nothing is written:
+// maago.ErrConflict, a 409.
 // Once the row is written, o has its new auto times.
 func UpdateOrder(ctx context.Context, db maago.DB, o *Order) error {
 	now := time.Now().Truncate(time.Microsecond)
-	n, err := maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = $1, "status" = $2, "amount" = $3, "priority" = $4, "created_at" = $5, "updated_at" = $6 WHERE "id" = $7`, o.CustomerID, o.Status, o.Amount, o.Priority, o.CreatedAt, now, o.ID)
+	n, err := maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = $1, "status" = $2, "amount" = $3, "priority" = $4, "created_at" = $5, "updated_at" = $6 WHERE "id" = $7 AND "updated_at" = $8`, o.CustomerID, o.Status, o.Amount, o.Priority, o.CreatedAt, now, o.ID, o.UpdatedAt)
 	if err != nil {
 		return err
 	}
 	if n == 0 {
-		return sql.ErrNoRows
+		var one int
+		switch err := db.QueryRowContext(ctx, `SELECT 1 FROM "orders" WHERE "id" = $1`, o.ID).Scan(&one); {
+		case errors.Is(err, sql.ErrNoRows):
+			return sql.ErrNoRows
+		case err != nil:
+			return err
+		}
+		return maago.ErrConflict
 	}
 	o.UpdatedAt = now
 	return nil

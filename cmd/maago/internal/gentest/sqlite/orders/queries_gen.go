@@ -369,3 +369,15 @@ func scanSearchOrders(rows *sql.Rows) (OrderSummary, error) {
 	}
 	return v, nil
 }
+
+// SetOrderStatusParams is what SetOrderStatus takes.
+type SetOrderStatusParams struct {
+	Status string
+	Now    time.Time
+	ID     int64
+}
+
+// SetOrderStatus runs queries/set_order_status.sql.
+func SetOrderStatus(ctx context.Context, db maago.DB, p SetOrderStatusParams) (int64, error) {
+	return maago.Exec(ctx, db, `UPDATE orders SET status = ?1, updated_at = ?2 WHERE id = ?3`, p.Status, maago.SQLiteTime(p.Now), p.ID)
+}

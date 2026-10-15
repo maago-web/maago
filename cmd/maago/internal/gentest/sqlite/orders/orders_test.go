@@ -100,9 +100,29 @@ func TestCRUD(t *testing.T) {
 	}
 
 	// Update writes every column and the new UpdatedAt, then tells o.
-	got.Amount, got.Status, got.UpdatedAt = 150, "paid", time.Time{}
+	stale := got
+	got.Amount, got.Status = 150, "paid"
 	if err := UpdateOrder(ctx, db, &got); err != nil {
 		t.Fatal(err)
+	}
+	// What was read before that is out of date: nothing written (D-150).
+	stale.Amount = 1
+	if err := UpdateOrder(ctx, db, &stale); !errors.Is(err, maago.ErrConflict) {
+		t.Errorf("update of a stale row: %v", err)
+	}
+	// Nor is a row of ID alone, whose version is zero.
+	if err := UpdateOrder(ctx, db, &Order{ID: got.ID, Amount: 2}); !errors.Is(err, maago.ErrConflict) {
+		t.Errorf("update of ID alone: %v", err)
+	}
+	// What Insert returned is the version as written, and a form carries
+	// it as an integer: either updates.
+	fresh, err := InsertOrder(ctx, db, NewOrderInput{Amount: 5, CreatedAt: t0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fresh.UpdatedAt = time.UnixMicro(fresh.UpdatedAt.UnixMicro()) // through a hidden input and back
+	if err := UpdateOrder(ctx, db, &fresh); err != nil {
+		t.Errorf("update of what Insert returned: %v", err)
 	}
 	after, _ := GetOrder(ctx, db, got.ID)
 	if got.UpdatedAt.IsZero() || show(after) != show(got) || after.Amount != 150 {
@@ -377,5 +397,65 @@ func TestAdminForm(t *testing.T) {
 	if err != nil || o.CustomerID != nil || o.Priority != nil || o.Status != "paid" || o.Amount != 5 || o.UpdatedAt.IsZero() ||
 		!o.CreatedAt.Equal(time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)) {
 		t.Errorf("the new order: %s %v", show(o), err)
+	}
+}
+
+// The admin's form of an order carries the version it was opened with:
+// a save at it changes the row, a save at an older one is a conflict,
+// and a save without one is a 400 (D-150).
+func TestAdminFormVersion(t *testing.T) {
+	ctx, db := gentest.Open(t, fixture)
+	order := Admin[1]
+	o, err := InsertOrder(ctx, db, NewOrderInput{Amount: 1, CreatedAt: t0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened, err := order.Form(ctx, db, o.ID, nil)
+	if err != nil || !opened.Version.Equal(o.UpdatedAt) {
+		t.Fatalf("opened: %v at %v, want %v", err, opened.Version, o.UpdatedAt)
+	}
+	save := func(amount string, version time.Time) (admin.Form, error) {
+		vals := url.Values{"status": {"new"}, "amount": {amount}, "priority": {""}, "created_at": {"2026-10-13T09:30"},
+			"_version": {fmt.Sprint(version.UnixMicro())}}
+		return order.Form(ctx, db, o.ID, vals)
+	}
+	if f, err := save("2", opened.Version); err != nil || !f.Saved {
+		t.Fatalf("a save at the version opened: %v %+v", err, f)
+	}
+	if f, err := save("3", opened.Version); !errors.Is(err, maago.ErrConflict) || f.Saved || !f.Version.Equal(opened.Version) {
+		t.Errorf("a second save at it: %v %+v", err, f)
+	}
+	if got, err := GetOrder(ctx, db, o.ID); err != nil || got.Amount != 2 {
+		t.Errorf("after: %s %v", show(got), err)
+	}
+	reopened, err := order.Form(ctx, db, o.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, err := save("3", reopened.Version); err != nil || !f.Saved {
+		t.Errorf("a save at the version reopened: %v %+v", err, f)
+	}
+	if _, err := order.Form(ctx, db, o.ID, url.Values{"amount": {"4"}}); err == nil || !strings.Contains(err.Error(), "no _version") {
+		t.Errorf("no _version: %v", err)
+	}
+}
+
+// A hand :exec that sets the version, between a read and its Update: the
+// Update is a conflict, and the :exec's change stays (D-150).
+func TestHandUpdateVersion(t *testing.T) {
+	ctx, db := gentest.Open(t, fixture)
+	o, err := InsertOrder(ctx, db, NewOrderInput{Amount: 1, CreatedAt: t0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, err := SetOrderStatus(ctx, db, SetOrderStatusParams{Status: "paid", Now: time.Now(), ID: o.ID}); err != nil || n != 1 {
+		t.Fatalf("SetOrderStatus: %d %v", n, err)
+	}
+	o.Amount = 2
+	if err := UpdateOrder(ctx, db, &o); !errors.Is(err, maago.ErrConflict) {
+		t.Errorf("an Update of the order read before: %v", err)
+	}
+	if got, err := GetOrder(ctx, db, o.ID); err != nil || got.Status != "paid" || got.Amount != 1 {
+		t.Errorf("after: %s %v", show(got), err)
 	}
 }

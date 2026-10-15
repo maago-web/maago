@@ -13,6 +13,7 @@ package blog
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"time"
 
 	"github.com/maago-web/maago"
@@ -135,16 +136,25 @@ func InsertAuthor(ctx context.Context, db maago.DB, in NewAuthorInput) (Author, 
 
 // UpdateAuthor writes every column of o but CreatedAt to the row of its ID,
 // so pass what GetAuthor returned, changed: sql.ErrNoRows if there is no
-// such row.
+// such row. o.UpdatedAt is the version you read: if the row's
+// is another, someone changed it since, and nothing is written:
+// maago.ErrConflict, a 409.
 // Once the row is written, o has its new auto times.
 func UpdateAuthor(ctx context.Context, db maago.DB, o *Author) error {
 	now := time.Now().Truncate(time.Microsecond)
-	n, err := maago.Exec(ctx, db, `UPDATE "people" SET "name" = $1, "parent_id" = $2, "editor_id" = $3, "reviewer_id" = $4, "code" = $5, "order" = $6, "admin" = $7, "updated_at" = $8 WHERE "id" = $9`, o.Name, o.ParentID, o.EditorID, o.ReviewerID, o.Code, o.Order, o.Admin, now, o.ID)
+	n, err := maago.Exec(ctx, db, `UPDATE "people" SET "name" = $1, "parent_id" = $2, "editor_id" = $3, "reviewer_id" = $4, "code" = $5, "order" = $6, "admin" = $7, "updated_at" = $8 WHERE "id" = $9 AND "updated_at" = $10`, o.Name, o.ParentID, o.EditorID, o.ReviewerID, o.Code, o.Order, o.Admin, now, o.ID, o.UpdatedAt)
 	if err != nil {
 		return err
 	}
 	if n == 0 {
-		return sql.ErrNoRows
+		var one int
+		switch err := db.QueryRowContext(ctx, `SELECT 1 FROM "people" WHERE "id" = $1`, o.ID).Scan(&one); {
+		case errors.Is(err, sql.ErrNoRows):
+			return sql.ErrNoRows
+		case err != nil:
+			return err
+		}
+		return maago.ErrConflict
 	}
 	o.UpdatedAt = now
 	return nil

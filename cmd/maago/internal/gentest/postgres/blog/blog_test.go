@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,7 @@ func TestCRUD(t *testing.T) {
 	}
 
 	// Update keeps CreatedAt, which only Insert writes, and sets UpdatedAt.
-	got.Order, got.CreatedAt, got.UpdatedAt = 3, time.Time{}, time.Time{}
+	got.Order, got.CreatedAt = 3, time.Time{}
 	if err := UpdateAuthor(ctx, db, &got); err != nil {
 		t.Fatal(err)
 	}
@@ -151,6 +152,9 @@ func sent(f admin.Form) url.Values {
 		if in.Kind != "readonly" && (in.Kind != "checkbox" || in.Raw != "") {
 			vals.Set(in.Name, in.Raw)
 		}
+	}
+	if !f.Version.IsZero() { // the hidden input
+		vals.Set("_version", strconv.FormatInt(f.Version.UnixMicro(), 10))
 	}
 	return vals
 }

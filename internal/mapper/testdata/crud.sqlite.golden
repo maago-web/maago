@@ -12,7 +12,7 @@ Author
     args [ID]
   Insert: INSERT INTO "people" ("name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING "id"
     args [Name ParentID EditorID ReviewerID Code Order Admin CreatedAt UpdatedAt]
-  Update: UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "code" = ?5, "order" = ?6, "admin" = ?7, "updated_at" = ?8 WHERE "id" = ?9
-    args [Name ParentID EditorID ReviewerID Code Order Admin UpdatedAt ID]
+  Update: UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "code" = ?5, "order" = ?6, "admin" = ?7, "updated_at" = ?8 WHERE "id" = ?9 AND "updated_at" = ?10
+    args [Name ParentID EditorID ReviewerID Code Order Admin UpdatedAt ID version:UpdatedAt]
   Delete: DELETE FROM "people" WHERE "id" = ?1
     args [ID]

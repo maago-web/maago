@@ -12,6 +12,11 @@ import (
 // row: it does not pick the first silently.
 var ErrManyRows = errors.New("maago: :one query returned more than one row; make it :many, or add LIMIT 1")
 
+// ErrConflict is what a generated Update gives when the row's version
+// (its auto=update field) is not the one the model holds: another
+// request changed it since it was read (D-150). It answers 409.
+var ErrConflict = errors.New("maago: the row changed since it was read; read it again and apply the change, or change one column with a query that sets the version too")
+
 // ErrEmptySlice is what a generated query returns for an empty slice
 // parameter where the SQL needs one element or more: IN () is not SQL.
 // The generated code wraps it with the query's and the parameter's names.

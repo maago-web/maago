@@ -210,9 +210,13 @@ var Admin = []admin.Model{
 		},
 		Form: func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {
 			var o Author
+			var ver time.Time
 			if id != 0 {
 				var err error
 				if o, err = GetAuthor(ctx, db, id); err != nil {
+					return admin.Form{}, err
+				}
+				if ver, err = admin.Version(vals, o.UpdatedAt); err != nil {
 					return admin.Form{}, err
 				}
 			}
@@ -279,14 +283,15 @@ var Admin = []admin.Model{
 				in = append(in, admin.Show("UpdatedAt", o.UpdatedAt))
 			}
 			if vals == nil || !(f.Name.Error == "" && f.ParentID.Error == "" && f.EditorID.Error == "" && f.ReviewerID.Error == "" && f.Order.Error == "" && f.Admin.Error == "") {
-				return admin.Form{Inputs: in}, nil
+				return admin.Form{Inputs: in, Version: ver}, nil
 			}
 			if id == 0 {
 				return admin.Form{}, admin.NoAdding("Author")
 			}
 			now := time.Now().Truncate(time.Microsecond)
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "order" = ?5, "admin" = ?6, "updated_at" = ?7 WHERE "id" = ?8`, f.Name.Value, admin.Ptr(f.ParentID), f.EditorID.Value, admin.Ptr(f.ReviewerID), f.Order.Value, f.Admin.Value, maago.SQLiteTime(now), id))
-			return admin.Form{Inputs: in, Saved: err == nil}, err
+			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "order" = ?5, "admin" = ?6, "updated_at" = ?7 WHERE "id" = ?8 AND "updated_at" = ?9`, f.Name.Value, admin.Ptr(f.ParentID), f.EditorID.Value, admin.Ptr(f.ReviewerID), f.Order.Value, f.Admin.Value, maago.SQLiteTime(now), id, maago.SQLiteTime(ver)))
+			err = admin.Changed(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?1`, id, err)
+			return admin.Form{Inputs: in, Version: ver, Saved: err == nil}, err
 		},
 		Delete: DeleteAuthor,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {

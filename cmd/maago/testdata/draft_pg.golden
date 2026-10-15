@@ -44,6 +44,11 @@ ALTER TABLE "blog_post" ADD COLUMN "summary" TEXT;
 -- ⚠ Column "body" of "blog_post" is NOT NULL without a default, so this fails if "blog_post" has rows. Give the field a default, or add it as a pointer, fill it, then make it NOT NULL.
 ALTER TABLE "blog_post" ADD COLUMN "body" TEXT NOT NULL;
 
+-- add version field
+
+-- ⚠ Column "updated_at" of "blog_post" is NOT NULL without a default, so this fails if "blog_post" has rows. Give the field a default, or add it as a pointer, fill it, then make it NOT NULL.
+ALTER TABLE "blog_post" ADD COLUMN "updated_at" TIMESTAMPTZ NOT NULL;
+
 -- add field with max and default
 
 ALTER TABLE "blog_post" ADD COLUMN "lang" VARCHAR(5) NOT NULL DEFAULT 'ko';

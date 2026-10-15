@@ -18,7 +18,7 @@ import (
 
 // Imports are the packages the generated files may import: no top-level
 // name of the package may be one of their names.
-var Imports = []string{"context", "database/sql", "fmt", "time", "github.com/maago-web/maago"}
+var Imports = []string{"context", "database/sql", "errors", "fmt", "time", "github.com/maago-web/maago"}
 
 // Names reports the names the generated files of the app at dir would
 // declare twice: in two places of their own, or where the package's own

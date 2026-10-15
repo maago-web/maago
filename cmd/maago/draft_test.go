@@ -78,6 +78,8 @@ var draftCases = []struct {
 	{name: "initial", after: draftBase},
 	{name: "add nullable field", before: draftBase, after: edit(titleLine, titleLine+"	Summary *string\n")},
 	{name: "add field without default", before: draftBase, after: edit(titleLine, titleLine+"	Body string\n")},
+	{name: "add version field", before: draftBase, after: edit(`import m "github.com/maago-web/maago"`, "import (\n\t\"time\"\n\n\tm \"github.com/maago-web/maago\"\n)",
+		titleLine, titleLine+`	UpdatedAt time.Time ~maago:"auto=update"~`+"\n")},
 	{name: "add field with max and default", before: draftBase, after: edit(titleLine, titleLine+`	Lang string ~maago:"max=5,default='ko'"~`+"\n")},
 	{name: "add foreign key field", before: draftBase, after: edit(titleLine, titleLine+`	EditorID *int64 ~maago:"fk=Author"~`+"\n")},
 	{name: "add field with choices", before: draftBase, after: edit(titleLine, titleLine+`	Status string ~maago:"choices=draft/published,default='draft'"~`+"\n")},

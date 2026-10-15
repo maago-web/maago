@@ -112,7 +112,7 @@ func Statements(m *model.Model, d project.Dialect, apps []*model.App) SQL {
 		Count:  "SELECT COUNT(*) FROM " + table + where,
 		Update: update,
 		Exists: exists,
-		Row:    "SELECT 1 FROM " + table + ` WHERE "id" = ` + mark(d, 1),
+		Row:    rowSQL(m, d),
 		Refs:   refs,
 	}
 }

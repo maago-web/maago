@@ -540,6 +540,17 @@ func (m *Model) Field(name string) *Field {
 	panic("model: no field " + name)
 }
 
+// Version is m's first auto=update field, which an Update compares to
+// the one it read (D-150), or nil.
+func (m *Model) Version() *Field {
+	for _, f := range m.Fields {
+		if f.Auto == "update" {
+			return f
+		}
+	}
+	return nil
+}
+
 // item checks one field name in ordering, unique or index.
 func (c *checker) item(o *Option, j int, name, model string, columns []string) bool {
 	if !slices.Contains(columns, name) {

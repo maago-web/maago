@@ -174,7 +174,11 @@ func TestAccess(t *testing.T) {
 	if w := bearer(h, "GET", "/tokens", "", token); w.Code != 200 {
 		t.Errorf("GET /tokens with a token: %d", w.Code)
 	}
-	if w := bearer(h, "GET", "/tokens", "", "x"+token[1:]); w.Code != 303 {
+	wrong := "x" + token[1:]
+	if wrong == token {
+		wrong = "y" + token[1:]
+	}
+	if w := bearer(h, "GET", "/tokens", "", wrong); w.Code != 303 {
 		t.Errorf("GET /tokens with a wrong token: %d", w.Code)
 	}
 }

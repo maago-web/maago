@@ -85,6 +85,7 @@ func checking(root string) [][]pipeline.Step {
 		ds = append(ds, ads...)
 		s.checked, s.pkgs = map[string][]mapper.Checked{}, map[string]string{}
 		for _, qa := range s.queries {
+			ds = append(ds, mapper.Versions(s.apps, qa.Queries)...)
 			for _, q := range qa.Queries {
 				axes, vs, vds := q.Variants()
 				ds = append(ds, vds...)

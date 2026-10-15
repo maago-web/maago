@@ -70,10 +70,11 @@ func TestCRUDPrepares(t *testing.T) {
 			conn := exampleConn(t, d)
 			for _, c := range mapper.CRUDs(apps[0], d) {
 				field := func(name string) *model.Field {
+					name = strings.TrimPrefix(name, "version:") // the version read, compared
 					i := slices.IndexFunc(c.Model.Fields, func(f *model.Field) bool { return f.Name == name })
 					return c.Model.Fields[i]
 				}
-				for _, st := range []*mapper.Statement{&c.Get, &c.Insert, c.Update, &c.Delete} {
+				for _, st := range []*mapper.Statement{&c.Get, &c.Insert, c.Update, &c.Delete, &c.Exists} {
 					desc, err := practicedb.DescribeQuery(ctx(t), conn, st.SQL)
 					if err != nil {
 						t.Fatalf("%s: %v", st.SQL, err)
@@ -129,7 +130,7 @@ func TestCRUDRuns(t *testing.T) {
 			}
 			person := func(name, code string, parent any, editor int64) map[string]any { // editor_id is unique
 				return map[string]any{"Name": name, "ParentID": parent, "EditorID": editor, "ReviewerID": nil,
-					"Code": code, "Order": int32(len(name) + 6), "Admin": false, "CreatedAt": now, "UpdatedAt": now}
+					"Code": code, "Order": int32(len(name) + 6), "Admin": false, "CreatedAt": now, "UpdatedAt": now, "version:UpdatedAt": now}
 			}
 			// get reads a row back and shows the columns whose values tell
 			// the fields apart, so that a column bound to the wrong field shows.

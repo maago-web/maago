@@ -357,6 +357,8 @@ func status(err error) int {
 		return s.code
 	case errors.Is(err, sql.ErrNoRows):
 		return http.StatusNotFound
+	case errors.Is(err, ErrConflict):
+		return http.StatusConflict
 	}
 	return http.StatusInternalServerError
 }

@@ -259,3 +259,30 @@ func TestNoAddNoEdit(t *testing.T) {
 		t.Errorf("POST: %d %v", w.Code, p.saved)
 	}
 }
+
+// A row's form carries its version hidden, and a save the row changed
+// under is drawn again as a 409, the inputs as given (D-150).
+func TestFormConflict(t *testing.T) {
+	version := time.UnixMicro(1760000000123456)
+	m := plain("blog", "Post")
+	m.Edit = true
+	m.Form = func(ctx context.Context, _ maago.DB, id int64, vals url.Values) (Form, error) {
+		var title maago.Field[string]
+		maago.BindString(ctx, vals, &title, maago.Rule{Name: "title", Label: "Title"})
+		f := Form{Inputs: []Input{In(&title, true, "")}, Version: version}
+		if vals == nil {
+			return f, nil
+		}
+		return f, maago.ErrConflict // another save came first
+	}
+	h := handler(t, Config{Models: [][]Model{{m}}, Can: func(context.Context, string, string, string) (bool, error) { return true, nil }}, "", nil)
+	hidden := `<input type="hidden" name="_version" value="1760000000123456">`
+	if body := get(h, "root", "/admin/blog/Post/7/").Body.String(); !strings.Contains(body, hidden) || strings.Contains(body, "changed since") {
+		t.Errorf("GET:\n%s", body)
+	}
+	w := send(h, "root", "/admin/blog/Post/7/", url.Values{"title": {"mine"}, "_version": {"1760000000123456"}})
+	if body := w.Body.String(); w.Code != http.StatusConflict || !strings.Contains(body, "This row changed since you opened it; reload to see the change.") ||
+		!strings.Contains(body, `value="mine"`) || !strings.Contains(body, hidden) {
+		t.Errorf("a conflict: %d\n%s", w.Code, body)
+	}
+}

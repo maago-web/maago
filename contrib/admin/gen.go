@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -209,4 +210,31 @@ func Updated(n int64, err error) error {
 		return sql.ErrNoRows
 	}
 	return err
+}
+
+// Version is the version the form of a row carries, as _version (D-150):
+// read, the row's, to draw; to save, the one the form was opened with,
+// which a POST must send.
+func Version(vals url.Values, read time.Time) (time.Time, error) {
+	if vals == nil {
+		return read, nil
+	}
+	n, err := strconv.ParseInt(vals.Get("_version"), 10, 64)
+	if err != nil {
+		return time.Time{}, maago.Status(http.StatusBadRequest, errors.New("admin: the form has no _version, the version of the row it was opened with"))
+	}
+	return time.UnixMicro(n), nil
+}
+
+// Changed is err of an UPDATE that saved only at the version the form
+// was opened with: maago.ErrConflict when it changed no row and the row is
+// there, query (SELECT 1 … WHERE "id" = ?) finding it.
+func Changed(ctx context.Context, db maago.DB, query string, id int64, err error) error {
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if found, err := Exists(ctx, db, query, id); err != nil || !found {
+		return cmp.Or(err, sql.ErrNoRows)
+	}
+	return maago.ErrConflict
 }

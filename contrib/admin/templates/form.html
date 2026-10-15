@@ -2,7 +2,9 @@
 {{define "content"}}
 <p><a href="{{.List}}">{{.App}}.{{.Name}}</a></p>
 <h1>{{.Title}}</h1>
+{{if .Conflict}}<p class="error">This row changed since you opened it; reload to see the change.</p>{{end}}
 <form method="post">
+{{if .Version}}<input type="hidden" name="_version" value="{{.Version}}">{{end}}
 {{range .Inputs}}
 <div class="field">
 {{if eq .Kind "readonly"}}

@@ -89,6 +89,8 @@ type modelView struct {
 	Update              string   // "" if there is no Update
 	UpdateArgs          []string
 	UpdateNow           []string // the auto=update fields, set once the row is written
+	Version             string   // the field Update compares, "" for none
+	Exists              string   // the SQL that tells a missing row from a changed one
 	InsertOnly          []string // the auto=create fields, which Update leaves
 	Scan                string
 }
@@ -134,10 +136,16 @@ func (g *gen) model(c CRUD) modelView {
 		v.Update = GoString(c.Update.SQL)
 		for _, a := range c.Update.Args {
 			x := "o." + a
-			if fields[a].Auto == "update" {
+			if version, ok := strings.CutPrefix(a, "version:"); ok {
+				a, x = version, "o."+version // the version as read
+			} else if fields[a].Auto == "update" {
 				x = "now"
 			}
 			v.UpdateArgs = append(v.UpdateArgs, g.arg(x, fields[a].Type, fields[a].Pointer))
+		}
+		if c.Version != "" {
+			v.Version, v.Exists = c.Version, GoString(c.Exists.SQL)
+			g.imports["errors"] = true
 		}
 	}
 	return v

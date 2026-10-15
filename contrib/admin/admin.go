@@ -25,6 +25,7 @@ package admin
 import (
 	"context"
 	"net/url"
+	"time"
 
 	"github.com/maago-web/maago"
 )
@@ -70,8 +71,9 @@ type Ref struct {
 
 // Form is a model's form, read or to draw.
 type Form struct {
-	Inputs []Input
-	Saved  bool // the form was valid, and its row written
+	Inputs  []Input
+	Saved   bool      // the form was valid, and its row written
+	Version time.Time // the row's version the form carries, if its model has one (D-150)
 }
 
 // Input is one field of a Form, for drawing.

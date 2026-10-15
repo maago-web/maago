@@ -110,9 +110,13 @@ var Admin = []admin.Model{
 		},
 		Form: func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {
 			var o Order
+			var ver time.Time
 			if id != 0 {
 				var err error
 				if o, err = GetOrder(ctx, db, id); err != nil {
+					return admin.Form{}, err
+				}
+				if ver, err = admin.Version(vals, o.UpdatedAt); err != nil {
 					return admin.Form{}, err
 				}
 			}
@@ -158,7 +162,7 @@ var Admin = []admin.Model{
 				in = append(in, admin.Show("UpdatedAt", o.UpdatedAt))
 			}
 			if vals == nil || !(f.CustomerID.Error == "" && f.Status.Error == "" && f.Amount.Error == "" && f.Priority.Error == "" && f.CreatedAt.Error == "") {
-				return admin.Form{Inputs: in}, nil
+				return admin.Form{Inputs: in, Version: ver}, nil
 			}
 			if id == 0 {
 				_, err := InsertOrder(ctx, db, NewOrderInput{
@@ -171,8 +175,9 @@ var Admin = []admin.Model{
 				return admin.Form{Inputs: in, Saved: err == nil}, err
 			}
 			now := time.Now().Truncate(time.Microsecond)
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = $1, "status" = $2, "amount" = $3, "priority" = $4, "created_at" = $5, "updated_at" = $6 WHERE "id" = $7`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), f.CreatedAt.Value, now, id))
-			return admin.Form{Inputs: in, Saved: err == nil}, err
+			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = $1, "status" = $2, "amount" = $3, "priority" = $4, "created_at" = $5, "updated_at" = $6 WHERE "id" = $7 AND "updated_at" = $8`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), f.CreatedAt.Value, now, id, ver))
+			err = admin.Changed(ctx, db, `SELECT 1 FROM "orders" WHERE "id" = $1`, id, err)
+			return admin.Form{Inputs: in, Version: ver, Saved: err == nil}, err
 		},
 		Delete: DeleteOrder,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {

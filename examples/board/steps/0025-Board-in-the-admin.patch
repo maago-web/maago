@@ -43,16 +43,21 @@ admin은 뷰가 아니다. 이 게시판에 닿는 차이 둘.
 - 댓글이 있는 글은 superuser도 지우지 못한다. 댓글이 그 글을 가리킨다.
   뷰는 그런 글을 숨긴다(0023)
 
+고치기 폼은 연 때의 글 버전(UpdatedAt)을 숨은 칸에 싣는다. 그새 다른
+사람이 저장했으면 409로, 적은 것을 남긴 채 다시 그린다. 다시 열어야
+저장된다. 나중 저장이 먼저 저장을 덮지 않는다.
+
 시험은 superuser가 admin에서 편집자를 만들고, 편집자가 할 수 있는 것과 없는
 것(staff 아닌 사람의 행, 편집자의 auth 권한 행), 목록의 칸, 검색과
-거르개를 함께 건 목록과 본문 검색, 지우기의 두 경우를 본다.
+거르개를 함께 건 목록과 본문 검색, 먼저 연 폼의 늦은 저장, 지우기의 두
+경우를 본다.
 
 diff --git a/board/admin_test.go b/board/admin_test.go
 new file mode 100644
-index 0000000..37569b1
+index 0000000..2033f56
 --- /dev/null
 +++ b/board/admin_test.go
-@@ -0,0 +1,141 @@
+@@ -0,0 +1,153 @@
 +package board
 +
 +import (
@@ -61,6 +66,7 @@ index 0000000..37569b1
 +	"net/url"
 +	"strings"
 +	"testing"
++	"time"
 +
 +	"github.com/maago-web/maago"
 +
@@ -154,11 +160,14 @@ index 0000000..37569b1
 +		t.Errorf("a search in the body: %s", body)
 +	}
 +
++	// The form carries the version of the post it opened, its UpdatedAt,
++	// and saves only at it.
 +	p := posts["봄 소식"]
-+	edit := func(title, status string) url.Values {
-+		return url.Values{"board_id": {fmt.Sprint(p.BoardID)}, "title": {title}, "body": {p.Body}, "status": {status}, "views": {"0"}}
++	edit := func(title, status string, version time.Time) url.Values {
++		return url.Values{"board_id": {fmt.Sprint(p.BoardID)}, "title": {title}, "body": {p.Body}, "status": {status}, "views": {"0"},
++			"_version": {fmt.Sprint(version.UnixMicro())}}
 +	}
-+	if code, _, body := post(asEd, fmt.Sprintf("/admin/board/Post/%d/", p.ID), edit("봄 소식!", "published")); code != 303 {
++	if code, _, body := post(asEd, fmt.Sprintf("/admin/board/Post/%d/", p.ID), edit("봄 소식!", "published", p.UpdatedAt)); code != 303 {
 +		t.Errorf("ed changes a post: %d\n%s", code, body)
 +	}
 +	for _, path := range []string{"/admin/board/Comment/", fmt.Sprintf("/admin/board/Post/delete/?id=%d", p.ID)} {
@@ -166,9 +175,17 @@ index 0000000..37569b1
 +			t.Errorf("ed GET %s: %d", path, code)
 +		}
 +	}
-+	// The admin saves by the model's rules alone: Next, the views' order of
-+	// the statuses, is not asked.
-+	if code, _, body := post(asBoss, fmt.Sprintf("/admin/board/Post/%d/", p.ID), edit("봄 소식!", "draft")); code != 303 {
++	// boss opened the post before ed saved it: a 409, and ed's title stays.
++	if code, _, body := post(asBoss, fmt.Sprintf("/admin/board/Post/%d/", p.ID), edit("봄 소식?", "draft", p.UpdatedAt)); code != 409 || !strings.Contains(body, "changed since you opened it") {
++		t.Errorf("boss saves an old form: %d\n%s", code, body)
++	}
++	// Opened again, it saves. The admin saves by the model's rules alone:
++	// Next, the views' order of the statuses, is not asked.
++	now, err := GetPost(ctx, db, p.ID)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if code, _, body := post(asBoss, fmt.Sprintf("/admin/board/Post/%d/", p.ID), edit("봄 소식!", "draft", now.UpdatedAt)); code != 303 {
 +		t.Errorf("boss makes a published post a draft: %d\n%s", code, body)
 +	}
 +	if got, err := GetPost(ctx, db, p.ID); err != nil || got.Title != "봄 소식!" || got.Status != "draft" {
