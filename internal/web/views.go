@@ -21,6 +21,7 @@ type view struct {
 	userPtr   bool      // as *U: optional, nil without one
 	userExpr  string    // the user's type as the view writes it, for fixes
 	db        bool      // takes maago.DB
+	tx        bool      // takes maago.Tx: runs in a transaction (D-150)
 	in        string    // the name of In's type, "" for struct{}
 	fields    []inField // In's fields
 	wildcards []param   // the path's wildcards in order: the URL function's parameters
@@ -106,7 +107,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 	if fd == nil {
 		return nil, nil // Check reported it
 	}
-	const shapes = "write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)"
+	const shapes = "write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)"
 	params, results := fields(fd.Type.Params), fields(fd.Type.Results)
 	wildcards, wds := pathWildcards(r)
 	for _, w := range wds {
@@ -122,7 +123,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 			v.wildcards = append(v.wildcards, param{w, "string"})
 		}
 		return v, ds
-	case len(params) < 2 || len(params) > 4 || len(results) != 2:
+	case len(params) < 2 || len(params) > 5 || len(results) != 2:
 		errAt(fd.Name.Pos(), fmt.Sprintf("view %s takes %d values and returns %d", r.View, len(params), len(results)), shapes)
 		return nil, ds
 	}
@@ -140,38 +141,52 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 	// Between ctx and In, the user, then the database (D-149).
 	names := app.maago[r.View]
 	var user ast.Expr
-	order, wrongDB := false, ""
+	order, wrong, both := false, "", false
 	for _, p := range params[1 : len(params)-1] {
+		kind, how := store(p, names)
 		switch {
-		case isMaago(p, "DB", names) && !v.db:
-			v.db = true
-		case dbLike(p, names) != "" && !v.db: // *sql.DB, *maago.DB: the database all the same
-			v.db, wrongDB = true, dbLike(p, names)
-		case isMaago(p, "DB", names) || dbLike(p, names) != "" || user != nil:
-			order = true // a second one
+		case kind != "" && !v.db && !v.tx:
+			v.db, v.tx, wrong = kind == "db", kind == "tx", how
+		case kind != "":
+			if v.db && kind == "tx" || v.tx && kind == "db" {
+				both = true
+			} else {
+				order = true // a second one
+			}
+		case user != nil:
+			order = true
 		default:
-			order = order || v.db // the user comes before the database
+			order = order || v.db || v.tx // the user comes before the database
 			user = p
 		}
 	}
 	// A user or the database last, or a model: the In is missing. Read as
 	// an In, its fix would drop the user, and the login with it.
-	if in != last || isModel(app, in) || isMaago(last, "DB", names) || dbLike(last, names) != "" {
-		u, db := user, v.db
-		if isMaago(last, "DB", names) || dbLike(last, names) != "" {
-			db = true
+	if kind, _ := store(last, names); in != last || isModel(app, in) || kind != "" {
+		u, db, tx := user, v.db, v.tx
+		if kind != "" {
+			db, tx = db || kind == "db", tx || kind == "tx"
 		} else if user == nil {
 			u = last
 		}
-		errAt(last.Pos(), "view "+r.View+" takes no In: In comes last, even when empty", "write "+viewSignature(r.View, u, db, "struct{}"))
+		errAt(last.Pos(), "view "+r.View+" takes no In: In comes last, even when empty", "write "+viewSignature(r.View, u, db, tx, "struct{}"))
 		return nil, ds
 	}
 	switch {
-	case order:
-		errAt(params[1].Pos(), "view "+r.View+" takes its values out of order", "write "+viewSignature(r.View, user, v.db, types.ExprString(last)))
+	case both:
+		errAt(params[1].Pos(), "view "+r.View+" takes both maago.Tx and maago.DB", "write "+viewSignature(r.View, user, false, true, types.ExprString(last))+": the transaction reads and writes (D-150)")
 		return nil, ds
-	case wrongDB != "":
-		errAt(params[1].Pos(), "view "+r.View+" takes the database as "+wrongDB+", not maago.DB", "write "+viewSignature(r.View, user, true, types.ExprString(last)))
+	case order:
+		errAt(params[1].Pos(), "view "+r.View+" takes its values out of order", "write "+viewSignature(r.View, user, v.db, v.tx, types.ExprString(last)))
+		return nil, ds
+	case wrong != "" && v.db:
+		errAt(params[1].Pos(), "view "+r.View+" takes the database as "+wrong+", not maago.DB", "write "+viewSignature(r.View, user, true, false, types.ExprString(last)))
+		return nil, ds
+	case wrong != "":
+		errAt(params[1].Pos(), "view "+r.View+" takes the transaction as "+wrong+", not maago.Tx", "write "+viewSignature(r.View, user, false, true, types.ExprString(last)))
+		return nil, ds
+	case v.tx && (r.Method == "GET" || r.Method == "HEAD"):
+		errAt(params[1].Pos(), "view "+r.View+" takes maago.Tx, but route "+r.Name+" is a "+r.Method+", which does not write", "take db maago.DB; a view that writes serves a POST")
 		return nil, ds
 	}
 	if user != nil {
@@ -190,7 +205,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 	}
 	if st == nil || v.in == "" && len(st.Fields.List) > 0 {
 		errAt(last.Pos(), "the In of view "+r.View+" is not struct{} or a struct type named in package "+app.Name,
-			"declare type "+r.View+"In struct{…} in package "+app.Name+" with fields tagged maago:\"path=name\", maago:\"query=name\" or maago:\"form\", or take struct{}; if it is the user, In comes after it: "+viewSignature(r.View, last, false, "struct{}"))
+			"declare type "+r.View+"In struct{…} in package "+app.Name+" with fields tagged maago:\"path=name\", maago:\"query=name\" or maago:\"form\", or take struct{}; if it is the user, In comes after it: "+viewSignature(r.View, last, false, false, "struct{}"))
 		return nil, ds
 	}
 	var bad []inField // path fields of a type Views rejected
@@ -321,32 +336,48 @@ func fields(fl *ast.FieldList) []ast.Expr {
 
 // viewSignature is a typed view's signature in the order D-149 gives, for a
 // fix.
-func viewSignature(view string, user ast.Expr, db bool, in string) string {
+func viewSignature(view string, user ast.Expr, db, tx bool, in string) string {
 	s := "func " + view + "(ctx context.Context, "
 	if user != nil {
 		s += "u " + types.ExprString(user) + ", "
 	}
-	if db {
+	if tx {
+		s += "tx maago.Tx, "
+	} else if db {
 		s += "db maago.DB, "
 	}
 	return s + "in " + in + ") …"
 }
 
-// dbLike is how e names a database that is not maago.DB, *sql.DB or
-// *maago.DB say, or "".
-func dbLike(e ast.Expr, names []string) string {
+// store is what e names of the database: "db" for a DB, "tx" for a
+// transaction, "" for neither. how is e as written when it is not maago.DB
+// or maago.Tx, such as *sql.DB or *maago.Tx: the database all the same.
+func store(e ast.Expr, names []string) (kind, how string) {
 	t := e
 	if star, ok := t.(*ast.StarExpr); ok {
 		t = star.X
 	}
 	sel, ok := t.(*ast.SelectorExpr)
 	if !ok {
-		return ""
+		return "", ""
 	}
-	if x, ok := sel.X.(*ast.Ident); ok && (x.Name == "sql" && slices.Contains([]string{"DB", "Tx", "Conn"}, sel.Sel.Name) || slices.Contains(names, x.Name) && sel.Sel.Name == "DB" && t != e) {
-		return types.ExprString(e)
+	x, ok := sel.X.(*ast.Ident)
+	switch {
+	case !ok:
+		return "", ""
+	case slices.Contains(names, x.Name) && (sel.Sel.Name == "DB" || sel.Sel.Name == "Tx"):
+		kind = strings.ToLower(sel.Sel.Name)
+	case x.Name == "sql" && (sel.Sel.Name == "DB" || sel.Sel.Name == "Conn"):
+		kind = "db"
+	case x.Name == "sql" && sel.Sel.Name == "Tx":
+		kind = "tx"
+	default:
+		return "", ""
 	}
-	return ""
+	if t != e || x.Name == "sql" {
+		how = types.ExprString(e)
+	}
+	return kind, how
 }
 
 // isModel reports whether e names a struct of app that embeds maago.Model:

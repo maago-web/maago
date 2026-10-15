@@ -26,7 +26,7 @@ var templates = template.Must(template.ParseFS(templateFiles, "templates/*.go.tm
 
 // Imports are the packages the files web generates may import, beside
 // maago (D-66).
-var Imports = []string{"embed", "html/template", "net/http", "net/url", "strconv"}
+var Imports = []string{"context", "embed", "html/template", "net/http", "net/url", "strconv"}
 
 // URLsFile is the urls_gen.go of app: its URL functions, and its App.
 // Before the views are checked, stub declares App without a value, so
@@ -101,9 +101,10 @@ func ViewsFile(app *App, apps []*App) []byte {
 		rs = append(rs, map[string]any{
 			"Name": r.Name, "View": r.View, "Serve": "serve" + mapper.FieldName(r.Name), "Escape": v.escape,
 			"In": in, "Fields": fields, "Query": query, "Result": v.result, "API": api, "Template": v.template, "Block": blockOf(&r),
-			"User": v.userType, "UserPtr": v.userPtr, "DB": v.db,
+			"User": v.userType, "UserPtr": v.userPtr, "DB": v.db, "Tx": v.tx,
 		})
-		userImport = cmp.Or(userImport, v.userImport) // one user type in the project
+		imports["context"] = imports["context"] || v.tx // the transaction's func
+		userImport = cmp.Or(userImport, v.userImport)   // one user type in the project
 		if v.template != "" && !slices.Contains(pages, v.template) {
 			pages = append(pages, v.template)
 		}

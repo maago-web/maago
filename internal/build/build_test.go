@@ -97,7 +97,7 @@ func TestRoutes(t *testing.T) {
 blog/urls.go:7:23: no function B in package blog
   fix: did you mean "A"?
 blog/urls.go:10:6: view A takes 0 values and returns 0
-  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+  fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
 `
 	if out := text(ds); out != want {
 		t.Errorf("got:\n%s", out)

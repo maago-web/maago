@@ -1,6 +1,6 @@
-# five values
-site/urls.go:65:6: view A takes 5 values and returns 2
-  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+# six values
+site/urls.go:65:6: view A takes 6 values and returns 2
+  fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
 
 # In of another package
 site/urls.go:65:32: the In of view A is not struct{} or a struct type named in package site
@@ -102,15 +102,27 @@ site/urls.go:65:18: In of view A embeds a field
 
 # generic view
 site/urls.go:65:6: view A has type parameters
-  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+  fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
 
 # first not a context
 site/urls.go:65:6: view A takes int first, not a context.Context
-  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+  fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
 
 # sql.DB for the database
 site/more.go:12:31: view A takes the database as *sql.DB, not maago.DB
   fix: write func A(ctx context.Context, u users.User, db maago.DB, in struct{}) …
+
+# a transaction on a GET
+site/more.go:12:32: view A takes maago.Tx, but route a is a GET, which does not write
+  fix: take db maago.DB; a view that writes serves a POST
+
+# a transaction and the database
+site/more.go:12:31: view A takes both maago.Tx and maago.DB
+  fix: write func A(ctx context.Context, u users.User, tx maago.Tx, in struct{}) …: the transaction reads and writes (D-150)
+
+# sql.Tx
+site/more.go:12:32: view A takes the transaction as *sql.Tx, not maago.Tx
+  fix: write func A(ctx context.Context, tx maago.Tx, in struct{}) …
 
 # a pointer to maago.DB
 site/more.go:12:32: view A takes the database as *maago.DB, not maago.DB
@@ -134,7 +146,7 @@ site/more.go:14:6: view B takes the user as users.Other, but view A takes users.
 
 # second not an error
 site/urls.go:65:6: view A returns int second, not an error
-  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+  fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
 
 # page unnamed
 site/urls.go:65:6: view A returns struct{}, which names no template
@@ -168,7 +180,7 @@ site/urls.go:22:6: page HomePage has no template site/templates/home_page.html
 
 # func(w, r) of other types
 site/urls.go:65:6: view A takes int and string, not an http.ResponseWriter and an *http.Request
-  fix: write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+  fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
 
 # no template
 site/urls.go:22:6: page HomePage has no template site/templates/home_page.html

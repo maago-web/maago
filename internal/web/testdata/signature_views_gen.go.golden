@@ -3,6 +3,7 @@
 package site
 
 import (
+	"context"
 	"embed"
 	"html/template"
 	"net/http"
@@ -17,6 +18,7 @@ var maagoTemplateFiles embed.FS
 // maagoRoutes are the paths of every route of the project, for {{url}}.
 var maagoRoutes = map[string]string{
 	"api_post":    "/api/posts/{id}",
+	"api_save":    "/api/save",
 	"by_post_id":  "/by/{post_id}",
 	"feed":        "/feed.csv",
 	"here":        "/here",
@@ -25,6 +27,7 @@ var maagoRoutes = map[string]string{
 	"me":          "/me",
 	"post_detail": "/posts/{id}",
 	"post_update": "/posts/{id}",
+	"save":        "/save",
 	"tag_page":    "/tags/{tag}/{n}",
 }
 
@@ -75,6 +78,56 @@ func serveHere(w http.ResponseWriter, r *http.Request) error {
 		return nil
 	}
 	return maago.Render(w, maagoPages, "home_page.html", "", page)
+}
+
+// serveSave serves route save with view Save.
+func serveSave(w http.ResponseWriter, r *http.Request) error {
+	var in struct{}
+	u, _ := maago.UserFrom[maagouser.User](r.Context()) // the route requires login
+	// The view runs in a transaction, and its page is drawn before the
+	// commit: one that fails to draw rolls it back (D-150).
+	b := maago.NewBuffer()
+	to := ""
+	txErr := maago.WithTx(r.Context(), maago.DBFrom(r.Context()), func(ctx context.Context, tx maago.Tx) error {
+		p, err := Save(ctx, u, tx, in)
+		if err != nil {
+			return err
+		}
+		page, next := p.Page()
+		if next != "" {
+			to = next
+			return nil
+		}
+		return maago.Render(b, maagoPages, "home_page.html", "", page)
+	})
+	if txErr != nil {
+		return txErr
+	}
+	if to != "" {
+		http.Redirect(w, r, to, http.StatusSeeOther)
+		return nil
+	}
+	return b.Send(w)
+}
+
+// serveAPISave serves route api_save with view APISave.
+func serveAPISave(w http.ResponseWriter, r *http.Request) error {
+	var in struct{}
+	// The view runs in a transaction, and its page is drawn before the
+	// commit: one that fails to draw rolls it back (D-150).
+	b := maago.NewBuffer()
+	txErr := maago.WithTx(r.Context(), maago.DBFrom(r.Context()), func(ctx context.Context, tx maago.Tx) error {
+		p, err := APISave(ctx, tx, in)
+		if err != nil {
+			return err
+		}
+		page := p
+		return maago.JSON(b, page)
+	})
+	if txErr != nil {
+		return txErr
+	}
+	return b.Send(w)
 }
 
 // serveHome serves route home with view Home.

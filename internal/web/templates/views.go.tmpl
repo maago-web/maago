@@ -81,6 +81,44 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	u, _ := maago.UserFrom[{{.User}}](r.Context()) // the route requires login
 {{- end}}
 {{- end}}
+{{- if .Tx}}
+	// The view runs in a transaction, and its page is drawn before the
+	// commit: one that fails to draw rolls it back (D-150).
+	b := maago.NewBuffer()
+{{- if .Result}}
+	to := ""
+{{- end}}
+	txErr := maago.WithTx(r.Context(), maago.DBFrom(r.Context()), func(ctx context.Context, tx maago.Tx) error {
+		p, err := {{.View}}(ctx{{if .User}}, u{{end}}, tx, in)
+		if err != nil {
+			return err
+		}
+{{- if .Result}}
+		page, next := p.Page()
+		if next != "" {
+			to = next
+			return nil
+		}
+{{- else}}
+		page := p
+{{- end}}
+{{- if .API}}
+		return maago.JSON(b, page)
+{{- else}}
+		return maago.Render(b, maagoPages, {{printf "%q" .Template}}, {{printf "%q" .Block}}, page)
+{{- end}}
+	})
+	if txErr != nil {
+		return txErr
+	}
+{{- if .Result}}
+	if to != "" {
+		http.Redirect(w, r, to, http.StatusSeeOther)
+		return nil
+	}
+{{- end}}
+	return b.Send(w)
+{{- else}}
 	p, err := {{.View}}(r.Context(){{if .User}}, u{{end}}{{if .DB}}, maago.DBFrom(r.Context()){{end}}, in)
 	if err != nil {
 		return err
@@ -98,6 +136,7 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	return maago.JSON(w, page)
 {{- else}}
 	return maago.Render(w, maagoPages, {{printf "%q" .Template}}, {{printf "%q" .Block}}, page)
+{{- end}}
 {{- end}}
 {{- end}}
 }

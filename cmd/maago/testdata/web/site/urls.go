@@ -20,6 +20,7 @@ var Routes = maago.Routes{
 	maago.POST("/mine", "mine_post", Mine),
 	maago.GET("/api/greet", "api_greet", Greet, maago.API),
 	maago.GET("/api/mine", "api_mine", Mine, maago.API),
+	maago.POST("/titles/{title}", "save_title", SaveTitle),
 	maago.GET("/upload", "upload", Upload),
 	maago.POST("/upload", "upload_save", Upload),
 	maago.GET("/media/{key}", "media", MediaDownload),

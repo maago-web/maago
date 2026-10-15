@@ -67,10 +67,12 @@ func OpenDB(ctx context.Context, cfg DBConfig) (*sql.DB, error) {
 	if d == project.SQLite {
 		// mode=rw: a missing file is an error, not a new empty database.
 		// The pragmas run on every connection the pool makes, since SQLite
-		// keeps them per connection.
+		// keeps them per connection. _txlock=immediate: a transaction takes
+		// the write lock when it begins, so two that read then write wait
+		// for each other instead of one failing with SQLITE_BUSY (D-150).
 		driver = "sqlite"
 		dsn = "file:" + strings.NewReplacer("%", "%25", "#", "%23").Replace(file) +
-			"?mode=rw&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)"
+			"?mode=rw&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate"
 		open, idle, life, idleTime = 4, 4, 0, 0
 	}
 	if !slices.Contains(sql.Drivers(), driver) {

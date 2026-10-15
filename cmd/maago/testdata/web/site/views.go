@@ -2,6 +2,7 @@ package site
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -200,6 +201,34 @@ func Mine(ctx context.Context, u Account, db maago.DB, in struct{}) (SecretPage,
 		return SecretPage{}, err
 	}
 	return SecretPage{u.Name}, nil
+}
+
+// SaveTitleIn is the title SaveTitle writes.
+type SaveTitleIn struct {
+	Title string `maago:"path=title"`
+}
+
+// committed are the titles whose AfterCommit ran.
+var committed []string
+
+// SaveTitle writes in the request's transaction (D-150): an error, a
+// panic, or a page that fails to draw keeps nothing, and AfterCommit's
+// work runs only after the commit.
+func SaveTitle(ctx context.Context, tx maago.Tx, in SaveTitleIn) (maago.Result[BrokenPage], error) {
+	p, err := InsertPost(ctx, tx, NewPostInput{Title: in.Title})
+	if err != nil {
+		return maago.Result[BrokenPage]{}, err
+	}
+	maago.AfterCommit(ctx, func(context.Context) { committed = append(committed, in.Title) })
+	switch in.Title {
+	case "bad":
+		return maago.Result[BrokenPage]{}, errors.New("bad")
+	case "boom":
+		panic("boom")
+	case "draw":
+		return maago.Show(BrokenPage{}), nil // its template reads .Post.Title of a nil Post
+	}
+	return maago.SeeOther[BrokenPage](PostDetailURL(p.ID)), nil
 }
 
 // Greet takes a user who may be missing.

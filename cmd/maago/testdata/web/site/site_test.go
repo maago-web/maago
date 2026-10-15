@@ -415,6 +415,28 @@ func TestSignature(t *testing.T) {
 	}
 }
 
+// TestTx: a view that takes maago.Tx keeps what it wrote only when it
+// returns no error and its page draws (D-150).
+func TestTx(t *testing.T) {
+	h, db, _ := handler(t)
+	for _, c := range []struct {
+		title string
+		code  int
+		kept  bool
+	}{{"bad", 500, false}, {"boom", 500, false}, {"draw", 500, false}, {"good", 303, true}} {
+		committed = nil
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("POST", SaveTitleURL(c.title), nil))
+		taken, err := TitleTaken(context.Background(), db, TitleTakenParams{Title: c.title})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != c.code || taken.Taken != c.kept || (len(committed) == 1) != c.kept {
+			t.Errorf("%s: %d, kept %v, AfterCommit ran for %v", c.title, w.Code, taken.Taken, committed)
+		}
+	}
+}
+
 // TestPrefix serves the app under /app (D-122) behind http.StripPrefix, as
 // a proxy that keeps /app needs: every path the app makes has /app once,
 // and requests to those paths reach their routes.

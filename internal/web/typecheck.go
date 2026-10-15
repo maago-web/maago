@@ -118,7 +118,7 @@ func hasOption(opts []Option, name string) bool {
 // signature checks sig against the view's shape, and records its page
 // type. It returns what is wrong, and how to fix it.
 func (v *view) signature(sig *types.Signature, pkg *types.Package, api bool) (msg, fix string) {
-	const shapes = "write func(ctx context.Context, in In) (Page, error), func(ctx context.Context, in In) (maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)"
+	const shapes = "write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)"
 	ps, rs := sig.Params(), sig.Results()
 	if v.escape {
 		if !named(ps.At(0).Type(), "net/http", "ResponseWriter") || !isPointerTo(ps.At(1).Type(), "net/http", "Request") {
