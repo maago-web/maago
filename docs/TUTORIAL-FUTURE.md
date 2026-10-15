@@ -339,7 +339,7 @@ posts, err := SearchPosts(ctx, db, SearchPostsParams{Q: maago.Ptr("hello")}) // 
 ```
 
 - 파라미터가 없으면 `p`도 없습니다. 없어도 되는 파라미터는 포인터이고 `maago.Ptr(값)`으로 채웁니다.
-  파라미터 `ids`의 필드는 `Ids`입니다.
+  파라미터 `ids`의 필드는 `IDs`입니다(Go의 약어 규칙).
 - `db`는 `*sql.DB`든 `*sql.Tx`든 됩니다. `maago.OpenDB(ctx, maago.DBConfig{})`가 `.env`의 주소로 엽니다.
 - `:one`은 행이 없으면 `sql.ErrNoRows`, 둘 이상이면 오류입니다. `:exec`는 바뀐 행 수를 돌려주고, 0행도
   오류가 아닙니다.
