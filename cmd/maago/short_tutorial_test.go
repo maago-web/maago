@@ -5,6 +5,7 @@ import (
 	"go/format"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"os"
 	osexec "os/exec"
@@ -111,7 +112,7 @@ func TestShortTutorial(t *testing.T) {
 	const email, password = "me@example.com", "correct horse battery staple"
 	su := osexec.Command(bin, "-createsuperuser")
 	su.Env = append(os.Environ(), "MAAGO_SUPERUSER_EMAIL="+email, "MAAGO_SUPERUSER_PASSWORD="+password)
-	if out, err := su.CombinedOutput(); err != nil {
+	if out, err := su.CombinedOutput(); err != nil || !strings.Contains(string(out), "created superuser "+email+" (id 1)\n") {
 		t.Fatalf("-createsuperuser: %v\n%s", err, out)
 	}
 	if err := serve(root, bin, "/admin/", http.StatusSeeOther, func(base string) error {
@@ -127,10 +128,11 @@ func TestShortTutorial(t *testing.T) {
 // for the post's author. The rows it finds by what they say, so the
 // database may have others.
 func useAdmin(base, email, password string) error {
-	// The session cookie is Secure, which Go 1.25's cookiejar drops on
-	// http: the client keeps it itself until M10 task 2 decides Secure
-	// by auth.SiteURL's scheme (D-128).
-	client := http.Client{Jar: &keepAllJar{}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	jar, err := cookiejar.New(nil) // SiteURL is http, so the session cookie is not Secure (D-128)
+	if err != nil {
+		return err
+	}
+	client := http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	post := func(path string, form url.Values) error {
 		resp, err := client.PostForm(base+path, form)
 		if err != nil {
@@ -194,28 +196,13 @@ func useAdmin(base, email, password string) error {
 	if got, err := row("/admin/blog/Post/", title+" 고침"); err != nil || got != "" {
 		return fmt.Errorf("the deleted post is still in the list: %q %v", got, err)
 	}
+	if err := post("/logout", nil); err != nil {
+		return err
+	}
+	if _, err := row("/admin/blog/Post/", title); err == nil || !strings.Contains(err.Error(), ": 303") {
+		return fmt.Errorf("the admin after logout: %v", err)
+	}
 	return nil
-}
-
-// keepAllJar keeps every cookie a response sets, Secure or not, and sends
-// them all back: one site, in a test.
-type keepAllJar struct{ cookies map[string]*http.Cookie }
-
-func (j *keepAllJar) SetCookies(_ *url.URL, cs []*http.Cookie) {
-	if j.cookies == nil {
-		j.cookies = map[string]*http.Cookie{}
-	}
-	for _, c := range cs {
-		j.cookies[c.Name] = c
-	}
-}
-
-func (j *keepAllJar) Cookies(*url.URL) []*http.Cookie {
-	var cs []*http.Cookie
-	for _, c := range j.cookies {
-		cs = append(cs, &http.Cookie{Name: c.Name, Value: c.Value})
-	}
-	return cs
 }
 
 // tutorial is the fenced blocks of a part of a document, and which of

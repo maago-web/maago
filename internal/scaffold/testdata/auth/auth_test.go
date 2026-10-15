@@ -127,6 +127,26 @@ func TestLogin(t *testing.T) {
 	}
 }
 
+// SiteURL's scheme decides the session cookie's Secure: an http site in
+// development keeps its cookie, which clients drop over http when Secure.
+// A SiteURL that is not right keeps Secure: the safe side.
+func TestCookieSecure(t *testing.T) {
+	h, db := site(t)
+	newUser(t, db, "ann@example.com", nil)
+	t.Cleanup(func() { SiteURL = "https://example.com" })
+	for site, secure := range map[string]bool{"http://localhost:8000": false, "https://example.com": true, "HTTP://localhost:8000": true, "": true} {
+		SiteURL = site
+		c := login(t, h, "ann@example.com", "")
+		if c.Secure != secure {
+			t.Errorf("SiteURL %q: Secure %v", site, c.Secure)
+		}
+		w := do(h, "POST", "/logout", "", c.Value)
+		if out := w.Result().Cookies(); len(out) != 1 || out[0].Secure != secure || out[0].MaxAge >= 0 {
+			t.Errorf("SiteURL %q: logout sets %v", site, out)
+		}
+	}
+}
+
 // A sign-in that fails says the same, whatever failed, and sets nothing.
 func TestLoginFails(t *testing.T) {
 	h, db := site(t)

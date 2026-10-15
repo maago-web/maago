@@ -77,6 +77,9 @@ func generateWith(t *testing.T, files map[string]string, more func(root string))
 	out := map[string][]byte{}
 	for _, app := range apps {
 		out[path.Join(app.Dir, "urls_gen.go")] = URLsFile(app, true)
+		if b := FormsFile(app); b != nil {
+			out[path.Join(app.Dir, "forms_gen.go")] = b
+		}
 	}
 	res, ds := gotypes.Check(root, out)
 	if ds == nil {

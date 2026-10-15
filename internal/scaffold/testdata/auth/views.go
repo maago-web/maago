@@ -73,7 +73,7 @@ func Login(ctx context.Context, in LoginIn) (maago.Result[LoginPage], error) {
 	if err := DeleteAttempt(ctx, db, attempt); err != nil { // a sign-in is no attempt to count
 		return maago.Result[LoginPage]{}, err
 	}
-	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge))
+	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge, cookieSecure()))
 	return maago.SeeOther[LoginPage](authlib.SafeNext(next, maago.Prefix()+"/")), nil
 }
 
@@ -120,7 +120,7 @@ func Logout(ctx context.Context, in struct{}) (maago.Result[LoginPage], error) {
 			return maago.Result[LoginPage]{}, err
 		}
 	}
-	maago.SetCookie(ctx, authlib.SessionCookie("", cookiePath(), -1))
+	maago.SetCookie(ctx, authlib.SessionCookie("", cookiePath(), -1, cookieSecure()))
 	return maago.SeeOther[LoginPage](LoginURL()), nil
 }
 
@@ -298,7 +298,7 @@ func Verify(ctx context.Context, in VerifyIn) (maago.Result[VerifyPage], error) 
 	if err := tx.Commit(); err != nil {
 		return maago.Result[VerifyPage]{}, err
 	}
-	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge))
+	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge, cookieSecure()))
 	return maago.SeeOther[VerifyPage](maago.Prefix() + "/"), nil
 }
 
@@ -397,7 +397,7 @@ func PasswordChange(ctx context.Context, in PasswordChangeIn) (maago.Result[Pass
 	if err := tx.Commit(); err != nil {
 		return maago.Result[PasswordChangePage]{}, err
 	}
-	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge))
+	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge, cookieSecure()))
 	return maago.Show(PasswordChangePage{Changed: true}), nil
 }
 
@@ -578,7 +578,7 @@ func AccountClose(ctx context.Context, in AccountCloseIn) (maago.Result[AccountC
 	if err := tx.Commit(); err != nil {
 		return maago.Result[AccountClosePage]{}, err
 	}
-	maago.SetCookie(ctx, authlib.SessionCookie("", cookiePath(), -1))
+	maago.SetCookie(ctx, authlib.SessionCookie("", cookiePath(), -1, cookieSecure()))
 	return maago.SeeOther[AccountClosePage](LoginURL()), nil
 }
 

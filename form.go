@@ -33,9 +33,11 @@ func (f *Form) AddError(msg string) { f.Errors = append(f.Errors, msg) }
 // Bound reports whether the request sent the form: not a GET or HEAD.
 func (f Form) Bound() bool { return f.bound }
 
-// Valid reports whether the form was sent and has no error: its fields
-// read, Validate passed, and no form error was added.
-func (f Form) Valid() bool { return f.bound && f.ok && len(f.Errors) == 0 }
+// FormValid reports whether f was sent and has no error: its fields read,
+// Validate passed, and no form error was added. Only generated code calls
+// it: maago gen gives each form a Valid that also counts the errors a view
+// sets on its fields (D-119).
+func FormValid(f Form) bool { return f.bound && f.ok && len(f.Errors) == 0 }
 
 // FinishForm records what binding found. Only generated code calls it.
 func FinishForm(f *Form, bound, fieldsOK bool) { f.bound, f.ok = bound, fieldsOK }

@@ -98,19 +98,21 @@ type PostFormPage struct {
 }
 
 // PostForm draws the form on GET and saves it on POST. A taken title is
-// a check that needs the database, so the view makes it (D-119).
+// a check that needs the database, so the view makes it (D-119), and the
+// field error it sets makes the form not Valid.
 func PostForm(ctx context.Context, in PostFormIn) (maago.Result[PostFormPage], error) {
 	f := in.Form
-	if !f.Valid() {
-		return maago.Show(PostFormPage{f}), nil
-	}
 	db := maago.DBFrom(ctx)
-	taken, err := TitleTaken(ctx, db, TitleTakenParams{Title: f.Title.Value})
-	if err != nil {
-		return maago.Result[PostFormPage]{}, err
+	if f.Valid() {
+		taken, err := TitleTaken(ctx, db, TitleTakenParams{Title: f.Title.Value})
+		if err != nil {
+			return maago.Result[PostFormPage]{}, err
+		}
+		if taken.Taken {
+			f.Title.Error = "that title is taken"
+		}
 	}
-	if taken.Taken {
-		f.Title.Error = "that title is taken"
+	if !f.Valid() {
 		return maago.Show(PostFormPage{f}), nil
 	}
 	p, err := InsertPost(ctx, db, NewPostInput{Title: f.Title.Value})

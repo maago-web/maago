@@ -94,6 +94,7 @@ func TestFormsGen(t *testing.T) {
 		t.Fatalf("errors:\n%s", out)
 	}
 	golden.Check(t, "testdata/forms_views_gen.go.golden", files["board/views_gen.go"])
+	golden.Check(t, "testdata/forms_forms_gen.go.golden", files["board/forms_gen.go"])
 }
 
 func TestFormErrors(t *testing.T) {
@@ -128,6 +129,8 @@ func TestFormErrors(t *testing.T) {
 		{"a generated name taken", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() {}\n\nfunc invalidNoticeForm() {}", []string{`board/urls.go:54:2: form NoticeForm would declare invalidNoticeForm`}},
 		{"a pointer form", "\tForm NoticeForm `maago:\"form\"`", "\tForm *NoticeForm `maago:\"form\"`", []string{`board/urls.go:52:7: form Form is a pointer`}},
 		{"Validate on the value", "func (f *NoticeForm) Validate() {}", "func (f NoticeForm) Validate() {}", []string{`board/urls.go:41:21: Validate of form NoticeForm has a value receiver`}},
+		{"a Valid method", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() {}\n\nfunc (f NoticeForm) Valid() bool { return true }", []string{`board/urls.go:43:21: form NoticeForm declares Valid, which maago gen writes for it`}},
+		{"a field named Valid", "Pinned maago.Field[bool]", "Valid  maago.Field[bool]", []string{`board/urls.go:37:2: form field Valid takes the name of the form's method Valid`}},
 		{"two forms at once", "`maago:\"min=2,", "`maago:\"mim=2,", nil}, // with the next edit too: see below
 		{"Validate's signature", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() error { return nil }", []string{`board/urls.go:41:22: Validate of form NoticeForm is not a method func()`}},
 	}
@@ -150,4 +153,16 @@ func TestFormErrors(t *testing.T) {
 		fmt.Fprintf(&all, "# %s\n%s\n", c.name, out)
 	}
 	golden.Check(t, "testdata/forms.golden", []byte(all.String()))
+}
+
+// A form no In reads yet has Valid too: a view written before its route
+// still type-checks.
+func TestFormValidUnread(t *testing.T) {
+	out, files := generate(t, boardFiles("func BoardNew(", "type DraftForm struct {\n\tmaago.Form\n\tNote maago.Field[string]\n}\n\nfunc draftOK(f DraftForm) bool { return f.Valid() }\n\nfunc BoardNew("))
+	if out != "" {
+		t.Fatalf("errors:\n%s", out)
+	}
+	if !strings.Contains(string(files["board/forms_gen.go"]), "func (f DraftForm) Valid() bool {\n\treturn maago.FormValid(f.Form) && f.Note.Error == \"\"\n}") {
+		t.Errorf("no Valid of DraftForm:\n%s", files["board/forms_gen.go"])
+	}
 }

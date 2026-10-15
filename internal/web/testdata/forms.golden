@@ -104,6 +104,14 @@ board/urls.go:52:7: form Form is a pointer
 board/urls.go:41:21: Validate of form NoticeForm has a value receiver: the errors it sets are lost
   fix: declare it func (f *NoticeForm) Validate()
 
+# a Valid method
+board/urls.go:43:21: form NoticeForm declares Valid, which maago gen writes for it
+  fix: remove it, or rename it: the generated Valid counts the form's errors and its fields' (D-119)
+
+# a field named Valid
+board/urls.go:37:2: form field Valid takes the name of the form's method Valid
+  fix: rename the field
+
 # two forms at once
 board/urls.go:27:27: form BoardForm names model Bord, which this package does not declare
   fix: did you mean "Board"?

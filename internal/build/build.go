@@ -139,10 +139,14 @@ func checking(root string) [][]pipeline.Step {
 			for dir, qs := range s.checked {
 				r.Files[path.Join(dir, "queries_gen.go")] = mapper.QueriesFile(s.d, s.pkgs[dir], qs)
 			}
-			// The views call the URL functions, and main names each App,
-			// so they exist before the type check; App gets its value after.
+			// The views call the URL functions and the forms' Valid, and main
+			// names each App, so they exist before the type check; App gets
+			// its value after.
 			for _, app := range s.web {
 				r.Files[path.Join(app.Dir, "urls_gen.go")] = web.URLsFile(app, true)
+				if b := web.FormsFile(app); b != nil {
+					r.Files[path.Join(app.Dir, "forms_gen.go")] = b
+				}
 			}
 			return nil
 		}},

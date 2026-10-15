@@ -15,7 +15,7 @@
 //		if err != nil {
 //			log.Fatal(err)
 //		}
-//		log.Printf("created %s", u.Email)
+//		log.Printf("created superuser %s (id %d)", u.Email, u.ID)
 //		return
 //	}
 package auth

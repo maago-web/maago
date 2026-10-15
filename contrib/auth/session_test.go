@@ -23,13 +23,16 @@ func TestNewToken(t *testing.T) {
 }
 
 func TestSessionCookie(t *testing.T) {
-	c := SessionCookie("tok", "/app", 14*24*time.Hour)
+	c := SessionCookie("tok", "/app", 14*24*time.Hour, true)
 	if c.Name != "session" || c.Value != "tok" || c.Path != "/app" || c.MaxAge != 14*24*3600 ||
 		!c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteLaxMode {
 		t.Errorf("got %+v", c)
 	}
-	if c := SessionCookie("", "/", -1); c.MaxAge != -1 || c.Path != "/" || c.String() != "session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax" {
+	if c := SessionCookie("", "/", -1, true); c.MaxAge != -1 || c.Path != "/" || c.String() != "session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax" {
 		t.Errorf("removing: %s", c)
+	}
+	if c := SessionCookie("tok", "/", time.Hour, false); c.String() != "session=tok; Path=/; Max-Age=3600; HttpOnly; SameSite=Lax" {
+		t.Errorf("on http: %s", c)
 	}
 }
 

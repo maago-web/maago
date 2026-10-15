@@ -35,7 +35,9 @@ var (
 
 // SiteURL is where the site is, for the links of mails: scheme and host,
 // https://example.com. main sets it. The request's Host header would let
-// anyone send a link to another site.
+// anyone send a link to another site. Its scheme also decides the session
+// cookie's Secure: http://localhost:8000 in development, where clients drop
+// a Secure cookie, and https in production.
 var SiteURL string
 
 // PasswordRules are what a new password must pass. Change them as you
@@ -121,6 +123,13 @@ func CreateSuperuser(ctx context.Context, db maago.DB, email, password string) (
 
 // cookiePath is where the session cookie goes: the whole site.
 func cookiePath() string { return cmp.Or(maago.Prefix(), "/") }
+
+// cookieSecure is whether the session cookie is Secure: unless SiteURL is
+// a right http one (D-128).
+func cookieSecure() bool {
+	site, err := siteURL()
+	return err != nil || !strings.HasPrefix(site, "http://")
+}
 
 // siteURL is SiteURL, once it is a scheme and a host and no more.
 func siteURL() (string, error) {

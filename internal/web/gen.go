@@ -124,6 +124,24 @@ func ViewsFile(app *App, apps []*App) []byte {
 		"Static": static, "Used": slices.Sorted(maps.Keys(app.used))})
 }
 
+// FormsFile is forms_gen.go of app: the Valid method of each form, read
+// by an In or not yet, or nil when there is none. The views call Valid, so
+// it exists before the type check, unlike views_gen.go.
+func FormsFile(app *App) []byte {
+	var forms []map[string]any
+	for _, name := range slices.Sorted(maps.Keys(app.forms)) {
+		var fields []map[string]string
+		for _, ff := range app.forms[name].fields {
+			fields = append(fields, map[string]string{"Name": ff.name})
+		}
+		forms = append(forms, map[string]any{"Name": name, "Fields": fields})
+	}
+	if len(forms) == 0 {
+		return nil
+	}
+	return execute("forms.go.tmpl", map[string]bool{}, map[string]any{"Package": app.Name, "Forms": forms})
+}
+
 // execute writes the file name. imports are the standard packages it uses;
 // maago it imports unless imports["maago"] is false.
 func execute(name string, imports map[string]bool, data map[string]any) []byte {

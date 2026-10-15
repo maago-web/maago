@@ -36,7 +36,9 @@ func HashToken(token string) string {
 
 // SessionCookie is the cookie that carries token for maxAge, at path:
 // maago.Prefix(), or "/" without one. A negative maxAge removes it.
-func SessionCookie(token, path string, maxAge time.Duration) *http.Cookie {
+// secure is false only for a site on http, in development: clients drop a
+// Secure cookie over http (D-128).
+func SessionCookie(token, path string, maxAge time.Duration, secure bool) *http.Cookie {
 	age := int(maxAge / time.Second)
 	if maxAge < 0 {
 		age = -1
@@ -47,7 +49,7 @@ func SessionCookie(token, path string, maxAge time.Duration) *http.Cookie {
 		Path:     path,
 		MaxAge:   age,
 		HttpOnly: true,
-		Secure:   true,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	}
 }
