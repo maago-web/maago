@@ -1,9 +1,8 @@
 # 튜토리얼 (미래) — 블로그 만들기
 
-> **아직 없는 프레임워크의 튜토리얼입니다.** v0이 완성됐을 때 이런 모습이면 좋겠다는 그림입니다.
-> 흐름은 [DECISIONS.md](DECISIONS.md)를 따르지만, 함수 이름·명령 이름·출력 모양은 대부분 아직
-> 정해지지 않았습니다. 결정에 없는 채로 쓴 것은 끝의 [가정 목록](#가정-목록)에 모았습니다.
-> 구현하면서 이 문서가 틀렸다고 밝혀지면, 문서를 고칩니다.
+> v0의 짧은 튜토리얼입니다(5분, D-69). 처음에는 아직 없는 프레임워크의 그림으로 썼고, 만들면서 맞췄습니다.
+> §2~5는 `cmd/maago`의 `TestShortTutorial`이 문서의 명령·파일·출력을 그대로 따라 해 확인합니다(M9 3번).
+> 결정에 없는 채로 쓴 것은 끝의 [가정 목록](#가정-목록)에 모았습니다. 문서가 틀렸다고 밝혀지면 문서를 고칩니다.
 
 ---
 
@@ -37,7 +36,10 @@ Maago 프로젝트는 그냥 Go 모듈입니다. `maago new`는 아직 없으니
 mkdir myblog && cd myblog
 go mod init example.com/myblog
 go get github.com/maago-web/maago
+go get modernc.org/sqlite
 ```
+
+DB 드라이버(`modernc.org/sqlite`, cgo 없는 SQLite)는 Maago가 아니라 앱이 가집니다. PostgreSQL이면 `go get github.com/jackc/pgx/v5`, import는 `github.com/jackc/pgx/v5/stdlib`입니다.
 
 DB는 `.env`에 적습니다. 처음에는 SQLite가 편합니다.
 
@@ -142,7 +144,7 @@ CREATE TABLE "posts" (
     "author_id" INTEGER NOT NULL,
     "title" TEXT NOT NULL CHECK (length("title") <= 200),
     "text" TEXT NOT NULL,
-    "status" TEXT NOT NULL DEFAULT 'draft' CHECK ("status" IN ('draft', 'published')),
+    "status" TEXT NOT NULL DEFAULT 'draft' CHECK (length("status") <= 20) CHECK ("status" IN ('draft', 'published')),
     "published_at" TEXT,
     CONSTRAINT "posts_author_id_fkey" FOREIGN KEY ("author_id") REFERENCES "auth_user" ("id") ON DELETE NO ACTION
 ) STRICT;
@@ -196,6 +198,7 @@ maago makemigrations --rename posts.text:body
 package main
 
 import (
+	"cmp"
 	"context"
 	"flag"
 	"log"
@@ -225,8 +228,9 @@ func main() {
 		}
 		return
 	}
-	auth.SiteURL = "http://localhost:8000" // 메일 링크의 앞
-	authlib.Mail = authlib.ConsoleMail     // 메일은 로그로
+	port := cmp.Or(os.Getenv("PORT"), "8000") // 듣는 포트는 PORT, 없으면 8000
+	auth.SiteURL = "http://localhost:" + port // 메일 링크의 앞
+	authlib.Mail = authlib.ConsoleMail        // 메일은 로그로
 	adminApp := admin.App(admin.Config{
 		Models: [][]admin.Model{blog.Admin, auth.Admin}, // 모델이 있는 앱마다
 		Can:    auth.Can,                                // 누가 어느 모델에 무엇을
@@ -240,7 +244,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Fatal(http.ListenAndServe(":8000", h))
+	log.Fatal(http.ListenAndServe(":"+port, h))
 }
 ```
 
@@ -254,7 +258,7 @@ MAAGO_SUPERUSER_EMAIL=me@example.com MAAGO_SUPERUSER_PASSWORD='…' go run . -cr
 go run .
 ```
 
-관리자 계정은 묻지 않고 셸의 환경 변수로 받습니다. 비밀번호를 플래그로 받지 않는 것은 `ps`와 셸 기록에
+`'…'`에는 비밀번호를 적습니다(8자 이상, 흔한 비밀번호와 이메일을 닮은 것은 거절합니다). 관리자 계정은 묻지 않고 셸의 환경 변수로 받습니다. 비밀번호를 플래그로 받지 않는 것은 `ps`와 셸 기록에
 남기 때문입니다.
 
 <http://localhost:8000/admin/>에서 로그인하면 글 목록·쓰기·고치기·지우기가 됩니다.

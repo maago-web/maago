@@ -263,13 +263,14 @@ func ship(t *testing.T, root, schema string) error {
 			return fmt.Errorf("the superuser is not in schema %s: %v", schema, err)
 		}
 	}
-	return serve(root, bin)
+	return serve(root, bin, "/app/", http.StatusOK, nil)
 }
 
-// serve runs bin in root on a free PORT until its home page answers 200,
-// for 10 seconds at most, and stops it before it returns: the walk's
-// schema goes after, which a pool still open would hold.
-func serve(root, bin string) error {
+// serve runs bin in root on a free PORT until path answers want, for 10
+// seconds at most, then runs use, if not nil, against it, and stops it
+// before it returns: the walk's schema goes after, which a pool still open
+// would hold.
+func serve(root, bin, path string, want int, use func(base string) error) error {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -286,7 +287,8 @@ func serve(root, bin string) error {
 	}
 	exited := make(chan struct{})
 	go func() { cmd.Wait(); close(exited) }()
-	client := http.Client{Timeout: time.Second}
+	base := "http://127.0.0.1:" + port
+	client := http.Client{Timeout: time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	up, died := false, false
 wait:
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); {
@@ -296,20 +298,25 @@ wait:
 			break wait
 		case <-time.After(100 * time.Millisecond):
 		}
-		if resp, err := client.Get("http://127.0.0.1:" + port + "/app/"); err == nil {
+		if resp, err := client.Get(base + path); err == nil {
 			resp.Body.Close()
-			if up = resp.StatusCode == http.StatusOK; up {
+			if up = resp.StatusCode == want; up {
 				break
 			}
 		}
+	}
+	if up && use != nil {
+		err = use(base)
 	}
 	cmd.Process.Kill()
 	<-exited // out is the server's no more
 	switch {
 	case died:
-		return fmt.Errorf("serve: board stopped before /app/ answered (PORT=%s):\n%s", port, out.String())
+		return fmt.Errorf("serve: %s stopped before %s answered (PORT=%s):\n%s", filepath.Base(bin), path, port, out.String())
 	case !up:
-		return fmt.Errorf("serve: no 200 from /app/ in 10s (PORT=%s):\n%s", port, out.String())
+		return fmt.Errorf("serve: no %d from %s in 10s (PORT=%s):\n%s", want, path, port, out.String())
+	case err != nil:
+		return fmt.Errorf("serve: %v\nthe server said:\n%s", err, out.String())
 	}
 	return nil
 }
