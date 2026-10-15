@@ -95,6 +95,13 @@
    - 평가: §2~5는 숟가락으로 떠먹이는 흐름이라 오류 메시지가 막히는 곳까지 가지 않았다. 직접 코드를 쓰는 곳(SQL·뷰·폼)은 7번(게시판)이 본다
 
 7. **에이전트 게이트: 게시판**(M8 조건 4): 단계의 메시지만 보고 처음부터. 단계가 길어(33) 단계 묶음마다, 끝은 `TestBoardTutorial`의 확인과 같은 것 → 확인: 6번과 같은 기록
+
+   방법과 결과 (2026-10-15, 기록은 [gate-logs/board-1.md](gate-logs/board-1.md)·[board-2.md](gate-logs/board-2.md))
+   - 짧은 튜토리얼은 파일을 통째로 주니 "에이전트가 Maago로 코드를 쓰는가"를 재지 못한다. 그래서 게시판 단계 0001~0012의 **커밋 메시지만**(diff 없이) 주고 코드는 에이전트가 쓴다. API는 `go doc`만(사용자의 pkg.go.dev와 같다), 저장소의 코드는 읽지 않는다. 서로 모르는 실행 둘(Opus 서브에이전트)
+   - **둘 다 12단계 끝까지**: `maago gen`·`check`·`go vet`·`go test`·gofmt 통과, `Maago-Expect` 셋이 글자 그대로, 서버가 뜸. 각 약 8분. 계획에 없던 오류 12개 중 11개·10개 중 9개를 메시지만으로 고침. 내가 두 프로젝트에서 `maago check`·`go test`를 다시 돌려 통과
+   - 둘이 함께 짚은 것(9번의 입력, 중요한 것부터): (1) **모델 태그 문법이 `go doc`에 없다**(`maago.Model`은 `table=`·`max=`만): `fk`·`unique`·`choices`·`default`·`auto`·`label`을 짐작하고 `gen` 오류로 배웠다 (2) **쿼리 파일 문법이 `go doc`에 없다**(`-- param:`은 튜토리얼에도 없어 오류가 가르쳤다), `:one`이 스칼라(`bool`·`int64`)를 돌려줄 수 없다 (3) **뷰·폼의 약속이 문서에 없다**(In의 태그, `struct{}`, `maago:"form"`, `Validate`의 서명, `Result`의 영값, `DBFrom`, `base.html`) (4) **`f.Field.Error`를 뷰가 손으로 적어도 `Valid()`가 거짓이 되지 않는다**(2번 실행): 코드는 맞아 보이고 다음 줄의 INSERT가 unique에 걸려 500. 위험한 함정(코드로 확인: `form.go`의 `Valid`는 `bound && ok && len(Errors)==0`) (5) `choices=draft|published`의 오류가 틀린 글을 그대로 되돌려 보인다(`fix: use one of: draft|published`) (6) 모델 폼에서 포인터 필드가 저절로 `optional`이 아니다, 라벨이 Go 이름 (7) 이름 바꾸기의 ⚠는 파일 안에만, `makemigrations`의 출력에는 없다 (8) 같은 경로의 GET·POST에 이름이 둘 필요하다는 말이 없다, 튜토리얼의 "(given)"이 도우미 이름처럼 읽힌다 (9) 모듈 `example.com/board`와 `board/` 패키지가 `go build ./...`의 출력 이름과 부딪힌다
+   - 잘 된 것(둘 다): `fix:` 줄이 대개 그대로 쓸 코드였다, `gen`이 한 번에 다 보인다, `{{define}}` 안의 템플릿·라우트 이름 오타·Go 타입 오류를 잡는다
+
 8. **v0 끝**: MILESTONES의 M9 체크, README, 다음은 v1 목록의 순서
 9. **연구: 에이전트에게 정말 편한가**: 6·7번의 기록(막힌 오류, 헤맨 개념, 시간), M0~M8의 리뷰 기록과 결정, 코드를 놓고 (a) 코딩 에이전트(Claude·Codex)가 쓰기 편한지, (b) 구조적으로 바꿀 것, (c) 없는 것, (d) 이 모두를 알고 처음부터 다시 쓴다면 어떻게 할지 → 확인: `docs/RESEARCH-AGENT-FIT.md`(근거는 기록과 파일), 사람에게 보인다
 10. **연구 반영**: DECISIONS·MILESTONES 고침, v0 안에서 할 것은 작업으로(큰 구조 변경은 구현 전에 사람에게) → 확인: 사람의 결정과 바뀐 작업 목록
