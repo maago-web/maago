@@ -53,7 +53,7 @@ github.com/maago-web/maago
 │
 ├── cmd/maago/           CLI 진입점. 명령은 flag 디스패치이고 일은 internal에 (D-68). 예외는 `maago tailwind`의
 │                          받기·확인·실행(실행 파일을 다루는 CLI의 일, D-138)
-│                          별도 모듈(자체 go.mod). DB 드라이버는 여기에만
+│                          같은 모듈. DB 드라이버는 여기만 import한다 (D-151)
 │
 └── internal/            생성기. 사용자는 import할 수 없다
     ├── build/           gen·check·makemigrations·migrate의 단계 조립(모든 단계를 아는 유일한 곳)  M1·M2
@@ -82,9 +82,10 @@ github.com/maago-web/maago
 ```
 
 원칙
-- **모듈은 둘.** 루트(`github.com/maago-web/maago`)는 런타임과 생성기이고 외부 의존이 없다.
-  `cmd/maago`는 별도 모듈로, 루트 모듈과 DB 드라이버(SQLite는 cgo 없는 순수 Go)에 의존한다.
-  라이브러리만 `go get`하는 사용자에게 드라이버가 따라가지 않는다 (D-03, D-09).
+- **모듈은 하나.** `github.com/maago-web/maago`가 런타임·생성기·CLI다. DB 드라이버(SQLite는 cgo 없는 순수 Go)는
+  `cmd/maago`만 import하고, 그 밖은 stdlib만이다(`TestRuntimeImports`가 파일을 걸으며 본다). 런타임만 import하는
+  사용자의 `go.mod`·`go.sum`에 드라이버가 들어오지 않는다(모듈 그래프 가지치기). `gen`은 제 판과 프로젝트가 쓰는
+  런타임의 판이 다르면 멈춘다 (D-03, D-09, D-151).
 - **런타임 공개 API는 루트 패키지 `maago` 하나.** 사용자가 import할 경로를 늘리지 않는다. 예외는 셋: 시험 전용 `maagotest`(D-113), 복사된 인증 앱이 부르는 보안 부품 `contrib/auth`(D-123, stdlib만), `main`과 생성물이 부르는 `contrib/admin`(D-131).
 - **생성기는 모두 `internal/`.** 공개 API가 아니므로 마음대로 고칠 수 있다.
 - **방언의 SQL은 `internal/dialect/` 안에만.** DDL 쓰기, 스키마 읽기, 초안 쓰기는 방언 디렉터리에 있다. MySQL(v1)은
@@ -246,7 +247,7 @@ MAAGO_DATABASE_URL=sqlite:app.db
 
 | # | 질문 | 답 |
 |---|---|---|
-| A-1 | CLI의 DB 드라이버 의존 | `cmd/maago`를 별도 모듈로. 런타임 라이브러리는 의존 0 (D-03) |
+| A-1 | CLI의 DB 드라이버 의존 | 모듈 하나, 드라이버는 `cmd/maago`만 import한다(`TestRuntimeImports`). 런타임 라이브러리는 의존 0 (D-03, D-151) |
 | A-2 | 프로젝트의 DB 선언 위치 | `.env`의 `MAAGO_DATABASE_URL`, 환경 변수가 우선 (D-08) |
 | A-3 | 타입 정보 | M1~M3은 `go/ast`만. M4부터 `go/types`와 직접 짠 importer(모듈 밖은 `go list -export`의 export data, 프로젝트 안은 소스와 메모리 생성물). `x/tools` 없음 (D-117) |
-| A-4 | 외부 의존 원칙 | 런타임은 stdlib만. 생성기는 필요한 것을 쓰되 마이그레이션 로직은 자체 구현 (D-09) |
+| A-4 | 외부 의존 원칙 | 런타임과 생성기는 stdlib만, 외부 의존은 `cmd/maago`만. 마이그레이션 로직은 자체 구현 (D-09) |

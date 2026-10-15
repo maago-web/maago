@@ -193,3 +193,24 @@ func TestEnvTagsAndMigrations(t *testing.T) {
 		}
 	}
 }
+
+// A runtime of another release stops gen before anything else is checked
+// or written (D-151).
+func TestGenVersion(t *testing.T) {
+	root := example(t)
+	t.Setenv("GOPROXY", "off")
+	t.Setenv("GOWORK", "off")
+	write(t, filepath.Join(root, "go.mod"), "module example.com/app\n\ngo 1.25.0\n\nrequire github.com/maago-web/maago v0.1.0\n")
+	defer func(v string) { Version = v }(Version)
+	Version = "v0.2.0"
+	before := snapshot(t, root)
+	_, ds := Gen(root)
+	want := "go.mod: this maago is v0.2.0 but the project uses github.com/maago-web/maago v0.1.0\n" +
+		"  fix: go install github.com/maago-web/maago/cmd/maago@v0.1.0, or go get github.com/maago-web/maago@v0.2.0\n"
+	if got := text(ds); got != want {
+		t.Errorf("got\n%s\nwant\n%s", got, want)
+	}
+	if !maps.Equal(snapshot(t, root), before) {
+		t.Error("gen wrote files")
+	}
+}

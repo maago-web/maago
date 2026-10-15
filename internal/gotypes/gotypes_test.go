@@ -56,12 +56,12 @@ func TestOverlay(t *testing.T) {
 		"a/a.go":          "package a\n\nfunc use() { Fresh(); Mine() }\n",
 	}
 	overlay := map[string]string{"a/models_gen.go": marker + "package a\n\nfunc Fresh() {}\n"}
-	if _, out := run(t, module(t, "1.25", files), overlay); out != "" {
+	if _, out := run(t, module(t, "1.25.0", files), overlay); out != "" {
 		t.Errorf("fresh overlay:\n%s", out)
 	}
 
 	files["a/a.go"] = "package a\n\nfunc use() { Stale() }\n"
-	_, out := run(t, module(t, "1.25", files), overlay)
+	_, out := run(t, module(t, "1.25.0", files), overlay)
 	want := "a/a.go:3:14: undefined: Stale\n  fix: go build reports the same error; fix it there\n"
 	if out != want {
 		t.Errorf("stale disk file seen:\ngot  %q\nwant %q", out, want)
@@ -69,7 +69,7 @@ func TestOverlay(t *testing.T) {
 }
 
 func TestPackages(t *testing.T) {
-	root := module(t, "1.25", map[string]string{
+	root := module(t, "1.25.0", map[string]string{
 		"a/a.go": "package a\n\nimport \"github.com/maago-web/maago\"\n\ntype Post struct {\n\tmaago.Model\n\tID int64\n}\n",
 		"b/b.go": `package b
 
@@ -259,7 +259,7 @@ c/c.go:3:14: cannot use 1 (untyped int constant) as bool value in variable decla
 		t.Run(tt.name, func(t *testing.T) {
 			v := tt.goVersion
 			if v == "" {
-				v = "1.25"
+				v = "1.25.0"
 			}
 			root := module(t, v, tt.files)
 			if tt.mod != "" {
@@ -293,7 +293,7 @@ func match(got, want string) bool {
 }
 
 func TestNoGoCommand(t *testing.T) {
-	root := module(t, "1.25", map[string]string{"a/a.go": "package a\n"})
+	root := module(t, "1.25.0", map[string]string{"a/a.go": "package a\n"})
 	t.Setenv("PATH", "")
 	_, got := run(t, root, nil)
 	want := "maago needs the go command to type-check the project, and cannot find it\n  fix: install Go, or put the go command on PATH\n"
@@ -303,7 +303,7 @@ func TestNoGoCommand(t *testing.T) {
 }
 
 func TestGoListFails(t *testing.T) {
-	root := module(t, "1.25", map[string]string{"a/a.go": "package a\n"})
+	root := module(t, "1.25.0", map[string]string{"a/a.go": "package a\n"})
 	mod := filepath.Join(root, "go.mod")
 	b, _ := os.ReadFile(mod)
 	os.WriteFile(mod, append(b, "require example.org/missing\n"...), 0o644) // no version
@@ -343,7 +343,7 @@ type Page struct {
 func List(ctx context.Context, db *sql.DB) (Page, error) { _ = http.StatusOK; return Page{}, nil }
 `
 	}
-	root := module(t, "1.25", files)
+	root := module(t, "1.25.0", files)
 	run(t, root, nil) // fill the build cache
 	start := time.Now()
 	if _, out := run(t, root, nil); out != "" {

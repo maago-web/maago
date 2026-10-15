@@ -3,8 +3,7 @@
 ## 첫 릴리스 전
 
 - [ ] 게시판 튜토리얼(M8)도 `replace` 대신 태그한 버전을 쓴다.
-- [ ] `cmd/maago/go.mod`의 `replace`를 뺀다. `replace`가 있으면 `go install …/cmd/maago@버전`이 거부한다.
-      루트 모듈을 먼저 태그하고 그 버전을 `require`한다.
+- [x] `cmd/maago/go.mod`의 `replace`를 뺀다: 모듈 하나가 되어 `cmd/maago/go.mod`가 없다(M10 1번, D-151)
 
 ## M2
 

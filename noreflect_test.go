@@ -20,7 +20,7 @@ import (
 
 // TestNoReflect enforces D-66: no non-test Go file in the repository, and no
 // generator template, may import reflect. It walks the file tree rather than
-// the package graph so that the nested cmd/maago module and testdata are
+// the package graph so that files behind build constraints and testdata are
 // covered too. go test runs in the package directory, which is the repo root.
 func TestNoReflect(t *testing.T) {
 	const fix = "fix: remove the import; runtime and generated code must not use reflect (D-66)"
@@ -155,6 +155,82 @@ func generatedImports(root string) []string {
 			for _, pkg := range []string{`"text/template"`, `"reflect"`} {
 				if strings.Contains(string(b), pkg) {
 					problems = append(problems, fmt.Sprintf("%s: template mentions %s\n  %s", path, pkg, fix))
+				}
+			}
+		}
+		return nil
+	})
+	return problems
+}
+
+// TestRuntimeImports enforces D-09 now that one module holds the CLI and
+// its drivers too (D-151): outside cmd/maago, a Go file may import only the
+// standard library and this module. It reads files, not go list's package
+// graph, so a file behind a build constraint is held to it too.
+func TestRuntimeImports(t *testing.T) {
+	for _, p := range runtimeImports(".") {
+		t.Error(p)
+	}
+}
+
+// The gate fails on what it should, and only on that.
+func TestRuntimeImportsGate(t *testing.T) {
+	root := filepath.Clean(t.TempDir()) // WalkDir's paths are clean
+	files := map[string]string{
+		"driver.go":             "package a\n\nimport _ \"modernc.org/sqlite\"\n",
+		"linux.go":              "//go:build linux\n\npackage a\n\nimport _ \"github.com/jackc/pgx/v5/stdlib\"\n",
+		"cgo.go":                "package a\n\nimport \"C\"\n",
+		"lookalike.go":          "package a\n\nimport _ \"github.com/maago-web/maagox\"\n",
+		"broken.go":             "package a\n\nimport (\n",
+		"ok.go":                 "package a\n\nimport (\n\t_ \"net/http\"\n\t_ \"github.com/maago-web/maago\"\n\t_ \"github.com/maago-web/maago/internal/diag\"\n)\n",
+		"ok_test.go":            "package a\n\nimport _ \"modernc.org/sqlite\"\n",
+		"cmd/maago/main.go":     "package main\n\nimport _ \"modernc.org/sqlite\"\n",
+		"x/testdata/fixture.go": "package fixture\n\nimport _ \"modernc.org/sqlite\"\n",
+		"cmd/maagox/other.go":   "package main\n\nimport _ \"modernc.org/sqlite\"\n",
+	}
+	for p, src := range files {
+		if err := os.MkdirAll(filepath.Join(root, filepath.Dir(p)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, p), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var got []string
+	for _, p := range runtimeImports(root) {
+		got = append(got, strings.SplitN(strings.TrimPrefix(p, root+string(filepath.Separator)), ":", 2)[0])
+	}
+	want := []string{"broken.go", "cgo.go", "cmd/maagox/other.go", "driver.go", "linux.go", "lookalike.go"}
+	if slices.Sort(got); !slices.Equal(got, want) {
+		t.Errorf("caught %q, want %q", got, want)
+	}
+}
+
+// runtimeImports walks root and returns a line for each non-test Go file
+// outside cmd/maago and testdata that imports what is neither the standard
+// library nor this module, or cannot be read.
+func runtimeImports(root string) []string {
+	const module = "github.com/maago-web/maago"
+	const fix = "fix: only cmd/maago may import outside the standard library; the runtime and the generators use the standard library only (D-09)"
+	var problems []string
+	fset := token.NewFileSet()
+	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			problems = append(problems, fmt.Sprintf("%s: %v", path, err))
+		case d.IsDir() && (d.Name() == ".git" || d.Name() == "testdata" || path == filepath.Join(root, "cmd", "maago")):
+			return filepath.SkipDir
+		case strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go"):
+			f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+			if err != nil {
+				problems = append(problems, fmt.Sprintf("%v\n  fix: make the file valid Go", err))
+				return nil
+			}
+			for _, imp := range f.Imports {
+				p, _ := strconv.Unquote(imp.Path.Value)
+				std := p != "C" && !strings.Contains(strings.Split(p, "/")[0], ".")
+				if !std && p != module && !strings.HasPrefix(p, module+"/") {
+					problems = append(problems, fmt.Sprintf("%s: imports %q\n  %s", fset.Position(imp.Path.Pos()), p, fix))
 				}
 			}
 		}

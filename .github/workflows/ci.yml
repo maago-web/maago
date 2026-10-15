@@ -37,10 +37,7 @@ jobs:
         run: |
           out=$(gofmt -l .)
           test -z "$out" || { echo "$out"; exit 1; }
-      - name: root module
-        run: go vet ./... && go test ./...
-      - name: cmd/maago module
-        working-directory: cmd/maago
+      - name: test
         # The board tutorial walks its steps again for each line of
         # TestBoardTutorialCatches: past the default 10 minutes.
         run: go mod tidy -diff && go vet ./... && go test -timeout 30m ./...

@@ -32,7 +32,7 @@ func generateWith(t *testing.T, files map[string]string, more func(root string))
 	t.Helper()
 	repo, _ := filepath.Abs("../..")
 	root := t.TempDir()
-	files["go.mod"] = "module " + mod + "\n\ngo 1.25\n\nrequire github.com/maago-web/maago v0.0.0\n\nreplace github.com/maago-web/maago => " + repo + "\n"
+	files["go.mod"] = "module " + mod + "\n\ngo 1.25.0\n\nrequire github.com/maago-web/maago v0.0.0\n\nreplace github.com/maago-web/maago => " + repo + "\n"
 	for name, src := range files {
 		p := filepath.Join(root, filepath.FromSlash(name))
 		os.MkdirAll(filepath.Dir(p), 0o755)

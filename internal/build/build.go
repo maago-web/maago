@@ -28,6 +28,10 @@ import (
 	"github.com/maago-web/maago/internal/web"
 )
 
+// Version is this maago's version, which the project's runtime must match
+// (D-151). A test sets it.
+var Version = project.OwnVersion()
+
 // Gen checks the project holding dir and, if nothing is wrong, writes its
 // generated files. It returns the generated files it removed.
 func Gen(dir string) (removed []string, ds []diag.Diagnostic) {
@@ -217,7 +221,12 @@ func stages(s *state, parse, early, final func() []diag.Diagnostic) [][]pipeline
 		parsing = append(parsing, step(parse))
 	}
 	return [][]pipeline.Step{
-		{step(func() (ds []diag.Diagnostic) { s.files, ds = project.GoFiles(s.root); return })},
+		{
+			step(func() (ds []diag.Diagnostic) { s.files, ds = project.GoFiles(s.root); return }),
+			// A runtime of another release breaks what follows in ways that
+			// do not point here.
+			step(func() []diag.Diagnostic { return project.Version(s.root, Version) }),
+		},
 		{step(func() (ds []diag.Diagnostic) { pkgs, ds = model.Read(s.fset, s.root, s.files); return })},
 		// .env, the migration files and the query files beside the tags:
 		// none of them needs another, so none hides another.

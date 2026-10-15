@@ -48,7 +48,7 @@ Maago는 에이전트가 만든다. 작업 하나(`TASKS-Mn.md`의 한 항목)�
 ## 5. 테스트
 
 - 작업의 `→ 확인:` 조건을 전부 실제로 돌린다.
-- `gofmt`, `go vet`, `go test`를 두 모듈 모두에서 돌린다.
+- `gofmt`, `go mod tidy -diff`, `go vet`, `go test`를 돌린다(모듈 하나, D-151).
 - 게이트류 테스트(reflect 금지 등)는 일부러 어긴 코드를 넣어 **실패하는 것까지** 확인한다.
 
 ## 6. 구현 리뷰 — ponytail, codex, fable
