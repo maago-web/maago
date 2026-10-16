@@ -2,33 +2,33 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Tue, 13 Oct 2026 23:02:05 +0900
 Subject: [PATCH] Move to PostgreSQL
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-SQLite에서 PostgreSQL로 옮긴다. 원본이 SQLite와 PostgreSQL을 함께 받으려
-코드에 방언 분기를 둔 자리에서, 여기는 DB를 하나로 바꾼다. 한 프로젝트는
-방언 하나로만 마이그레이션을 쓰고 검사한다.
+Move from SQLite to PostgreSQL. Where the original took SQLite and
+PostgreSQL both, with branches on the dialect in its code, this one
+changes the database. A project writes and checks its migrations in one
+dialect only.
 
-- 서버에 빈 DB를 하나 만들고(createdb board) .env의 주소를 바꾼다. .env는
-  커밋하지 않으니 패치에는 없다:
+- Make an empty database on the server (createdb board) and change the
+  address in .env. .env is not committed, so the patch does not have it:
 
       MAAGO_DATABASE_URL=postgres://localhost:5432/board
 
-- 드라이버를 pgx로. main.go와 board/board_test.go의 import 한 줄씩을
-  github.com/jackc/pgx/v5/stdlib로 바꾸면 go mod tidy가 go.mod에 pgx를
-  더하고 modernc.org/sqlite를 지운다
-- 마이그레이션은 방언의 것이다. SQLite의 넷(0001~0004)을 지우고
-  maago makemigrations가 PostgreSQL의 첫 초안 0001_initial.sql을 새로
-  쓴다. 데이터는 옮기지 않는다: 새 DB에서 시작한다
-- 모델·쿼리·뷰·템플릿·시험은 그대로다. 쿼리에 한 방언에만 있는 SQL이 없고,
-  maago gen이 쿼리를 PostgreSQL의 연습용 DB에서 다시 검사한다
+- The driver becomes pgx. Change one import each in main.go and
+  board/board_test.go to github.com/jackc/pgx/v5/stdlib, and go mod tidy
+  adds pgx to go.mod and drops modernc.org/sqlite
+- Migrations belong to a dialect. Delete the four of SQLite (0001 to
+  0004), and maago makemigrations writes a new first draft for
+  PostgreSQL, 0001_initial.sql. The data does not move: start on a new
+  database
+- The models, queries, views, templates and tests stay as they are. No
+  query has SQL of one dialect only, and maago gen checks the queries
+  again on a PostgreSQL practice database
 
     maago migrate
     go test ./...
 
-시험의 maagotest.DB(t)도 루트의 .env를 보고 그 서버에 시험마다 스키마를
-만든다.
+maagotest.DB(t) in the tests reads the .env at the root too, and makes
+a schema for each test on that server.
 
 Maago-Database: postgres
 

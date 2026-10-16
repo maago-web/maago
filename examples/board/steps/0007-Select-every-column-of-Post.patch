@@ -2,13 +2,11 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 28 Sep 2026 22:16:10 +0900
 Subject: [PATCH] Select every column of Post
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-고친다: body도 고른다. 이제 컬럼이 Post의 필드와 딱 맞아 RecentPosts는
-[]Post를 돌려준다. body는 SELECT 끝에 붙였다: 컬럼 순서는 필드 순서와
-달라도 된다. 생성된 Scan이 컬럼 순서를 따른다.
+The fix: select body too. Now the columns match the fields of Post, and
+RecentPosts returns []Post. body comes last in the SELECT: the columns
+need not be in the order of the fields. The generated Scan follows the
+columns.
 
 diff --git a/board/queries/recent_posts.sql b/board/queries/recent_posts.sql
 index 5766e2e..82165b7 100644

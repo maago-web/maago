@@ -24,10 +24,10 @@ Content-Transfer-Encoding: 8bit
 누가 썼는지는 아직 모른다. 로그인, 그리고 쓴 사람만 게시·보관·지우는 일은 다음 판에서다.
 
 diff --git a/board/web_test.go b/board/web_test.go
-index fe47ffd..1963a7e 100644
+index 4fb6f92..3d7e413 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -374,3 +374,25 @@ func TestExport(t *testing.T) {
+@@ -386,3 +386,25 @@ func TestExport(t *testing.T) {
  		}
  	}
  }

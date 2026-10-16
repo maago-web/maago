@@ -2,29 +2,52 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Write boards and posts
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-쓰기 화면을 붙인다. 게시판 만들기와 글쓰기, 폼 둘.
+Pages that write: make a board and write a post, two forms.
 
-- board/forms.go의 폼은 maago.Form을 임베드하고 필드마다 maago.Field[T].
-  model=Board면 규칙(필수, max=100, 라벨)을 모델에서 가져온다. 두 번 적지
-  않는다
-- 한 뷰가 GET에 빈 폼을 그리고 POST에 저장한다. 라우트 표에 두 줄, 같은
-  경로와 같은 뷰. f.Valid()는 POST이고 규칙을 다 지켰을 때만 참
-- 규칙을 어기면 같은 화면을 다시 그린다(200). 필드의 .Error에 문구가,
-  .Raw에 보낸 값이 남는다
-- 이미 있는 이름처럼 DB를 봐야 아는 것은 뷰가 쿼리(board_name_taken.sql)로
-  보고 f.Name.Error에 적는다. 글 제목도 같은 게시판 안에서 그렇게
-  본다(post_title_taken.sql). 보지 않으면 모델의 unique가 막고 500이 된다
-- 저장하면 maago.SeeOther로 새 것의 화면으로 보낸다(303). 새로 고침이 다시
-  보내지 않는다
-- 글의 게시판은 폼이 아니라 경로(/boards/{id}/posts/new)에서 온다. 없는
-  게시판이면 404
+- A form in board/forms.go embeds maago.Form and has a maago.Field[T]
+  for each field. With model=Board it takes its rules (required,
+  max=100, the label) from the model. They are not written twice
+- GET draws the form and POST saves it, in two views. Both take the
+  same In, whose maago:"form" field is the form: the empty form on GET
+  still knows its fields' names and labels. Two lines in the routes,
+  the same path:
 
-다른 사이트가 이 폼을 보내면 403이다. maago.Handler가 CSRF를 막는다
-(Config.Origins에 적은 출처만 믿는다).
+      maago.GET("/boards/new", "board_new", NewBoard),
+      maago.POST("/boards/new", "board_create", CreateBoard),
+
+      func NewBoard(ctx context.Context, in NewBoardIn) (BoardFormPage, error)
+      func CreateBoard(ctx context.Context, tx maago.Tx, in NewBoardIn) (maago.Result[BoardFormPage], error)
+
+  When a GET and a POST split, the POST view is named after its route:
+  board_create is CreateBoard. The two return the same page type, so
+  they share its template
+- A view that writes takes tx maago.Tx: it runs in the request's
+  transaction. Pass tx to the generated functions as it is (InsertBoard,
+  the queries): a maago.Tx is a maago.DB. What the view returns decides:
+  maago.Show(page) draws the page (200) and commits, maago.SeeOther[P](url)
+  commits and redirects (303), and an error rolls everything back (a
+  404 too). The adapter draws the page before it commits, so a page that
+  fails to draw rolls back too. maago gen refuses a maago.Tx on a GET
+  route, and a view that takes both maago.Tx and maago.DB
+- f.Valid() is true only on a POST that keeps every rule. Otherwise the
+  view shows the same page again (200): each field's .Error has what is
+  wrong, and its .Raw what was sent
+- What only the database knows, such as a name already taken, the view
+  asks with a query (board_name_taken.sql) and writes to f.Name.Error.
+  The same goes for a post's title on its board (post_title_taken.sql).
+  Without the question, the model's unique refuses the row as a 500
+- Once saved, maago.SeeOther sends the browser to the new thing's page
+  (303), so a reload does not send the form again
+- A post's board comes from the path (/boards/{id}/posts/new), not the
+  form: a board that is not there is a 404, on GET and POST
+
+The transaction makes the view's writes all or none. It does not stop
+two requests at once from asking first and both finding a title free:
+the unique constraint then refuses the second.
+
+When another site sends one of these forms, it gets a 403: maago.Handler
+stops CSRF (it trusts only the origins in Config.Origins).
 
 diff --git a/board/forms.go b/board/forms.go
 new file mode 100644
@@ -130,7 +153,7 @@ index 0000000..e3dab06
 +</form>
 +{{end}}
 diff --git a/board/urls.go b/board/urls.go
-index 7da271f..23c8d5a 100644
+index 7da271f..45ddb20 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -6,7 +6,11 @@ import "github.com/maago-web/maago"
@@ -138,19 +161,19 @@ index 7da271f..23c8d5a 100644
  var Routes = maago.Routes{
  	maago.GET("/{$}", "home", Home),
 +	maago.GET("/boards/new", "board_new", NewBoard),
-+	maago.POST("/boards/new", "board_create", NewBoard),
++	maago.POST("/boards/new", "board_create", CreateBoard),
  	maago.GET("/boards/{id}", "board_detail", ShowBoard),
  	maago.GET("/boards/{id}/rows", "board_rows", ShowBoard, maago.Block("rows")),
 +	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
-+	maago.POST("/boards/{id}/posts/new", "post_create", NewPost),
++	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost),
  	maago.GET("/posts/{id}", "post_detail", ShowPost),
  }
 diff --git a/board/views.go b/board/views.go
-index f983549..26904b1 100644
+index 48c8cee..64402ab 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -74,3 +74,72 @@ func ShowPost(ctx context.Context, in PostIn) (PostPage, error) {
- 	p, err := PostDetail(ctx, maago.DBFrom(ctx), PostDetailParams{ID: in.ID})
+@@ -73,3 +73,81 @@ func ShowPost(ctx context.Context, db maago.DB, in PostIn) (PostPage, error) {
+ 	p, err := PostDetail(ctx, db, PostDetailParams{ID: in.ID})
  	return PostPage{p}, err
  }
 +
@@ -162,15 +185,19 @@ index f983549..26904b1 100644
 +	Form BoardForm
 +}
 +
-+// NewBoard draws the form on GET and saves it on POST. A taken name needs
-+// the database, so the view checks it, not the form.
-+func NewBoard(ctx context.Context, in NewBoardIn) (maago.Result[BoardFormPage], error) {
++// NewBoard draws the form.
++func NewBoard(ctx context.Context, in NewBoardIn) (BoardFormPage, error) {
++	return BoardFormPage{in.Form}, nil
++}
++
++// CreateBoard saves the form, or draws it again with what is wrong. A
++// taken name needs the database, so the view checks it, not the form.
++func CreateBoard(ctx context.Context, tx maago.Tx, in NewBoardIn) (maago.Result[BoardFormPage], error) {
 +	f := in.Form
 +	if !f.Valid() {
 +		return maago.Show(BoardFormPage{f}), nil
 +	}
-+	db := maago.DBFrom(ctx)
-+	taken, err := BoardNameTaken(ctx, db, BoardNameTakenParams{Name: f.Name.Value})
++	taken, err := BoardNameTaken(ctx, tx, BoardNameTakenParams{Name: f.Name.Value})
 +	if err != nil {
 +		return maago.Result[BoardFormPage]{}, err
 +	}
@@ -178,7 +205,7 @@ index f983549..26904b1 100644
 +		f.Name.Error = "이미 있는 이름입니다."
 +		return maago.Show(BoardFormPage{f}), nil
 +	}
-+	b, err := InsertBoard(ctx, db, NewBoardInput{Name: f.Name.Value})
++	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: f.Name.Value})
 +	if err != nil {
 +		return maago.Result[BoardFormPage]{}, err
 +	}
@@ -195,12 +222,17 @@ index f983549..26904b1 100644
 +	Form  PostForm
 +}
 +
-+// NewPost writes a post on the board of the path. The same title twice on
-+// one board would break the model's unique=(BoardID,Title) as a 500; the
-+// view asks first and says so on the field.
-+func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], error) {
-+	db := maago.DBFrom(ctx)
++// NewPost draws the form for a post on the board of the path.
++func NewPost(ctx context.Context, db maago.DB, in NewPostIn) (PostFormPage, error) {
 +	b, err := GetBoard(ctx, db, in.BoardID)
++	return PostFormPage{b, in.Form}, err // sql.ErrNoRows: a 404
++}
++
++// CreatePost writes a post on the board of the path. The same title twice
++// on one board would break the model's unique=(BoardID,Title) as a 500;
++// the view asks first and says so on the field.
++func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[PostFormPage], error) {
++	b, err := GetBoard(ctx, tx, in.BoardID)
 +	if err != nil {
 +		return maago.Result[PostFormPage]{}, err // sql.ErrNoRows: a 404
 +	}
@@ -208,7 +240,7 @@ index f983549..26904b1 100644
 +	if !f.Valid() {
 +		return maago.Show(PostFormPage{b, f}), nil
 +	}
-+	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: b.ID, Title: f.Title.Value})
++	taken, err := PostTitleTaken(ctx, tx, PostTitleTakenParams{BoardID: b.ID, Title: f.Title.Value})
 +	if err != nil {
 +		return maago.Result[PostFormPage]{}, err
 +	}
@@ -216,7 +248,7 @@ index f983549..26904b1 100644
 +		f.Title.Error = "이 게시판에 같은 제목의 글이 있습니다."
 +		return maago.Show(PostFormPage{b, f}), nil
 +	}
-+	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: f.Title.Value, Body: f.Body.Value})
++	p, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: f.Title.Value, Body: f.Body.Value})
 +	if err != nil {
 +		return maago.Result[PostFormPage]{}, err
 +	}

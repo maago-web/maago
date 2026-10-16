@@ -147,19 +147,19 @@ index 8fd9885..95eefdb 100644
  {{block "rows" .}}<ul id="rows">{{range .Posts}}
  <li><a href="{{url "post_detail" .ID}}">{{.Title}}</a> ({{.Comments}})</li>{{else}}
 diff --git a/board/urls.go b/board/urls.go
-index dea403c..756c5ea 100644
+index b069f7d..641e9aa 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -10,6 +10,7 @@ var Routes = maago.Routes{
- 	maago.POST("/boards/new", "board_create", NewBoard),
+ 	maago.POST("/boards/new", "board_create", CreateBoard),
  	maago.GET("/boards/{id}", "board_detail", ShowBoard),
  	maago.GET("/boards/{id}/rows", "board_rows", ShowBoard, maago.Block("rows")),
 +	maago.GET("/boards/{id}/posts.csv", "board_export", ExportBoard),
  	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
- 	maago.POST("/boards/{id}/posts/new", "post_create", NewPost),
+ 	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost),
  	maago.GET("/posts/{id}", "post_detail", ShowPost),
 diff --git a/board/web_test.go b/board/web_test.go
-index 9220624..fe47ffd 100644
+index d077180..4fb6f92 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -2,6 +2,7 @@ package board
@@ -167,10 +167,10 @@ index 9220624..fe47ffd 100644
  import (
  	"database/sql"
 +	"encoding/csv"
+ 	"errors"
  	"fmt"
  	"net/http"
- 	"net/http/httptest"
-@@ -327,3 +328,49 @@ func TestAPI(t *testing.T) {
+@@ -339,3 +340,49 @@ func TestAPI(t *testing.T) {
  		t.Errorf("no board: %d %s", w.Code, w.Body)
  	}
  }

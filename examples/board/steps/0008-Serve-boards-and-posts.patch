@@ -2,30 +2,40 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Serve boards and posts
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-화면을 띄운다. 라우트 표 하나, 뷰 셋, 템플릿.
+Serve pages: a table of routes, three views, templates.
 
-- board/urls.go의 var Routes가 라우트 표다. 한 줄에 경로, 이름, 뷰.
-  maago gen이 이름마다 URL 함수(BoardDetailURL)와 어댑터를 만든다
-- 뷰는 func(ctx, In) (페이지, error). In의 필드 태그가 값의 출처다:
-  path=id는 경로의 {id}, query=page는 ?page=. 포인터면 없어도 된다(nil)
-- 페이지 타입이 템플릿을 정한다: BoardPage는 templates/board_page.html.
-  base.html이 틀이고 페이지는 {{define "content"}}를 채운다
-- 템플릿의 {{url "board_detail" .ID}}는 URL 함수와 같은 일을 한다. 틀린
-  필드 이름이나 없는 라우트 이름은 maago gen이 잡는다(다음 단계에서 본다)
-- 없는 글은 404다: 쿼리가 돌려준 sql.ErrNoRows를 뷰가 그대로 돌려준다.
-  ?page=abc처럼 읽을 수 없는 값은 400
-- /boards/{id}/rows는 같은 뷰로 {{block "rows"}}만 그린다(maago.Block).
-  HTMX처럼 목록 조각만 바꿔 끼우는 화면이 쓴다
+- var Routes in board/urls.go is the table of routes. One line each: the
+  path, a name, the view. maago gen makes a URL function for each name
+  (BoardDetailURL) and the adapter that calls the view
+- A view's parameters say what it needs:
 
-main은 maago.Handler에 앱을 넘긴다(Config.Apps). 앱은 빠뜨리면 maago gen이
-알려 준다. OnError는 뷰의 오류와 panic(5xx)을 듣는다: 오류 보고 서비스를
-붙일 자리다.
+      func Home(ctx context.Context, db maago.DB, in struct{}) (HomePage, error)
+      func ShowBoard(ctx context.Context, db maago.DB, in BoardIn) (BoardPage, error)
 
-시험은 maago.Handler를 만들어 httptest로 요청한다.
+  ctx comes first and in last, always; db maago.DB, the database to
+  read, sits between them, and only a view that reads takes it. It is a
+  maago.DB, not a *sql.DB: pass it to the generated functions. The tags
+  on the fields of In say where each value comes from: path=id is {id}
+  in the path, query=page is ?page=. A pointer field may be missing
+  (nil). A view with nothing to take still takes in struct{}
+- The page type picks the template: BoardPage is
+  templates/board_page.html. base.html is the frame, and a page fills its
+  {{define "content"}}
+- {{url "board_detail" .ID}} in a template does what the URL function
+  does. maago gen catches a wrong field name or route name (the next step
+  shows it)
+- A post that is not there is a 404: the view returns the
+  sql.ErrNoRows of the query as it is. A value that does not read, such
+  as ?page=abc, is a 400
+- /boards/{id}/rows draws only the {{block "rows"}} of the same view
+  (maago.Block), for a page that swaps the list in, as HTMX does
+
+main gives the apps to maago.Handler (Config.Apps). maago gen tells when
+one is missing. OnError hears the views' errors and panics (5xx): the
+place for an error reporting service.
+
+The tests make a maago.Handler and send requests with httptest.
 
 diff --git a/board/queries/board_list.sql b/board/queries/board_list.sql
 new file mode 100644
@@ -113,10 +123,10 @@ index 0000000..7da271f
 +}
 diff --git a/board/views.go b/board/views.go
 new file mode 100644
-index 0000000..f983549
+index 0000000..48c8cee
 --- /dev/null
 +++ b/board/views.go
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,75 @@
 +package board
 +
 +import (
@@ -133,8 +143,8 @@ index 0000000..f983549
 +}
 +
 +// Home lists the boards.
-+func Home(ctx context.Context, in struct{}) (HomePage, error) {
-+	bs, err := BoardList(ctx, maago.DBFrom(ctx))
++func Home(ctx context.Context, db maago.DB, in struct{}) (HomePage, error) {
++	bs, err := BoardList(ctx, db)
 +	return HomePage{bs}, err
 +}
 +
@@ -154,8 +164,7 @@ index 0000000..f983549
 +
 +// ShowBoard shows a board's posts, a page at a time, or those whose title
 +// has q.
-+func ShowBoard(ctx context.Context, in BoardIn) (BoardPage, error) {
-+	db := maago.DBFrom(ctx)
++func ShowBoard(ctx context.Context, db maago.DB, in BoardIn) (BoardPage, error) {
 +	b, err := GetBoard(ctx, db, in.ID)
 +	if err != nil {
 +		return BoardPage{}, err // sql.ErrNoRows: a 404
@@ -189,8 +198,8 @@ index 0000000..f983549
 +}
 +
 +// ShowPost shows one post.
-+func ShowPost(ctx context.Context, in PostIn) (PostPage, error) {
-+	p, err := PostDetail(ctx, maago.DBFrom(ctx), PostDetailParams{ID: in.ID})
++func ShowPost(ctx context.Context, db maago.DB, in PostIn) (PostPage, error) {
++	p, err := PostDetail(ctx, db, PostDetailParams{ID: in.ID})
 +	return PostPage{p}, err
 +}
 diff --git a/board/web_test.go b/board/web_test.go

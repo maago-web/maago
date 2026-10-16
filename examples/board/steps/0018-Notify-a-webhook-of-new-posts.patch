@@ -157,7 +157,7 @@ index 0000000..3c01cec
 +	}
 +}
 diff --git a/board/views.go b/board/views.go
-index d6adf85..68bae01 100644
+index 123157e..4387bba 100644
 --- a/board/views.go
 +++ b/board/views.go
 @@ -2,6 +2,7 @@ package board
@@ -168,17 +168,17 @@ index d6adf85..68bae01 100644
  	"net/http"
  	"time"
  
-@@ -179,7 +180,8 @@ func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], err
+@@ -200,7 +201,8 @@ func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[Po
  // only the database can check: the same title twice on one board would
  // break the model's unique=(BoardID,Title) as a 500, and two notices may
  // not be pinned at once. When one fails, it says so on f, as Validate
 -// would, and reports false.
 +// would, and reports false. A saved post is announced to the webhook
 +// after the response.
- func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Post, bool, error) {
- 	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
+ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Post, bool, error) {
+ 	taken, err := PostTitleTaken(ctx, tx, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
  	if err != nil {
-@@ -203,7 +205,16 @@ func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Pos
+@@ -224,7 +226,16 @@ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Pos
  		BoardID: boardID, Title: f.Title.Value, Body: f.Body.Value,
  		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
  	})

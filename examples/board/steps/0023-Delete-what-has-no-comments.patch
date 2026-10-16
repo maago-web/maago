@@ -21,11 +21,11 @@ DeletePost로 행을 지우고, 있으면 지금처럼 숨긴다.
 게시·보관·지우기, API 토큰.
 
 diff --git a/board/urls.go b/board/urls.go
-index 15a6e96..ad5eaf2 100644
+index 09f5550..1f16a96 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -17,7 +17,7 @@ var Routes = maago.Routes{
- 	maago.POST("/posts/{id}", "comment_create", ShowPost, maago.LoginRequired),
+ 	maago.POST("/posts/{id}", "comment_create", CreateComment, maago.LoginRequired),
  	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
  	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
 -	maago.POST("/posts/{id}/delete", "post_delete", HidePost, maago.LoginRequired),
@@ -34,50 +34,50 @@ index 15a6e96..ad5eaf2 100644
  	// JSON for a frontend on another origin: main trusts it in Config.Origins.
  	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
 diff --git a/board/views.go b/board/views.go
-index 216dd71..7e3aeb2 100644
+index 40cd173..b28fb41 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -106,10 +106,11 @@ func ShowPost(ctx context.Context, in ShowPostIn) (maago.Result[PostPage], error
- 	return maago.Show(PostPage{p, cs, f}), err
+@@ -119,10 +119,11 @@ func postPage(ctx context.Context, db maago.DB, id int64, f CommentForm) (PostPa
+ 	return PostPage{p, cs, f}, err
  }
  
 -// HidePost deletes a post as people see it: it hides it, and its comments
 -// with it. They stay in the database, so a comment never points at a post
 -// that is gone.
--func HidePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
+-func HidePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
 +// RemovePost deletes a post. One without comments goes from the database;
 +// one with comments is hidden, and its comments with it: they stay, so a
 +// comment never points at a post that is gone (the foreign key would
 +// refuse it).
-+func RemovePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
- 	db := maago.DBFrom(ctx)
- 	p, err := GetPost(ctx, db, in.ID)
++func RemovePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
+ 	p, err := GetPost(ctx, tx, in.ID)
  	if err != nil {
-@@ -118,8 +119,17 @@ func HidePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
+ 		return maago.Result[PostPage]{}, err
+@@ -130,8 +131,17 @@ func HidePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPag
  	if err := mayChange(ctx, p); err != nil {
  		return maago.Result[PostPage]{}, err
  	}
 -	p.Hidden = true
--	if err := UpdatePost(ctx, db, &p); err != nil {
-+	cs, err := PostComments(ctx, db, PostCommentsParams{PostID: p.ID})
+-	if err := UpdatePost(ctx, tx, &p); err != nil {
++	cs, err := PostComments(ctx, tx, PostCommentsParams{PostID: p.ID})
 +	if err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
 +	if len(cs) == 0 {
-+		err = DeletePost(ctx, db, p.ID)
++		err = DeletePost(ctx, tx, p.ID)
 +	} else {
 +		p.Hidden = true
-+		err = UpdatePost(ctx, db, &p)
++		err = UpdatePost(ctx, tx, &p)
 +	}
 +	if err != nil {
  		return maago.Result[PostPage]{}, err
  	}
  	return maago.SeeOther[PostPage](BoardDetailURL(p.BoardID)), nil
 diff --git a/board/web_test.go b/board/web_test.go
-index b0e9125..4f39a54 100644
+index 5950203..c56eb30 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -566,3 +566,24 @@ func TestAuthors(t *testing.T) {
+@@ -578,3 +578,24 @@ func TestAuthors(t *testing.T) {
  		}
  	}
  }

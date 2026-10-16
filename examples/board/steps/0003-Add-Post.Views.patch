@@ -2,15 +2,13 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 28 Sep 2026 22:14:48 +0900
 Subject: [PATCH] Add Post.Views
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-필드를 더한다: 글의 조회 수 Views, 기본값 0.
+Add a field: how many times a post was viewed, Views, default 0.
 
-모델을 고치고 maago makemigrations를 돌리면 차이만 담은 0002가 나온다.
-있는 행은 기본값을 받는다. 생성된 NewPostInput에서 Views는 maago.Opt[int64]다:
-주지 않으면 기본값이 들어간다.
+Change the model and run maago makemigrations: out comes 0002, with the
+difference alone. Rows already there get the default. In the generated
+NewPostInput, Views is a maago.Opt[int64]: leave it out and the default
+goes in.
 
 diff --git a/board/board_test.go b/board/board_test.go
 index 5897aa6..c6ad329 100644

@@ -165,41 +165,45 @@ index 213556a..d134276 100644
  	}
  	if _, err := PostDetail(ctx, db, PostDetailParams{ID: -1}); !errors.Is(err, sql.ErrNoRows) {
 diff --git a/board/urls.go b/board/urls.go
-index 3cb7257..f6fb9fd 100644
+index b7c8390..85b8ae2 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -27,5 +27,6 @@ var Routes = maago.Routes{
  	// JSON for a frontend on another origin: main trusts it in Config.Origins.
  	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
- 	maago.POST("/api/boards/{id}/posts", "api_post_create", APINewPost, maago.API, maago.LoginRequired),
+ 	maago.POST("/api/boards/{id}/posts", "api_post_create", APICreatePost, maago.API, maago.LoginRequired),
 +	maago.POST("/api/posts/{id}/publish", "api_post_publish", APIPublish, maago.API, maago.LoginRequired),
  	maago.GET("/api/me", "api_me", Me, maago.API, maago.LoginRequired),
  }
 diff --git a/board/views.go b/board/views.go
-index f62f1bd..c0dac8b 100644
+index fb89268..2a8fe71 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -92,10 +92,17 @@ type PostPage struct {
+@@ -90,7 +90,8 @@ type PostPage struct {
+ 	AttachForm  AttachmentForm
  }
  
- // ShowPost shows one post and its comments on GET, and adds a comment on
--// POST. A hidden post is not found.
-+// POST, to whoever may see it (maySee).
- func ShowPost(ctx context.Context, in ShowPostIn) (maago.Result[PostPage], error) {
- 	db := maago.DBFrom(ctx)
--	p, err := PostDetail(ctx, db, PostDetailParams{ID: in.ID})
-+	post, err := GetPost(ctx, db, in.ID)
+-// ShowPost shows one post and its comments, and the form for one more.
++// ShowPost shows one post and its comments, and the form for one more,
++// to whoever may see it (maySee).
+ func ShowPost(ctx context.Context, db maago.DB, in ShowPostIn) (PostPage, error) {
+ 	return postPage(ctx, db, in.ID, in.Form)
+ }
+@@ -115,6 +116,13 @@ func CreateComment(ctx context.Context, tx maago.Tx, in ShowPostIn) (maago.Resul
+ // postPage is the page of post id, with its comments and attachments,
+ // and the comment form f. A hidden post is not found.
+ func postPage(ctx context.Context, db maago.DB, id int64, f CommentForm) (PostPage, error) {
++	post, err := GetPost(ctx, db, id)
 +	if err != nil {
-+		return maago.Result[PostPage]{}, err
++		return PostPage{}, err
 +	}
 +	if err := maySee(ctx, post); err != nil {
-+		return maago.Result[PostPage]{}, err
++		return PostPage{}, err
 +	}
-+	p, err := PostDetail(ctx, db, PostDetailParams{ID: post.ID})
+ 	p, err := PostDetail(ctx, db, PostDetailParams{ID: id})
  	if err != nil {
- 		return maago.Result[PostPage]{}, err
- 	}
-@@ -158,8 +165,8 @@ func Attach(ctx context.Context, in AttachIn) (maago.Result[PostPage], error) {
+ 		return PostPage{}, err
+@@ -163,8 +171,8 @@ func Attach(ctx context.Context, in AttachIn) (maago.Result[PostPage], error) {
  }
  
  // DownloadAttachment sends an attachment down, to whoever may see its
@@ -210,7 +214,7 @@ index f62f1bd..c0dac8b 100644
  func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
  	ctx := r.Context()
  	db := maago.DBFrom(ctx)
-@@ -173,19 +180,16 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+@@ -178,19 +186,16 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
  	if err == nil {
  		post, err = GetPost(ctx, db, a.PostID)
  	}
@@ -234,17 +238,17 @@ index f62f1bd..c0dac8b 100644
  	maago.ServeMedia(w, r, a.media())
  }
  
-@@ -284,8 +288,7 @@ func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], err
+@@ -297,8 +302,7 @@ func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[Po
  // only the database can check: the same title twice on one board would
  // break the model's unique=(BoardID,Title) as a 500, and two notices may
  // not be pinned at once. When one fails, it says so on f, as Validate
 -// would, and reports false. A saved post is announced to the webhook
 -// after the response.
 +// would, and reports false.
- func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Post, bool, error) {
- 	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
+ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Post, bool, error) {
+ 	taken, err := PostTitleTaken(ctx, tx, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
  	if err != nil {
-@@ -313,12 +316,6 @@ func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Pos
+@@ -326,12 +330,6 @@ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Pos
  	if err != nil {
  		return Post{}, false, err
  	}
@@ -257,15 +261,15 @@ index f62f1bd..c0dac8b 100644
  	return p, true, nil
  }
  
-@@ -332,25 +329,42 @@ func Archive(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
- 	return move(ctx, in.ID, "archived")
+@@ -345,24 +343,41 @@ func Archive(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage
+ 	return move(ctx, tx, in.ID, "archived")
  }
  
 -// move gives post id status to, if Post.Next allows it, and goes back to
 -// the post. What it does not allow is a 409 Conflict.
 +// move moves post id to status to and goes back to the post.
- func move(ctx context.Context, id int64, to string) (maago.Result[PostPage], error) {
-+	if _, err := moveTo(ctx, id, to); err != nil {
+ func move(ctx context.Context, tx maago.Tx, id int64, to string) (maago.Result[PostPage], error) {
++	if _, err := moveTo(ctx, tx, id, to); err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
 +	return maago.SeeOther[PostPage](PostDetailURL(id)), nil
@@ -274,9 +278,8 @@ index f62f1bd..c0dac8b 100644
 +// moveTo gives post id status to, if Post.Next allows it; what it does
 +// not allow is a 409 Conflict. A post just published is out: the webhook
 +// hears of it after the response.
-+func moveTo(ctx context.Context, id int64, to string) (Post, error) {
- 	db := maago.DBFrom(ctx)
- 	p, err := GetPost(ctx, db, id)
++func moveTo(ctx context.Context, tx maago.Tx, id int64, to string) (Post, error) {
+ 	p, err := GetPost(ctx, tx, id)
  	if err != nil {
 -		return maago.Result[PostPage]{}, err
 +		return Post{}, err
@@ -290,7 +293,7 @@ index f62f1bd..c0dac8b 100644
 +		return Post{}, maago.Status(http.StatusConflict, err)
  	}
  	p.Status = to
- 	if err := UpdatePost(ctx, db, &p); err != nil {
+ 	if err := UpdatePost(ctx, tx, &p); err != nil {
 -		return maago.Result[PostPage]{}, err
 +		return Post{}, err
  	}
@@ -307,14 +310,14 @@ index f62f1bd..c0dac8b 100644
  }
  
  type APIPostsIn struct {
-@@ -388,6 +402,28 @@ func APINewPost(ctx context.Context, in NewPostIn) (Post, error) {
+@@ -398,6 +413,28 @@ func APICreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (Post, error)
  	}
  }
  
 +// APIPublish publishes a draft for a frontend, and returns it: what
-+// APINewPost writes is a draft too.
-+func APIPublish(ctx context.Context, in PostIn) (Post, error) {
-+	return moveTo(ctx, in.ID, "published")
++// APICreatePost writes is a draft too.
++func APIPublish(ctx context.Context, tx maago.Tx, in PostIn) (Post, error) {
++	return moveTo(ctx, tx, in.ID, "published")
 +}
 +
 +// maySee hides, as not found, a post that is not out from whoever may not
@@ -337,7 +340,7 @@ index f62f1bd..c0dac8b 100644
  // from before there were accounts has no author: staff change it.
  func mayChange(ctx context.Context, p Post) error {
 diff --git a/board/web_test.go b/board/web_test.go
-index 1d7528b..8f232cc 100644
+index 8412e82..3d89367 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -3,6 +3,7 @@ package board
@@ -345,10 +348,10 @@ index 1d7528b..8f232cc 100644
  	"database/sql"
  	"encoding/csv"
 +	"encoding/json"
+ 	"errors"
  	"fmt"
  	"net/http"
- 	"net/http/httptest"
-@@ -88,7 +89,7 @@ func TestPages(t *testing.T) {
+@@ -89,7 +90,7 @@ func TestPages(t *testing.T) {
  	}
  	var first Post
  	for i := 1; i <= 12; i++ {
@@ -357,7 +360,7 @@ index 1d7528b..8f232cc 100644
  		if err != nil {
  			t.Fatal(err)
  		}
-@@ -219,6 +220,16 @@ func TestPinAndSchedule(t *testing.T) {
+@@ -220,6 +221,16 @@ func TestPinAndSchedule(t *testing.T) {
  			t.Fatalf("%s: %d %s", w[0], code, body)
  		}
  	}
@@ -374,7 +377,7 @@ index 1d7528b..8f232cc 100644
  
  	// The notice on top though older; tomorrow's post not yet.
  	_, body := get(h, BoardDetailURL(b.ID))
-@@ -367,8 +378,19 @@ func TestAPI(t *testing.T) {
+@@ -379,8 +390,19 @@ func TestAPI(t *testing.T) {
  	if w := call("POST", APIPostCreateURL(b.ID), front, `{"title": "토큰 없이", "body": "본문"}`); w.Code != 401 || w.Header().Get("WWW-Authenticate") != "Bearer" {
  		t.Errorf("without a token: %d %v", w.Code, w.Header())
  	}
@@ -396,7 +399,7 @@ index 1d7528b..8f232cc 100644
  	}
  
  	w = call("GET", APIPostsURL(b.ID), front, "")
-@@ -388,7 +410,7 @@ func TestExport(t *testing.T) {
+@@ -400,7 +422,7 @@ func TestExport(t *testing.T) {
  		t.Fatal(err)
  	}
  	for _, title := range []string{"하나", `"따옴표", 쉼표`, "셋", "=1+2", "숨김"} {
@@ -405,7 +408,7 @@ index 1d7528b..8f232cc 100644
  		if err != nil {
  			t.Fatal(err)
  		}
-@@ -776,3 +798,145 @@ func TestEdit(t *testing.T) {
+@@ -788,3 +810,145 @@ func TestEdit(t *testing.T) {
  		t.Errorf("the times changed: %v %v %v", got.PinnedFrom, got.PinnedUntil, got.PublishAt)
  	}
  }

@@ -70,7 +70,7 @@ index 0000000..bedd20d
 +</ul>
 +{{end}}
 diff --git a/board/urls.go b/board/urls.go
-index 971ca00..bea4747 100644
+index 12c67c9..3f9dfd5 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -20,8 +20,10 @@ var Routes = maago.Routes{
@@ -81,15 +81,15 @@ index 971ca00..bea4747 100644
  
  	// JSON for a frontend on another origin: main trusts it in Config.Origins.
  	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
- 	maago.POST("/api/boards/{id}/posts", "api_post_create", APINewPost, maago.API, maago.LoginRequired),
+ 	maago.POST("/api/boards/{id}/posts", "api_post_create", APICreatePost, maago.API, maago.LoginRequired),
 +	maago.GET("/api/me", "api_me", Me, maago.API, maago.LoginRequired),
  }
 diff --git a/board/views.go b/board/views.go
-index 9c33387..b02f07d 100644
+index e747f37..2802719 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -422,3 +422,18 @@ func deletePost(ctx context.Context, id int64) error {
- 	}
+@@ -435,3 +435,18 @@ func deletePost(ctx context.Context, tx maago.Tx, id int64) error {
+ 	})
  	return nil
  }
 +
@@ -108,10 +108,10 @@ index 9c33387..b02f07d 100644
 +	return MePage{Email: u.Email, Posts: ps}, err
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 05f9c10..7b884f4 100644
+index dad8cfd..153a6df 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -615,3 +615,70 @@ func TestDeleteWithoutComments(t *testing.T) {
+@@ -627,3 +627,70 @@ func TestDeleteWithoutComments(t *testing.T) {
  		t.Errorf("the post is still there: %v", err)
  	}
  }

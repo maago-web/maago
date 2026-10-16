@@ -6,15 +6,15 @@ MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-필드 이름을 바꾼다: Comment.Body → Comment.Text.
+Rename a field: Comment.Body becomes Comment.Text.
 
-그냥 makemigrations를 돌리면 maago는 이름 변경인지 알 수 없어, body를 지우고
-text를 더하는 초안에 ⚠ 설명을 붙인다. 이름 변경이면 그 파일을 지우고
-바꾼 것을 알려 준다:
+Run makemigrations as usual and maago cannot tell a rename, so its draft
+drops body and adds text, with a ⚠ note. For a rename, delete that file
+and say what changed:
 
     maago makemigrations --rename board_comment.body:text
 
-그러면 값을 지키는 RENAME COLUMN 한 줄이 나온다.
+Out comes one RENAME COLUMN, which keeps the values.
 
 diff --git a/board/board_test.go b/board/board_test.go
 index c6ad329..153dcfb 100644

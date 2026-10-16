@@ -242,10 +242,10 @@ index c5c5402..5f00642 100644
  	ID        int64
  	PostID    int64 `maago:"fk=Post"`
 diff --git a/board/web_test.go b/board/web_test.go
-index 4f39a54..53d4649 100644
+index c56eb30..c9eedf2 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -12,6 +12,7 @@ import (
+@@ -13,6 +13,7 @@ import (
  	"time"
  
  	"github.com/maago-web/maago"
@@ -253,7 +253,7 @@ index 4f39a54..53d4649 100644
  	authlib "github.com/maago-web/maago/contrib/auth"
  	"github.com/maago-web/maago/maagotest"
  
-@@ -27,7 +28,8 @@ const front = "http://localhost:5173"
+@@ -28,7 +29,8 @@ const front = "http://localhost:5173"
  
  // config is main's, on db.
  func config(db *sql.DB) maago.Config {
@@ -263,7 +263,7 @@ index 4f39a54..53d4649 100644
  }
  
  // app serves the board on a new database, as main does.
-@@ -450,6 +452,13 @@ func TestUnderApp(t *testing.T) {
+@@ -462,6 +464,13 @@ func TestUnderApp(t *testing.T) {
  	if code, _ := get(srv, "/boards/1"); code != 404 {
  		t.Errorf("without /app: %d", code)
  	}

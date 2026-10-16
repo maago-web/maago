@@ -2,32 +2,35 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Pin notices and schedule posts
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-글을 게시판 위에 고정하고(공지), 정한 시각에 보이게 한다(예약).
+Pin a post above its board (a notice), and show a post from a time set
+ahead (a schedule).
 
-- Post에 PinnedFrom·PinnedUntil·PublishAt을 더한다. *time.Time이라 NULL을
-  받는다. maago makemigrations --name pin_and_schedule이 0004를 쓴다
-- maago gen이 recent_posts.sql을 막는다. 결과 타입이 Post인데 새 컬럼을
-  고르지 않았다. 셋을 더해 고른다
-- 폼의 시각 필드는 maago.Field[time.Time]과 optional이다. 비워 두면
-  Given이 거짓이고, 뷰가 모델에 nil을 넘긴다(given)
-- 필드 하나로는 모르는 것은 폼의 Validate가 본다: 끝이 시작보다 뒤인지,
-  지난 시각으로 예약하지 않는지. Validate는 필드를 다 읽은 뒤에만 돌고,
-  DB를 보지 않는다. 문구는 필드의 Error나 폼의 AddError로.
-  datetime-local은 분까지 보내니, 지금 이 분은 지난 시각이 아니다
-- 같은 게시판에서 고정 기간이 겹치는지는 DB를 봐야 안다. 뷰가
-  pinned_overlap.sql로 본다
-- 목록과 검색 쿼리가 :now를 받아 아직 때가 아닌 글을 거르고, 지금 고정된
-  글을 먼저 놓는다
-- 템플릿의 {{define "time"}}은 시각 필드 하나를 그린다. 셋이 그것을
-  {{template "time" .Form.PinnedFrom}}으로 부른다. maago gen은 그 안도
-  Field[time.Time]으로 걸어 본다
+- Post gets PinnedFrom, PinnedUntil and PublishAt. They are *time.Time,
+  so they take NULL. maago makemigrations --name pin_and_schedule writes
+  0004
+- maago gen stops at recent_posts.sql: its result type is Post, and it
+  does not select the new columns. Select the three too
+- A time field of the form is a maago.Field[time.Time], optional. Left
+  empty, its Given is false, and the helper given(f) turns it into the
+  model's nil
+- What one field alone cannot tell, the form's Validate checks: that the
+  end is after the start, and that a schedule is not in the past.
+  Validate runs only once every field has read, and does not see the
+  database. It writes to a field's Error, or to the form with AddError.
+  datetime-local sends minutes, so this minute is not past yet
+- Whether two notices of one board are pinned at once only the database
+  can tell: CreatePost asks pinned_overlap.sql, with its tx. No
+  constraint backs that question, so on PostgreSQL two requests at once
+  may still pin two notices
+- The list and the search take :now, leave out what is not due yet, and
+  put the posts pinned now first
+- {{define "time"}} in a template draws one time field. The three call
+  it as {{template "time" .Form.PinnedFrom}}, and maago gen walks it
+  with Field[time.Time] there too
 
-<input type="datetime-local">이 보내는 값은 Config.TimeZone의 시각으로
-읽힌다(기본 UTC).
+What <input type="datetime-local"> sends reads as a time in
+Config.TimeZone (UTC by default).
 
 diff --git a/board/forms.go b/board/forms.go
 index 6db3438..b9cefcd 100644
@@ -204,7 +207,7 @@ index e3dab06..270b329 100644
 +<input type="datetime-local" id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}">
 +{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
 diff --git a/board/views.go b/board/views.go
-index 26904b1..26f272d 100644
+index 64402ab..525995e 100644
 --- a/board/views.go
 +++ b/board/views.go
 @@ -2,6 +2,7 @@ package board
@@ -215,7 +218,7 @@ index 26904b1..26f272d 100644
  
  	"github.com/maago-web/maago"
  )
-@@ -47,11 +48,11 @@ func ShowBoard(ctx context.Context, in BoardIn) (BoardPage, error) {
+@@ -46,11 +47,11 @@ func ShowBoard(ctx context.Context, db maago.DB, in BoardIn) (BoardPage, error)
  	}
  	if in.Q != nil {
  		p.Q = *in.Q
@@ -229,13 +232,13 @@ index 26904b1..26f272d 100644
  	if len(p.Posts) > pageSize {
  		p.Posts, p.Next = p.Posts[:pageSize], p.Page+1
  	}
-@@ -137,7 +138,20 @@ func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], err
+@@ -145,7 +146,20 @@ func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[Po
  		f.Title.Error = "이 게시판에 같은 제목의 글이 있습니다."
  		return maago.Show(PostFormPage{b, f}), nil
  	}
--	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: f.Title.Value, Body: f.Body.Value})
+-	p, err := InsertPost(ctx, tx, NewPostInput{BoardID: b.ID, Title: f.Title.Value, Body: f.Body.Value})
 +	if f.PinnedFrom.Given {
-+		n, err := PinnedOverlap(ctx, db, PinnedOverlapParams{BoardID: b.ID, From: f.PinnedFrom.Value, Until: f.PinnedUntil.Value})
++		n, err := PinnedOverlap(ctx, tx, PinnedOverlapParams{BoardID: b.ID, From: f.PinnedFrom.Value, Until: f.PinnedUntil.Value})
 +		if err != nil {
 +			return maago.Result[PostFormPage]{}, err
 +		}
@@ -244,7 +247,7 @@ index 26904b1..26f272d 100644
 +			return maago.Show(PostFormPage{b, f}), nil
 +		}
 +	}
-+	p, err := InsertPost(ctx, db, NewPostInput{
++	p, err := InsertPost(ctx, tx, NewPostInput{
 +		BoardID: b.ID, Title: f.Title.Value, Body: f.Body.Value,
 +		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
 +	})

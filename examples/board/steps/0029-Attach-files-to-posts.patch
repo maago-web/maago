@@ -270,7 +270,7 @@ index eaf4667..20dee60 100644
  <ul>{{range .Comments}}
  <li>{{.Text}} <small>{{date "2006-01-02 15:04" .CreatedAt}}</small></li>{{else}}
 diff --git a/board/urls.go b/board/urls.go
-index ad5eaf2..971ca00 100644
+index 1f16a96..12c67c9 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -18,6 +18,8 @@ var Routes = maago.Routes{
@@ -283,7 +283,7 @@ index ad5eaf2..971ca00 100644
  	// JSON for a frontend on another origin: main trusts it in Config.Origins.
  	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
 diff --git a/board/views.go b/board/views.go
-index 7e3aeb2..9c33387 100644
+index b28fb41..e747f37 100644
 --- a/board/views.go
 +++ b/board/views.go
 @@ -2,9 +2,11 @@ package board
@@ -298,7 +298,7 @@ index 7e3aeb2..9c33387 100644
  	"time"
  
  	"github.com/maago-web/maago"
-@@ -82,9 +84,11 @@ type ShowPostIn struct {
+@@ -81,9 +83,11 @@ type ShowPostIn struct {
  }
  
  type PostPage struct {
@@ -312,25 +312,28 @@ index 7e3aeb2..9c33387 100644
 +	AttachForm  AttachmentForm
  }
  
- // ShowPost shows one post and its comments on GET, and adds a comment on
-@@ -102,8 +106,87 @@ func ShowPost(ctx context.Context, in ShowPostIn) (maago.Result[PostPage], error
- 		}
- 		return maago.SeeOther[PostPage](PostDetailURL(p.ID)), nil
+ // ShowPost shows one post and its comments, and the form for one more.
+@@ -108,15 +112,86 @@ func CreateComment(ctx context.Context, tx maago.Tx, in ShowPostIn) (maago.Resul
+ 	return maago.SeeOther[PostPage](PostDetailURL(in.ID)), nil
+ }
+ 
+-// postPage is the page of post id, with the comment form f. A hidden post
+-// is not found.
++// postPage is the page of post id, with its comments and attachments,
++// and the comment form f. A hidden post is not found.
+ func postPage(ctx context.Context, db maago.DB, id int64, f CommentForm) (PostPage, error) {
+ 	p, err := PostDetail(ctx, db, PostDetailParams{ID: id})
+ 	if err != nil {
+ 		return PostPage{}, err
  	}
 -	cs, err := PostComments(ctx, db, PostCommentsParams{PostID: p.ID})
--	return maago.Show(PostPage{p, cs, f}), err
-+	return showPost(ctx, PostPage{Post: p, Form: f})
-+}
-+
-+// showPost fills page with the post's comments and attachments.
-+func showPost(ctx context.Context, page PostPage) (maago.Result[PostPage], error) {
-+	db := maago.DBFrom(ctx)
-+	var err error
-+	if page.Comments, err = PostComments(ctx, db, PostCommentsParams{PostID: page.Post.ID}); err != nil {
-+		return maago.Result[PostPage]{}, err
+-	return PostPage{p, cs, f}, err
++	page := PostPage{Post: p, Form: f}
++	if page.Comments, err = PostComments(ctx, db, PostCommentsParams{PostID: p.ID}); err != nil {
++		return PostPage{}, err
 +	}
-+	page.Attachments, err = PostAttachments(ctx, db, PostAttachmentsParams{PostID: page.Post.ID})
-+	return maago.Show(page), err
++	page.Attachments, err = PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID})
++	return page, err
 +}
 +
 +type AttachIn struct {
@@ -363,11 +366,9 @@ index 7e3aeb2..9c33387 100644
 +		}
 +		return maago.SeeOther[PostPage](PostDetailURL(post.ID)), nil
 +	}
-+	p, err := PostDetail(ctx, db, PostDetailParams{ID: post.ID})
-+	if err != nil {
-+		return maago.Result[PostPage]{}, err
-+	}
-+	return showPost(ctx, PostPage{Post: p, AttachForm: in.Form})
++	page, err := postPage(ctx, db, post.ID, CommentForm{})
++	page.AttachForm = in.Form
++	return maago.Show(page), err
 +}
 +
 +// DownloadAttachment sends an attachment down, to whoever may see its
@@ -403,49 +404,52 @@ index 7e3aeb2..9c33387 100644
  }
  
  // RemovePost deletes a post. One without comments goes from the database;
-@@ -124,7 +207,7 @@ func RemovePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error)
+@@ -136,7 +211,7 @@ func RemovePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostP
  		return maago.Result[PostPage]{}, err
  	}
  	if len(cs) == 0 {
--		err = DeletePost(ctx, db, p.ID)
-+		err = deletePost(ctx, p.ID)
+-		err = DeletePost(ctx, tx, p.ID)
++		err = deletePost(ctx, tx, p.ID)
  	} else {
  		p.Hidden = true
- 		err = UpdatePost(ctx, db, &p)
-@@ -314,3 +397,28 @@ func mayChange(ctx context.Context, p Post) error {
+ 		err = UpdatePost(ctx, tx, &p)
+@@ -332,3 +407,31 @@ func mayChange(ctx context.Context, p Post) error {
  	}
  	return maago.Status(http.StatusForbidden, errors.New("only its author or staff may change a post"))
  }
 +
 +// deletePost deletes a post and its attachments: their rows first, which
-+// point at the post, then their files. A file that will not go is logged
-+// and left: the post is gone already, and a second try would find nothing.
-+func deletePost(ctx context.Context, id int64) error {
-+	db := maago.DBFrom(ctx)
-+	as, err := PostAttachments(ctx, db, PostAttachmentsParams{PostID: id})
++// point at the post, then their files, once the rows are gone for good
++// (maago.AfterCommit): a rollback keeps the rows, and so their files. A
++// file that will not go is logged and left: the post is gone already, and
++// a second try would find nothing.
++func deletePost(ctx context.Context, tx maago.Tx, id int64) error {
++	as, err := PostAttachments(ctx, tx, PostAttachmentsParams{PostID: id})
 +	if err != nil {
 +		return err
 +	}
 +	for _, a := range as {
-+		if err := DeleteAttachment(ctx, db, a.ID); err != nil {
++		if err := DeleteAttachment(ctx, tx, a.ID); err != nil {
 +			return err
 +		}
 +	}
-+	if err := DeletePost(ctx, db, id); err != nil {
++	if err := DeletePost(ctx, tx, id); err != nil {
 +		return err
 +	}
-+	for _, a := range as {
-+		if err := maago.DeleteMedia(ctx, a.Key); err != nil {
-+			log.Printf("post %d: the file of attachment %d stays: %v", id, a.ID, err)
++	maago.AfterCommit(ctx, func(ctx context.Context) {
++		for _, a := range as {
++			if err := maago.DeleteMedia(ctx, a.Key); err != nil {
++				log.Printf("post %d: the file of attachment %d stays: %v", id, a.ID, err)
++			}
 +		}
-+	}
++	})
 +	return nil
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 1c6cd18..05f9c10 100644
+index 75867f1..dad8cfd 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -27,17 +27,17 @@ func init() {
+@@ -28,17 +28,17 @@ func init() {
  // front is the origin main trusts, a frontend of its own.
  const front = "http://localhost:5173"
  
@@ -467,7 +471,7 @@ index 1c6cd18..05f9c10 100644
  	if err != nil {
  		t.Fatal(err)
  	}
-@@ -446,7 +446,7 @@ func TestStylesheet(t *testing.T) {
+@@ -458,7 +458,7 @@ func TestStylesheet(t *testing.T) {
  func TestUnderApp(t *testing.T) {
  	// The prefix is the process's, the last Handler's: make it first.
  	db := maagotest.DB(t)
@@ -476,7 +480,7 @@ index 1c6cd18..05f9c10 100644
  	cfg.Prefix, cfg.LoginURL = "/app", "/app/login"
  	h, err := maago.Handler(cfg)
  	if err != nil {
-@@ -454,7 +454,7 @@ func TestUnderApp(t *testing.T) {
+@@ -466,7 +466,7 @@ func TestUnderApp(t *testing.T) {
  	}
  	// Back to no prefix for the tests after.
  	t.Cleanup(func() {

@@ -2,19 +2,17 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 28 Sep 2026 22:13:51 +0900
 Subject: [PATCH] Start the project
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-프로젝트를 시작한다. go.mod와 main.go 하나.
+Start the project: a go.mod and one main.go.
 
-main.go는 maago.OpenDB로 데이터베이스를 연다. 주소는 환경 변수
-MAAGO_DATABASE_URL, 없으면 작업 디렉터리의 .env에서 읽는다. .env는
-커밋하지 않는다:
+main.go opens the database with maago.OpenDB. Its address is the
+environment variable MAAGO_DATABASE_URL, or else the .env file in the
+working directory. Do not commit .env:
 
     MAAGO_DATABASE_URL=sqlite:board.db
 
-드라이버(modernc.org/sqlite)는 maago가 아니라 앱이 import한다.
+The app imports the database driver (modernc.org/sqlite); maago itself
+imports no driver.
 
 diff --git a/go.mod b/go.mod
 new file mode 100644

@@ -2,24 +2,27 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 28 Sep 2026 22:14:38 +0900
 Subject: [PATCH] Add Board, Post and Comment
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-모델 셋. 게시판(Board), 게시판의 글(Post), 글의 댓글(Comment).
+Three models: a board (Board), the posts of a board (Post), and the
+comments of a post (Comment).
 
-- 같은 앱 안의 모델은 fk=모델로 가리킨다(Post.BoardID, Comment.PostID)
-- 한 게시판에서 제목은 한 번만: 모델 태그의 unique=(BoardID,Title)
-- 글의 상태는 choices, 기본값은 'draft'. 기본값이 있는 필드는 생성된 입력 타입
-  NewPostInput에서 maago.Opt[string]이다: 주지 않으면 기본값이 들어간다
-- CreatedAt·UpdatedAt은 auto 태그: 생성된 Insert·Update가 채운다
+- A model points at another model of the same app with fk=Model
+  (Post.BoardID, Comment.PostID)
+- A title only once on a board: unique=(BoardID,Title) in the model tag
+- A post's status has choices, and defaults to 'draft'. A field with a
+  default is a maago.Opt[string] in the generated input type
+  NewPostInput: leave it out and the default goes in
+- CreatedAt and UpdatedAt have the auto tag: the generated Insert and
+  Update fill them
 
-maago makemigrations가 migrations/0001_initial.sql을 쓰고, maago migrate가
-적용한다. maago gen이 board/models_gen.go에 모델마다 Get·Insert·Update·Delete를
-만든다. 시험은 그 함수를 직접 부른다. maagotest.DB(t)가 시험마다 새 DB를 준다: 루트의
-.env에서 방언을 읽고, 마이그레이션을 적용하고, 시험이 끝나면 지운다. 그래서 시험은
-서로의 행을 보지 않고, maago migrate가 쓰는 board.db도 건드리지 않는다. 시험은
-main을 거치지 않으므로 드라이버를 스스로 import한다.
+maago makemigrations writes migrations/0001_initial.sql, and maago
+migrate applies it. maago gen writes Get, Insert, Update and Delete for
+each model to board/models_gen.go. The tests call those functions
+directly. maagotest.DB(t) gives each test a new database: it reads the
+dialect from the .env at the root, applies the migrations, and drops
+the database when the test ends. So the tests never see each other's
+rows, and never touch board.db, which maago migrate uses. A test does
+not go through main, so it imports the driver itself.
 
     go test ./...
 

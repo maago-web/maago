@@ -62,7 +62,7 @@ index 145e89d..bff141b 100644
  WHERE NOT hidden
  ORDER BY created_at DESC, id DESC
 diff --git a/board/urls.go b/board/urls.go
-index 756c5ea..15a6e96 100644
+index 641e9aa..09f5550 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -6,20 +6,20 @@ import "github.com/maago-web/maago"
@@ -70,33 +70,33 @@ index 756c5ea..15a6e96 100644
  var Routes = maago.Routes{
  	maago.GET("/{$}", "home", Home),
 -	maago.GET("/boards/new", "board_new", NewBoard),
--	maago.POST("/boards/new", "board_create", NewBoard),
+-	maago.POST("/boards/new", "board_create", CreateBoard),
 +	maago.GET("/boards/new", "board_new", NewBoard, maago.LoginRequired),
-+	maago.POST("/boards/new", "board_create", NewBoard, maago.LoginRequired),
++	maago.POST("/boards/new", "board_create", CreateBoard, maago.LoginRequired),
  	maago.GET("/boards/{id}", "board_detail", ShowBoard),
  	maago.GET("/boards/{id}/rows", "board_rows", ShowBoard, maago.Block("rows")),
  	maago.GET("/boards/{id}/posts.csv", "board_export", ExportBoard),
 -	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
--	maago.POST("/boards/{id}/posts/new", "post_create", NewPost),
+-	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost),
 +	maago.GET("/boards/{id}/posts/new", "post_new", NewPost, maago.LoginRequired),
-+	maago.POST("/boards/{id}/posts/new", "post_create", NewPost, maago.LoginRequired),
++	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost, maago.LoginRequired),
  	maago.GET("/posts/{id}", "post_detail", ShowPost),
--	maago.POST("/posts/{id}", "comment_create", ShowPost),
+-	maago.POST("/posts/{id}", "comment_create", CreateComment),
 -	maago.POST("/posts/{id}/publish", "post_publish", Publish),
 -	maago.POST("/posts/{id}/archive", "post_archive", Archive),
 -	maago.POST("/posts/{id}/delete", "post_delete", HidePost),
-+	maago.POST("/posts/{id}", "comment_create", ShowPost, maago.LoginRequired),
++	maago.POST("/posts/{id}", "comment_create", CreateComment, maago.LoginRequired),
 +	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
 +	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
 +	maago.POST("/posts/{id}/delete", "post_delete", HidePost, maago.LoginRequired),
  
  	// JSON for a frontend on another origin: main trusts it in Config.Origins.
  	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
--	maago.POST("/api/boards/{id}/posts", "api_post_create", APINewPost, maago.API),
-+	maago.POST("/api/boards/{id}/posts", "api_post_create", APINewPost, maago.API, maago.LoginRequired),
+-	maago.POST("/api/boards/{id}/posts", "api_post_create", APICreatePost, maago.API),
++	maago.POST("/api/boards/{id}/posts", "api_post_create", APICreatePost, maago.API, maago.LoginRequired),
  }
 diff --git a/board/views.go b/board/views.go
-index 6babca2..216dd71 100644
+index 2ddd94b..40cd173 100644
 --- a/board/views.go
 +++ b/board/views.go
 @@ -2,6 +2,7 @@ package board
@@ -107,7 +107,7 @@ index 6babca2..216dd71 100644
  	"log"
  	"net/http"
  	"time"
-@@ -114,6 +115,9 @@ func HidePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
+@@ -126,6 +127,9 @@ func HidePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPag
  	if err != nil {
  		return maago.Result[PostPage]{}, err
  	}
@@ -115,20 +115,20 @@ index 6babca2..216dd71 100644
 +		return maago.Result[PostPage]{}, err
 +	}
  	p.Hidden = true
- 	if err := UpdatePost(ctx, db, &p); err != nil {
+ 	if err := UpdatePost(ctx, tx, &p); err != nil {
  		return maago.Result[PostPage]{}, err
-@@ -208,8 +212,9 @@ func savePost(ctx context.Context, db maago.DB, boardID int64, f *PostForm) (Pos
+@@ -229,8 +233,9 @@ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Pos
  			return Post{}, false, nil
  		}
  	}
 +	u, _ := maago.UserFrom[auth.User](ctx) // the routes require login
- 	p, err := InsertPost(ctx, db, NewPostInput{
+ 	p, err := InsertPost(ctx, tx, NewPostInput{
 -		BoardID: boardID, Title: f.Title.Value, Body: f.Body.Value,
 +		BoardID: boardID, AuthorID: &u.ID, Title: f.Title.Value, Body: f.Body.Value,
  		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
  	})
  	if err != nil {
-@@ -242,6 +247,9 @@ func move(ctx context.Context, id int64, to string) (maago.Result[PostPage], err
+@@ -262,6 +267,9 @@ func move(ctx context.Context, tx maago.Tx, id int64, to string) (maago.Result[P
  	if err != nil {
  		return maago.Result[PostPage]{}, err
  	}
@@ -138,7 +138,7 @@ index 6babca2..216dd71 100644
  	if err := p.Next(to); err != nil {
  		return maago.Result[PostPage]{}, maago.Status(http.StatusConflict, err)
  	}
-@@ -286,3 +294,13 @@ func APINewPost(ctx context.Context, in NewPostIn) (Post, error) {
+@@ -304,3 +312,13 @@ func APICreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (Post, error)
  		return Post{}, maago.InvalidForm(f.Errors[0])
  	}
  }
@@ -153,10 +153,10 @@ index 6babca2..216dd71 100644
 +	return maago.Status(http.StatusForbidden, errors.New("only its author or staff may change a post"))
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 58d39c4..b0e9125 100644
+index 639657f..5950203 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -121,7 +121,8 @@ func TestPages(t *testing.T) {
+@@ -122,7 +122,8 @@ func TestPages(t *testing.T) {
  }
  
  func TestWrite(t *testing.T) {
@@ -166,7 +166,7 @@ index 58d39c4..b0e9125 100644
  
  	if code, body := get(h, BoardNewURL()); code != 200 || !strings.Contains(body, `<label for="name">이름</label>`) {
  		t.Fatalf("form: %d %s", code, body)
-@@ -169,6 +170,7 @@ func TestWrite(t *testing.T) {
+@@ -170,6 +171,7 @@ func TestWrite(t *testing.T) {
  
  func TestPinAndSchedule(t *testing.T) {
  	h, db := app(t)
@@ -174,7 +174,7 @@ index 58d39c4..b0e9125 100644
  	b, err := InsertBoard(t.Context(), db, NewBoardInput{Name: "자유"})
  	if err != nil {
  		t.Fatal(err)
-@@ -227,12 +229,13 @@ func TestPinAndSchedule(t *testing.T) {
+@@ -228,12 +230,13 @@ func TestPinAndSchedule(t *testing.T) {
  
  func TestPublishAndArchive(t *testing.T) {
  	h, db := app(t)
@@ -189,7 +189,7 @@ index 58d39c4..b0e9125 100644
  	if err != nil {
  		t.Fatal(err)
  	}
-@@ -258,12 +261,13 @@ func TestPublishAndArchive(t *testing.T) {
+@@ -270,12 +273,13 @@ func TestPublishAndArchive(t *testing.T) {
  
  func TestCommentAndHide(t *testing.T) {
  	h, db := app(t)
@@ -204,7 +204,7 @@ index 58d39c4..b0e9125 100644
  	if err != nil {
  		t.Fatal(err)
  	}
-@@ -302,6 +306,13 @@ func TestAPI(t *testing.T) {
+@@ -314,6 +318,13 @@ func TestAPI(t *testing.T) {
  	if err != nil {
  		t.Fatal(err)
  	}
@@ -218,7 +218,7 @@ index 58d39c4..b0e9125 100644
  	// call sends a request as a page of origin would, and returns the
  	// response.
  	call := func(method, path, origin, body string, header ...string) *httptest.ResponseRecorder {
-@@ -341,7 +352,7 @@ func TestAPI(t *testing.T) {
+@@ -353,7 +364,7 @@ func TestAPI(t *testing.T) {
  		{front, ``, 400, `"status":400`},
  		{evil, `{"title": "남의 글", "body": "본문"}`, 403, `"status":403`},
  	} {
@@ -227,7 +227,7 @@ index 58d39c4..b0e9125 100644
  		if w.Code != c.code || !strings.Contains(w.Body.String(), c.has) {
  			t.Errorf("POST %s from %s: %d, want %d with %s:\n%s", c.body, c.origin, w.Code, c.code, c.has, w.Body)
  		}
-@@ -350,6 +361,13 @@ func TestAPI(t *testing.T) {
+@@ -362,6 +373,13 @@ func TestAPI(t *testing.T) {
  		}
  	}
  
@@ -241,7 +241,7 @@ index 58d39c4..b0e9125 100644
  	w = call("GET", APIPostsURL(b.ID), front, "")
  	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || !strings.Contains(w.Body.String(), `"Title":"API 글"`) || strings.Contains(w.Body.String(), "남의 글") {
  		t.Errorf("list: %d %v %s", w.Code, w.Header(), w.Body)
-@@ -420,6 +438,7 @@ func TestUnderApp(t *testing.T) {
+@@ -432,6 +450,7 @@ func TestUnderApp(t *testing.T) {
  			t.Error(err)
  		}
  	})
@@ -249,7 +249,7 @@ index 58d39c4..b0e9125 100644
  	srv := http.StripPrefix("/app", h) // as main serves it
  
  	if code, loc, _ := post(srv, BoardCreateURL(), url.Values{"name": {"자유"}}); code != 303 || loc != "/app/boards/1" {
-@@ -460,6 +479,22 @@ func login(t *testing.T, h http.Handler, email string) *http.Cookie {
+@@ -472,6 +491,22 @@ func login(t *testing.T, h http.Handler, email string) *http.Cookie {
  	return w.Result().Cookies()[0]
  }
  
@@ -272,7 +272,7 @@ index 58d39c4..b0e9125 100644
  // Signed in, the home page says who; the header links to sign in and out.
  func TestSignIn(t *testing.T) {
  	h, db := app(t)
-@@ -472,3 +507,62 @@ func TestSignIn(t *testing.T) {
+@@ -484,3 +519,62 @@ func TestSignIn(t *testing.T) {
  		t.Errorf("after: %s", body)
  	}
  }

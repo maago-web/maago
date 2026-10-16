@@ -92,23 +92,23 @@ index 20dee60..e896453 100644
  <h2>첨부</h2>
  <ul>{{range .Attachments}}
 diff --git a/board/urls.go b/board/urls.go
-index bea4747..3cb7257 100644
+index 3f9dfd5..b7c8390 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -15,6 +15,8 @@ var Routes = maago.Routes{
- 	maago.POST("/boards/{id}/posts/new", "post_create", NewPost, maago.LoginRequired),
+ 	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost, maago.LoginRequired),
  	maago.GET("/posts/{id}", "post_detail", ShowPost),
- 	maago.POST("/posts/{id}", "comment_create", ShowPost, maago.LoginRequired),
+ 	maago.POST("/posts/{id}", "comment_create", CreateComment, maago.LoginRequired),
 +	maago.GET("/posts/{id}/edit", "post_edit", EditPost, maago.LoginRequired),
 +	maago.POST("/posts/{id}/edit", "post_update", EditPost, maago.LoginRequired),
  	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
  	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
  	maago.POST("/posts/{id}/delete", "post_delete", RemovePost, maago.LoginRequired),
 diff --git a/board/views.go b/board/views.go
-index b02f07d..f62f1bd 100644
+index 2802719..fb89268 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -437,3 +437,49 @@ func Me(ctx context.Context, in struct{}) (MePage, error) {
+@@ -450,3 +450,49 @@ func Me(ctx context.Context, in struct{}) (MePage, error) {
  	ps, err := MyPosts(ctx, maago.DBFrom(ctx), MyPostsParams{AuthorID: u.ID})
  	return MePage{Email: u.Email, Posts: ps}, err
  }
@@ -159,10 +159,10 @@ index b02f07d..f62f1bd 100644
 +	return maago.SeeOther[PostEditPage](PostDetailURL(p.ID)), nil
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 7b884f4..1d7528b 100644
+index 153a6df..8412e82 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -682,3 +682,97 @@ func TestMe(t *testing.T) {
+@@ -694,3 +694,97 @@ func TestMe(t *testing.T) {
  		t.Errorf("/api/me without a token: %d %v", w.Code, w.Header())
  	}
  }

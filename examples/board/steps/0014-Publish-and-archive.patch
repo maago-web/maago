@@ -2,25 +2,33 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Publish and archive
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-글에 상태가 있다: draft에서 published로, published에서 archived로. 한
-방향이다.
+A post has a status: from draft to published, from published to
+archived. One way.
 
-- 전이 규칙은 모델 옆의 Go 메서드다: func (p Post) Next(to string) error.
-  태그로 적지 않는다. 규칙은 코드가 가장 잘 말한다
-- 라우트 둘: POST /posts/{id}/publish와 /archive. 두 뷰가 move 하나를
-  부른다. GetPost로 읽고, Next에 묻고, UpdatePost로 쓴다
-- 규칙 밖이면 maago.Status(http.StatusConflict, err)를 돌려준다. 응답은
-  409다. HTML 라우트는 상태 문구만 보이고, err는 보이지 않는다(API
-  라우트는 problem의 detail에 싣는다)
-- 글 화면은 지금 상태에서 갈 수 있는 단추 하나만 그린다. {{if eq
+- The rule is a Go method beside the model: func (p Post) Next(to
+  string) error. It is not a tag; code says a rule best
+- Two routes: POST /posts/{id}/publish and /archive. Both views call
+  one move, with their tx:
+
+      func Publish(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error)
+
+  move reads with GetPost, asks Next, and writes with UpdatePost
+- Outside the rule, the view returns maago.Status(http.StatusConflict,
+  err): a 409. An HTML route shows the status text alone, not err (an
+  API route puts it in the problem's detail). The error rolls the
+  transaction back
+- UpdatePost has a 409 of its own. UpdatedAt (auto=update) is the
+  post's version: UpdatePost writes only while the row still has the
+  version it was read with, and otherwise returns maago.ErrConflict,
+  which is a 409 too. Two who read the same post and both write: the
+  second does not undo the first unseen. The test writes from a stale
+  copy
+- The post page draws only the button for where it may go now: {{if eq
   .Post.Status "draft"}}
 
-단추를 숨겨도 요청은 직접 보낼 수 있다. 막는 것은 Next다. 시험은 단추
-없이 규칙 밖의 요청을 보내 본다.
+Hiding a button does not stop a request sent by hand; Next does. The
+test sends the requests the rule refuses, with no button.
 
 diff --git a/board/models.go b/board/models.go
 index d91f180..6ba06ee 100644
@@ -62,18 +70,18 @@ index 023e3ff..232987e 100644
 +{{if eq .Post.Status "published"}}<form method="post" action="{{url "post_archive" .Post.ID}}"><button>보관하기</button></form>{{end}}
  {{end}}
 diff --git a/board/urls.go b/board/urls.go
-index 23c8d5a..011e86e 100644
+index 45ddb20..95a290c 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -13,4 +13,6 @@ var Routes = maago.Routes{
  	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
- 	maago.POST("/boards/{id}/posts/new", "post_create", NewPost),
+ 	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost),
  	maago.GET("/posts/{id}", "post_detail", ShowPost),
 +	maago.POST("/posts/{id}/publish", "post_publish", Publish),
 +	maago.POST("/posts/{id}/archive", "post_archive", Archive),
  }
 diff --git a/board/views.go b/board/views.go
-index 26f272d..e17a025 100644
+index 525995e..e21546a 100644
 --- a/board/views.go
 +++ b/board/views.go
 @@ -2,6 +2,7 @@ package board
@@ -84,26 +92,25 @@ index 26f272d..e17a025 100644
  	"time"
  
  	"github.com/maago-web/maago"
-@@ -157,3 +158,31 @@ func NewPost(ctx context.Context, in NewPostIn) (maago.Result[PostFormPage], err
+@@ -165,3 +166,30 @@ func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[Po
  	}
  	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
  }
 +
 +// Publish publishes a draft.
-+func Publish(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
-+	return move(ctx, in.ID, "published")
++func Publish(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
++	return move(ctx, tx, in.ID, "published")
 +}
 +
 +// Archive archives a published post.
-+func Archive(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
-+	return move(ctx, in.ID, "archived")
++func Archive(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
++	return move(ctx, tx, in.ID, "archived")
 +}
 +
 +// move gives post id status to, if Post.Next allows it, and goes back to
 +// the post. What it does not allow is a 409 Conflict.
-+func move(ctx context.Context, id int64, to string) (maago.Result[PostPage], error) {
-+	db := maago.DBFrom(ctx)
-+	p, err := GetPost(ctx, db, id)
++func move(ctx context.Context, tx maago.Tx, id int64, to string) (maago.Result[PostPage], error) {
++	p, err := GetPost(ctx, tx, id)
 +	if err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
@@ -111,16 +118,24 @@ index 26f272d..e17a025 100644
 +		return maago.Result[PostPage]{}, maago.Status(http.StatusConflict, err)
 +	}
 +	p.Status = to
-+	if err := UpdatePost(ctx, db, &p); err != nil {
++	if err := UpdatePost(ctx, tx, &p); err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
 +	return maago.SeeOther[PostPage](PostDetailURL(id)), nil
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index f5bfaf6..b424fe9 100644
+index f5bfaf6..01bea0a 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -190,3 +190,34 @@ func TestPinAndSchedule(t *testing.T) {
+@@ -2,6 +2,7 @@ package board
+ 
+ import (
+ 	"database/sql"
++	"errors"
+ 	"fmt"
+ 	"net/http"
+ 	"net/http/httptest"
+@@ -190,3 +191,45 @@ func TestPinAndSchedule(t *testing.T) {
  		t.Errorf("search:\n%s", body)
  	}
  }
@@ -151,7 +166,18 @@ index f5bfaf6..b424fe9 100644
 +			t.Errorf("POST %s: %d, want %d:\n%s", c.path, code, c.code, body)
 +		}
 +	}
-+	if got, err := GetPost(ctx, db, p.ID); err != nil || got.Status != "archived" {
-+		t.Errorf("%q %v", got.Status, err)
++	got, err := GetPost(ctx, db, p.ID)
++	if err != nil || got.Status != "archived" {
++		t.Fatalf("%q %v", got.Status, err)
++	}
++
++	// A copy read before another write does not write over it: UpdatePost
++	// compares the version it read, UpdatedAt.
++	stale := got
++	if err := UpdatePost(ctx, db, &got); err != nil {
++		t.Fatal(err)
++	}
++	if err := UpdatePost(ctx, db, &stale); !errors.Is(err, maago.ErrConflict) {
++		t.Errorf("a stale copy: %v", err)
 +	}
 +}

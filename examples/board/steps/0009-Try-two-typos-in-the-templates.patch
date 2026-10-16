@@ -2,22 +2,22 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Try two typos in the templates
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-일부러 틀려 본다. 글 화면에서 .Post.Title을 .Post.Titel로, 첫 화면에서
-라우트 이름 board_detail을 board_detial로 썼다. 서로 다른 파일이다.
+A mistake on purpose, twice. The post page says .Post.Titel for
+.Post.Title, and the home page says the route name board_detial for
+board_detail. They are different files.
 
-maago gen은 템플릿을 페이지 타입으로 걸어 보고, {{url}}의 이름을 라우트
-표와 맞춰 본다. 둘 다 한 번에 알리고 아무것도 쓰지 않는다:
+maago gen walks each template with its page type, and checks the names
+in {{url}} against the routes. It tells both at once, and writes
+nothing:
 
     board/templates/home_page.html:4:20: unknown route name "board_detial"
       fix: did you mean "board_detail"? routes are declared in the apps' var Routes
     board/templates/post_page.html:3:13: PostPage.Post has no field or method "Titel"
       fix: did you mean "Title"?
 
-브라우저를 열기 전에, 하나 고치고 다시 돌릴 필요 없이 둘 다 보인다.
+Both show before a browser opens, with no need to fix one and run
+again.
 
 Maago-Expect: board/templates/home_page.html:4:20: unknown route name "board_detial"
 Maago-Expect: board/templates/post_page.html:3:13: PostPage.Post has no field or method "Titel"

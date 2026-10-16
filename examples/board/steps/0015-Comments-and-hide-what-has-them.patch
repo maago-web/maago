@@ -2,29 +2,36 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Comments, and hide what has them
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-글에 댓글을 단다. 글을 지우면 숨긴다.
+Comment on a post. Deleting a post hides it.
 
-- 댓글 폼은 CommentForm(model=Comment)이다. 글 화면의 뷰가 GET에 글과
-  댓글을 그리고, 같은 경로의 POST에 댓글을 단다. 라우트는 두 줄,
-  post_detail과 comment_create
-- 댓글은 글을 가리킨다(fk=Post). 댓글 달린 글을 DELETE로 지우면 DB가
-  막는다. 지우기는 글을 숨긴다: Post.Hidden을 켠다. 댓글도 글과 함께
-  보이지 않고, DB에는 남는다
-- Hidden bool default=false. maago makemigrations --name hide_posts가
-  0002를 쓴다. maago gen이 다시 recent_posts.sql을 막는다. 새 컬럼을
-  고른다
-- 쿼리마다 NOT p.hidden을 더한다: 목록, 검색, 글 하나, 고정 기간 겹침.
-  숨긴 글의 화면은 PostDetail이 행을 찾지 못해 404다. 그 글에 댓글을 달
-  수도 없다
-- 같은 제목 검사(post_title_taken.sql)는 숨긴 글도 센다. 모델의
-  unique=(BoardID,Title)은 숨긴 글에도 걸린다
+- The comment form is CommentForm (model=Comment). The post page draws
+  the post, its comments and the form on GET; a POST to the same path
+  adds a comment. Two routes, post_detail and comment_create, and two
+  views on one In:
 
-숨긴 글을 정말로 지우는 일은 지운 사람이 쓴 사람인지 묻는 일과 함께
-나중에 한다.
+      func ShowPost(ctx context.Context, db maago.DB, in ShowPostIn) (PostPage, error)
+      func CreateComment(ctx context.Context, tx maago.Tx, in ShowPostIn) (maago.Result[PostPage], error)
+
+  Both build the page with one helper, postPage(ctx, db, id, f): GET
+  passes its db, POST its tx, a maago.DB too. A form that does not pass
+  shows the same page again, with its errors
+- A comment points at its post (fk=Post). DELETE a post with comments
+  and the database refuses. So deleting hides the post instead: it turns
+  Post.Hidden on, in HidePost, the view of POST /posts/{id}/delete
+  (post_delete), with its tx. Its comments go out of sight with it, and
+  stay in the database
+- Hidden bool default=false. maago makemigrations --name hide_posts
+  writes 0002. maago gen stops at recent_posts.sql again: select the new
+  column
+- Every query gets NOT p.hidden: the list, the search, one post, and the
+  pinned overlap. The page of a hidden post is a 404, as PostDetail
+  finds no row, and no comment can go on it
+- The same-title check (post_title_taken.sql) counts hidden posts too:
+  the model's unique=(BoardID,Title) holds for them as well
+
+Deleting a hidden post for real comes later, with asking whether who
+deletes it wrote it.
 
 diff --git a/board/forms.go b/board/forms.go
 index b9cefcd..198bc37 100644
@@ -159,23 +166,23 @@ index 232987e..eaf4667 100644
 +</form>
  {{end}}
 diff --git a/board/urls.go b/board/urls.go
-index 011e86e..e62419d 100644
+index 95a290c..e251613 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -13,6 +13,8 @@ var Routes = maago.Routes{
  	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
- 	maago.POST("/boards/{id}/posts/new", "post_create", NewPost),
+ 	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost),
  	maago.GET("/posts/{id}", "post_detail", ShowPost),
-+	maago.POST("/posts/{id}", "comment_create", ShowPost),
++	maago.POST("/posts/{id}", "comment_create", CreateComment),
  	maago.POST("/posts/{id}/publish", "post_publish", Publish),
  	maago.POST("/posts/{id}/archive", "post_archive", Archive),
 +	maago.POST("/posts/{id}/delete", "post_delete", HidePost),
  }
 diff --git a/board/views.go b/board/views.go
-index e17a025..16f4b99 100644
+index e21546a..2591ad9 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -67,14 +67,50 @@ type PostIn struct {
+@@ -66,14 +66,63 @@ type PostIn struct {
  	ID int64 `maago:"path=id"`
  }
  
@@ -191,40 +198,53 @@ index e17a025..16f4b99 100644
 +	Form     CommentForm
 +}
 +
-+// ShowPost shows one post and its comments on GET, and adds a comment on
-+// POST. A hidden post is not found.
-+func ShowPost(ctx context.Context, in ShowPostIn) (maago.Result[PostPage], error) {
-+	db := maago.DBFrom(ctx)
-+	p, err := PostDetail(ctx, db, PostDetailParams{ID: in.ID})
++// ShowPost shows one post and its comments, and the form for one more.
++func ShowPost(ctx context.Context, db maago.DB, in ShowPostIn) (PostPage, error) {
++	return postPage(ctx, db, in.ID, in.Form)
++}
++
++// CreateComment adds a comment to the post, or shows the post again with
++// what is wrong with the form.
++func CreateComment(ctx context.Context, tx maago.Tx, in ShowPostIn) (maago.Result[PostPage], error) {
++	f := in.Form
++	page, err := postPage(ctx, tx, in.ID, f)
 +	if err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
-+	f := in.Form
-+	if f.Valid() {
-+		if _, err := InsertComment(ctx, db, NewCommentInput{PostID: p.ID, Text: f.Text.Value}); err != nil {
-+			return maago.Result[PostPage]{}, err
-+		}
-+		return maago.SeeOther[PostPage](PostDetailURL(p.ID)), nil
++	if !f.Valid() {
++		return maago.Show(page), nil
++	}
++	if _, err := InsertComment(ctx, tx, NewCommentInput{PostID: in.ID, Text: f.Text.Value}); err != nil {
++		return maago.Result[PostPage]{}, err
++	}
++	return maago.SeeOther[PostPage](PostDetailURL(in.ID)), nil
++}
++
++// postPage is the page of post id, with the comment form f. A hidden post
++// is not found.
++func postPage(ctx context.Context, db maago.DB, id int64, f CommentForm) (PostPage, error) {
++	p, err := PostDetail(ctx, db, PostDetailParams{ID: id})
++	if err != nil {
++		return PostPage{}, err
 +	}
 +	cs, err := PostComments(ctx, db, PostCommentsParams{PostID: p.ID})
-+	return maago.Show(PostPage{p, cs, f}), err
++	return PostPage{p, cs, f}, err
  }
  
 -// ShowPost shows one post.
--func ShowPost(ctx context.Context, in PostIn) (PostPage, error) {
--	p, err := PostDetail(ctx, maago.DBFrom(ctx), PostDetailParams{ID: in.ID})
+-func ShowPost(ctx context.Context, db maago.DB, in PostIn) (PostPage, error) {
+-	p, err := PostDetail(ctx, db, PostDetailParams{ID: in.ID})
 -	return PostPage{p}, err
 +// HidePost deletes a post as people see it: it hides it, and its comments
 +// with it. They stay in the database, so a comment never points at a post
 +// that is gone.
-+func HidePost(ctx context.Context, in PostIn) (maago.Result[PostPage], error) {
-+	db := maago.DBFrom(ctx)
-+	p, err := GetPost(ctx, db, in.ID)
++func HidePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
++	p, err := GetPost(ctx, tx, in.ID)
 +	if err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
 +	p.Hidden = true
-+	if err := UpdatePost(ctx, db, &p); err != nil {
++	if err := UpdatePost(ctx, tx, &p); err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
 +	return maago.SeeOther[PostPage](BoardDetailURL(p.BoardID)), nil
@@ -232,11 +252,11 @@ index e17a025..16f4b99 100644
  
  type NewBoardIn struct {
 diff --git a/board/web_test.go b/board/web_test.go
-index b424fe9..223478f 100644
+index 01bea0a..a0b282f 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -221,3 +221,43 @@ func TestPublishAndArchive(t *testing.T) {
- 		t.Errorf("%q %v", got.Status, err)
+@@ -233,3 +233,43 @@ func TestPublishAndArchive(t *testing.T) {
+ 		t.Errorf("a stale copy: %v", err)
  	}
  }
 +

@@ -2,11 +2,8 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Fix the typos
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-고친다: Title, board_detail. maago gen이 다시 지나간다.
+The fix: Title, board_detail. maago gen passes again.
 
 diff --git a/board/templates/home_page.html b/board/templates/home_page.html
 index 6ff9a09..c5ae98e 100644

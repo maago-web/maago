@@ -167,10 +167,10 @@ func TestBoardTutorialPostgresTrailer(t *testing.T) {
 			dir := t.TempDir()
 			p := filepath.Join(dir, "0001-Start-the-project.patch")
 			src := readFile(t, filepath.Join(steps, filepath.Base(p)))
-			if !strings.Contains(src, "앱이 import한다.\n") {
+			if !strings.Contains(src, "imports no driver.\n") {
 				t.Fatal("0001's message has changed: put the trailer elsewhere")
 			}
-			writeFile(t, p, strings.Replace(src, "앱이 import한다.\n", "앱이 import한다.\n\n"+c.trailers+"\n", 1))
+			writeFile(t, p, strings.Replace(src, "imports no driver.\n", "imports no driver.\n\n"+c.trailers+"\n", 1))
 			if _, err := walk(t, dir); err == nil || !strings.HasPrefix(err.Error(), "0001-Start-the-project.patch: "+c.want) {
 				t.Errorf("walk: %v", err)
 			}
