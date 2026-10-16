@@ -117,7 +117,7 @@ func TestShortTutorial(t *testing.T) {
 	if out, err := su.CombinedOutput(); err != nil || !strings.Contains(string(out), "created superuser "+email+" (id 1)\n") {
 		t.Fatalf("-createsuperuser: %v\n%s", err, out)
 	}
-	if err := serve(root, bin, "/admin/", http.StatusSeeOther, func(base string) error {
+	if err := serve(root, bin, "/admin/", http.StatusSeeOther, nil, false, func(base string) error {
 		return useAdmin(base, email, password)
 	}); err != nil {
 		t.Fatal(err)
@@ -302,7 +302,7 @@ func TestTutorialProject(t *testing.T) {
 	if out, err := su.CombinedOutput(); err != nil {
 		t.Fatalf("-createsuperuser: %v\n%s", err, out)
 	}
-	if err := serve(root, bin, "/admin/", http.StatusSeeOther, func(base string) error {
+	if err := serve(root, bin, "/admin/", http.StatusSeeOther, nil, false, func(base string) error {
 		return useAdmin(base, email, password)
 	}); err != nil {
 		t.Fatal(err)

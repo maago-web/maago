@@ -2,30 +2,36 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Wed, 14 Oct 2026 03:03:28 +0900
 Subject: [PATCH] Me
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-로그인한 사람이 자기가 쓴 글을 본다. 브라우저에서는 /me, 프런트엔드는
-API 토큰으로 GET /api/me.
+A signed-in user sees their own posts: /me in the browser, GET /api/me
+for a frontend with an API token.
 
-- 쿼리 my_posts.sql: author_id의 글을 게시판 이름과 함께, 새것부터. 초안과
-  예약 글도 넣는다(내 글이니까). 숨긴 글은 뺀다
-- 뷰 Me 하나를 라우트 둘이 쓴다. me는 페이지라 MePage가 me_page.html로
-  그려지고, api_me는 maago.API라 같은 MePage가 JSON이 된다. 둘 다
-  maago.LoginRequired: 로그인하지 않은 브라우저는 로그인 화면으로, 토큰
-  없는 API는 401과 WWW-Authenticate: Bearer
-- 누가 물었는지는 maago.UserFrom[auth.User]가 준다. 돌려주는 것은
-  auth.User가 아니라 MePage(이메일과 글)다. User를 통째로 JSON에 넣으면
-  비밀번호 해시도 나간다
-- base.html 머리에 내 글 링크
+- The query my_posts.sql: the posts of author_id with their boards'
+  names, newest first. Drafts and scheduled posts are in (they are
+  mine); hidden posts are out
+- One view, Me, serves two routes:
 
-User에 필드(예: 별명)를 더하고 싶다면 auth/models.go의 User에 필드를 적고
-maago makemigrations를 돌린다. maago add가 복사한 앱은 이제 이 프로젝트의
-코드다. 이 튜토리얼은 auth/를 패치에 넣지 않아서 하지 않는다.
+      maago.GET("/me", "me", Me),
+      maago.GET("/api/me", "api_me", Me, maago.API),
 
-시험은 앤의 초안·게시·예약 글이 나오고 숨긴 글과 밥의 글은 나오지 않는
-것을 페이지와 JSON 둘에서 본다.
+      func Me(ctx context.Context, u auth.User, db maago.DB, in struct{}) (MePage, error)
+
+  me is a page, so MePage draws with me_page.html; api_me has maago.API,
+  so the same MePage goes out as JSON. u auth.User makes both need a
+  sign-in: a browser goes to the sign-in page, an API call without a
+  token gets a 401 with WWW-Authenticate: Bearer
+- What goes out is a MePage (the email and the posts), not the
+  auth.User: the whole User in the JSON would send the password's hash
+  too
+- A link to my posts in base.html's header
+
+To give User a field (a nickname, say), write it in User in
+auth/models.go and run maago makemigrations: what maago add copied is
+this project's code now. This tutorial leaves auth/ out of its patches,
+so it does not.
+
+The test sees ann's draft, published and scheduled posts, and not her
+hidden one or bob's, on the page and in the JSON.
 
 diff --git a/board/queries/my_posts.sql b/board/queries/my_posts.sql
 new file mode 100644
@@ -70,25 +76,25 @@ index 0000000..bedd20d
 +</ul>
 +{{end}}
 diff --git a/board/urls.go b/board/urls.go
-index 12c67c9..3f9dfd5 100644
+index b747943..45f151f 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -20,8 +20,10 @@ var Routes = maago.Routes{
- 	maago.POST("/posts/{id}/delete", "post_delete", RemovePost, maago.LoginRequired),
- 	maago.POST("/posts/{id}/attachments", "attachment_add", Attach, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/delete", "post_delete", RemovePost),
+ 	maago.POST("/posts/{id}/attachments", "attachment_add", Attach),
  	maago.GET("/attachments/{id}", "attachment", DownloadAttachment),
-+	maago.GET("/me", "me", Me, maago.LoginRequired),
++	maago.GET("/me", "me", Me),
  
  	// JSON for a frontend on another origin: main trusts it in Config.Origins.
  	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
- 	maago.POST("/api/boards/{id}/posts", "api_post_create", APICreatePost, maago.API, maago.LoginRequired),
-+	maago.GET("/api/me", "api_me", Me, maago.API, maago.LoginRequired),
+ 	maago.POST("/api/boards/{id}/posts", "api_post_create", APICreatePost, maago.API),
++	maago.GET("/api/me", "api_me", Me, maago.API),
  }
 diff --git a/board/views.go b/board/views.go
-index e747f37..2802719 100644
+index 3d48202..a6133c9 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -435,3 +435,18 @@ func deletePost(ctx context.Context, tx maago.Tx, id int64) error {
+@@ -433,3 +433,17 @@ func deletePost(ctx context.Context, tx maago.Tx, id int64) error {
  	})
  	return nil
  }
@@ -102,16 +108,15 @@ index e747f37..2802719 100644
 +// page in the browser, and JSON with an API token. One view serves both
 +// routes; MePage, not auth.User, is what goes out, so the password's hash
 +// never does.
-+func Me(ctx context.Context, in struct{}) (MePage, error) {
-+	u, _ := maago.UserFrom[auth.User](ctx) // the routes require login
-+	ps, err := MyPosts(ctx, maago.DBFrom(ctx), MyPostsParams{AuthorID: u.ID})
++func Me(ctx context.Context, u auth.User, db maago.DB, in struct{}) (MePage, error) {
++	ps, err := MyPosts(ctx, db, MyPostsParams{AuthorID: u.ID})
 +	return MePage{Email: u.Email, Posts: ps}, err
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index dad8cfd..153a6df 100644
+index b22c4c7..f77d47b 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -627,3 +627,70 @@ func TestDeleteWithoutComments(t *testing.T) {
+@@ -629,3 +629,70 @@ func TestDeleteWithoutComments(t *testing.T) {
  		t.Errorf("the post is still there: %v", err)
  	}
  }

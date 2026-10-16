@@ -2,33 +2,34 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Export posts as CSV
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-게시판의 글을 CSV 파일로 내려받는다.
+Download a board's posts as a CSV file.
 
-- CSV는 페이지가 아니다. 그래서 뷰의 모양(func(ctx, In) (P, error))을
-  벗어난다: 탈출구 뷰, 그냥 http.HandlerFunc다. 라우트 표에는 다른 뷰처럼
-  한 줄로 적는다. 경로 값은 r.PathValue("id")로 직접 읽는다. In이 없으니
-  URL 함수의 인자도 문자열이다(BoardExportURL(id string)). 템플릿의
-  {{url "board_export" .Board.ID}}는 정수도 받는다
-- DB는 여기서도 maago.DBFrom(r.Context())다
-- 글을 한꺼번에 읽지 않는다. export_rows.sql이 id 다음부터 500개씩 읽고
-  (WHERE p.id > :after ORDER BY p.id), 읽은 만큼 써서 보낸다. 긴 게시판도
-  메모리에 다 올라오지 않는다
-- 두 Flush가 다르다. csv.Writer.Flush는 CSV 버퍼를 w로 옮긴다.
-  http.Flusher의 Flush는 w에 쌓인 것을 클라이언트로 보낸다
-- encoding/csv가 쉼표와 따옴표가 든 제목을 감싼다
-- =, +, -, @로 시작하는 제목은 앞에 '를 붙인다(cell). 스프레드시트가 그
-  칸을 수식으로 실행하지 않게 한다(CSV 주입)
+- A CSV is not a page, so this view leaves the shape of a view behind:
+  it is an escape view, a plain http.HandlerFunc. The routes list it in
+  one line like any other. It reads the path value itself, with
+  r.PathValue("id"). With no In, the URL function takes a string
+  (BoardExportURL(id string)); {{url "board_export" .Board.ID}} in a
+  template takes the integer too
+- A func(w, r) has no parameters to ask for the database with, so it
+  reads it from the request: maago.DBFrom(r.Context()). Only an escape
+  view does; a typed view takes db maago.DB
+- It never reads every post at once. export_rows.sql reads 500 at a time
+  from after an id (WHERE p.id > :after ORDER BY p.id), and each batch is
+  written and sent as it comes. A long board never sits whole in memory
+- Two Flushes differ. csv.Writer.Flush moves the CSV buffer into w; the
+  Flush of http.Flusher sends what w has to the client
+- encoding/csv quotes a title with commas or quotes in it
+- A title that starts with =, +, - or @ gets a ' in front (cell), so a
+  spreadsheet does not run the cell as a formula (CSV injection)
 
-중간에 오류가 나면? 첫 쪽을 보낸 뒤라면(Flush) 200과 머리가 이미 나갔다.
-그냥 끝내면 받는 쪽은 잘린 파일을 온전한 파일로 안다. 그래서 기록하고
-panic(http.ErrAbortHandler)로 연결을 끊는다(abort). 받는 쪽은 받다 실패한
-것을 안다. 받는 쪽이 떠나 쓰기가 실패해도 같다. 아직 아무것도 보내지
-않았다면(csv.Writer가 첫 줄을 쥐고 있다) 보통 뷰처럼 panic(err)이 500이
-되고 Config.OnError가 듣는다.
+An error halfway? Once the first batch is out (Flush), the 200 and the
+headers have gone. Ending there would hand the client a cut file as if
+whole. So the view logs it and breaks the connection with
+panic(http.ErrAbortHandler) (abort): the client knows the download
+failed. The same goes when the client leaves and a write fails. While
+nothing has been sent yet (csv.Writer still holds the first line), a
+panic(err) is a 500 as in any view, and Config.OnError hears it.
 
 diff --git a/board/export.go b/board/export.go
 new file mode 100644

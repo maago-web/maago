@@ -82,7 +82,7 @@ Maago 칸의 머리 말: "복사한 auth가 준다"는 0020의 `maago add auth`�
 | 73 | `77f2c7a` REFACTOR 소소한 코드 스타일링 처리 | — | 스타일 리팩터: `gofmt`가 단계마다 본다 | — |
 | 74 | `9d19e1f` ADD 구글 캘린더 일정 수정, 삭제, 가져오기, 목록 구현과 테스트 코드 | 0018 | 게시판이 시험한다: 실패와 재시도(5xx는 다시, 4xx는 그만) | M4 |
 | 75 | `292b6f4` ADD 구글 캘린더 연동 구현 | 0018 | 게시판이 시험한다: 연동: 게시하면 알린다(0032에서 쓸 때가 아니라 게시할 때로) | M4 |
-| 76 | `86e3d97` ADD BackgroundTasks 로 구글 캘린더 작업 처리 | 0018 | 게시판이 시험한다: 응답 뒤의 일은 goroutine과 `context.WithoutCancel`(D-118) | M4 |
+| 76 | `86e3d97` ADD BackgroundTasks 로 구글 캘린더 작업 처리 | 0018 | 게시판이 시험한다: 커밋 뒤의 일은 `maago.AfterCommit`(D-150, 응답 전에 돌고 `maago.Serve`가 기다린다). 응답 뒤까지 남는 일은 v0.2의 outbox | M4 |
 | 77 | `b951305` ADD BackgroundTasks와 StreamingResponse | 0017 | 게시판이 시험한다: 스트리밍 응답은 탈출구 뷰(D-41) | M4 |
 | 78 | `c294fc9` ADD Calendar 에 Streaming 처리 | 0017 | 게시판이 시험한다: 게시판의 CSV를 쪽마다 흘려 보낸다 | M4 |
 | 79 | `17bc140` ADD Sentry 패키지 추가와 설정 | 0008 | main이 쓴다: Sentry 대신 `Config.OnError`, 5xx와 panic이 간다(원본도 설정만) | M4 |
@@ -111,4 +111,4 @@ Maago 칸의 머리 말: "복사한 auth가 준다"는 0020의 `maago add auth`�
 | 0027 | 일부러 틀린다: 없는 static 파일 | M7 |
 | 0028 | 0027을 고친다 | M7 |
 | 0032 | 초안과 예약 글은 작성자·staff만(D-142) | M8 |
-| 0033 | 내보내기: 바이너리 하나, 환경 변수, Dockerfile(D-142, 원본에는 배포 커밋이 없다) | M8 |
+| 0033 | 내보내기: 바이너리 하나(시작할 때 `maago.Migrate`, `maago.Serve`), 환경 변수, Dockerfile(D-142·D-153, 원본에는 배포 커밋이 없다) | M8 |

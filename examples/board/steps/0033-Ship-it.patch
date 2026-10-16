@@ -6,43 +6,101 @@ MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-게시판을 내보낸다. 바이너리 하나와 환경 변수, 그리고 컨테이너 예시.
+Ship the board: one binary, its environment, and a container to put it
+in.
 
-- go build 하나가 게시판 전부다. 템플릿과 static(Tailwind의 출력도)은
-  생성된 코드가 //go:embed로 싣고, DB 드라이버는 main이 import한다.
-  바이너리 밖에 있는 것은 DB와 첨부의 media/뿐이다
-- 듣는 포트는 PORT(없으면 8000). 호스팅과 컨테이너가 주는 이름이다. 로그
-  줄과 BOARD_SITE_URL의 기본도 같은 포트를 쓴다
-- 설정은 모두 환경 변수다: MAAGO_DATABASE_URL, PORT, BOARD_SITE_URL(메일의
-  링크가 가는 곳, 운영 주소로), BOARD_WEBHOOK_URL과 BOARD_WEBHOOK_TOKEN.
-  .env는 개발용이고 이미지에 넣지 않는다(.dockerignore)
-- 마이그레이션은 바이너리가 하지 않는다. 새 판을 띄우기 전에 소스에서
-  운영 주소로 maago migrate를 돌린다:
+- One go build is the whole board. The generated code carries the
+  templates and static files (Tailwind's output too) with //go:embed,
+  and main imports the database driver. Outside the binary are only the
+  database and the attachments' media/
+- The binary migrates its database as it starts. main carries the
+  migrations and applies them before OpenDB:
 
-      MAAGO_DATABASE_URL=postgres://… maago migrate
+      //go:embed migrations
+      var migrations embed.FS
 
-- Dockerfile은 두 단계다. golang 이미지에서 cgo 없이 짓고(C 라이브러리가
-  필요 없는 정적 바이너리), 셸도 없는 distroless의 nonroot 이미지에
-  바이너리와 빈 media/를 옮긴다. media/는 볼륨이고 그 사용자(65532)의
-  것이다. 생성물(*_gen.go)을 커밋한 저장소에서 짓는다. 빌드에는 maago
-  명령이 필요 없다
-- 이 튜토리얼의 go.mod는 go.work가 가리키는 maago를 쓴다. 이미지는 go.work
-  없이 지으니, 내놓은 maago 판을 go get한 뒤에 빌드된다
+      applied, err := maago.Migrate(ctx, maago.DBConfig{}, migrations)
+
+  It applies what the database has not, with the record and the checks
+  of maago migrate: a file changed since it was applied, or a migration
+  the database has and the binary does not, stops it. Two copies that
+  start at once apply each file once; the second waits. -createsuperuser
+  runs after it too, so it works on an empty database
+- It serves with maago.Serve(ctx, ":"+port, h). On SIGTERM, as a
+  platform stops a container, it takes no new connections and waits up
+  to 30s for the requests running (what they gave maago.AfterCommit
+  included); a second signal ends it at once
+- It listens on PORT (8000 without it), the name hosts and containers
+  give it
+- Everything else comes from the environment too: MAAGO_DATABASE_URL,
+  BOARD_SITE_URL, BOARD_WEBHOOK_URL and BOARD_WEBHOOK_TOKEN.
+  BOARD_SITE_URL is required now: without it the server stops at once
+  with
+
+      BOARD_SITE_URL is not set: set it to the site's address, https://board.example.com in production, http://localhost:8000 in development
+
+  A default would serve production with http:// links in the mails and
+  a session cookie without Secure. In development, set it in the shell:
+  BOARD_SITE_URL=http://localhost:8000 go run . (.env holds only the
+  database's address). .env is not for the image (.dockerignore)
+- The Dockerfile has two stages: build without cgo in the golang image
+  (a static binary, no C library needed), then move the binary and an
+  empty media/ to distroless's nonroot image, which has no shell.
+  media/ is a volume, owned by that user (65532). Build from a checkout
+  with the generated *_gen.go committed: the build needs no maago
+  command
+- This tutorial's go.mod uses the maago go.work points at. The image
+  builds without go.work, so go get a released maago first
 
       docker build -t board .
-      docker run --rm -e MAAGO_DATABASE_URL=postgres://… board -createsuperuser
+      docker run --rm -e MAAGO_DATABASE_URL=postgres://… -e MAAGO_SUPERUSER_EMAIL=… -e MAAGO_SUPERUSER_PASSWORD=… board -createsuperuser
       docker run -p 8000:8000 -e MAAGO_DATABASE_URL=postgres://… \
           -e BOARD_SITE_URL=https://board.example.com -v board-media:/srv/media board
 
-  첫 staff 계정은 -createsuperuser에 MAAGO_SUPERUSER_EMAIL과
-  MAAGO_SUPERUSER_PASSWORD를 -e로 함께 준다. 컨테이너 안의 localhost는
-  호스트 기계가 아니다: DB 주소는 컨테이너에서 닿는 이름으로 쓴다. SQLite로
-  내보낸다면 DB 파일도 볼륨에 둔다
-- 운영 전에 main에서 고칠 것 둘: 메일은 아직 로그로 간다
-  (authlib.ConsoleMail). 실제로 보내려면 authlib.SMTP(addr, from, auth)
-  한 줄과 그 설정이다. Config.Origins의 localhost:5173은 개발 서버다.
-  운영 프런트엔드의 출처로 바꾼다
-- 프록시가 /app을 떼고 넘기면 main의 StripPrefix를 뺀다(0019)
+  localhost in a container is not the host machine: write the
+  database's address as the container reaches it
+
+Before each release:
+
+- Back the database up (pg_dump, or a snapshot of its volume). The
+  binary migrates as it starts, so nobody looks at a migration between
+  the build and the database
+- There are no down migrations. A binary older than the database stops
+  at the start with "the database is newer than this code": fix
+  forward with a new release, or restore the backup. In a rolling
+  release, an old copy that restarts stops the same way
+- A long ALTER on PostgreSQL holds the table: the old copies' requests
+  on it wait until it ends
+
+On a platform:
+
+- Give it more than 30s to stop: Docker's --stop-timeout (10s by
+  default), Fly's kill_timeout (5s), Kubernetes'
+  terminationGracePeriodSeconds (30s) all fall short of Serve's wait.
+  For Kubernetes' preStop, distroless has no sleep binary: use the
+  sleep action
+- Health checks: the image has no curl, so no Dockerfile HEALTHCHECK.
+  Use the platform's HTTP check on /app/ (it reads the database), with
+  time to start: a copy waits for another's migration for up to 10
+  minutes before it listens
+- Behind a proxy, every request's r.RemoteAddr is the proxy, and the
+  limit on sign-in attempts counts them all as one IP. Set RemoteAddr
+  from the proxy's header in a middleware in main, for the proxy's own
+  address alone (0021)
+
+With SQLite instead: give the file an absolute path on a volume
+(sqlite:/data/app.db; a relative one starts an empty database when the
+working directory differs), in a directory owned by the image's user
+(65532: made in the build stage and copied with --chown, as media/ is);
+and
+while a new copy migrates, the old one's writes wait 5 seconds and then
+fail with a 500.
+
+Two things to change in main before production: the mails still go to
+the log (authlib.ConsoleMail); sending them is one line,
+authlib.SMTP(addr, from, auth), and its settings. Config.Origins'
+localhost:5173 is the dev server: put the production frontend's origin
+there. When the proxy takes /app off, drop main's StripPrefix (0019).
 
 diff --git a/.dockerignore b/.dockerignore
 new file mode 100644
@@ -84,29 +142,77 @@ index 0000000..ae2bd27
 +EXPOSE 8000
 +ENTRYPOINT ["/srv/board"]
 diff --git a/main.go b/main.go
-index f7df456..21ed1d8 100644
+index f7df456..08ffb04 100644
 --- a/main.go
 +++ b/main.go
-@@ -40,10 +40,12 @@ func main() {
+@@ -4,6 +4,7 @@ package main
+ import (
+ 	"cmp"
+ 	"context"
++	"embed"
+ 	"flag"
+ 	"log"
+ 	"net/http"
+@@ -19,12 +20,27 @@ import (
+ 	_ "github.com/jackc/pgx/v5/stdlib" // the database driver: the app imports it, not maago
+ )
+ 
++// migrations are the project's migrations, in the binary: it migrates
++// its database as it starts, where there is no maago command.
++//
++//go:embed migrations
++var migrations embed.FS
++
+ func main() {
+ 	createSuperuser := flag.Bool("createsuperuser", false, "create a staff account from MAAGO_SUPERUSER_EMAIL and MAAGO_SUPERUSER_PASSWORD")
+ 	flag.Parse()
+ 	ctx := context.Background()
+-	// The address comes from MAAGO_DATABASE_URL, or .env in the working
+-	// directory.
++	// The database's address comes from MAAGO_DATABASE_URL, or .env in the
++	// working directory. Its migrations first, before OpenDB: what is
++	// applied already is skipped, and of two copies starting at once one
++	// applies each file and the other waits.
++	applied, err := maago.Migrate(ctx, maago.DBConfig{}, migrations)
++	if err != nil {
++		log.Fatal(err)
++	}
++	for _, name := range applied {
++		log.Printf("applied %s", name)
++	}
+ 	db, err := maago.OpenDB(ctx, maago.DBConfig{})
+ 	if err != nil {
+ 		log.Fatal(err)
+@@ -40,10 +56,17 @@ func main() {
  		log.Printf("created %s", u.Email)
  		return
  	}
+-	// The links of the mails go to SiteURL, never to the request's Host.
 +	// The port to listen on: PORT, as hosts and containers set it.
 +	port := cmp.Or(os.Getenv("PORT"), "8000")
- 	// The links of the mails go to SiteURL, never to the request's Host.
++	// The links of the mails go to SiteURL, never to the request's Host,
++	// and its scheme decides the session cookie's Secure. Required: a
++	// default would serve production with http:// links and no Secure.
  	// The mails go to the log here; a real server sends them with
  	// authlib.SMTP(addr, from, auth).
 -	auth.SiteURL = cmp.Or(os.Getenv("BOARD_SITE_URL"), "http://localhost:8000")
-+	auth.SiteURL = cmp.Or(os.Getenv("BOARD_SITE_URL"), "http://localhost:"+port)
++	auth.SiteURL = os.Getenv("BOARD_SITE_URL")
++	if auth.SiteURL == "" {
++		log.Fatal("BOARD_SITE_URL is not set: set it to the site's address, https://board.example.com in production, http://localhost:" + port + " in development")
++	}
  	authlib.Mail = authlib.ConsoleMail
  	// Where to announce published posts. Settings of the app are the app's own
  	// package variables, filled in here.
-@@ -80,6 +82,6 @@ func main() {
+@@ -80,6 +103,10 @@ func main() {
  	}
  	// StripPrefix takes /app off the path before the routes see it. A proxy
  	// in front that takes it off already gets h alone.
 -	log.Print("listening on http://localhost:8000/app/")
 -	log.Fatal(http.ListenAndServe(":8000", http.StripPrefix("/app", h)))
 +	log.Printf("listening on http://localhost:%s/app/", port)
-+	log.Fatal(http.ListenAndServe(":"+port, http.StripPrefix("/app", h)))
++	// Serve stops on SIGTERM, as a platform stops a container: it takes no
++	// new connections and lets the running requests finish, for up to 30s.
++	if err := maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h)); err != nil {
++		log.Fatal(err)
++	}
  }

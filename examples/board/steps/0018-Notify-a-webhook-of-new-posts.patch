@@ -2,37 +2,52 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Notify a webhook of new posts
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-새 글이 올라오면 다른 서비스(채팅 봇 같은 것)에 알린다. 웹훅: 정해 둔
-주소에 JSON을 POST한다.
+Tell another service (a chat bot, say) of each new post. A webhook: POST
+JSON to an address set in advance.
 
-- 주소와 토큰은 앱의 설정이다. 앱의 패키지 변수 board.Webhook에 두고,
-  main이 환경 변수(BOARD_WEBHOOK_URL, BOARD_WEBHOOK_TOKEN)에서 채운다.
-  토큰은 코드에 적지 않는다. Authorization: Bearer 머리로 보낸다
-- 알림은 응답을 늦추지 않는다. savePost가 저장한 뒤
-  go notify(context.WithoutCancel(ctx), hook, p)로 따로 보낸다. 요청의 ctx는
-  응답이 끝나면 취소된다. WithoutCancel은 값(DB 등)은 두고 취소만 뗀다
-- 실패하면 1초, 2초 뒤에 다시 보낸다. 세 번까지다. 5xx와 응답 없음만
-  다시 보낸다. 4xx는 다시 보내도 같다(토큰이 틀렸거나 주소가 없다).
-  끝내 실패하면 기록한다. 글은 이미 저장되었다
-- notify는 hook을 값으로 받는다. 요청 때 읽은 설정으로 보낸다
+- The address and the token are the app's settings. They live in the
+  app's package variable board.Webhook, and main fills them from the
+  environment (BOARD_WEBHOOK_URL, BOARD_WEBHOOK_TOKEN). The token is not
+  in the code. It goes as an Authorization: Bearer header
+- The webhook hears of a post only once it is saved for good. savePost
+  registers the call after the insert:
 
-시험은 notify를 직접 부른다. 가짜 웹훅은 httptest.NewServer다. 두 번 503,
-그다음 200이면 세 번 보내고 성공한다. 400이면 한 번에 그친다. 기다림은
-패키지 변수 retryWait를 1ms로 줄인다.
+      maago.AfterCommit(ctx, func(ctx context.Context) {
+          if err := notify(ctx, Webhook, p); err != nil {
+              log.Printf("notify of post %d: %v", p.ID, err)
+          }
+      })
 
-프로세스가 알림 도중 내려가면 알림은 사라진다. 꼭 가야 하는 알림이면
-DB에 적어 두고 따로 보내는 작업 큐가 필요하다. 그것은 이 튜토리얼 밖이다.
+  f runs after the request's transaction commits, before the response.
+  A rollback drops it, so a post that was never saved is never
+  announced. By then the transaction and its connection are let go. f
+  returns no error: the commit is done, so a failure can only be logged.
+  Its ctx is not cancelled when the request ends, and maago.Serve waits
+  for it when the server stops. The response waits for it too, so keep
+  it short: what takes long belongs in an outbox (below)
+- notify tries again after 1s and 2s, three tries in all, but only after
+  a 5xx or no answer. A 4xx would be the same again (a wrong token, an
+  address that is not there). Its tries and waits share one deadline,
+  notifyWithin (10s): a webhook that is down slows the request by no
+  more than that, and one that never answers uses it all on the first
+  try
+
+The test calls notify directly, with httptest.NewServer as the fake
+webhook. 503 twice, then 200: three tries and success. 400: one try.
+The package variable retryWait shrinks the waits to 1ms, and
+notifyWithin the deadline, for a server that never answers.
+
+A notice that must arrive even when the webhook is down for long, or
+the process stops, needs a row in the database and a worker that sends
+it (an outbox). That is beyond this tutorial.
 
 diff --git a/board/notify.go b/board/notify.go
 new file mode 100644
-index 0000000..2b9b203
+index 0000000..79c39ec
 --- /dev/null
 +++ b/board/notify.go
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,70 @@
 +package board
 +
 +import (
@@ -54,14 +69,20 @@ index 0000000..2b9b203
 +// retryWait is how long notify waits before each try after the first.
 +var retryWait = []time.Duration{time.Second, 2 * time.Second}
 +
++// notifyWithin bounds notify, its tries and waits together. It runs after
++// the commit but before the response (maago.AfterCommit), so a webhook
++// that is down slows the request by no more than this.
++var notifyWithin = 10 * time.Second
++
 +// notify tells hook of post p. It tries again after a 5xx or no
-+// answer, and gives up after a 4xx, which another try would not change.
-+// It runs after the response, on a context the request's end does not
-+// cancel (D-118).
++// answer, and gives up after a 4xx, which another try would not change,
++// or once notifyWithin is up.
 +func notify(ctx context.Context, hook Hook, p Post) error {
 +	if hook.URL == "" {
 +		return nil
 +	}
++	ctx, cancel := context.WithTimeout(ctx, notifyWithin)
++	defer cancel()
 +	body, err := json.Marshal(map[string]any{"id": p.ID, "title": p.Title, "path": PostDetailURL(p.ID)})
 +	if err != nil {
 +		return err
@@ -71,14 +92,16 @@ index 0000000..2b9b203
 +		if err == nil || !again || i == len(retryWait) {
 +			return err
 +		}
-+		time.Sleep(retryWait[i])
++		select {
++		case <-time.After(retryWait[i]):
++		case <-ctx.Done():
++			return err
++		}
 +	}
 +}
 +
 +// send posts body to hook once, and reports whether to try again.
 +func send(ctx context.Context, hook Hook, body []byte) (again bool, err error) {
-+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-+	defer cancel()
 +	r, err := http.NewRequestWithContext(ctx, "POST", hook.URL, bytes.NewReader(body))
 +	if err != nil {
 +		return false, err
@@ -97,10 +120,10 @@ index 0000000..2b9b203
 +}
 diff --git a/board/notify_test.go b/board/notify_test.go
 new file mode 100644
-index 0000000..3c01cec
+index 0000000..b3c8ef1
 --- /dev/null
 +++ b/board/notify_test.go
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,72 @@
 +package board
 +
 +import (
@@ -155,9 +178,26 @@ index 0000000..3c01cec
 +	if err := notify(t.Context(), Hook{}, post); err != nil {
 +		t.Errorf("no webhook: %v", err)
 +	}
++
++	// A webhook that never answers: notify gives up at notifyWithin, the
++	// first try having used it all.
++	defer func(d time.Duration) { notifyWithin = d }(notifyWithin)
++	notifyWithin = 50 * time.Millisecond
++	block, calls := make(chan struct{}), 0
++	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		calls++
++		<-block
++	}))
++	start := time.Now()
++	err := notify(t.Context(), Hook{srv.URL, "s3cret"}, post)
++	close(block)
++	srv.Close()
++	if err == nil || calls != 1 || time.Since(start) > time.Second {
++		t.Errorf("no answer: %v, %d calls, %v", err, calls, time.Since(start))
++	}
 +}
 diff --git a/board/views.go b/board/views.go
-index 123157e..4387bba 100644
+index 123157e..a103ed4 100644
 --- a/board/views.go
 +++ b/board/views.go
 @@ -2,6 +2,7 @@ package board
@@ -173,12 +213,12 @@ index 123157e..4387bba 100644
  // break the model's unique=(BoardID,Title) as a 500, and two notices may
  // not be pinned at once. When one fails, it says so on f, as Validate
 -// would, and reports false.
-+// would, and reports false. A saved post is announced to the webhook
-+// after the response.
++// would, and reports false. A saved post is announced to the webhook once
++// the transaction has committed: a post rolled back is never announced.
  func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Post, bool, error) {
  	taken, err := PostTitleTaken(ctx, tx, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
  	if err != nil {
-@@ -224,7 +226,16 @@ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Pos
+@@ -224,7 +226,15 @@ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Pos
  		BoardID: boardID, Title: f.Title.Value, Body: f.Body.Value,
  		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
  	})
@@ -186,12 +226,11 @@ index 123157e..4387bba 100644
 +	if err != nil {
 +		return Post{}, false, err
 +	}
-+	hook := Webhook
-+	go func() {
-+		if err := notify(context.WithoutCancel(ctx), hook, p); err != nil {
++	maago.AfterCommit(ctx, func(ctx context.Context) {
++		if err := notify(ctx, Webhook, p); err != nil {
 +			log.Printf("notify of post %d: %v", p.ID, err)
 +		}
-+	}()
++	})
 +	return p, true, nil
  }
  

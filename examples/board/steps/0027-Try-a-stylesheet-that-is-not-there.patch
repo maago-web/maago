@@ -2,19 +2,18 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Tue, 13 Oct 2026 20:39:32 +0900
 Subject: [PATCH] Try a stylesheet that is not there
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-일부러 틀려 본다. base.html이 static/에 없는 board/style.css를 링크한다.
+A mistake on purpose. base.html links board/style.css, which static/
+does not have.
 
-{{static}}의 이름은 글자 그대로라야 하고, maago gen이 그 앱의 static/에
-있는지 본다. 브라우저에서 404가 나기 전에 막는다:
+The name in {{static}} must be written out as it is, and maago gen
+checks that the app's static/ has it. It stops before a browser gets a
+404:
 
     board/templates/base.html:4:39: static "board/style.css": no file board/static/style.css
       fix: add it to board/static, or name one of its files
 
-다음 커밋이 되돌린다.
+The next commit puts it back.
 
 Maago-Expect: board/templates/base.html:4:39: static "board/style.css": no file board/static/style.css
 

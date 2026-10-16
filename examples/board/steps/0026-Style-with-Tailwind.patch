@@ -2,25 +2,24 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Tue, 13 Oct 2026 20:39:20 +0900
 Subject: [PATCH] Style with Tailwind
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-화면을 Tailwind CSS로 꾸민다. Node도 npm도 없다. maago tailwind가 Tailwind
-CSS의 standalone 실행 파일(고정한 버전, 체크섬을 확인해 사용자 캐시에 한 번
-받는다)을 돌린다.
+Dress the pages in Tailwind CSS. No Node, no npm: maago tailwind runs
+Tailwind CSS's standalone binary (a pinned version, fetched once into
+the user cache, its checksum checked).
 
-- board/tailwind.css: 입력. source(none)과 @source "./templates"로 게시판의
-  템플릿에서만 클래스를 찾는다. 복사한 auth의 화면은 그대로 둔다
-- board/static/tailwind.css: maago tailwind의 출력. 사람이 쓰는 파일이 아니지만
-  커밋한다(생성물 표시가 없는 보통 파일). maago check는 이 파일이 낡았는지
-  보지 않으므로 템플릿의 클래스를 바꾸면 maago tailwind를 다시 돌린다
+- board/tailwind.css: the input. source(none) and @source "./templates"
+  look for classes in the board's templates alone; the copied auth's
+  pages stay as they are
+- board/static/tailwind.css: the output of maago tailwind. Nobody
+  writes it, but it is committed (a plain file, not marked generated).
+  maago check does not see whether it is stale, so after changing the
+  classes in a template, run maago tailwind again
 
-base.html은 {{static "board/tailwind.css"}}로 링크한다. 앱마다 static/의
-파일을 /static/<앱>/에서 서빙하고, 링크에는 내용의 해시가 붙은 이름이
-나간다. 그 이름은 브라우저가 한 해 동안 다시 묻지 않는다. 내용이 바뀌면
-이름이 바뀌니 낡은 CSS가 남지 않는다. 접두어 /app 아래에서는
-/app/static/board/tailwind.<해시>.css.
+base.html links it with {{static "board/tailwind.css"}}. Each app's
+static/ files are served at /static/<app>/, and the link names the file
+with a hash of its content. Browsers do not ask for that name again for
+a year; new content gets a new name, so no stale CSS stays. Under the
+prefix /app it is /app/static/board/tailwind.<hash>.css.
 
 diff --git a/board/static/tailwind.css b/board/static/tailwind.css
 new file mode 100644
@@ -60,7 +59,7 @@ index a7f4dab..3df11d2 100644
  </body>
  </html>
 diff --git a/board/web_test.go b/board/web_test.go
-index c9eedf2..75867f1 100644
+index c92fdca..82fb705 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -8,6 +8,7 @@ import (

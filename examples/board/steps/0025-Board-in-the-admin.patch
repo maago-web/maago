@@ -2,55 +2,56 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Tue, 13 Oct 2026 15:24:48 +0900
 Subject: [PATCH] Board in the admin
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-main이 board.Admin도 넘긴다. /app/admin/에 게시판의 세 모델이 생긴다.
+main passes board.Admin too. /app/admin/ gets the board's three models.
 
-모델이 admin에서 어떻게 보이는지는 모델 태그로 말한다.
+How a model looks in the admin, its model tag says:
 
-- admin_list=(Title,BoardID,Status,AuthorID,CreatedAt): 글 목록의 칸.
-  없으면 모든 필드다(본문까지)
-- admin_search=(Title,Body): 검색 상자가 볼 문자열 필드. 대소문자를
-  무시하는 LIKE다
-- admin_filter=(Status,BoardID,Hidden): 목록 위의 거르개. 선택지, bool,
-  fk 필드만 된다
-- 댓글에도 셋, 게시판에는 검색 하나. 필드가 없거나 검색에 문자열이 아닌 필드를
-  쓰면 maago gen이 그 자리를 짚는다
+- admin_list=(Title,BoardID,Status,AuthorID,CreatedAt): the columns of
+  the list of posts. Without it, every field (the body too)
+- admin_search=(Title,Body): the string fields the search box looks in,
+  a LIKE that ignores case
+- admin_filter=(Status,BoardID,Hidden): the filters above the list.
+  Only fields with choices, bools and foreign keys
+- Three for comments too, and a search for boards. A field that is not
+  there, or a field in the search that is not a string, maago gen points
+  at
 
-태그는 스키마가 아니다. maago makemigrations는 "no changes"다.
+Tags are not the schema: maago makemigrations says "no changes".
 
-첫 계정은 0021의 -createsuperuser가 만든 superuser다. superuser는
-admin에서 무엇이든 한다. 편집자를 두려면 superuser가 admin에서 두 가지를
-한다.
+The first account is the superuser of 0021's -createsuperuser. A
+superuser does anything in the admin. For an editor, the superuser does
+two things in the admin:
 
-- auth의 User 화면에서 그 사용자의 is_staff를 켠다. staff가 아니면 권한
-  행이 있어도 admin에 들어오지 못한다
-- auth의 Permission을 더한다. App은 board, ModelName은 Post, Action은
-  view, add, change, delete 중 하나. App과 ModelName은 고르는 상자 없이
-  패키지 이름과 Go 이름 그대로 적는다. 철자가 틀린 행은 아무것도 허락하지
-  않는다
+- In auth's User page, turn on the user's is_staff. Without staff, rows
+  of permission do not let a user in
+- Add an auth Permission: App board, ModelName Post, Action one of view,
+  add, change, delete. App and ModelName have no picker: write the
+  package name and the Go name as they are. A row spelled wrong allows
+  nothing
 
-auth의 User와 Permission은 행이 있어도 보기 밖은 superuser만 한다.
-권한을 주는 일은 편집자에게 넘어가지 않는다.
+auth's User and Permission, whatever the rows, are the superuser's
+alone beyond viewing. Giving permissions does not pass to editors.
 
-admin은 뷰가 아니다. 이 게시판에 닿는 차이 둘.
+The admin is not the views. Two differences that touch this board:
 
-- 저장은 모델의 규칙(길이, 선택지, fk)만 지킨다. 뷰가 지키는 상태의
-  순서(Post.Next: 초안, 게시, 보관)도 작성자도 admin에서는 아무렇게나
-  바뀐다. fk 칸은 번호를 적는다
-- 댓글이 있는 글은 superuser도 지우지 못한다. 댓글이 그 글을 가리킨다.
-  뷰는 그런 글을 숨긴다(0023)
+- Saving keeps the model's rules only (lengths, choices, foreign keys).
+  The order of statuses the views keep (Post.Next: draft, published,
+  archived) and the author change freely in the admin. A foreign key
+  field takes a number
+- A post with comments, not even a superuser deletes: the comments
+  point at it. The views hide such a post (0023)
 
-고치기 폼은 연 때의 글 버전(UpdatedAt)을 숨은 칸에 싣는다. 그새 다른
-사람이 저장했으면 409로, 적은 것을 남긴 채 다시 그린다. 다시 열어야
-저장된다. 나중 저장이 먼저 저장을 덮지 않는다.
+The change form carries the post's version (UpdatedAt) as it was when
+the form opened, in a hidden field. If somebody saved meanwhile, it is a
+409, and the form draws again with what was written. Saving needs the
+page opened again: a later save does not undo an earlier one unseen.
 
-시험은 superuser가 admin에서 편집자를 만들고, 편집자가 할 수 있는 것과 없는
-것(staff 아닌 사람의 행, 편집자의 auth 권한 행), 목록의 칸, 검색과
-거르개를 함께 건 목록과 본문 검색, 먼저 연 폼의 늦은 저장, 지우기의 두
-경우를 본다.
+The test has the superuser make an editor in the admin, and sees what
+the editor may and may not do (rows of a user who is not staff, the
+editor's auth rows of permission), the list's columns, a list with the
+search and filters at once, a search in the body, a late save from a
+form opened first, and the two cases of deleting.
 
 diff --git a/board/admin_test.go b/board/admin_test.go
 new file mode 100644
@@ -242,7 +243,7 @@ index c5c5402..5f00642 100644
  	ID        int64
  	PostID    int64 `maago:"fk=Post"`
 diff --git a/board/web_test.go b/board/web_test.go
-index c56eb30..c9eedf2 100644
+index c88ae6e..c92fdca 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -13,6 +13,7 @@ import (

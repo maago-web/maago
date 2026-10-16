@@ -2,38 +2,54 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Tue, 13 Oct 2026 20:41:30 +0900
 Subject: [PATCH] Attach files to posts
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-글에 파일을 붙인다. 원본의 파일 업로드(fastapi-storages)에 해당한다.
+Attach files to posts, as the original's uploads (fastapi-storages) did.
 
-- 모델 Attachment: 글, 열쇠, 원래 이름, 형식, 크기. maago.SaveMedia가
-  돌려주는 maago.Media를 칸 넷으로 옮긴 것이다. 파일은 행이 아니라
-  Config.MediaDir(main에서 media/)에 있다
-- 폼 AttachmentForm: maago.Field[maago.File] 하나. accept= 태그가 없으니
-  아무 종류나 받는다. 형식은 보낸 이름이나 브라우저의 말이 아니라 내용의
-  앞부분으로 본다. 파일 칸이 있는 폼은 multipart/form-data로만 오고,
-  페이지에 enctype="multipart/form-data"인 폼이 없으면 maago gen이 막는다
-- 올리기 attachment_add: 작성자와 staff만. 글 페이지와 같은 PostPage를
-  돌려주어 오류가 난 폼은 그 자리에 다시 그린다. 본문이 Config.MaxBody(기본
-  10MB)를 넘으면 413
-- 내려받기 attachment: func(w, r) 뷰. 미디어 디렉터리를 그대로 서빙하는
-  라우트는 없다. 뷰가 글을 보고 숨긴 글이면 404, 초안이면 작성자와 staff만,
-  그다음 maago.ServeMedia. 늘 내려받기(attachment)로 가서 올린 HTML도
-  사이트의 페이지로 열리지 않는다
+- The model Attachment: the post, the key, the name sent, the type, the
+  size. They are the four fields of the maago.Media that
+  maago.SaveMedia returns. The file is not in the row: it is in
+  Config.MediaDir (media/ in main)
+- The form AttachmentForm: one maago.Field[maago.File]. Without an
+  accept= tag it takes any kind. The type comes from the start of the
+  content, not from the name sent or what the browser says. A form with
+  a file field comes only as multipart/form-data, and maago gen refuses
+  a page that has no form with enctype="multipart/form-data"
+- The upload, attachment_add, is the author's and staff's:
 
-파일 이름은 Maago가 만든 무작위 열쇠다. 보낸 이름에 ../가 있어도 미디어
-디렉터리 밖에 쓰이지 않는다(보낸 이름은 경로가 되지 않는다). 보낸 이름은
-행에만 남고 내려받을 때 쓰인다. 숨긴 글에는 올릴 수도 없다(404).
+      func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.Result[PostPage], error)
 
-댓글 없는 글을 지우면 첨부 행을 먼저 지우고(글을 가리킨다: 외래 키) 그다음
-파일을 지운다. 지우지 못한 파일은 로그에 남기고 둔다(글은 이미 없다). 댓글 있는 글은 숨겨지고 첨부도 함께 숨는다. 행 쓰기가
-실패하면 저장한 파일을 지운다. 그래도 남는 파일(행을 admin에서 지운 것
-따위)은 그대로 남는다.
+  It returns the same PostPage as the post, so a form with an error
+  draws again where it was. A body over Config.MaxBody (10MB by
+  default) is a 413
+- The download, attachment, is a func(w, r) view. No route serves the
+  media directory as it is: the view reads the post, says 404 for a
+  hidden one, lets only the author and staff have a draft's, and then
+  calls maago.ServeMedia. It is always a download (attachment), so an
+  uploaded HTML file never opens as a page of the site. An escape view
+  takes no parameters, so it reads the user from the request, as it
+  does the database: maago.UserFrom[auth.User](ctx)
 
-media/.gitignore가 디렉터리를 저장소에 둔다: Handler는 MediaDir이 없으면
-만들지 않고 멈춘다.
+The file's name is a random key maago makes. A name sent with ../ in it
+writes nothing outside the media directory (the name sent never becomes
+a path); it stays in the row, for the download.
+
+Nothing goes on a hidden post either (404).
+
+Deleting a post without comments deletes its attachments' rows first
+(they point at the post: a foreign key), and their files once the
+transaction has committed (maago.AfterCommit): a rollback keeps the rows
+and their files. A file that will not go is logged and left (the post
+is gone already). A post with comments is hidden, and its attachments
+with it.
+
+Attach saves the file inside the request's transaction, which stays
+open meanwhile (on SQLite, holding its write lock). When writing the row fails, the file
+goes. When the commit fails after it, the file stays with no row
+pointing at it, as do files whose rows the admin deleted: clearing them
+is beyond this tutorial.
+
+media/.gitignore keeps the directory in the repository: Handler stops
+rather than make a MediaDir that is not there.
 
 diff --git a/board/attach_test.go b/board/attach_test.go
 new file mode 100644
@@ -270,20 +286,20 @@ index eaf4667..20dee60 100644
  <ul>{{range .Comments}}
  <li>{{.Text}} <small>{{date "2006-01-02 15:04" .CreatedAt}}</small></li>{{else}}
 diff --git a/board/urls.go b/board/urls.go
-index 1f16a96..12c67c9 100644
+index 809df22..b747943 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -18,6 +18,8 @@ var Routes = maago.Routes{
- 	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
- 	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
- 	maago.POST("/posts/{id}/delete", "post_delete", RemovePost, maago.LoginRequired),
-+	maago.POST("/posts/{id}/attachments", "attachment_add", Attach, maago.LoginRequired),
+ 	maago.POST("/posts/{id}/publish", "post_publish", Publish),
+ 	maago.POST("/posts/{id}/archive", "post_archive", Archive),
+ 	maago.POST("/posts/{id}/delete", "post_delete", RemovePost),
++	maago.POST("/posts/{id}/attachments", "attachment_add", Attach),
 +	maago.GET("/attachments/{id}", "attachment", DownloadAttachment),
  
  	// JSON for a frontend on another origin: main trusts it in Config.Origins.
  	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
 diff --git a/board/views.go b/board/views.go
-index b28fb41..e747f37 100644
+index 4b213ac..3d48202 100644
 --- a/board/views.go
 +++ b/board/views.go
 @@ -2,9 +2,11 @@ package board
@@ -298,7 +314,7 @@ index b28fb41..e747f37 100644
  	"time"
  
  	"github.com/maago-web/maago"
-@@ -81,9 +83,11 @@ type ShowPostIn struct {
+@@ -77,9 +79,11 @@ type ShowPostIn struct {
  }
  
  type PostPage struct {
@@ -313,7 +329,7 @@ index b28fb41..e747f37 100644
  }
  
  // ShowPost shows one post and its comments, and the form for one more.
-@@ -108,15 +112,86 @@ func CreateComment(ctx context.Context, tx maago.Tx, in ShowPostIn) (maago.Resul
+@@ -104,15 +108,91 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
  	return maago.SeeOther[PostPage](PostDetailURL(in.ID)), nil
  }
  
@@ -343,16 +359,18 @@ index b28fb41..e747f37 100644
 +
 +// Attach keeps a file with a post, for its author or staff. The page is
 +// the post's, so a form with an error draws again where it was sent from.
-+func Attach(ctx context.Context, in AttachIn) (maago.Result[PostPage], error) {
-+	db := maago.DBFrom(ctx)
-+	post, err := GetPost(ctx, db, in.ID)
++// The file is saved inside the request's transaction, which holds the
++// write lock of SQLite meanwhile. A row that fails takes its file with it;
++// a commit that fails leaves the file behind, with no row.
++func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.Result[PostPage], error) {
++	post, err := GetPost(ctx, tx, in.ID)
 +	switch {
 +	case err != nil:
 +		return maago.Result[PostPage]{}, err
 +	case post.Hidden:
 +		return maago.Result[PostPage]{}, sql.ErrNoRows
 +	}
-+	if err := mayChange(ctx, post); err != nil {
++	if err := mayChange(u, post); err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
 +	if in.Form.Valid() {
@@ -360,13 +378,13 @@ index b28fb41..e747f37 100644
 +		if err != nil {
 +			return maago.Result[PostPage]{}, err
 +		}
-+		if _, err := InsertAttachment(ctx, db, NewAttachmentInput{PostID: post.ID, Key: m.Key, Name: m.Name, Type: m.Type, Size: m.Size}); err != nil {
++		if _, err := InsertAttachment(ctx, tx, NewAttachmentInput{PostID: post.ID, Key: m.Key, Name: m.Name, Type: m.Type, Size: m.Size}); err != nil {
 +			maago.DeleteMedia(ctx, m.Key) // no row points at it: it would stay for nothing
 +			return maago.Result[PostPage]{}, err
 +		}
 +		return maago.SeeOther[PostPage](PostDetailURL(post.ID)), nil
 +	}
-+	page, err := postPage(ctx, db, post.ID, CommentForm{})
++	page, err := postPage(ctx, tx, post.ID, CommentForm{})
 +	page.AttachForm = in.Form
 +	return maago.Show(page), err
 +}
@@ -395,7 +413,10 @@ index b28fb41..e747f37 100644
 +		panic(err) // nothing is written yet: a 500, and Config.OnError hears it
 +	}
 +	if post.Status == "draft" {
-+		if err := mayChange(ctx, post); err != nil {
++		// An escape view takes no parameters: it reads the user, as the
++		// database, from the request.
++		u, _ := maago.UserFrom[auth.User](ctx)
++		if err := mayChange(u, post); err != nil {
 +			http.Error(w, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 +			return
 +		}
@@ -404,7 +425,7 @@ index b28fb41..e747f37 100644
  }
  
  // RemovePost deletes a post. One without comments goes from the database;
-@@ -136,7 +211,7 @@ func RemovePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostP
+@@ -132,7 +212,7 @@ func RemovePost(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago
  		return maago.Result[PostPage]{}, err
  	}
  	if len(cs) == 0 {
@@ -413,7 +434,7 @@ index b28fb41..e747f37 100644
  	} else {
  		p.Hidden = true
  		err = UpdatePost(ctx, tx, &p)
-@@ -332,3 +407,31 @@ func mayChange(ctx context.Context, p Post) error {
+@@ -325,3 +405,31 @@ func mayChange(u auth.User, p Post) error {
  	}
  	return maago.Status(http.StatusForbidden, errors.New("only its author or staff may change a post"))
  }
@@ -446,7 +467,7 @@ index b28fb41..e747f37 100644
 +	return nil
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 75867f1..dad8cfd 100644
+index 82fb705..b22c4c7 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -28,17 +28,17 @@ func init() {

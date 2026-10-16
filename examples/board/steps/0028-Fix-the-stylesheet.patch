@@ -2,11 +2,8 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Tue, 13 Oct 2026 20:39:33 +0900
 Subject: [PATCH] Fix the stylesheet
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-board/tailwind.css로 되돌린다. maago gen이 다시 통과한다.
+Back to board/tailwind.css. maago gen passes again.
 
 diff --git a/board/templates/base.html b/board/templates/base.html
 index df2bf4c..3df11d2 100644

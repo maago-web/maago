@@ -45,7 +45,11 @@
 ## M8
 
 - [x] 게시판의 초안과 예약 글(미래 `publish_at`)은 상세 화면(`ShowPost`, `post_detail.sql`)에서 누구에게나 보인다. 첨부 파일은 0029가 초안이면 작성자·staff만으로 막았다. 막으려면 단계가 하나 더 생겨 D-142가 바뀐다: 사람이 정한다(M8 4번 codex·fable 리뷰). → 단계 0032 `Drafts are their author's`(M8 5번, 사람의 결정 2026-10-14)
-- [ ] 운영 DB에 개발 기계가 닿지 않는 곳(Cloud Run·fly 따위)에서는 "소스에서 운영 주소로 `maago migrate`"가 어렵다. 바이너리나 이미지가 마이그레이션을 싣는 길을 정할지(M8 6번 fable)
+- [x] 운영 DB에 개발 기계가 닿지 않는 곳(Cloud Run·fly 따위)에서는 "소스에서 운영 주소로 `maago migrate`"가 어렵다. 바이너리나 이미지가 마이그레이션을 싣는 길을 정할지(M8 6번 fable) → `maago.Migrate`(M10 8번, D-153), 게시판 0033이 시작할 때 부른다(M10 9b)
+
+## M10
+
+- [ ] 모델 폼(`model=X`)은 모델에 없는 필드를 받지 않아, 요청을 건너는 버전(숨은 칸)을 실을 곳이 없다. 게시판 0031의 `ChangePost`는 폼의 action URL에 `?version=`(In의 `query=version`)으로 싣는다. admin처럼 폼이 버전을 실을지. 적어도 10번 전에 `model X has no field Version`의 fix가 그 길을 가리키게(에이전트가 먼저 시도할 길, D-150, M10 9b Opus)
 
 ## 언젠가
 

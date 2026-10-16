@@ -2,59 +2,61 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 12 Oct 2026 23:40:13 +0900
 Subject: [PATCH] Delete what has no comments
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-지우기가 진짜로 지운다. 댓글이 없는 글만.
+Deleting deletes now, for a post without comments.
 
-0015에서 지우기는 숨기기였다. 댓글의 post_id가 글을 가리키고, FK는
-ON DELETE NO ACTION이라 댓글이 있는 글은 지울 수 없다(maago는 기본으로
-연쇄 지우기를 하지 않는다). 이제 쓴 사람이 지우는 것이니(0022), 댓글이 없으면
-DeletePost로 행을 지우고, 있으면 지금처럼 숨긴다.
+In 0015 deleting was hiding. A comment's post_id points at its post,
+and the foreign key is ON DELETE NO ACTION, so a post with comments
+cannot go (maago does not cascade deletes by default). Now that only
+the author deletes (0022), a post without comments goes with
+DeletePost, and one with comments is hidden as before.
 
-- 댓글이 있는지는 이미 있는 PostComments로 센다. 새 쿼리는 없다
-- 뷰 이름은 HidePost에서 RemovePost로. DeletePost는 maago가 Post마다
-  만드는 함수의 이름이다
+- Whether it has comments, the PostComments that is already there
+  tells. No new query
+- The view's name changes from HidePost to RemovePost, with the same
+  signature (ctx, u auth.User, tx maago.Tx, in PostIn). DeletePost is
+  taken: maago generates it for Post. Name views clear of the generated
+  GetX, InsertX, UpdateX and DeleteX
 
-이것으로 게시판은 계정을 갖췄다: 가입과 인증, 로그인, 작성자, 쓴 사람만
-게시·보관·지우기, API 토큰.
+With this the board has accounts: sign-up and verification, sign-in,
+authors, only the author publishing, archiving and deleting, and API
+tokens.
 
 diff --git a/board/urls.go b/board/urls.go
-index 09f5550..1f16a96 100644
+index 641e9aa..809df22 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -17,7 +17,7 @@ var Routes = maago.Routes{
- 	maago.POST("/posts/{id}", "comment_create", CreateComment, maago.LoginRequired),
- 	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
- 	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
--	maago.POST("/posts/{id}/delete", "post_delete", HidePost, maago.LoginRequired),
-+	maago.POST("/posts/{id}/delete", "post_delete", RemovePost, maago.LoginRequired),
+ 	maago.POST("/posts/{id}", "comment_create", CreateComment),
+ 	maago.POST("/posts/{id}/publish", "post_publish", Publish),
+ 	maago.POST("/posts/{id}/archive", "post_archive", Archive),
+-	maago.POST("/posts/{id}/delete", "post_delete", HidePost),
++	maago.POST("/posts/{id}/delete", "post_delete", RemovePost),
  
  	// JSON for a frontend on another origin: main trusts it in Config.Origins.
  	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
 diff --git a/board/views.go b/board/views.go
-index 40cd173..b28fb41 100644
+index 880ba58..4b213ac 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -119,10 +119,11 @@ func postPage(ctx context.Context, db maago.DB, id int64, f CommentForm) (PostPa
+@@ -115,10 +115,11 @@ func postPage(ctx context.Context, db maago.DB, id int64, f CommentForm) (PostPa
  	return PostPage{p, cs, f}, err
  }
  
 -// HidePost deletes a post as people see it: it hides it, and its comments
 -// with it. They stay in the database, so a comment never points at a post
 -// that is gone.
--func HidePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
+-func HidePost(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
 +// RemovePost deletes a post. One without comments goes from the database;
 +// one with comments is hidden, and its comments with it: they stay, so a
 +// comment never points at a post that is gone (the foreign key would
 +// refuse it).
-+func RemovePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
++func RemovePost(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
  	p, err := GetPost(ctx, tx, in.ID)
  	if err != nil {
  		return maago.Result[PostPage]{}, err
-@@ -130,8 +131,17 @@ func HidePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPag
- 	if err := mayChange(ctx, p); err != nil {
+@@ -126,8 +127,17 @@ func HidePost(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.R
+ 	if err := mayChange(u, p); err != nil {
  		return maago.Result[PostPage]{}, err
  	}
 -	p.Hidden = true
@@ -74,10 +76,10 @@ index 40cd173..b28fb41 100644
  	}
  	return maago.SeeOther[PostPage](BoardDetailURL(p.BoardID)), nil
 diff --git a/board/web_test.go b/board/web_test.go
-index 5950203..c56eb30 100644
+index b73d99d..c88ae6e 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -578,3 +578,24 @@ func TestAuthors(t *testing.T) {
+@@ -580,3 +580,24 @@ func TestAuthors(t *testing.T) {
  		}
  	}
  }

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -73,9 +74,14 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"admin columns", "0025-Board-in-the-admin.patch", ",admin_list=(Title,BoardID,Status,AuthorID,CreatedAt)", "", "go test: "},
 		// Who gets a draft's file is the view's to check (D-140).
 		{"a draft's file", "0029-Attach-files-to-posts.patch", "+\tif post.Status == \"draft\" {", "+\tif false {", "go test: "},
-		{"me without a sign-in", "0030-Me.patch", `+	maago.GET("/me", "me", Me, maago.LoginRequired),`, `+	maago.GET("/me", "me", Me),`, "go test: "},
-		{"anybody edits", "0031-Edit-a-post.patch", "+\tif err := mayChange(ctx, p); err != nil {", "+\tif err := error(nil); err != nil {", "go test: "},
+		// The user in the signature is the sign-in: a pointer lets nobody in.
+		{"me without a sign-in", "0030-Me.patch", "+func Me(ctx context.Context, u auth.User, db maago.DB, in struct{}) (MePage, error) {", "+func Me(ctx context.Context, u *auth.User, db maago.DB, in struct{}) (MePage, error) {", "go test: "},
+		{"anybody edits", "0031-Edit-a-post.patch", "+\tif err := mayChange(u, p); err != nil {", "+\tif err := error(nil); err != nil {", "go test: "},
 		{"a draft to anybody", "0032-Drafts-are-their-author-s.patch", "+\tcase p.Status == \"draft\" || p.PublishAt != nil && p.PublishAt.After(time.Now()):", "+\tcase false:", "go test: "},
+		// The binary migrates its database itself, and stops cleanly on
+		// SIGTERM (D-153).
+		{"no migrations at the start", "0033-Ship-it.patch", "+\tapplied, err := maago.Migrate(ctx, maago.DBConfig{}, migrations)", "+\tapplied, err := []string(nil), error(nil)", "board -createsuperuser: "},
+		{"no graceful stop", "0033-Ship-it.patch", `+	if err := maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h)); err != nil {`, `+	if err := http.ListenAndServe(":"+port, http.StripPrefix("/app", h)); err != nil {`, "serve: "},
 		// The binary reads PORT, and serves on it (D-142).
 		{"another port", "0033-Ship-it.patch", `+	port := cmp.Or(os.Getenv("PORT"), "8000")`, `+	port := cmp.Or(os.Getenv("ADDR"), "8000")`, "serve: "},
 	} {
@@ -237,8 +243,9 @@ func walk(t *testing.T, dir string) (root string, err error) {
 
 // ship does with the last step what its reader does to ship it (D-142):
 // it builds the binary as a container does, without cgo for Linux, then
-// builds one for this machine, which makes the first staff account (D-130)
-// on the steps' database and serves the board on PORT.
+// builds one for this machine, which migrates the steps' database, emptied
+// first, as it starts (D-153), makes the first staff account (D-130), and
+// serves the board on PORT until SIGTERM stops it cleanly.
 func ship(t *testing.T, root, schema string) error {
 	cross := goCmd(root, "build", "-o", filepath.Join(t.TempDir(), "board"), ".")
 	cross.Env = append(cross.Env, "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64")
@@ -248,6 +255,15 @@ func ship(t *testing.T, root, schema string) error {
 	bin := filepath.Join(t.TempDir(), "board")
 	if out, err := goCmd(root, "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		return fmt.Errorf("go build: %v\n%s", err, out)
+	}
+	// On an empty database: the binary migrates it as it starts (D-153).
+	if schema != "" {
+		if err := withPostgres(func(db *sql.DB) error {
+			_, err := db.Exec("DROP SCHEMA " + schema + " CASCADE; CREATE SCHEMA " + schema)
+			return err
+		}); err != nil {
+			return err
+		}
 	}
 	su := osexec.Command(bin, "-createsuperuser")
 	su.Dir = root
@@ -263,14 +279,14 @@ func ship(t *testing.T, root, schema string) error {
 			return fmt.Errorf("the superuser is not in schema %s: %v", schema, err)
 		}
 	}
-	return serve(root, bin, "/app/", http.StatusOK, nil)
+	return serve(root, bin, "/app/", http.StatusOK, []string{"BOARD_SITE_URL=http://localhost:8000"}, true, nil)
 }
 
 // serve runs bin in root on a free PORT until path answers want, for 10
 // seconds at most, then runs use, if not nil, against it, and stops it
 // before it returns: the walk's schema goes after, which a pool still open
 // would hold.
-func serve(root, bin, path string, want int, use func(base string) error) error {
+func serve(root, bin, path string, want int, env []string, graceful bool, use func(base string) error) error {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -280,7 +296,7 @@ func serve(root, bin, path string, want int, use func(base string) error) error 
 	var out bytes.Buffer
 	cmd := osexec.Command(bin)
 	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "PORT="+port)
+	cmd.Env = append(append(os.Environ(), "PORT="+port), env...)
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("serve: %v", err)
@@ -308,6 +324,16 @@ wait:
 	if up && use != nil {
 		err = use(base)
 	}
+	stopped := true
+	if graceful { // as a platform stops it: SIGTERM, then exit 0
+		cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case <-exited:
+			stopped = cmd.ProcessState.Success()
+		case <-time.After(35 * time.Second):
+			stopped = false
+		}
+	}
 	cmd.Process.Kill()
 	<-exited // out is the server's no more
 	switch {
@@ -317,6 +343,8 @@ wait:
 		return fmt.Errorf("serve: no %d from %s in 10s (PORT=%s):\n%s", want, path, port, out.String())
 	case err != nil:
 		return fmt.Errorf("serve: %v\nthe server said:\n%s", err, out.String())
+	case !stopped:
+		return fmt.Errorf("serve: SIGTERM did not stop %s with status 0:\n%s", filepath.Base(bin), out.String())
 	}
 	return nil
 }

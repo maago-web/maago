@@ -2,30 +2,31 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Tue, 13 Oct 2026 15:23:35 +0900
 Subject: [PATCH] Open the admin
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-admin을 들인다. 모델의 목록·추가·고치기·지우기를 staff가 브라우저에서
-하는 화면이다. 짜지 않는다. 두 부분이다.
+Bring in the admin: pages where staff list, add, change and delete the
+models' rows in the browser. Nothing to write by hand. Two parts:
 
-- 라이브러리 contrib/admin: 라우트와 화면. main이 admin.App(Config)을
-  Config.Apps에 넣는다. 접두어 /app 아래라 /app/admin/
-- 생성물 admin_gen.go: maago gen이 모델이 있는 앱마다 쓴다(여기는 board/와
-  auth/). 그 앱의 모델이 admin에서 어떻게 보이는지, 목록과 개수의 SQL, 폼.
-  *_gen.go라 패치에는 없다
+- The library contrib/admin: routes and pages. main puts
+  admin.App(Config) into Config.Apps. Under the prefix /app, it is
+  /app/admin/
+- The generated admin_gen.go: maago gen writes one for each app with
+  models (here board/ and auth/): how the app's models look in the
+  admin, the SQL of lists and counts, the forms. It is a *_gen.go, so
+  the patch does not have it
 
-누가 무엇을 하는지는 Config.Can이 답한다. 복사한 auth의 auth.Can을 쓴다.
-staff가 아니면 아무것도(superuser여도), superuser는 전부, 다른 staff는
-권한 행(auth.Permission)이 허락한 만큼. 고쳐 쓸 수 있는 복사본의 코드다.
+Config.Can answers who may do what. It is the copied auth's auth.Can:
+nobody who is not staff (a superuser either), everything for a
+superuser, and for other staff what their rows of permission
+(auth.Permission) allow. It is code of the copy, there to change.
 
-그러나 maago gen이 막는다:
+But maago gen refuses:
 
     board/models.go:12:6: app board has models, but no package uses board.Admin
       fix: add board.Admin to admin.Config.Models in main (D-131), then run maago gen: go build works after gen
 
-Models에 auth.Admin만 넘겼다. 모델이 있는 앱을 빠뜨리면 그 모델이
-admin에서 조용히 없어지는 대신 오류다. 다음 커밋이 board.Admin을 넣는다.
+Models was given auth.Admin alone. An app with models left out would
+have its models vanish from the admin without a word; it is an error
+instead. The next commit puts board.Admin in.
 
 Maago-Expect: board/models.go:12:6: app board has models, but no package uses board.Admin
 

@@ -2,26 +2,26 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 5 Oct 2026 02:25:55 +0900
 Subject: [PATCH] Serve under /app
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-사이트를 /app 아래에 둔다. 같은 서버(또는 앞의 프록시)가 / 에서 다른 것을
-낼 때다.
+Put the site under /app, for when the same server (or a proxy in front)
+serves something else at /.
 
-- main의 Config.Prefix: "/app". 생성된 URL 함수(BoardDetailURL)와 템플릿의
-  {{url}}이 /app으로 시작한다. 뷰도 템플릿도 고치지 않는다
-- 라우트는 /app을 모른다. 경로가 /boards/1로 와야 한다. 그래서 main이
-  http.StripPrefix("/app", h)로 떼고 넘긴다. 앞의 프록시가 이미 떼어
-  준다면 h를 그대로 쓴다
-- SeeOther도 BoardDetailURL로 가니 /app/boards/1로 보낸다
+- Config.Prefix: "/app" in main. The generated URL functions
+  (BoardDetailURL) and {{url}} in the templates start with /app. No view
+  and no template changes
+- The routes do not know /app: a path must come in as /boards/1. So
+  main takes it off with http.StripPrefix("/app", h) before h. When the
+  proxy in front takes it off already, use h as it is
+- SeeOther goes to BoardDetailURL too, so it sends the browser to
+  /app/boards/1
 
-접두어는 프로세스에 하나다: 마지막으로 만든 maago.Handler의 것이다.
-시험은 /app의 Handler를 먼저 만들고, 끝나면 접두어 없는 것으로
-되돌린다.
+The prefix is one per process: the last maago.Handler made sets it. The
+test makes the /app Handler first, and puts the one without a prefix
+back when it ends.
 
-이것으로 게시판은 화면, 폼, 상태, 댓글, API, 내보내기, 알림을 갖췄다.
-누가 썼는지는 아직 모른다. 로그인, 그리고 쓴 사람만 게시·보관·지우는 일은 다음 판에서다.
+With this the board has pages, forms, statuses, comments, an API, an
+export and a webhook. Who wrote what it does not know yet: signing in,
+and only the author publishing, archiving and deleting, come next.
 
 diff --git a/board/web_test.go b/board/web_test.go
 index 4fb6f92..3d7e413 100644

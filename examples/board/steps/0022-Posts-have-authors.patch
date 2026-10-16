@@ -6,34 +6,45 @@ MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-글에 작성자가 생긴다. 쓰려면 로그인하고, 게시·보관·지우기는 쓴 사람과
-staff만 한다.
+Posts get authors. Writing needs a sign-in, and only the author or
+staff publish, archive and delete.
 
-- Post.AuthorID *int64 `maago:"fk=auth.User"`. 다른 앱의 모델은
-  앱.모델로 가리킨다. 포인터인 까닭은 계정이 생기기 전의 글이다: 그 글에는
-  작성자가 없다. *int64가 아니라 int64였다면 makemigrations가 이렇게
-  경고하고,
+- Post.AuthorID *int64 `maago:"fk=auth.User"`. A model of another app
+  is app.Model. A pointer, for the posts from before there were
+  accounts: they have no author. Were it int64, not *int64,
+  makemigrations would warn
 
       -- ⚠ Column "author_id" … is NOT NULL without a default, so this fails if "board_post" has rows …
 
-  글이 있는 DB에서 maago migrate가 실패한다
-- maago makemigrations --name post_author. 열과 인덱스, FK 제약을
-  더한다(0004)
-- maago gen이 recent_posts.sql을 다시 막는다(0015의 Hidden 때와 같다).
-  :many Post는 Post의 모든 열을 골라야 한다. author_id를 더한다
-- 라우트 표의 쓰기 줄에 maago.LoginRequired. 로그인하지 않은 GET은 로그인
-  화면으로 가고(돌아올 next와 함께), POST는 401이다: 폼을 다시 보낼 수
-  없으니 넘기지 않는다. 댓글 폼은 글 화면에 있어서, 로그인하지 않고 쓰면
-  401을 받는다
-- 글을 만들면 작성자는 maago.UserFrom[auth.User]의 사용자. API로 쓰는
-  프런트엔드는 그 사용자의 API 토큰을 Authorization: Bearer로 보낸다.
-  토큰이 없으면 401과 WWW-Authenticate: Bearer
-- mayChange: 게시·보관·지우기의 뷰 첫머리 한 줄. 쓴 사람이나 staff가
-  아니면 403이다. 작성자가 없는 옛 글은 staff가 다룬다. staff는
-  -createsuperuser가 만든다
+  and maago migrate would fail on a database with posts
+- maago makemigrations --name post_author adds the column, its index
+  and the foreign key (0004)
+- maago gen stops at recent_posts.sql again (as with Hidden in 0015):
+  :many Post must select every column of Post. Add author_id
+- A view that needs a sign-in takes the user as auth.User, not a
+  pointer. That alone makes its routes need one; there is no route
+  option. Every view that writes takes it, and so do the forms' GETs:
 
-시험은 로그인한 브라우저(signedIn)로 쓰고, 익명·다른 사람·쓴 사람·staff가
-게시·보관·지우기에서 무엇을 받는지 본다.
+      func NewPost(ctx context.Context, u auth.User, db maago.DB, in NewPostIn) (PostFormPage, error)
+      func CreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (maago.Result[PostFormPage], error)
+
+  Nobody signed in: a GET goes to the sign-in page (with next, to come
+  back), a POST is a 401 (a form cannot be sent again, so it does not
+  follow), and an API route is a 401 with WWW-Authenticate: Bearer. The
+  comment form is on the post page, so a comment without a sign-in gets
+  a 401. u is the door: a view that never reads it still needs it, and
+  without it the route is open to anybody. maago gen refuses the old
+  route option maago.LoginRequired beside such a view
+- A new post's author is that user: savePost(ctx, tx, u, …) gives
+  InsertPost AuthorID: &u.ID. A frontend that writes through the API
+  sends the user's API token as Authorization: Bearer
+- mayChange(u auth.User, p Post) error: one line at the top of
+  publish, archive and delete. Neither the author nor staff: a 403. An
+  old post with no author is staff's. -createsuperuser makes staff
+
+The test writes with a signed-in browser (signedIn), and sees what
+nobody, another user, the author and staff get from publish, archive
+and delete, and that the forms send nobody to the sign-in page.
 
 diff --git a/board/models.go b/board/models.go
 index 95de516..c5c5402 100644
@@ -61,42 +72,8 @@ index 145e89d..bff141b 100644
  FROM board_post
  WHERE NOT hidden
  ORDER BY created_at DESC, id DESC
-diff --git a/board/urls.go b/board/urls.go
-index 641e9aa..09f5550 100644
---- a/board/urls.go
-+++ b/board/urls.go
-@@ -6,20 +6,20 @@ import "github.com/maago-web/maago"
- // for the URL function and {{url}}, and the view.
- var Routes = maago.Routes{
- 	maago.GET("/{$}", "home", Home),
--	maago.GET("/boards/new", "board_new", NewBoard),
--	maago.POST("/boards/new", "board_create", CreateBoard),
-+	maago.GET("/boards/new", "board_new", NewBoard, maago.LoginRequired),
-+	maago.POST("/boards/new", "board_create", CreateBoard, maago.LoginRequired),
- 	maago.GET("/boards/{id}", "board_detail", ShowBoard),
- 	maago.GET("/boards/{id}/rows", "board_rows", ShowBoard, maago.Block("rows")),
- 	maago.GET("/boards/{id}/posts.csv", "board_export", ExportBoard),
--	maago.GET("/boards/{id}/posts/new", "post_new", NewPost),
--	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost),
-+	maago.GET("/boards/{id}/posts/new", "post_new", NewPost, maago.LoginRequired),
-+	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost, maago.LoginRequired),
- 	maago.GET("/posts/{id}", "post_detail", ShowPost),
--	maago.POST("/posts/{id}", "comment_create", CreateComment),
--	maago.POST("/posts/{id}/publish", "post_publish", Publish),
--	maago.POST("/posts/{id}/archive", "post_archive", Archive),
--	maago.POST("/posts/{id}/delete", "post_delete", HidePost),
-+	maago.POST("/posts/{id}", "comment_create", CreateComment, maago.LoginRequired),
-+	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
-+	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
-+	maago.POST("/posts/{id}/delete", "post_delete", HidePost, maago.LoginRequired),
- 
- 	// JSON for a frontend on another origin: main trusts it in Config.Origins.
- 	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
--	maago.POST("/api/boards/{id}/posts", "api_post_create", APICreatePost, maago.API),
-+	maago.POST("/api/boards/{id}/posts", "api_post_create", APICreatePost, maago.API, maago.LoginRequired),
- }
 diff --git a/board/views.go b/board/views.go
-index 2ddd94b..40cd173 100644
+index b3d6f36..880ba58 100644
 --- a/board/views.go
 +++ b/board/views.go
 @@ -2,6 +2,7 @@ package board
@@ -107,53 +84,151 @@ index 2ddd94b..40cd173 100644
  	"log"
  	"net/http"
  	"time"
-@@ -126,6 +127,9 @@ func HidePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPag
+@@ -88,7 +89,7 @@ func ShowPost(ctx context.Context, db maago.DB, in ShowPostIn) (PostPage, error)
+ 
+ // CreateComment adds a comment to the post, or shows the post again with
+ // what is wrong with the form.
+-func CreateComment(ctx context.Context, tx maago.Tx, in ShowPostIn) (maago.Result[PostPage], error) {
++func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn) (maago.Result[PostPage], error) {
+ 	f := in.Form
+ 	page, err := postPage(ctx, tx, in.ID, f)
+ 	if err != nil {
+@@ -117,11 +118,14 @@ func postPage(ctx context.Context, db maago.DB, id int64, f CommentForm) (PostPa
+ // HidePost deletes a post as people see it: it hides it, and its comments
+ // with it. They stay in the database, so a comment never points at a post
+ // that is gone.
+-func HidePost(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
++func HidePost(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
+ 	p, err := GetPost(ctx, tx, in.ID)
  	if err != nil {
  		return maago.Result[PostPage]{}, err
  	}
-+	if err := mayChange(ctx, p); err != nil {
++	if err := mayChange(u, p); err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
  	p.Hidden = true
  	if err := UpdatePost(ctx, tx, &p); err != nil {
  		return maago.Result[PostPage]{}, err
-@@ -229,8 +233,9 @@ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Pos
- 			return Post{}, false, nil
+@@ -138,13 +142,13 @@ type BoardFormPage struct {
+ }
+ 
+ // NewBoard draws the form.
+-func NewBoard(ctx context.Context, in NewBoardIn) (BoardFormPage, error) {
++func NewBoard(ctx context.Context, u auth.User, in NewBoardIn) (BoardFormPage, error) {
+ 	return BoardFormPage{in.Form}, nil
+ }
+ 
+ // CreateBoard saves the form, or draws it again with what is wrong. A
+ // taken name needs the database, so the view checks it, not the form.
+-func CreateBoard(ctx context.Context, tx maago.Tx, in NewBoardIn) (maago.Result[BoardFormPage], error) {
++func CreateBoard(ctx context.Context, u auth.User, tx maago.Tx, in NewBoardIn) (maago.Result[BoardFormPage], error) {
+ 	f := in.Form
+ 	if !f.Valid() {
+ 		return maago.Show(BoardFormPage{f}), nil
+@@ -175,13 +179,13 @@ type PostFormPage struct {
+ }
+ 
+ // NewPost draws the form for a post on the board of the path.
+-func NewPost(ctx context.Context, db maago.DB, in NewPostIn) (PostFormPage, error) {
++func NewPost(ctx context.Context, u auth.User, db maago.DB, in NewPostIn) (PostFormPage, error) {
+ 	b, err := GetBoard(ctx, db, in.BoardID)
+ 	return PostFormPage{b, in.Form}, err // sql.ErrNoRows: a 404
+ }
+ 
+ // CreatePost writes a post on the board of the path.
+-func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[PostFormPage], error) {
++func CreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (maago.Result[PostFormPage], error) {
+ 	b, err := GetBoard(ctx, tx, in.BoardID)
+ 	if err != nil {
+ 		return maago.Result[PostFormPage]{}, err // sql.ErrNoRows: a 404
+@@ -190,7 +194,7 @@ func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[Po
+ 	if !f.Valid() {
+ 		return maago.Show(PostFormPage{b, f}), nil
+ 	}
+-	p, ok, err := savePost(ctx, tx, b.ID, &f)
++	p, ok, err := savePost(ctx, tx, u, b.ID, &f)
+ 	if err != nil {
+ 		return maago.Result[PostFormPage]{}, err
+ 	}
+@@ -206,7 +210,7 @@ func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[Po
+ // not be pinned at once. When one fails, it says so on f, as Validate
+ // would, and reports false. A saved post is announced to the webhook once
+ // the transaction has committed: a post rolled back is never announced.
+-func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Post, bool, error) {
++func savePost(ctx context.Context, tx maago.Tx, u auth.User, boardID int64, f *PostForm) (Post, bool, error) {
+ 	taken, err := PostTitleTaken(ctx, tx, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
+ 	if err != nil {
+ 		return Post{}, false, err
+@@ -226,7 +230,7 @@ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Pos
  		}
  	}
-+	u, _ := maago.UserFrom[auth.User](ctx) // the routes require login
  	p, err := InsertPost(ctx, tx, NewPostInput{
 -		BoardID: boardID, Title: f.Title.Value, Body: f.Body.Value,
 +		BoardID: boardID, AuthorID: &u.ID, Title: f.Title.Value, Body: f.Body.Value,
  		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
  	})
  	if err != nil {
-@@ -262,6 +267,9 @@ func move(ctx context.Context, tx maago.Tx, id int64, to string) (maago.Result[P
+@@ -241,22 +245,25 @@ func savePost(ctx context.Context, tx maago.Tx, boardID int64, f *PostForm) (Pos
+ }
+ 
+ // Publish publishes a draft.
+-func Publish(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
+-	return move(ctx, tx, in.ID, "published")
++func Publish(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
++	return move(ctx, tx, u, in.ID, "published")
+ }
+ 
+ // Archive archives a published post.
+-func Archive(ctx context.Context, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
+-	return move(ctx, tx, in.ID, "archived")
++func Archive(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
++	return move(ctx, tx, u, in.ID, "archived")
+ }
+ 
+ // move gives post id status to, if Post.Next allows it, and goes back to
+ // the post. What it does not allow is a 409 Conflict.
+-func move(ctx context.Context, tx maago.Tx, id int64, to string) (maago.Result[PostPage], error) {
++func move(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string) (maago.Result[PostPage], error) {
+ 	p, err := GetPost(ctx, tx, id)
  	if err != nil {
  		return maago.Result[PostPage]{}, err
  	}
-+	if err := mayChange(ctx, p); err != nil {
++	if err := mayChange(u, p); err != nil {
 +		return maago.Result[PostPage]{}, err
 +	}
  	if err := p.Next(to); err != nil {
  		return maago.Result[PostPage]{}, maago.Status(http.StatusConflict, err)
  	}
-@@ -304,3 +312,13 @@ func APICreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (Post, error)
+@@ -284,12 +291,12 @@ func APIPosts(ctx context.Context, db maago.DB, in APIPostsIn) ([]PostSummary, e
+ // CreatePost. A form that does not pass never gets here: the generated
+ // code answers it with a 422. What savePost finds on f is a 422 too:
+ // maago.Invalid names the field, maago.InvalidForm the form.
+-func APICreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (Post, error) {
++func APICreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (Post, error) {
+ 	if _, err := GetBoard(ctx, tx, in.BoardID); err != nil {
+ 		return Post{}, err
+ 	}
+ 	f := in.Form
+-	p, ok, err := savePost(ctx, tx, in.BoardID, &f)
++	p, ok, err := savePost(ctx, tx, u, in.BoardID, &f)
+ 	switch {
+ 	case err != nil || ok:
+ 		return p, err
+@@ -299,3 +306,12 @@ func APICreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (Post, error)
  		return Post{}, maago.InvalidForm(f.Errors[0])
  	}
  }
 +
 +// mayChange refuses with 403 whoever neither wrote p nor is staff. A post
 +// from before there were accounts has no author: staff change it.
-+func mayChange(ctx context.Context, p Post) error {
-+	u, _ := maago.UserFrom[auth.User](ctx) // the routes require login
++func mayChange(u auth.User, p Post) error {
 +	if u.IsStaff || p.AuthorID != nil && *p.AuthorID == u.ID {
 +		return nil
 +	}
 +	return maago.Status(http.StatusForbidden, errors.New("only its author or staff may change a post"))
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 639657f..5950203 100644
+index 639657f..b73d99d 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -122,7 +122,8 @@ func TestPages(t *testing.T) {
@@ -272,7 +347,7 @@ index 639657f..5950203 100644
  // Signed in, the home page says who; the header links to sign in and out.
  func TestSignIn(t *testing.T) {
  	h, db := app(t)
-@@ -484,3 +519,62 @@ func TestSignIn(t *testing.T) {
+@@ -484,3 +519,64 @@ func TestSignIn(t *testing.T) {
  		t.Errorf("after: %s", body)
  	}
  }
@@ -286,8 +361,10 @@ index 639657f..5950203 100644
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	if code, _ := get(h, PostNewURL(b.ID)); code != 303 {
-+		t.Errorf("the form without a sign-in: %d", code)
++	for _, path := range []string{BoardNewURL(), PostNewURL(b.ID)} {
++		if code, _ := get(h, path); code != 303 {
++			t.Errorf("GET %s without a sign-in: %d", path, code)
++		}
 +	}
 +	for _, path := range []string{BoardCreateURL(), PostCreateURL(b.ID), CommentCreateURL(1), PostPublishURL(1)} {
 +		if code, _, _ := post(h, path, url.Values{"title": {"t"}}); code != 401 {

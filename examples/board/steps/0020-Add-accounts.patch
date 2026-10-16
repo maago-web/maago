@@ -2,35 +2,36 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Mon, 12 Oct 2026 23:36:24 +0900
 Subject: [PATCH] Add accounts
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-계정을 들인다. 로그인, 가입과 이메일 인증, 비밀번호 변경과 재설정,
-탈퇴, API 토큰. 손으로 짜지 않고 maago가 가진 앱을 복사한다:
+Bring in accounts: sign-in, sign-up with email verification, password
+change and reset, closing an account, API tokens. Not written by hand:
+copy the app maago has:
 
     maago add auth
     maago makemigrations --name accounts
 
-maago add는 프로젝트의 auth/에 앱 하나를 쓴다. 모델 여섯(User, Permission,
-Session, Token, Attempt, APIToken), 쿼리, 라우트, 뷰, 폼, 메일, 템플릿, 그리고
-시험까지. 쓴 파일은 이제 이 프로젝트의 것이다. User에 필드를 더하고,
-영어 문구와 템플릿을 사이트에 맞게 고쳐 쓴다. 보안의 모양을 가진 부분
-(비밀번호 해싱, 토큰, 쿠키 속성, 시도 횟수의 IP)은 라이브러리
-contrib/auth에 있어서 maago를 올리면 고친 것이 따라온다.
+maago add writes one app to the project's auth/: six models (User,
+Permission, Session, Token, Attempt, APIToken), queries, routes, views,
+forms, mails, templates, and tests too. What it writes is now the
+project's own: add fields to User, change the English texts and the
+templates to suit the site. What carries the shape of security
+(password hashing, tokens, cookie attributes, the IP of attempts) lives
+in the library contrib/auth, so upgrading maago brings its fixes.
 
-auth/driver_test.go만은 프로젝트의 DB를 보고 고른다. 여기는 PostgreSQL이라
-pgx를 import한다. SQLite 프로젝트라면 modernc.org/sqlite를 쓴다.
+auth/driver_test.go alone picks by the project's database: this one is
+PostgreSQL, so it imports pgx. A SQLite project gets modernc.org/sqlite.
 
-makemigrations가 여섯 표를 0003에 쓴다. 그러나 maago gen은 아직 막는다:
+makemigrations writes the six tables to 0003. But maago gen still
+refuses:
 
     auth/urls.go:5:5: app auth has routes, but no package uses auth.App
       fix: add auth.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
 
-라우트가 있는 앱은 main이 써야 한다. 다음 커밋이 잇는다.
+main must use an app that has routes. The next commit does.
 
-이 커밋의 패치에는 auth/가 없다. 생성물(*_gen.go)처럼 명령이 만드는
-것은 패치에 담지 않고, 아래 줄이 그 명령을 이 단계 앞에서 돌린다.
+The patch of this commit has no auth/. What a command makes, like the
+generated *_gen.go, stays out of the patches, and the line below runs
+that command before this step.
 
 Maago-Run: maago add auth
 Maago-Expect: auth/urls.go:5:5: app auth has routes, but no package uses auth.App

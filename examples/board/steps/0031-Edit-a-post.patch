@@ -2,31 +2,59 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Maago <maago@example.com>
 Date: Wed, 14 Oct 2026 03:04:23 +0900
 Subject: [PATCH] Edit a post
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
-글을 고친다. 쓴 사람과 staff만, 제목과 본문만.
+Change a post: its author and staff, its title and body.
 
-- 라우트 둘: GET /posts/{id}/edit(post_edit)는 폼을 그리고, POST(post_update)는
-  저장한다. 같은 뷰 EditPost, 둘 다 maago.LoginRequired. 숨긴 글은 404,
-  그 밖의 사람은 GET에도 403(mayChange, 0022)
-- 폼 PostEditForm은 model=Post에서 Title과 Body만. 고정과 예약 시각은 글을
-  쓸 때 정한다: 함께 고치면 겹침 검사가 제 글을 빼야 하고, 이미 지난 예약
-  시각이 Validate의 "지난 시각" 검사에 걸린다
-- GET이면(f.Bound()가 false) 폼의 Raw를 글의 값으로 채운다. 템플릿은 늘
-  Raw를 그린다
-- 같은 제목 검사는 PostTitleTaken을 다시 쓴다. 고치는 글 자신은 세지 않도록
-  선택 파라미터 skip_id?와 조건 줄 {skip_id} AND id <> :skip_id를
-  더한다(search_posts.sql의 q?와 같다). 새 글은 SkipID가 nil이라 그 줄이
-  빠진다: savePost는 그대로다
-- 저장은 maago가 만든 UpdatePost. 행 전체를 쓰고 UpdatedAt을 바꾼다. 읽은
-  글에서 제목과 본문만 바꿔 넘기니 다른 열은 그대로다
-- 글 화면에 고치기 링크
+- Two routes and two views:
 
-시험은 TestAuthors의 표 꼴로 누가 무엇을 받는지 보고, 제 제목·다른
-게시판의 같은 제목은 받고 이 게시판의 다른 글 제목은 거절하는지, 고친 뒤
-고정·예약 시각이 그대로인지 본다.
+      maago.GET("/posts/{id}/edit", "post_edit", EditPost),
+      maago.POST("/posts/{id}/edit", "post_change", ChangePost),
+
+      func EditPost(ctx context.Context, u auth.User, db maago.DB, in EditPostIn) (PostEditPage, error)
+      func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn) (maago.Result[PostEditPage], error)
+
+  After its route, the POST view would be UpdatePost, but maago
+  generates UpdatePost for Post. Name views clear of the generated GetX,
+  InsertX, UpdateX and DeleteX (as RemovePost in 0023)
+- Both ask editable(ctx, db, u, id): a hidden post is a 404, anybody
+  else gets a 403 on GET too (mayChange, 0022)
+- The form PostEditForm takes Title and Body from model=Post. When to
+  pin and publish is decided when the post is written: changing them
+  here would need the pin check to leave the post itself out, and a
+  schedule already past would fail Validate's "in the past" check
+- EditPost fills the form's Raw with the post's values. The template
+  always draws Raw
+- The same-title check asks PostTitleTaken again. So that the post being
+  changed does not count, it gets an optional parameter skip_id? and a
+  line {skip_id} AND id <> :skip_id (like q? in search_posts.sql). A
+  new post's SkipID is nil, and the line drops out: savePost stays as
+  it is
+- Two people with the form open at once: the later save must not undo
+  the earlier one unseen. The form's action carries the version the
+  post had when the form opened, its UpdatedAt in microseconds:
+
+      <form method="post" action="{{url "post_change" .Post.ID}}?version={{.Version}}">
+
+  ChangePostIn reads it (Version int64 `maago:"query=version"`; a POST
+  without it is a 400), and ChangePost hands it to UpdatePost as the
+  version to write over:
+
+      changed.UpdatedAt = time.UnixMicro(in.Version)
+
+  UpdatePost returns maago.ErrConflict when the post has another version
+  by now. ChangePost then shows the form again, with what was written
+  and an error on the form; it keeps the old version, so it saves only
+  once opened anew. The version rides in the URL because a model form's
+  fields are the model's
+- The save is UpdatePost, which writes the whole row and moves
+  UpdatedAt. Only the title and body of the post read are changed, so
+  the other columns stay
+- A link to edit on the post page
+
+The test sees who gets what, in the shape of TestAuthors; that the
+post's own title and the same title on another board pass and another
+post's title on this board does not; that a form opened before a save
+saves nothing; and that the pin and schedule times stay.
 
 diff --git a/board/forms.go b/board/forms.go
 index 3ae5782..611c0bc 100644
@@ -63,13 +91,13 @@ index d28b47e..e17b664 100644
 +  {skip_id} AND id <> :skip_id
 diff --git a/board/templates/post_edit_page.html b/board/templates/post_edit_page.html
 new file mode 100644
-index 0000000..09943d9
+index 0000000..f2fb338
 --- /dev/null
 +++ b/board/templates/post_edit_page.html
 @@ -0,0 +1,12 @@
 +{{define "content"}}
 +<h1>{{.Post.Title}} 고치기</h1>
-+<form method="post">
++<form method="post" action="{{url "post_change" .Post.ID}}?version={{.Version}}">
 +{{range .Form.Errors}}<p class="error">{{.}}</p>{{end}}
 +{{with .Form.Title}}<label for="{{.Name}}">{{.Label}}</label>
 +<input id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}">
@@ -92,24 +120,24 @@ index 20dee60..e896453 100644
  <h2>첨부</h2>
  <ul>{{range .Attachments}}
 diff --git a/board/urls.go b/board/urls.go
-index 3f9dfd5..b7c8390 100644
+index 45f151f..ef76a77 100644
 --- a/board/urls.go
 +++ b/board/urls.go
 @@ -15,6 +15,8 @@ var Routes = maago.Routes{
- 	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost, maago.LoginRequired),
+ 	maago.POST("/boards/{id}/posts/new", "post_create", CreatePost),
  	maago.GET("/posts/{id}", "post_detail", ShowPost),
- 	maago.POST("/posts/{id}", "comment_create", CreateComment, maago.LoginRequired),
-+	maago.GET("/posts/{id}/edit", "post_edit", EditPost, maago.LoginRequired),
-+	maago.POST("/posts/{id}/edit", "post_update", EditPost, maago.LoginRequired),
- 	maago.POST("/posts/{id}/publish", "post_publish", Publish, maago.LoginRequired),
- 	maago.POST("/posts/{id}/archive", "post_archive", Archive, maago.LoginRequired),
- 	maago.POST("/posts/{id}/delete", "post_delete", RemovePost, maago.LoginRequired),
+ 	maago.POST("/posts/{id}", "comment_create", CreateComment),
++	maago.GET("/posts/{id}/edit", "post_edit", EditPost),
++	maago.POST("/posts/{id}/edit", "post_change", ChangePost),
+ 	maago.POST("/posts/{id}/publish", "post_publish", Publish),
+ 	maago.POST("/posts/{id}/archive", "post_archive", Archive),
+ 	maago.POST("/posts/{id}/delete", "post_delete", RemovePost),
 diff --git a/board/views.go b/board/views.go
-index 2802719..fb89268 100644
+index a6133c9..12ae34c 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -450,3 +450,49 @@ func Me(ctx context.Context, in struct{}) (MePage, error) {
- 	ps, err := MyPosts(ctx, maago.DBFrom(ctx), MyPostsParams{AuthorID: u.ID})
+@@ -447,3 +447,83 @@ func Me(ctx context.Context, u auth.User, db maago.DB, in struct{}) (MePage, err
+ 	ps, err := MyPosts(ctx, db, MyPostsParams{AuthorID: u.ID})
  	return MePage{Email: u.Email, Posts: ps}, err
  }
 +
@@ -118,51 +146,93 @@ index 2802719..fb89268 100644
 +	Form PostEditForm `maago:"form"`
 +}
 +
-+type PostEditPage struct {
-+	Post Post
-+	Form PostEditForm
++// ChangePostIn is EditPostIn with the version of the post the form was
++// opened on: its UpdatedAt in microseconds, in the form's action URL.
++type ChangePostIn struct {
++	ID      int64        `maago:"path=id"`
++	Version int64        `maago:"query=version"`
++	Form    PostEditForm `maago:"form"`
 +}
 +
-+// EditPost changes a post's title and body, for its author or staff. The
-+// form starts with what the post has.
-+func EditPost(ctx context.Context, in EditPostIn) (maago.Result[PostEditPage], error) {
-+	db := maago.DBFrom(ctx)
-+	p, err := GetPost(ctx, db, in.ID)
-+	switch {
-+	case err != nil:
-+		return maago.Result[PostEditPage]{}, err
-+	case p.Hidden:
-+		return maago.Result[PostEditPage]{}, sql.ErrNoRows
++type PostEditPage struct {
++	Post    Post
++	Form    PostEditForm
++	Version int64
++}
++
++// EditPost draws the form to change a post's title and body, for its
++// author or staff. The form starts with what the post has.
++func EditPost(ctx context.Context, u auth.User, db maago.DB, in EditPostIn) (PostEditPage, error) {
++	p, err := editable(ctx, db, u, in.ID)
++	if err != nil {
++		return PostEditPage{}, err
 +	}
-+	if err := mayChange(ctx, p); err != nil {
++	f := in.Form
++	f.Title.Raw, f.Body.Raw = p.Title, p.Body
++	return PostEditPage{p, f, p.UpdatedAt.UnixMicro()}, nil
++}
++
++// ChangePost saves the title and body, unless somebody saved the post
++// after the form was opened: then the form draws again with what was
++// written, and saves only once opened anew.
++func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn) (maago.Result[PostEditPage], error) {
++	p, err := editable(ctx, tx, u, in.ID)
++	if err != nil {
 +		return maago.Result[PostEditPage]{}, err
 +	}
 +	f := in.Form
-+	if !f.Bound() {
-+		f.Title.Raw, f.Body.Raw = p.Title, p.Body
-+	}
 +	if !f.Valid() {
-+		return maago.Show(PostEditPage{Post: p, Form: f}), nil
++		return maago.Show(PostEditPage{p, f, in.Version}), nil
 +	}
-+	taken, err := PostTitleTaken(ctx, db, PostTitleTakenParams{BoardID: p.BoardID, Title: f.Title.Value, SkipID: &p.ID})
++	taken, err := PostTitleTaken(ctx, tx, PostTitleTakenParams{BoardID: p.BoardID, Title: f.Title.Value, SkipID: &p.ID})
 +	if err != nil {
 +		return maago.Result[PostEditPage]{}, err
 +	}
 +	if taken.N > 0 {
 +		f.Title.Error = "이 게시판에 같은 제목의 글이 있습니다."
-+		return maago.Show(PostEditPage{Post: p, Form: f}), nil
++		return maago.Show(PostEditPage{p, f, in.Version}), nil
 +	}
-+	p.Title, p.Body = f.Title.Value, f.Body.Value
-+	if err := UpdatePost(ctx, db, &p); err != nil {
++	changed := p
++	changed.Title, changed.Body = f.Title.Value, f.Body.Value
++	changed.UpdatedAt = time.UnixMicro(in.Version) // UpdatePost writes only over this version
++	switch err := UpdatePost(ctx, tx, &changed); {
++	case errors.Is(err, maago.ErrConflict):
++		f.AddError("그새 다른 사람이 이 글을 고쳤습니다. 다시 열어 고치세요.")
++		return maago.Show(PostEditPage{p, f, in.Version}), nil
++	case err != nil:
 +		return maago.Result[PostEditPage]{}, err
 +	}
 +	return maago.SeeOther[PostEditPage](PostDetailURL(p.ID)), nil
 +}
++
++// editable is post id, for its author or staff to change. A hidden post
++// is not found.
++func editable(ctx context.Context, db maago.DB, u auth.User, id int64) (Post, error) {
++	p, err := GetPost(ctx, db, id)
++	switch {
++	case err != nil:
++		return Post{}, err
++	case p.Hidden:
++		return Post{}, sql.ErrNoRows
++	}
++	if err := mayChange(u, p); err != nil {
++		return Post{}, err
++	}
++	return p, nil
++}
 diff --git a/board/web_test.go b/board/web_test.go
-index 153a6df..8412e82 100644
+index f77d47b..3bba273 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -694,3 +694,97 @@ func TestMe(t *testing.T) {
+@@ -9,6 +9,7 @@ import (
+ 	"net/http/httptest"
+ 	"net/url"
+ 	"regexp"
++	"strconv"
+ 	"strings"
+ 	"testing"
+ 	"time"
+@@ -696,3 +697,115 @@ func TestMe(t *testing.T) {
  		t.Errorf("/api/me without a token: %d %v", w.Code, w.Header())
  	}
  }
@@ -205,6 +275,14 @@ index 153a6df..8412e82 100644
 +		t.Fatal(err)
 +	}
 +	hidden := PostEditURL(h2.ID)
++	// version is the query of the form's action: the post's version now.
++	version := func(id int64) string {
++		p, err := GetPost(ctx, db, id)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return "?version=" + strconv.FormatInt(p.UpdatedAt.UnixMicro(), 10)
++	}
 +	// As the database keeps it: to the microsecond, where Go's clock may
 +	// say more.
 +	before, err := GetPost(ctx, db, p.ID)
@@ -225,21 +303,21 @@ index 153a6df..8412e82 100644
 +		title string
 +		code  int
 +	}{
-+		{"nobody", h, PostUpdateURL(p.ID), "새 제목", 401},
++		{"nobody", h, PostChangeURL(p.ID), "새 제목", 401},
 +		{"bob", asBob, PostEditURL(p.ID), "", 403},
-+		{"bob", asBob, PostUpdateURL(p.ID), "밥의 제목", 403},
++		{"bob", asBob, PostChangeURL(p.ID), "밥의 제목", 403},
 +		{"ann", asAnn, hidden, "", 404},
-+		{"ann", asAnn, PostUpdateURL(p.ID), "있는 제목", 200}, // taken on this board
-+		{"ann", asAnn, PostUpdateURL(p.ID), "앤의 글", 303},  // its own title
-+		{"ann", asAnn, PostUpdateURL(p.ID), "다른 게시판의 제목", 303},
-+		{"boss", asBoss, PostUpdateURL(p.ID), "고친 제목", 303},
++		{"ann", asAnn, PostChangeURL(p.ID), "있는 제목", 200}, // taken on this board
++		{"ann", asAnn, PostChangeURL(p.ID), "앤의 글", 303},  // its own title
++		{"ann", asAnn, PostChangeURL(p.ID), "다른 게시판의 제목", 303},
++		{"boss", asBoss, PostChangeURL(p.ID), "고친 제목", 303},
 +	} {
 +		var code int
 +		var body string
 +		if c.title == "" {
 +			code, body = get(c.h, c.path)
-+		} else {
-+			code, _, body = post(c.h, c.path, url.Values{"title": {c.title}, "body": {"고친 본문"}})
++		} else { // with the version the form would carry now
++			code, _, body = post(c.h, c.path+version(p.ID), url.Values{"title": {c.title}, "body": {"고친 본문"}})
 +		}
 +		if code != c.code {
 +			t.Errorf("%s %s %q: %d, want %d\n%s", c.who, c.path, c.title, code, c.code, body)
@@ -247,6 +325,16 @@ index 153a6df..8412e82 100644
 +		if c.code == 200 && !strings.Contains(body, "이 게시판에 같은 제목의 글이 있습니다.") {
 +			t.Errorf("%s %q: no error on the title\n%s", c.who, c.title, body)
 +		}
++	}
++
++	// A form opened before the saves above does not undo them: it draws
++	// again with what was written, and saves nothing.
++	stale := PostChangeURL(p.ID) + "?version=" + strconv.FormatInt(before.UpdatedAt.UnixMicro(), 10)
++	if code, _, body := post(asAnn, stale, url.Values{"title": {"늦은 제목"}, "body": {"늦은 본문"}}); code != 200 || !strings.Contains(body, "그새 다른 사람이") || !strings.Contains(body, `value="늦은 제목"`) {
++		t.Errorf("a stale form: %d %s", code, body)
++	}
++	if code, _, _ := post(asAnn, PostChangeURL(p.ID), url.Values{"title": {"버전 없는 제목"}, "body": {"본문"}}); code != 400 {
++		t.Errorf("no version: %d", code)
 +	}
 +
 +	got, err := GetPost(ctx, db, p.ID)
