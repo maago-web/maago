@@ -1,36 +1,35 @@
-# 튜토리얼 (미래) — 블로그 만들기
+# Tutorial (future): building a blog
 
-> v0의 짧은 튜토리얼입니다(5분, D-69). 처음에는 아직 없는 프레임워크의 그림으로 썼고, 만들면서 맞췄습니다.
-> §2~5는 `cmd/maago`의 `TestShortTutorial`이 문서의 명령·파일·출력을 그대로 따라 해 확인합니다(M9 3번).
-> 결정에 없는 채로 쓴 것은 끝의 [가정 목록](#가정-목록)에 모았습니다. 문서가 틀렸다고 밝혀지면 문서를 고칩니다.
-
----
-
-## 들어가며
-
-이 튜토리얼에서는 작은 블로그를 만듭니다. 글을 쓰고, 목록을 보고, 글 하나를 읽고, 관리자 화면에서
-글을 고치는 데까지 갑니다.
-
-Maago를 쓰는 사람은 보통 사람이 아니라 **에이전트**입니다. 그래서 이 튜토리얼에는 일부러 틀리는
-단계가 들어 있습니다. Maago가 무엇을 잡아 주는지, 오류 메시지가 어떻게 생겼는지 보는 것이
-이 튜토리얼의 절반입니다.
-
-필요한 것:
-- Go 1.25 이상
-- 터미널
+> The short tutorial of v0 (five minutes, D-69). It was first written as a picture of a framework that did not exist yet, and fitted to it as it was built.
+> `TestShortTutorial` in `cmd/maago` follows §2–5 as written, with this document's commands, files and output (M9 3).
+> What was written without a decision is collected in the [assumptions](#assumptions) at the end. When the document turns out wrong, the document is fixed.
 
 ---
 
-## 1. 설치
+## Before you start
+
+This tutorial builds a small blog: write posts, see the list, read one post, and change posts in the
+admin.
+
+Maago's user is usually not a person but an **agent**. So this tutorial has steps that go wrong on
+purpose. Seeing what Maago catches, and what its errors look like, is half of the tutorial.
+
+You need:
+- Go 1.25 or later
+- A terminal
+
+---
+
+## 1. Install
 
 ```sh
 go install github.com/maago-web/maago/cmd/maago@latest
 maago help
 ```
 
-## 2. 프로젝트 만들기
+## 2. Make the project
 
-Maago 프로젝트는 그냥 Go 모듈입니다. `maago new`는 아직 없으니(v1) 손으로 만듭니다.
+A Maago project is just a Go module. There is no `maago new` yet (v1), so make it by hand.
 
 ```sh
 mkdir myblog && cd myblog
@@ -39,30 +38,30 @@ go get github.com/maago-web/maago
 go get modernc.org/sqlite
 ```
 
-DB 드라이버(`modernc.org/sqlite`, cgo 없는 SQLite)는 Maago가 아니라 앱이 가집니다. PostgreSQL이면 `go get github.com/jackc/pgx/v5`, import는 `github.com/jackc/pgx/v5/stdlib`입니다.
+The database driver (`modernc.org/sqlite`, SQLite without cgo) belongs to the app, not to Maago. For PostgreSQL, `go get github.com/jackc/pgx/v5` and import `github.com/jackc/pgx/v5/stdlib`.
 
-DB는 `.env`에 적습니다. 처음에는 SQLite가 편합니다.
+The database goes in `.env`. SQLite is the easy start.
 
 ```sh
 # .env
 MAAGO_DATABASE_URL=sqlite:app.db
 ```
 
-> `.env`는 커밋하지 않습니다. `.gitignore`에 넣어 두세요.
+> Do not commit `.env`. Put it in `.gitignore`.
 
-## 3. 앱 만들기 — 모델
+## 3. Make an app: the models
 
-글은 쓴 사람, 곧 계정을 가리킵니다. 계정 앱은 Maago가 가진 것을 복사해 들여옵니다.
+A post points at its author, an account. The accounts app is copied in from what Maago has.
 
 ```sh
 maago add auth
 ```
 
-`auth/`에 `User`·`Permission` 모델과 로그인·가입 화면, 관리자 화면의 권한을 정하는 `Can`, 그 시험이 생깁니다. 이제 이 프로젝트의 코드입니다:
-`User`에 필드를 더하고 문구를 고쳐 씁니다. 비밀번호 해싱 같은 보안 부품은 라이브러리에 있어서
-maago를 올리면(`go get -u`) 고친 것이 따라옵니다.
+`auth/` gets the models `User` and `Permission`, the pages to sign in and sign up, `Can`, which decides who may do what in the admin, and their tests. It is this project's code now:
+add fields to `User`, change the texts. The security parts, such as password hashing, live in the library, so
+upgrading maago (`go get -u`) brings their fixes.
 
-Maago의 앱은 Go 패키지 하나입니다. 등록 파일은 없습니다. `blog/` 디렉터리를 만들고 모델을 씁니다.
+An app of Maago is one Go package. There is no file to register it in. Make the directory `blog/` and write the model.
 
 ```go
 // blog/models.go
@@ -77,28 +76,28 @@ import (
 type Post struct {
 	maago.Model `maago:"table=posts,ordering=-PublishedAt"`
 
-	ID          int64      // 이름이 ID인 int64 필드가 PK
-	AuthorID    int64      `maago:"fk=auth.User,label='글쓴이'"`
-	Title       string     `maago:"max=200,label='제목'"`
-	Text        string     `maago:"label='본문'"`
-	Status      string     `maago:"max=20,choices=draft/published,default='draft',label='상태'"`
-	PublishedAt *time.Time `maago:"label='게시일'"` // 포인터면 NULL 허용
+	ID          int64      // an int64 field named ID is the primary key
+	AuthorID    int64      `maago:"fk=auth.User,label='Author'"`
+	Title       string     `maago:"max=200,label='Title'"`
+	Text        string     `maago:"label='Text'"`
+	Status      string     `maago:"max=20,choices=draft/published,default='draft',label='Status'"`
+	PublishedAt *time.Time `maago:"label='Published'"` // a pointer allows NULL
 }
 ```
 
-읽는 법:
-- 모든 설정은 `maago:"…"` 태그 안에 있습니다. 옵션은 `,`로 나누고, 문자열은 `'…'`로 감쌉니다.
-- 테이블 이름이나 정렬처럼 모델 전체에 대한 설정은 임베드한 `maago.Model`의 태그에 씁니다.
-- 관계는 객체가 아니라 **ID 필드 + `fk=모델`**(다른 앱의 모델은 `fk=앱.모델`) 입니다. 글쓴이의 이름이 필요하면 SQL에서 JOIN합니다.
-  몰래 나가는 쿼리는 없습니다.
-- `choices=draft/published`처럼 선택지는 `/`로 나눕니다.
+How to read it:
+- Every setting is inside the `maago:"…"` tag. Options are separated by `,`, and strings are quoted with `'…'`.
+- Settings for the whole model, such as the table's name or the order, goes in the tag of the embedded `maago.Model`.
+- A relation is not an object but **an ID field and `fk=Model`** (`fk=app.Model` for a model of another app). When you need the author's name, JOIN in SQL.
+  No query goes out unseen.
+- Choices are separated by `/`, as in `choices=draft/published`.
 
-### 일부러 틀려 보기
+### Get it wrong on purpose
 
-`max`를 `maxlen`으로 잘못 써 봅시다.
+Write `max` as `maxlen`.
 
 ```go
-	Title       string     `maago:"maxlen=200,label='제목'"`
+	Title       string     `maago:"maxlen=200,label='Title'"`
 ```
 
 ```sh
@@ -110,22 +109,22 @@ blog/models.go:15:33: unknown tag key "maxlen" in Post.Title
   fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin
 ```
 
-Maago의 오류는 언제나 이 모양입니다. **위치, 무엇이 틀렸는지, 어떻게 고치는지.** 경고는 없고
-오류만 있습니다. 오류가 하나라도 있으면 `maago gen`은 파일을 하나도 쓰지 않습니다.
+Maago's errors always look like this: **where, what is wrong, and how to fix it.** There are no warnings,
+only errors. With even one error, `maago gen` writes no file at all.
 
-`max`로 되돌리고 다시 돌리면 이번에는 다음 할 일을 말합니다.
+Put `max` back and run it again: this time it says what to do next.
 
 ```
 auth/urls.go:5:5: app auth has routes, but no package uses auth.App
   fix: add auth.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
 ```
 
-`auth.App`은 5절에서 `main`에 적습니다. 생성 파일(`*_gen.go`)은 그때 `maago gen`이 씁니다. 첫 줄에
-`// Code generated by maago. DO NOT EDIT.`이 있는 파일은 손대지 않습니다. 생성 파일도 커밋합니다.
+`auth.App` goes into `main` in §5, and `maago gen` writes the generated files (`*_gen.go`) then. Do not
+touch a file whose first line is `// Code generated by maago. DO NOT EDIT.` Commit the generated files too.
 
-## 4. 마이그레이션
+## 4. Migrations
 
-모델이 DB의 원천입니다. 모델을 보고 마이그레이션 초안을 만듭니다.
+The models are the source of the database. Make a draft migration from them.
 
 ```sh
 maago makemigrations
@@ -137,7 +136,7 @@ created migrations/0001_initial.sql
 
 ```sql
 -- migrations/0001_initial.sql
--- (auth 앱의 테이블은 생략)
+-- (the auth app's tables left out)
 
 CREATE TABLE "posts" (
     "id" INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -152,11 +151,11 @@ CREATE TABLE "posts" (
 CREATE INDEX "posts_author_id_idx" ON "posts" ("author_id");
 ```
 
-이 파일은 **초안**입니다. 주인은 여러분이고, 손으로 고쳐도 됩니다. Maago는 이전 상태를 따로 기록하지
-않습니다. 마이그레이션을 연습용 DB에 적용해 본 결과가 곧 이전 상태이고, 그 결과가 모델과 같은지를
-`maago check`가 확인합니다.
+This file is a **draft**. It is yours, and you may change it by hand. Maago keeps no record of the past
+state: the result of applying the migrations to a practice database is the past state, and `maago check` makes sure
+the result matches the models.
 
-적용합니다.
+Apply it.
 
 ```sh
 maago showmigrations
@@ -175,23 +174,23 @@ maago migrate
 applied 0001_initial.sql
 ```
 
-### 필드 이름을 바꾸면
+### When a field is renamed
 
-`Text`를 `Body`로 바꾸고 `makemigrations`를 돌리면, Maago는 “이름 변경인가요?”라고 묻지 않습니다
-(에이전트는 `[y/N]`에 답하지 못합니다). 대신 삭제+추가 초안에 ⚠ 경고를 적습니다. 이름 변경이 맞다면
-그 초안을 지우고 이렇게 알려 줍니다.
+Rename `Text` to `Body` and run `makemigrations`: Maago does not ask "is this a rename?" (an agent cannot
+answer `[y/N]`). It writes a draft that drops and adds, with a ⚠ warning. If it is a rename, delete that
+draft and say so:
 
 ```sh
 maago makemigrations --rename posts.text:body
 ```
 
-컬럼이나 테이블을 지우는 `DROP` 문장은, 바로 앞 줄에 `-- maago: allow-drop`을 적어야
-`check`를 통과합니다. 실수로 데이터를 지우지 않게 하려는 장치입니다. 표시는 바로 다음 문장 하나에만 붙습니다.
+A `DROP` statement, which deletes a column or a table, passes `check` only with `-- maago: allow-drop`
+on the line right before it, so that data is not deleted by mistake. The mark holds for the one statement after it.
 
-## 5. 관리자 화면과 로그인
+## 5. The admin and signing in
 
-여기까지 오면 관리자 화면이 생깁니다. admin은 모델에서 생성된 코드만 쓰고, 로그인한 사용자만
-들어갈 수 있습니다.
+At this point you have an admin. It uses only code generated from the models, and only a signed-in user gets
+in.
 
 ```go
 // main.go
@@ -208,7 +207,7 @@ import (
 	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/contrib/admin"
 	authlib "github.com/maago-web/maago/contrib/auth"
-	_ "modernc.org/sqlite" // DB 드라이버는 앱이 import한다
+	_ "modernc.org/sqlite" // the app imports the database driver
 
 	"example.com/myblog/auth"
 	"example.com/myblog/blog"
@@ -218,7 +217,7 @@ func main() {
 	createSuperuser := flag.Bool("createsuperuser", false, "create a staff account from the environment")
 	flag.Parse()
 	ctx := context.Background()
-	db, err := maago.OpenDB(ctx, maago.DBConfig{}) // 주소는 .env의 MAAGO_DATABASE_URL
+	db, err := maago.OpenDB(ctx, maago.DBConfig{}) // the address: MAAGO_DATABASE_URL in .env
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -230,17 +229,17 @@ func main() {
 		log.Printf("created superuser %s (id %d)", u.Email, u.ID)
 		return
 	}
-	port := cmp.Or(os.Getenv("PORT"), "8000") // 듣는 포트는 PORT, 없으면 8000
-	auth.SiteURL = "http://localhost:" + port // 메일 링크의 앞
-	authlib.Mail = authlib.ConsoleMail        // 메일은 로그로
+	port := cmp.Or(os.Getenv("PORT"), "8000") // it listens on PORT, 8000 without it
+	auth.SiteURL = "http://localhost:" + port // where the mails' links go
+	authlib.Mail = authlib.ConsoleMail        // the mails go to the log
 	adminApp := admin.App(admin.Config{
-		Models: [][]admin.Model{blog.Admin, auth.Admin}, // 모델이 있는 앱마다
-		Can:    auth.Can,                                // 누가 어느 모델에 무엇을
+		Models: [][]admin.Model{blog.Admin, auth.Admin}, // each app that has models
+		Can:    auth.Can,                                // who may do what to which model
 	})
 	h, err := maago.Handler(maago.Config{
 		DB:       db,
 		Apps:     []maago.App{auth.App, adminApp},
-		Auth:     auth.Current, // 요청의 세션(또는 API 토큰)의 사용자
+		Auth:     auth.Current, // the user of the request's session (or API token)
 		LoginURL: "/login",
 	})
 	if err != nil {
@@ -250,9 +249,9 @@ func main() {
 }
 ```
 
-앱은 `main`이 `Config.Apps`에 적습니다. `auth.App`·`blog.Admin`·`auth.Admin`은 `maago gen`이 만드는 값이고,
-빠뜨리면 `maago gen`이 알려 줍니다. `blog`에는 아직 라우트가 없어서 `blog.App`은 없습니다(7절).
-생성 파일을 쓰고, 관리자 계정을 만들고, 서버를 켭니다.
+`main` lists the apps in `Config.Apps`. `auth.App`, `blog.Admin` and `auth.Admin` are values `maago gen` makes,
+and `maago gen` tells you when one is missing. `blog` has no routes yet, so there is no `blog.App` (§7).
+Write the generated files, make an admin account, and start the server.
 
 ```sh
 maago gen
@@ -260,20 +259,20 @@ MAAGO_SUPERUSER_EMAIL=me@example.com MAAGO_SUPERUSER_PASSWORD='…' go run . -cr
 go run .
 ```
 
-`'…'`에는 비밀번호를 적습니다(8자 이상, 흔한 비밀번호와 이메일을 닮은 것은 거절합니다). `maago gen`은 만든 파일 수(`generated 8 files`)를, `-createsuperuser`는 `created superuser me@example.com (id 1)`을 찍습니다. 관리자 계정은 묻지 않고 셸의 환경 변수로 받습니다. 비밀번호를 플래그로 받지 않는 것은 `ps`와 셸 기록에
-남기 때문입니다.
+Put a password in `'…'` (8 characters or more; common passwords and ones like the email are refused). `maago gen` prints how many files it made (`generated 8 files`), and `-createsuperuser` prints `created superuser me@example.com (id 1)`. The admin account comes from the shell's environment, with no prompt. The password is not a flag because `ps` and the shell's history
+would keep it.
 
-<http://localhost:8000/admin/>에서 로그인하면 글 목록·쓰기·고치기·지우기가 됩니다.
+Sign in at <http://localhost:8000/admin/>, and you can list, write, change and delete posts.
 
-> 필드 이름이 `password`라고 admin이 알아서 숨기지는 않습니다. 숨기고 싶으면 태그 `admin=hidden`으로
-> 말합니다. Maago는 이름으로 추측하지 않습니다.
+> The admin does not hide a field because it is named `password`. To hide one, say so with the tag
+> `admin=hidden`. Maago does not guess from names.
 
-**여기까지가 Maago v0의 목표입니다: 모델 → makemigrations → migrate → admin + 로그인, 5분.**
+**This is the goal of Maago v0: models → makemigrations → migrate → the admin and signing in, in five minutes.**
 
-## 6. SQL 쓰기
+## 6. Write SQL
 
-Maago에는 ORM이 없습니다. SQL은 파일에 손으로 씁니다. 대신 Maago가 그 SQL을 연습용 DB에
-미리 돌려 보고 검사합니다.
+Maago has no ORM. You write SQL by hand, in files, and Maago runs it on a practice database first and
+checks it.
 
 ```sql
 -- blog/queries/published_posts.sql
@@ -284,18 +283,18 @@ WHERE status = 'published'
 ORDER BY published_at DESC
 ```
 
-머리의 `:many Post`는 “여러 줄, 결과 타입은 `Post`”라는 뜻입니다. 결과 타입이 모델 이름이면
-**모든 컬럼이 맞아야** 합니다. 컬럼을 하나 빼 보면:
+`:many Post` in the header means "many rows, of the result type `Post`". When the result type is a model's
+name, **every column must match**. Leave one out:
 
 ```
 blog/queries/published_posts.sql:3:1: result columns do not match model Post: missing "published_at"
   fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
 ```
 
-일부만 채운 `Post`를 저장했다가 데이터가 지워지는 일을 막기 위해서입니다. 필요한 컬럼만 원하면
-새 이름을 주면 됩니다. 그 모양의 struct를 Maago가 만들어 줍니다.
+A `Post` half filled, saved back, would erase data; this stops it. When you want only some columns, give
+a new name, and Maago makes a struct of that shape.
 
-검색처럼 조건이 있다 없다 하는 쿼리는 `{ }`로 씁니다.
+A query whose conditions come and go, such as a search, uses `{ }`.
 
 ```sql
 -- blog/queries/search_posts.sql
@@ -312,15 +311,15 @@ WHERE {
 ORDER BY published_at DESC
 ```
 
-- `:q`는 값 바인딩입니다. `q?`의 `?`는 “없어도 된다”는 뜻입니다.
-- 줄 앞의 `{q}`는 “`q`가 있을 때만 이 줄을 넣는다”입니다.
-- `WHERE { }` 안에서는 맨 앞의 `AND`를 Maago가 정리하고, 다 비면 `WHERE` 자체를 없앱니다.
+- `:q` binds a value. The `?` of `q?` means "may be missing".
+- `{q}` at the start of a line means "this line only when `q` is given".
+- Inside `WHERE { }`, Maago tidies the leading `AND`, and drops `WHERE` itself when nothing is left.
 
-`maago gen`을 돌리면 Maago는 가능한 조합을 전부 연습용 DB에 prepare해 봅니다. 생성된 함수는
-이렇게 생겼습니다.
+`maago gen` prepares every combination on the practice database. The generated functions look like
+this:
 
 ```go
-// blog/queries_gen.go (생성됨)
+// blog/queries_gen.go (generated)
 type SearchPostsParams struct {
 	Q      *string
 	Status *string
@@ -337,23 +336,23 @@ func SearchPosts(ctx context.Context, db maago.DB, p SearchPostsParams) ([]PostS
 ```
 
 ```go
-posts, err := SearchPosts(ctx, db, SearchPostsParams{Q: maago.Ptr("hello")}) // Status는 nil: 없음
+posts, err := SearchPosts(ctx, db, SearchPostsParams{Q: maago.Ptr("hello")}) // Status is nil: none
 ```
 
-- 파라미터가 없으면 `p`도 없습니다. 없어도 되는 파라미터는 포인터이고 `maago.Ptr(값)`으로 채웁니다.
-  파라미터 `ids`의 필드는 `IDs`입니다(Go의 약어 규칙).
-- `db`는 `*sql.DB`든 `*sql.Tx`든 됩니다. `maago.OpenDB(ctx, maago.DBConfig{})`가 `.env`의 주소로 엽니다.
-- `:one`은 행이 없으면 `sql.ErrNoRows`, 둘 이상이면 오류입니다. `:exec`는 바뀐 행 수를 돌려주고, 0행도
-  오류가 아닙니다.
-- 모델마다 `GetPost`·`InsertPost`·`UpdatePost`·`DeletePost`도 `models_gen.go`에 생깁니다. `InsertPost`는
-  `NewPostInput`을 받아 id까지 채운 `Post`를 돌려주고(입력의 포인터를 그대로 담습니다), `UpdatePost`·
-  `DeletePost`는 그 id의 행이 없으면 `sql.ErrNoRows`입니다.
-- SQLite는 파라미터의 타입을 알려 주지 않아 Maago가 선언과 맞춰 보지 못합니다. PostgreSQL에서는 맞춰 봅니다.
-- 시각은 PostgreSQL에서는 로컬 위치로, SQLite에서는 UTC로 읽힙니다(같은 순간입니다. 프로젝트의 DB는 하나라 섞이지 않습니다).
+- With no parameters there is no `p`. A parameter that may be missing is a pointer, filled with `maago.Ptr(value)`.
+  The field of the parameter `ids` is `IDs` (Go's rule for initialisms).
+- `db` may be an `*sql.DB` or an `*sql.Tx`. `maago.OpenDB(ctx, maago.DBConfig{})` opens the address in `.env`.
+- `:one` is `sql.ErrNoRows` when there is no row, and an error with two or more. `:exec` returns how many rows
+  changed, and 0 is no error.
+- `models_gen.go` gets `GetPost`, `InsertPost`, `UpdatePost` and `DeletePost` for each model. `InsertPost`
+  takes a `NewPostInput` and returns the `Post` with its id (it keeps the input's pointers as they are);
+  `UpdatePost` and `DeletePost` return `sql.ErrNoRows` when no row has that id.
+- SQLite does not tell the parameters' types, so Maago cannot match them with the declarations. On PostgreSQL it does.
+- Times come back in the local time zone on PostgreSQL, and in UTC on SQLite (the same instant; a project has one database, so they do not mix).
 
-## 7. URL과 뷰
+## 7. URLs and views
 
-라우트는 표 하나에 모읍니다.
+The routes are in one table.
 
 ```go
 // blog/urls.go
@@ -362,17 +361,18 @@ package blog
 import "github.com/maago-web/maago"
 
 var Routes = maago.Routes{
-	maago.GET("/{$}", "post_list", PostList), // {$}: "/" 하나만. /로 끝나는 경로는 {$}를 붙여야 한다
+	maago.GET("/{$}", "post_list", PostList), // {$}: "/" alone; a path that ends in / needs {$}
 	maago.GET("/post/{id}", "post_detail", PostDetail),
 }
 ```
 
-라우트가 생겼으니 `main`의 `Apps`에 `blog.App`을 더합니다. 잊으면 `maago gen`이
-`app blog has routes, but no package uses blog.App`이라고 알려 줍니다.
+With routes, add `blog.App` to `main`'s `Apps`. Forget it, and `maago gen` says
+`app blog has routes, but no package uses blog.App`.
 
-뷰는 `http.ResponseWriter`를 받지 않습니다. 들어오는 값과 나가는 값이 타입으로 정해져 있고,
-요청을 해석하고 템플릿을 그리는 코드는 Maago가 생성합니다. 뷰가 무엇을 쓰는지는 서명이 말합니다:
-DB를 읽으면 `ctx`와 In 사이에 `db maago.DB`(쓰는 뷰는 `tx maago.Tx`), 로그인한 사용자가 필요하면 그 앞에 `u auth.User`(누구나 보는 화면이면 `u *auth.User`, 익명은 nil).
+A view takes no `http.ResponseWriter`. What comes in and what goes out are types, and Maago generates
+the code that reads the request and draws the template. A view's signature says what it uses: between `ctx`
+and In, `db maago.DB` when it reads the database (`tx maago.Tx` when it writes), and before that `u auth.User`
+when it needs a signed-in user (`u *auth.User` for a page anybody may see: nil when nobody is signed in).
 
 ```go
 // blog/views.go
@@ -394,7 +394,7 @@ func PostList(ctx context.Context, db maago.DB, in struct{}) (PostListPage, erro
 }
 
 type PostDetailIn struct {
-	ID int64 `maago:"path=id"` // 경로의 {id}
+	ID int64 `maago:"path=id"` // {id} in the path
 }
 
 type PostDetailPage struct {
@@ -402,19 +402,24 @@ type PostDetailPage struct {
 }
 
 func PostDetail(ctx context.Context, db maago.DB, in PostDetailIn) (PostDetailPage, error) {
-	post, err := GetPost(ctx, db, in.ID) // GetPost: PK 기준 CRUD는 생성된다
+	post, err := GetPost(ctx, db, in.ID) // GetPost: the CRUD by primary key is generated
 	return PostDetailPage{Post: post}, err
 }
 ```
 
-`/post/abc`처럼 해석할 수 없는 값이나, 글이 없어서 나온 `sql.ErrNoRows`는 404가 됩니다.
-In에 query 필드가 있으면(``Page int64 `maago:"query=page"` ``), `?page=abc`처럼 읽을 수 없는 값은 400입니다. 그 밖의 오류는 500이고 `Config.OnError`가 듣습니다.
+A value that cannot be parsed, such as `/post/abc`, or the `sql.ErrNoRows` of a post that is not there, is a 404.
+With a query field in In (``Page int64 `maago:"query=page"` ``), a value that cannot be parsed, such as `?page=abc`, is a 400. Most other errors are a 500, and `Config.OnError` hears it.
 
-## 8. 템플릿
+A view that answers with something other than a page, such as a CSV file, is a `func(w http.ResponseWriter, r *http.Request)`.
+It cannot ask through parameters, so it reads the database and the user from the request (`maago.DBFrom(r.Context())`,
+`maago.UserFrom[auth.User](r.Context())`). When it needs a sign-in, it answers nobody itself: a 401 to an API client,
+a redirect to the login page to a browser.
 
-템플릿은 Go 표준 `html/template`입니다. 뷰가 돌려주는 타입이 템플릿을 정합니다: `PostListPage`는
-`templates/post_list_page.html`입니다. 틀은 앱의 `templates/base.html`이고, 페이지는 `{{define "content"}}`를
-채웁니다.
+## 8. Templates
+
+Templates are Go's standard `html/template`. The type a view returns decides the template: `PostListPage` is
+`templates/post_list_page.html`. The frame is the app's `templates/base.html`, and a page fills its
+`{{define "content"}}`.
 
 ```html
 <!-- blog/templates/post_list_page.html -->
@@ -436,9 +441,9 @@ In에 query 필드가 있으면(``Page int64 `maago:"query=page"` ``), `?page=ab
 {{end}}
 ```
 
-### 일부러 틀려 보기
+### Get it wrong on purpose
 
-`{{.Post.Title}}`을 `{{.Post.Titel}}`로, `post_detail`을 `post_detial`로 바꾸고 `maago gen`을 돌리면:
+Change `{{.Post.Title}}` to `{{.Post.Titel}}` and `post_detail` to `post_detial`, and run `maago gen`:
 
 ```
 blog/templates/post_detail_page.html:2:15: PostDetailPage.Post has no field or method "Titel"
@@ -447,54 +452,62 @@ blog/templates/post_list_page.html:4:26: unknown route name "post_detial"
   fix: did you mean "post_detail"? routes are declared in the apps' var Routes
 ```
 
-두 오류가 **한 번에** 나옵니다. 하나 고치고 다시 돌리고, 또 하나 고치고 다시 돌릴 필요가 없습니다.
-브라우저를 열기 전에 잡힙니다. 그리고 `maago gen`은 아무 파일도 쓰지 않습니다.
+Both errors come **at once**: no fixing one, running again, fixing the other, running again. They are
+caught before a browser opens, and `maago gen` writes no file.
 
-## 9. 폼 (맛보기)
+## 9. Forms (a taste)
 
-글쓰기 폼은 모델에서 규칙을 받습니다.
+A form to write a post takes its rules from the model.
 
 ```go
 // blog/forms.go
 type PostForm struct {
-	maago.Form `maago:"model=Post"` // 필수, max=200, 라벨 '제목'은 모델의 태그에서
+	maago.Form `maago:"model=Post"` // required, max=200 and the label 'Title' come from the model's tags
 	Title      maago.Field[string]
 	Text       maago.Field[string]
 }
 ```
 
-뷰는 In의 ``Form PostForm `maago:"form"` ``으로 폼을 받습니다. GET이면 빈 폼을 그리고, POST면 생성된
-코드가 칸마다 읽고 검사합니다. `f.Valid()`가 참이면 저장하고 `maago.SeeOther`로 보냅니다(303). 아니면
-같은 화면을 다시 그립니다(200). 칸마다 `.Error`에 문구가, `.Raw`에 보낸 글이 남습니다.
+Two views take the form, as a field of the same In, ``Form PostForm `maago:"form"` ``: the GET view draws it
+empty, and the POST view saves it. The POST view writes, so it takes `tx maago.Tx` and returns a `maago.Result[Page]`:
 
-숫자 칸이라면 비어 있는 것, 숫자로 읽을 수 없는 것, 범위를 벗어난 것을 서로 다른 문구로 알려 줍니다.
-값을 조용히 버리지 않습니다. 같은 폼을 API 라우트에서는 JSON으로 받고, 틀리면 422로 답합니다.
+```go
+func NewPost(ctx context.Context, in NewPostIn) (PostFormPage, error)
+func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[PostFormPage], error)
+```
 
-## 10. 커밋하기 전에
+On POST the generated code reads and checks each field. When `f.Valid()` is true, the view saves and sends
+the browser on with `maago.SeeOther` (303). Otherwise it draws the same page again with `maago.Show` (200),
+with each field's message in `.Error` and what was sent in `.Raw`.
+
+A number field gives three different messages for an empty value, one that is not a number, and one out of
+range. No value is dropped without a word. The same form takes JSON on an API route, and answers a 422 when it is wrong.
+
+## 10. Before you commit
 
 ```sh
 maago check
 ```
 
-`check`는 아무것도 쓰지 않고, 모든 검사를 돌리고, 생성 파일이 최신인지 봅니다. 생성 파일을 손으로
-고쳤거나 `maago gen`을 잊었다면 실패합니다. CI에도 이 명령 하나를 넣으면 됩니다.
+`check` writes nothing, runs every check, and sees whether the generated files are up to date. It fails
+when a generated file was changed by hand or `maago gen` was forgotten. One command for CI too.
 
 ---
 
-## 여기까지 한 것
+## What you did
 
-- 모델은 struct와 `maago:"…"` 태그로 선언했습니다.
-- 마이그레이션은 Maago가 초안을 쓰고, 우리가 확인했습니다.
-- SQL은 손으로 썼고, Maago가 실행 전에 검사했습니다.
-- 라우트·뷰·템플릿의 틀린 이름은 브라우저를 열기 전에 잡혔습니다.
-- 모든 오류는 위치와 고치는 법을 함께 말했습니다.
+- The models were declared as structs with `maago:"…"` tags.
+- Maago wrote the migrations as drafts, and we checked them.
+- The SQL was written by hand, and Maago checked it before it ran.
+- Wrong names in routes, views and templates were caught before a browser opened.
+- Every error said where it was and how to fix it.
 
 ---
 
-## 가정 목록
+## Assumptions
 
-이 문서에서 결정([DECISIONS.md](DECISIONS.md))에 없는 채로 쓴 것들입니다.
+What this document wrote without a decision in [DECISIONS.md](DECISIONS.md).
 
-| 어디 | 가정 | 관련 |
+| Where | Assumption | Related |
 |---|---|---|
-| — | 남은 가정 없음. §7의 오류 문구는 게시판 튜토리얼 0020의 `Maago-Expect`가 글자 그대로 강제한다(3·6·8의 문구도 실제 출력) | D-62, D-114 |
+| — | None left. The error texts of §7 are held to the letter by the board tutorial's `Maago-Expect` in 0020 (the texts of §3, §6 and §8 are real output too) | D-62, D-114 |

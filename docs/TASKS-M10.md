@@ -210,6 +210,8 @@
      - 구현 리뷰: codex(결함 없음, 0022·ARCHITECTURE의 이름은 "없다"를 말하려고 남김), fable(검사 셋을 일곱 가지로 부수어 시험마다 그것만 실패함을 확인, SQLite로 `TestShortTutorial`·`TestWeb`·`TestAddAuth`). 받음: 뷰 나누기 fix의 문장, 9d를 목록에(`- 9d.`), `routes_test`의 `m.LoginRequired`, `Config.Auth` 주석, TUTORIAL-FUTURE의 `u *auth.User`. 받지 않음: 별칭 import와 "다른 뷰의 사용자 타입" 가지의 시험 줄(이름 목록은 기존 시험이 덮는다)
      - 9d로 넘김(Q1): TUTORIAL-FUTURE를 영어로(499줄, `TestShortTutorial`이 그 글을 따라 걷는다: 머리의 `## 2.`~`## 6.`과 명령·코드 블록의 꼴을 지킨다). 9c는 옛 꼴만
    - 9d. TUTORIAL-FUTURE를 영어로(Q1, D-152, 9c에서 넘어옴): `TestShortTutorial`이 걷는 머리(`## 2.`~`## 6.`)와 명령·코드 블록의 꼴을 지키고, 탈출구 뷰의 로그인과 `u *auth.User`를 한 줄씩 → 확인: `TestShortTutorial`, 한글 0
+     - 계획과 구현: 글 전체를 영어로, 블록은 글자 그대로(코드의 주석과 모델의 라벨만 영어로: 라벨은 출력 블록에 나오지 않는다), 머리 번호 그대로, 끝의 닻 `#assumptions`(다른 문서의 링크 0). §7에 탈출구 뷰 한 단락(DB와 사용자를 요청에서 읽고, 로그인이 필요하면 스스로 답한다). 확인: `TestShortTutorial` 초록, 출력 블록 한 줄을 바꾸면 실패(문서를 읽는다), 한글 0. 계획·구현 리뷰는 fable 하나: 문서 작업
+     - 리뷰(fable): 받음: §9가 한 뷰의 GET·POST로 읽혀 쓰는 라우트의 `DB` 오류로 이끈다(원문부터) → 두 뷰와 서명, 새 §7 단락의 401·로그인 화면, "nil when nobody is signed in", "Most other errors"(409·413도 있다), 영어 몇 줄
 10. **`maago doc`**(D-152, D-06·D-07·D-62를 고침): 검사기의 닫힌 목록(모델 태그, 폼 태그, In 태그, 뷰의 서명, 쿼리 머리, 조건 줄 규칙, 라우트 옵션, 템플릿 함수, admin URL·필드)을 하나의 표로 모으고 검사기와 `maago doc <주제>`가 함께 읽는다. 주제마다 영어로 짧은 설명과 완전한 예 하나. 진단의 `(D-xx)`를 `see: maago doc <주제>`로 → 확인: 표에 없는 키를 검사기가 받으면 시험이 실패(표가 원천), 주제의 예를 시험이 빈 프로젝트에서 `gen`·`check`, 진단에 `(D-`가 0
 
    앞 작업에서 넘어온 것: 스칼라 결과(`:one bool`)와 집계(`max`·`sum`)의 NULL은 COALESCE(3번), TUTORIAL-FUTURE에 "`go get -u` 뒤 CLI도 `go install …@latest`"(1번)
