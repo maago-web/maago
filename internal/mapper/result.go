@@ -372,7 +372,7 @@ func (q *Query) joins() (joins, []diag.Diagnostic) {
 		return ""
 	}
 	fail := func(i int, why string) (joins, []diag.Diagnostic) {
-		return joins{}, []diag.Diagnostic{diag.New(toks[i].Pos, "cannot tell which result columns may be NULL: "+why+" (D-104)",
+		return joins{}, []diag.Diagnostic{diag.New(toks[i].Pos, "cannot tell which result columns may be NULL: "+why,
 			"join the table itself, with ON, or split the query")}
 	}
 	for i := range toks {

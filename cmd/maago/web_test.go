@@ -84,7 +84,7 @@ func TestStaticGen(t *testing.T) {
 	root := webProject(t)
 	writeFile(t, filepath.Join(root, "site", "templates", "base.html"), "<link href=\"{{static \"site/ap.css\"}}\">{{block \"content\" .}}{{end}}\n")
 	_, ds := build.Gen(root)
-	want := "site/templates/base.html:1:22: static \"site/ap.css\": no file site/static/ap.css\n  fix: did you mean \"site/app.css\"?\n"
+	want := "site/templates/base.html:1:22: static \"site/ap.css\": no file site/static/ap.css\n  fix: did you mean \"site/app.css\"?\n  see: maago doc template\n"
 	if got := text(ds); got != want {
 		t.Errorf("got\n%s", got)
 	}

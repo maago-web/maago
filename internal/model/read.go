@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/maago-web/maago/internal/diag"
+	refdoc "github.com/maago-web/maago/internal/ref" // ref is this package's type
 )
 
 // maagoPath is the import path of the runtime package that holds Model.
@@ -125,7 +126,7 @@ func readPackage(fset *token.FileSet, dir string, files []*ast.File) (*Package, 
 					continue
 				}
 				m, mds := readModel(fset, ts, st, maagoNames, timeName, dotMaago)
-				ds = append(ds, mds...)
+				ds = append(ds, diag.See(refdoc.Model, mds)...)
 				if m != nil {
 					pkg.Models = append(pkg.Models, m)
 				}

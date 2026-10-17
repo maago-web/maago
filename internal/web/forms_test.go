@@ -144,7 +144,7 @@ func TestFormErrors(t *testing.T) {
 			c.want = []string{`board/urls.go:27:27: form BoardForm names model Bord`, `board/urls.go:34:40: unknown key "mim"`}
 		}
 		out, _ := generate(t, files)
-		lines := slices.DeleteFunc(strings.Split(out, "\n"), func(l string) bool { return l == "" || strings.HasPrefix(l, "  fix:") })
+		lines := slices.DeleteFunc(strings.Split(out, "\n"), func(l string) bool { return l == "" || strings.HasPrefix(l, "  ") })
 		ok := len(lines) == len(c.want)
 		for i := 0; ok && i < len(lines); i++ {
 			ok = strings.HasPrefix(lines[i], c.want[i])

@@ -1,0 +1,82 @@
+-- blog/models.go --
+package blog
+
+import (
+	"time"
+
+	"github.com/maago-web/maago"
+)
+
+type Post struct {
+	maago.Model
+
+	ID          int64
+	Title       string `maago:"max=200"`
+	Status      string `maago:"choices=draft/published,default='draft'"`
+	Views       int64  `maago:"default=0"`
+	PublishedAt *time.Time
+}
+
+type Comment struct {
+	maago.Model
+
+	ID     int64
+	PostID int64 `maago:"fk=Post"`
+	Text   string
+}
+-- blog/queries/search_posts.sql --
+-- name: SearchPosts :many PostSummary
+-- param: q?      string
+-- param: status any/draft/published
+-- param: ids     []int64
+SELECT id, title, published_at
+FROM blog_post
+WHERE {
+  {q}       AND title LIKE '%' || :q || '%'
+  {status=draft|status=published} AND status = :status
+  {ids}     AND id IN (:ids)
+}
+ORDER BY published_at DESC
+-- blog/queries/post_by_title.sql --
+-- name: PostByTitle :one Post
+-- param: title string
+SELECT * FROM blog_post WHERE title = :title
+-- blog/queries/posts_with_counts.sql --
+-- name: PostsWithCounts :many PostCount
+-- column: comments int64
+-- column: last_comment? string
+SELECT p.id, p.title, count(c.id) AS comments, max(c.text) AS last_comment
+FROM blog_post p LEFT JOIN blog_comment c ON c.post_id = p.id
+GROUP BY p.id, p.title
+-- blog/queries/most_views.sql --
+-- name: MostViews :one int64
+SELECT COALESCE(max(views), 0) FROM blog_post
+-- blog/queries/count_view.sql --
+-- name: CountView :exec
+-- param: id int64
+UPDATE blog_post SET views = views + 1 WHERE id = :id
+-- blog/blog.go --
+package blog
+
+import (
+	"context"
+
+	"github.com/maago-web/maago"
+)
+
+// Show runs the generated functions.
+func Show(ctx context.Context, tx maago.Tx, id int64) ([]PostSummary, error) {
+	if _, err := CountView(ctx, tx, CountViewParams{ID: id}); err != nil {
+		return nil, err
+	}
+	if _, err := MostViews(ctx, tx); err != nil {
+		return nil, err
+	}
+	if _, err := PostsWithCounts(ctx, tx); err != nil {
+		return nil, err
+	}
+	if _, err := PostByTitle(ctx, tx, PostByTitleParams{Title: "Hello"}); err != nil {
+		return nil, err
+	}
+	return SearchPosts(ctx, tx, SearchPostsParams{Q: maago.Ptr("hello"), Status: "any", IDs: []int64{1, 2}})
+}

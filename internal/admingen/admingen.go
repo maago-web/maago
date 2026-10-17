@@ -319,14 +319,14 @@ func Use(fset *token.FileSet, byDir map[string][]*ast.File, modulePath string, a
 	for _, a := range apps {
 		if !handed[web.ImportPath(modulePath, a.Dir)] {
 			ds = append(ds, diag.New(fset.Position(a.Models[0].Pos), "app "+a.Name+" has models, but no package uses "+a.Name+".Admin",
-				"add "+a.Name+".Admin to admin.Config.Models in main (D-131), then run maago gen: go build works after gen"))
+				"add "+a.Name+".Admin to admin.Config.Models in main, then run maago gen: go build works after gen"))
 		}
 	}
 	for _, wa := range routes {
 		for _, r := range wa.Routes {
 			if r.Path == strings.TrimSuffix(admin.Prefix, "/") || strings.HasPrefix(r.Path, admin.Prefix) {
 				ds = append(ds, diag.New(fset.Position(r.PathPos), "route "+r.Path+" is under "+admin.Prefix+", which the admin serves",
-					"move the route out of "+admin.Prefix+" (D-131)"))
+					"move the route out of "+admin.Prefix))
 			}
 		}
 	}

@@ -1,0 +1,236 @@
+$ maago add auth
+-- main.go --
+package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/maago-web/maago"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/auth"
+	"example.com/app/blog"
+)
+
+func main() {
+	ctx := context.Background()
+	db, err := maago.OpenDB(ctx, maago.DBConfig{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	auth.SiteURL = "http://localhost:8000"
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, blog.App}, Auth: auth.Current, LoginURL: "/login"})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Fatal(maago.Serve(ctx, ":8000", h))
+}
+-- blog/models.go --
+package blog
+
+import "github.com/maago-web/maago"
+
+type Post struct {
+	maago.Model
+
+	ID       int64
+	AuthorID int64  `maago:"fk=auth.User"`
+	Title    string `maago:"max=200"`
+	Views    int64  `maago:"default=0"`
+}
+-- blog/forms.go --
+package blog
+
+import "github.com/maago-web/maago"
+
+type PostForm struct {
+	maago.Form `maago:"model=Post"`
+	Title      maago.Field[string]
+}
+-- blog/urls.go --
+package blog
+
+import "github.com/maago-web/maago"
+
+var Routes = maago.Routes{
+	maago.GET("/{$}", "post_list", PostList),
+	maago.GET("/rows", "post_rows", PostList, maago.Block("rows")),
+	maago.GET("/post/{id}", "post_detail", PostDetail),
+	maago.GET("/post/new", "post_new", NewPost),
+	maago.POST("/post/new", "post_create", CreatePost),
+	maago.POST("/post/{id}/view", "post_view", CountView, maago.NoTx),
+	maago.GET("/post/{id}/text", "post_text", PostText),
+	maago.GET("/api/posts", "api_posts", APIPosts, maago.API),
+}
+-- blog/views.go --
+package blog
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strconv"
+
+	"github.com/maago-web/maago"
+
+	"example.com/app/auth"
+)
+
+type PostListIn struct {
+	Page *int64 `maago:"query=page"` // ?page=, nil when missing
+}
+
+type PostListPage struct {
+	Posts    []Post
+	SignedIn bool
+}
+
+// PostList is for anybody: u is nil when nobody is signed in.
+func PostList(ctx context.Context, u *auth.User, db maago.DB, in PostListIn) (PostListPage, error) {
+	posts, err := AllPosts(ctx, db)
+	return PostListPage{Posts: posts, SignedIn: u != nil}, err
+}
+
+type PostDetailIn struct {
+	ID int64 `maago:"path=id"` // {id}; /post/abc is a 404
+}
+
+type PostDetailPage struct {
+	Post Post
+}
+
+func PostDetail(ctx context.Context, db maago.DB, in PostDetailIn) (PostDetailPage, error) {
+	p, err := GetPost(ctx, db, in.ID) // sql.ErrNoRows: 404
+	return PostDetailPage{Post: p}, err
+}
+
+type NewPostIn struct {
+	Form PostForm `maago:"form"`
+}
+
+type PostFormPage struct {
+	Form PostForm
+}
+
+// NewPost draws the empty form; u requires a sign-in.
+func NewPost(ctx context.Context, u auth.User, in NewPostIn) (PostFormPage, error) {
+	return PostFormPage{Form: in.Form}, nil
+}
+
+// CreatePost writes, in the request's transaction.
+func CreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (maago.Result[PostFormPage], error) {
+	f := in.Form
+	if !f.Valid() {
+		return maago.Show(PostFormPage{Form: f}), nil
+	}
+	p, err := InsertPost(ctx, tx, NewPostInput{AuthorID: u.ID, Title: f.Title.Value})
+	if err != nil {
+		return maago.Result[PostFormPage]{}, err // rolled back
+	}
+	maago.AfterCommit(ctx, func(ctx context.Context) { fmt.Println("new post", p.ID) })
+	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
+}
+
+// CountView takes maago.DB on a writing route, so the route says maago.NoTx.
+func CountView(ctx context.Context, db maago.DB, in PostDetailIn) (maago.Result[PostDetailPage], error) {
+	if _, err := CountPostView(ctx, db, CountPostViewParams{ID: in.ID}); err != nil {
+		return maago.Result[PostDetailPage]{}, err
+	}
+	return maago.SeeOther[PostDetailPage](PostDetailURL(in.ID)), nil
+}
+
+func APIPosts(ctx context.Context, db maago.DB, in struct{}) ([]Post, error) {
+	return AllPosts(ctx, db)
+}
+
+// PostText answers plain text, so it is a func(w, r) and reads what it
+// needs from the request.
+func PostText(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	p, err := GetPost(r.Context(), maago.DBFrom(r.Context()), id)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	fmt.Fprintln(w, p.Title)
+}
+-- blog/queries/all_posts.sql --
+-- name: AllPosts :many Post
+SELECT * FROM blog_post ORDER BY id DESC
+-- blog/queries/count_post_view.sql --
+-- name: CountPostView :exec
+-- param: id int64
+UPDATE blog_post SET views = views + 1 WHERE id = :id
+-- blog/templates/base.html --
+<!doctype html>
+<main>{{block "content" .}}{{end}}</main>
+-- blog/templates/post_list_page.html --
+{{define "content"}}
+  {{if .SignedIn}}<a href="{{url "post_new"}}">New</a>{{end}}
+  {{block "rows" .}}
+    {{range .Posts}}<p><a href="{{url "post_detail" .ID}}">{{.Title}}</a></p>{{end}}
+  {{end}}
+{{end}}
+-- blog/templates/post_detail_page.html --
+{{define "content"}}<h1>{{.Post.Title}}</h1>{{end}}
+-- blog/templates/post_form_page.html --
+{{define "content"}}
+  <form method="post" action="{{url "post_create"}}">
+    {{with .Form.Title}}<label>{{.Label}} <input name="{{.Name}}" value="{{.Raw}}"></label> {{.Error}}{{end}}
+    <button>Save</button>
+  </form>
+{{end}}
+-- blog/blog_test.go --
+package blog
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/maagotest"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/auth"
+)
+
+func TestViews(t *testing.T) {
+	h, err := maago.Handler(maago.Config{DB: maagotest.DB(t), Apps: []maago.App{auth.App, App}, Auth: auth.Current, LoginURL: "/login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		method, path string
+		code         int
+		location     string
+	}{
+		{"GET", "/", 200, ""},
+		{"GET", "/rows", 200, ""},
+		{"GET", "/post/1", 404, ""},                            // no such row
+		{"GET", "/post/abc", 404, ""},                          // not an int64
+		{"GET", "/?page=abc", 400, ""},                         // not an int64
+		{"GET", "/post/new", 303, "/login?next=%2Fpost%2Fnew"}, // u auth.User: sign in first
+		{"POST", "/post/new", 401, ""},                         // a POST without a user
+		{"GET", "/api/posts", 200, ""},
+	} {
+		r := httptest.NewRequest(c.method, c.path, nil)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != c.code || w.Header().Get("Location") != c.location {
+			t.Errorf("%s %s: %d %q, want %d %q", c.method, c.path, w.Code, w.Header().Get("Location"), c.code, c.location)
+		}
+	}
+	if w := httptest.NewRecorder(); true {
+		h.ServeHTTP(w, httptest.NewRequest("GET", "/api/posts", nil))
+		if ct := w.Header().Get("Content-Type"); ct != "application/json" {
+			t.Errorf("api_posts: %s", ct)
+		}
+	}
+	_ = http.StatusOK
+}

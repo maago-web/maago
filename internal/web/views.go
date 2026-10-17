@@ -12,6 +12,7 @@ import (
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/model"
+	"github.com/maago-web/maago/internal/ref"
 )
 
 // view is a route's view as Views reads it from the syntax: what the
@@ -48,7 +49,6 @@ type param struct{ name, typ string }
 var (
 	pathTypes  = []string{"string", "int64", "int32"}
 	queryTypes = []string{"string", "int64", "int32", "bool", "float64"}
-	inKeys     = []string{"path", "query", "form"}
 )
 
 // Views checks the shape of each route's view in the syntax: the forms of
@@ -200,7 +200,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 	}
 	switch {
 	case both:
-		errAt(params[1].Pos(), "view "+r.View+" takes both maago.Tx and maago.DB", "write "+viewSignature(r.View, user, false, true, types.ExprString(last))+": the transaction reads and writes (D-150)")
+		errAt(params[1].Pos(), "view "+r.View+" takes both maago.Tx and maago.DB", "write "+viewSignature(r.View, user, false, true, types.ExprString(last))+": the transaction reads and writes")
 		return nil, ds
 	case order:
 		errAt(params[1].Pos(), "view "+r.View+" takes its values out of order", "write "+viewSignature(r.View, user, v.db, v.tx, types.ExprString(last)))
@@ -295,6 +295,14 @@ func readField(fset *token.FileSet, f *ast.Field, name *ast.Ident, ds *[]diag.Di
 			`keep one: maago:"path=name", maago:"query=name" or maago:"form"`)
 		return inField{}, false
 	}
+	if keys := ref.InTags.Names(); len(opts) == 1 && !slices.Contains(keys, opts[0].Key) {
+		fix := "allowed: " + strings.Join(keys, ", ")
+		if m := diag.Suggest(opts[0].Key, keys); m != "" {
+			fix = fmt.Sprintf("did you mean %q? %s", m, fix)
+		}
+		errAt(opts[0].KeyPos, fmt.Sprintf("unknown key %q in the tag of %s", opts[0].Key, name.Name), fix)
+		return inField{}, false
+	}
 	if len(opts) == 1 && opts[0].Key == "form" {
 		return readFormField(fset, f, name, opts[0], ds)
 	}
@@ -304,14 +312,6 @@ func readField(fset *token.FileSet, f *ast.Field, name *ast.Ident, ds *[]diag.Di
 		return inField{}, false
 	}
 	o := opts[0]
-	if !slices.Contains(inKeys, o.Key) {
-		fix := "allowed: " + strings.Join(inKeys, ", ")
-		if m := diag.Suggest(o.Key, inKeys); m != "" {
-			fix = fmt.Sprintf("did you mean %q? %s", m, fix)
-		}
-		errAt(o.KeyPos, fmt.Sprintf("unknown key %q in the tag of %s", o.Key, name.Name), fix)
-		return inField{}, false
-	}
 	field := inField{name: name.Name, source: o.Key, key: o.Values[0], pos: name.Pos()}
 	t := f.Type
 	if s, ok := t.(*ast.StarExpr); ok && o.Key == "query" {

@@ -186,7 +186,7 @@ func TestErrors(t *testing.T) {
 	var all strings.Builder
 	for _, c := range cases {
 		_, _, out := load(t, c.files)
-		lines := slices.DeleteFunc(strings.Split(out, "\n"), func(l string) bool { return l == "" || strings.HasPrefix(l, "  fix:") })
+		lines := slices.DeleteFunc(strings.Split(out, "\n"), func(l string) bool { return l == "" || strings.HasPrefix(l, "  ") })
 		ok := len(lines) == len(c.want)
 		for i := 0; ok && i < len(lines); i++ {
 			_, rest, _ := strings.Cut(lines[i], ".go:")

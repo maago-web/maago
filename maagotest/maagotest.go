@@ -67,7 +67,7 @@ func DB(t testing.TB) *sql.DB {
 	}
 	driver := map[project.Dialect][2]string{project.SQLite: {"sqlite", "modernc.org/sqlite"}, project.Postgres: {"pgx", "github.com/jackc/pgx/v5/stdlib"}}[d]
 	if !slices.Contains(sql.Drivers(), driver[0]) {
-		t.Fatalf("maagotest: no %q database driver\n  fix: import _ %q in a _test.go file of this package; tests do not go through main (D-90)", driver[0], driver[1])
+		t.Fatalf("maagotest: no %q database driver\n  fix: import _ %q in a _test.go file of this package; tests do not go through main", driver[0], driver[1])
 	}
 	if d == project.SQLite {
 		addr = "sqlite:" + filepath.Join(t.TempDir(), "test.db") // the migrations make the file

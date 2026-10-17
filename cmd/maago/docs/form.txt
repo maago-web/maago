@@ -1,0 +1,232 @@
+-- main.go --
+package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/maago-web/maago"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/blog"
+)
+
+func main() {
+	ctx := context.Background()
+	db, err := maago.OpenDB(ctx, maago.DBConfig{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{blog.App}, MediaDir: "media"}) // a form takes a file
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Fatal(maago.Serve(ctx, ":8000", h))
+}
+-- blog/models.go --
+package blog
+
+import "github.com/maago-web/maago"
+
+type Post struct {
+	maago.Model
+
+	ID       int64
+	Title    string  `maago:"max=200,label='Title'"`
+	Status   string  `maago:"choices=draft/published,default='draft'"`
+	Subtitle *string `maago:"max=200"` // a pointer: optional in the model form
+}
+-- blog/forms.go --
+package blog
+
+import (
+	"strings"
+	"time"
+
+	"github.com/maago-web/maago"
+)
+
+// PostForm takes Title, Status and Subtitle's rules from the model.
+type PostForm struct {
+	maago.Form `maago:"model=Post"`
+	Title      maago.Field[string]
+	Status     maago.Field[string]
+	Subtitle   maago.Field[string]
+}
+
+// Validate checks across fields, after every field was read.
+func (f *PostForm) Validate() {
+	if f.Title.Error == "" && strings.EqualFold(f.Title.Value, f.Subtitle.Value) {
+		f.Subtitle.Error = "Say something the title does not."
+	}
+}
+
+// ReviewForm has no model: each field's rules are its own tags.
+type ReviewForm struct {
+	maago.Form
+	Name    maago.Field[string]     `maago:"min=2,max=100,label='Your name',help='As it will be shown'"`
+	Rating  maago.Field[int64]      `maago:"min_value=1,max_value=5"`
+	Weight  maago.Field[float64]    `maago:"optional,min_value=0"`
+	Count   maago.Field[int32]      `maago:"optional"`
+	Kind    maago.Field[string]     `maago:"choices=praise/complaint"`
+	Visited maago.Field[time.Time]  `maago:"optional"`
+	Public  maago.Field[bool]       // a checkbox
+	Photo   maago.Field[maago.File] `maago:"optional,accept=png/jpeg"`
+}
+-- blog/urls.go --
+package blog
+
+import "github.com/maago-web/maago"
+
+var Routes = maago.Routes{
+	maago.GET("/post/new", "post_new", NewPost),
+	maago.POST("/post/new", "post_create", CreatePost),
+	maago.POST("/api/posts", "api_post_create", APICreatePost, maago.API),
+	maago.GET("/review", "review", Review),
+	maago.POST("/review", "review_send", SendReview),
+}
+-- blog/views.go --
+package blog
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+
+	"github.com/maago-web/maago"
+)
+
+type NewPostIn struct {
+	Form PostForm `maago:"form"`
+}
+
+type PostFormPage struct {
+	Form PostForm
+}
+
+func NewPost(ctx context.Context, in NewPostIn) (PostFormPage, error) {
+	return PostFormPage{Form: in.Form}, nil // not bound: no errors shown
+}
+
+func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[PostFormPage], error) {
+	f := in.Form
+	if f.Valid() && titleTaken(ctx, tx, f.Title.Value) {
+		f.Title.Error = "A post has this title." // a check that needs the database
+	}
+	if !f.Valid() {
+		return maago.Show(PostFormPage{Form: f}), nil
+	}
+	if _, err := insert(ctx, tx, f); err != nil {
+		return maago.Result[PostFormPage]{}, err
+	}
+	return maago.SeeOther[PostFormPage](PostNewURL()), nil
+}
+
+// APICreatePost takes the same form as JSON; a wrong one is a 422.
+func APICreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (Post, error) {
+	f := in.Form
+	if titleTaken(ctx, tx, f.Title.Value) {
+		return Post{}, maago.Invalid(&f.Title, "A post has this title.")
+	}
+	return insert(ctx, tx, f)
+}
+
+func insert(ctx context.Context, tx maago.Tx, f PostForm) (Post, error) {
+	in := NewPostInput{Title: f.Title.Value, Status: maago.Set(f.Status.Value)}
+	if f.Subtitle.Given {
+		in.Subtitle = &f.Subtitle.Value
+	}
+	return InsertPost(ctx, tx, in)
+}
+
+func titleTaken(ctx context.Context, tx maago.Tx, title string) bool {
+	_, err := PostByTitle(ctx, tx, PostByTitleParams{Title: title})
+	return !errors.Is(err, sql.ErrNoRows)
+}
+
+type ReviewIn struct {
+	Form ReviewForm `maago:"form"`
+}
+
+type ReviewPage struct {
+	Form ReviewForm
+	Sent bool
+}
+
+func Review(ctx context.Context, in ReviewIn) (ReviewPage, error) {
+	return ReviewPage{Form: in.Form}, nil
+}
+
+// SendReview writes nothing to the database, yet a POST takes maago.Tx.
+func SendReview(ctx context.Context, tx maago.Tx, in ReviewIn) (maago.Result[ReviewPage], error) {
+	return maago.Show(ReviewPage{Form: in.Form, Sent: in.Form.Valid()}), nil
+}
+-- blog/queries/post_by_title.sql --
+-- name: PostByTitle :one Post
+-- param: title string
+SELECT * FROM blog_post WHERE title = :title
+-- blog/templates/base.html --
+<!doctype html>
+<main>{{block "content" .}}{{end}}</main>
+-- blog/templates/post_form_page.html --
+{{define "content"}}
+  <form method="post" action="{{url "post_create"}}">
+    {{range .Form.Errors}}<p>{{.}}</p>{{end}}
+    {{with .Form.Title}}<label>{{.Label}} <input name="{{.Name}}" value="{{.Raw}}"></label> {{.Error}}{{end}}
+    {{with .Form.Status}}<select name="{{.Name}}">{{range .Choices}}<option>{{.}}</option>{{end}}</select>{{end}}
+    {{with .Form.Subtitle}}<input name="{{.Name}}" value="{{.Raw}}"> {{.Error}}{{end}}
+    <button>Save</button>
+  </form>
+{{end}}
+-- blog/templates/review_page.html --
+{{define "content"}}
+  {{if .Sent}}<p>Thank you.</p>{{end}}
+  <form method="post" action="{{url "review_send"}}" enctype="multipart/form-data">
+    {{with .Form.Name}}<label>{{.Label}} <input name="{{.Name}}" value="{{.Raw}}"></label> <small>{{.Help}}</small> {{.Error}}{{end}}
+    {{with .Form.Rating}}<input name="{{.Name}}" value="{{.Raw}}"> {{.Error}}{{end}}
+    {{with .Form.Photo}}<input type="file" name="{{.Name}}"> {{.Error}}{{end}}
+    <button>Send</button>
+  </form>
+{{end}}
+-- blog/blog_test.go --
+package blog
+
+import (
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/maagotest"
+	_ "modernc.org/sqlite"
+)
+
+func TestForms(t *testing.T) {
+	h, err := maago.Handler(maago.Config{DB: maagotest.DB(t), Apps: []maago.App{App}, MediaDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(path, body, contentType string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", path, strings.NewReader(body))
+		r.Header.Set("Content-Type", contentType)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	const form = "application/x-www-form-urlencoded"
+	if w := post("/post/new", "title=&status=draft", form); w.Code != 200 || strings.Contains(w.Body.String(), "</label> <") {
+		t.Errorf("no title: %d", w.Code) // required: drawn again with the error
+	}
+	if w := post("/post/new", "title=Hello&status=draft", form); w.Code != 303 {
+		t.Errorf("a right form: %d", w.Code)
+	}
+	if w := post("/post/new", "title=Hello&status=draft", form); w.Code != 200 || !strings.Contains(w.Body.String(), "A post has this title.") {
+		t.Errorf("the same title: %d", w.Code)
+	}
+	if w := post("/api/posts", `{"title": "Hello", "status": "draft"}`, "application/json"); w.Code != 422 {
+		t.Errorf("the same title, as JSON: %d", w.Code)
+	}
+	if w := post("/api/posts", `{"title": "Other", "status": "draft"}`, "application/json"); w.Code != 200 {
+		t.Errorf("a right JSON form: %d %s", w.Code, w.Body)
+	}
+}

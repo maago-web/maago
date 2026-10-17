@@ -10,6 +10,7 @@ import (
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/gotypes"
 	"github.com/maago-web/maago/internal/model"
+	"github.com/maago-web/maago/internal/ref"
 )
 
 // Types checks each view against the types: the signature D-116 allows,
@@ -98,12 +99,12 @@ func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) [
 			viewPos[r] = pos
 			pages = append(pages, page{route: r, typ: pkg.Scope().Lookup(r.view.page).Type().(*types.Named), label: r.view.page, multipart: app.readsFile(r)})
 		}
-		ds = append(ds, validates(res, pkg, app)...)
+		ds = append(ds, diag.See(ref.Form, validates(res, pkg, app))...)
 		if !failed { // a template is walked with the page types, which must be right
-			ds = append(ds, checkTemplates(fset, root, app.Dir, pkg, pages, routes, statics, viewPos)...)
+			ds = append(ds, diag.See(ref.Template, checkTemplates(fset, root, app.Dir, pkg, pages, routes, statics, viewPos))...)
 		}
 	}
-	return ds
+	return diag.See(ref.View, ds)
 }
 
 func hasOption(opts []Option, name string) bool {
@@ -213,7 +214,7 @@ func validates(res *gotypes.Result, pkg *types.Package, app *App) []diag.Diagnos
 		_, isFunc := obj.(*types.Func)
 		if sig, _ := obj.Type().(*types.Signature); !isFunc || sig.Params().Len() > 0 || sig.Results().Len() > 0 {
 			ds = append(ds, diag.New(res.Fset.Position(obj.Pos()), fmt.Sprintf("Validate of form %s is not a method func()", name),
-				"declare func (f *"+name+") Validate(): it sets a field's Error or calls f.AddError; a check that needs the database goes in the view (D-119)"))
+				"declare func (f *"+name+") Validate(): it sets a field's Error or calls f.AddError; a check that needs the database goes in the view"))
 			continue
 		}
 		if _, ptr := obj.Type().(*types.Signature).Recv().Type().(*types.Pointer); !ptr {

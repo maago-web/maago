@@ -21,4 +21,5 @@ up/urls.go:23:8: form field Doc is a file, but a model form takes its fields fro
 # no enctype
 up/templates/up_page.html: route up_form reads a form with a file, but its page draws no form with enctype="multipart/form-data"
   fix: write <form method="post" enctype="multipart/form-data"> in the page or base.html; without it the browser sends the file's name, not the file
+  see: maago doc template
 

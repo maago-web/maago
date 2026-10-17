@@ -103,10 +103,11 @@ board/urls.go:52:7: form Form is a pointer
 # Validate on the value
 board/urls.go:41:21: Validate of form NoticeForm has a value receiver: the errors it sets are lost
   fix: declare it func (f *NoticeForm) Validate()
+  see: maago doc form
 
 # a Valid method
 board/urls.go:43:21: form NoticeForm declares Valid, which maago gen writes for it
-  fix: remove it, or rename it: the generated Valid counts the form's errors and its fields' (D-119)
+  fix: remove it, or rename it: the generated Valid counts the form's errors and its fields'
 
 # a field named Valid
 board/urls.go:37:2: form field Valid takes the name of the form's method Valid
@@ -128,5 +129,6 @@ board/urls.go:34:40: unknown key "mim" in the tag of form field Title
 
 # Validate's signature
 board/urls.go:41:22: Validate of form NoticeForm is not a method func()
-  fix: declare func (f *NoticeForm) Validate(): it sets a field's Error or calls f.AddError; a check that needs the database goes in the view (D-119)
+  fix: declare func (f *NoticeForm) Validate(): it sets a field's Error or calls f.AddError; a check that needs the database goes in the view
+  see: maago doc form
 

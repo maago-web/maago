@@ -51,7 +51,7 @@ func Names(fset *token.FileSet, root, dir string, app *model.App, qs []*Query, m
 	if app != nil {
 		for _, m := range app.Models {
 			by, pos := "the CRUD of model "+m.Name, fset.Position(m.Pos)
-			fix := "rename what your code declares under that name; the CRUD's names follow the model's (D-21)"
+			fix := "rename what your code declares under that name; the CRUD's names follow the model's"
 			for _, name := range []string{"New" + m.Name + "Input", "Get" + m.Name, "Insert" + m.Name, "Delete" + m.Name, "scan" + m.Name} {
 				add(name, by, pos, fix)
 			}

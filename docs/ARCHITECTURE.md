@@ -43,7 +43,7 @@ github.com/maago-web/maago
 │                          NewApp·AppRoute·Pages·Render·ParseQuery·Query·Bind*·FinishForm·FormValid·FormValues·JSONValues·Unprocessable·
 │                          Rule·FieldError·URLFunc·PathSegment·DateFunc·NoRow, Static·StaticFunc·
 │                          App.WithStatic(D-136, D-137), MultipartValues·BindFile(D-139) …
-│                          런타임이 기대는 내부 패키지는 internal/diag·internal/project뿐(시험이 본다)
+│                          런타임이 기대는 내부 패키지는 TestRuntimeDependencies가 적는 것뿐(diag·ref·model·project·migrate…)
 ├── maagotest/          시험 전용 도우미: DB (M4, D-113), Mailbox (M5, D-126). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
 ├── contrib/
 │   ├── auth/            인증의 보안 부품(stdlib만, M5): Hash·Check(D-127), ValidatePassword·MinLength·NotCommon·NotSimilar(D-15), NewToken·HashToken·
@@ -57,7 +57,10 @@ github.com/maago-web/maago
 │
 └── internal/            생성기. 사용자는 import할 수 없다
     ├── build/           gen·check·makemigrations·migrate의 단계 조립(모든 단계를 아는 유일한 곳)  M1·M2
-    ├── diag/            진단: 위치·메시지·고치는 법, 정렬·중복 제거·출력       M0
+    ├── diag/            진단: 위치·메시지·고치는 법·읽을 곳(see), 정렬·중복 제거·출력  M0
+    ├── ref/             참조의 표: `maago doc`의 주제와 검사기가 받는 닫힌 목록(태그 키·값, 머리 키,   M10
+    │                      In 태그, 라우트 옵션). 검사기가 이 표를 읽는다. stdlib만, embed 없음 (D-152).
+    │                      주제의 예는 `cmd/maago/docs/`(CLI만 embed, `TestDocExamples`가 짓고 돌린다)
     ├── pipeline/        단계 실행, 오류 수집, 메모리 생성물, 쓰기·최신성 비교    M0
     ├── golden/          골든 파일 테스트 도구 (테스트 전용)                    M0
     ├── project/         사용자 프로젝트 찾기: go.mod 루트, `./...` 파일 목록,      M1·M2
@@ -131,16 +134,22 @@ type Diagnostic struct {
     pos token.Position // 파일:줄:칸. 파일 이름이 없으면 위치 없음
     msg string         // 무엇이 틀렸나 (영어, 한 줄)
     fix string         // 고치는 법 (영어, 한 줄, 필수)
+    see string         // maago doc의 주제, 없으면 ""
 }
 
 func New(pos token.Position, msg, fix string) Diagnostic // 빈 msg·fix는 패닉
+func See(topic string, ds []Diagnostic) []Diagnostic    // 주제가 없는 진단에 주제를
 func Write(w io.Writer, ds []Diagnostic) error          // 정렬, 중복 제거, 출력
 ```
 
 ```
 blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
   fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin
+  see: maago doc model
 ```
+
+- `see`는 검사기마다 기본으로 붙는다(`build`의 호출 자리와 `web.Types` 안에서): 모델 → model, 쿼리 → query, 뷰·라우트 → view, 폼 → form,
+  템플릿·static → template, admin → admin. 프로젝트·마이그레이션·Go 문법·타입 오류에는 없다 (D-152).
 
 - 고치는 법이 빈 진단은 만들 수 없게 생성자에서 막는다 (D-62). 필드가 비공개라 다른 패키지는 생성자로만 채울 수 있다.
 - 수준(경고/오류)은 없다. 진단은 모두 오류다 (D-63).

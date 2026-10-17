@@ -36,11 +36,12 @@ func ordersProject(t *testing.T, d project.Dialect) string {
 	return root
 }
 
-// diagnostics are the lines of out that start a diagnostic.
+// diagnostics are the lines of out that start a diagnostic, without its
+// fix and see lines.
 func diagnostics(out string) []string {
 	var lines []string
 	for _, l := range strings.Split(out, "\n") {
-		if l != "" && !strings.HasPrefix(l, "  fix: ") {
+		if l != "" && !strings.HasPrefix(l, "  ") {
 			lines = append(lines, l)
 		}
 	}

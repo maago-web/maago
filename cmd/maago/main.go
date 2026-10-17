@@ -103,8 +103,16 @@ func describePostgres(ctx context.Context, pg *pgconn.PgConn, query string) (pra
 // run once they are parsed.
 type command struct {
 	name, summary string
-	args          int // the arguments after the flags, exactly
+	args          int // the arguments after the flags, exactly; -1 for none or one
 	setup         func(fs *flag.FlagSet) func(stdout, stderr io.Writer) int
+}
+
+// most is how many arguments c takes at most.
+func (c command) most() int {
+	if c.args < 0 {
+		return 1
+	}
+	return c.args
 }
 
 // commands, in the order a project uses them.
@@ -115,6 +123,7 @@ var commands = []command{
 	{"showmigrations", "list the migrations and which the database has applied", 0, noFlags(cmdShowMigrations)},
 	{"migrate", "apply the migrations the database has not applied", 0, noFlags(cmdMigrate)},
 	{"add", "copy contrib app APP into the project, yours from then on (apps: " + strings.Join(scaffold.Apps(), ", ") + ")", 1, cmdAdd},
+	{"doc", "show the reference of a topic; with no topic, list them", -1, cmdDoc},
 	{"tailwind", "write each app's static/tailwind.css from its tailwind.css, with the standalone Tailwind CSS " + tailwindVersion, 0, noFlags(cmdTailwind)},
 }
 
@@ -152,8 +161,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		case err != nil:
 			usage(stderr)
 			return 2
-		case fs.NArg() > c.args:
-			fmt.Fprintf(stderr, "maago %s: unexpected argument %q\n", c.name, fs.Arg(c.args))
+		case fs.NArg() > c.most():
+			fmt.Fprintf(stderr, "maago %s: unexpected argument %q\n", c.name, fs.Arg(c.most()))
 			usage(stderr)
 			return 2
 		case fs.NArg() < c.args:

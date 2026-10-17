@@ -94,10 +94,13 @@ func TestRoutes(t *testing.T) {
 
 	want := `blog/urls.go:7:18: route name "x" is taken by blog/urls.go:6
   fix: route names are one namespace across the project; rename one
+  see: maago doc view
 blog/urls.go:7:23: no function B in package blog
   fix: did you mean "A"?
+  see: maago doc view
 blog/urls.go:10:6: view A takes 0 values and returns 0
   fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+  see: maago doc view
 `
 	if out := text(ds); out != want {
 		t.Errorf("got:\n%s", out)

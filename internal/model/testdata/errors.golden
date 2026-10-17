@@ -47,9 +47,9 @@ blog/models.go:22:32: unknown model "Autor" in Post.AuthorID
 blog/models.go:23:29: Post.OwnerID refers to Post by ID, so it must be int64, not string
   fix: declare the field as int64, or *int64 to allow NULL
 blog/models.go:24:29: Post.Legacy is not a column (type int is not supported), so its maago options would be ignored
-  fix: remove the maago tag, or make the field a column: exported, of type int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one (D-77)
+  fix: remove the maago tag, or make the field a column: exported, of type int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one
 blog/models.go:25:29: Post.secret is not a column (unexported field), so its maago options would be ignored
-  fix: remove the maago tag, or make the field a column: exported, of type int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one (D-77)
+  fix: remove the maago tag, or make the field a column: exported, of type int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one
 blog/models.go:26:35: unknown auto value "crate" in Post.Made
   fix: did you mean "create"? allowed: create, update
 blog/models.go:27:30: auto fills a time.Time, but Post.Seen is *time.Time
@@ -77,11 +77,11 @@ blog/models.go:36:33: unknown model "Nope" in Post.BothID
 blog/models.go:41:28: table name "Blog-Authors" of Author is not a plain SQL name
   fix: use lowercase letters, digits and _, like table=blog_posts
 blog/models.go:43:2: Author.ID is the primary key and must be int64, not string
-  fix: declare it as ID int64 (D-74)
+  fix: declare it as ID int64
 blog/models.go:43:22: Author.ID is the primary key and cannot have "unique"
   fix: remove it; ID may only have label and help
 blog/models.go:47:6: model Tag has no primary key
-  fix: add the field ID int64 (D-74)
+  fix: add the field ID int64
 blog/models.go:47:6: table "blog_post" of blog: Tag is also the table of blog: Post
   fix: give one of them another name with table=…
 blog/models.go:54:22: unique on Slug is declared twice in Dup
@@ -93,7 +93,7 @@ blog/models.go:54:85: unique on Slug, ID is declared twice in Dup
 blog/models.go:59:2: fields AuthorID and AuthorId of Dup both become column "author_id"
   fix: rename one of them
 blog/models.go:65:2: Nullable.ID is the primary key and must be int64, not *int64
-  fix: declare it as ID int64 (D-74)
+  fix: declare it as ID int64
 blog/models.go:69:28: unknown admin value "shown" in Adm
   fix: allowed: hidden
 blog/models.go:69:34: admin_search in Adm is not written as expected

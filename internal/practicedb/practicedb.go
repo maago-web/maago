@@ -105,7 +105,7 @@ func open(ctx context.Context, d project.Dialect, dsn, url, what, fix string, pr
 		if version < minPostgres {
 			p.Close()
 			return nil, fail(fmt.Sprintf("PostgreSQL %d.%d is older than %d, which maago needs", version/10000, version%10000, minPostgres/10000),
-				fmt.Sprintf("use PostgreSQL %d or later (D-98)", minPostgres/10000))
+				fmt.Sprintf("use PostgreSQL %d or later", minPostgres/10000))
 		}
 	}
 	return p, nil

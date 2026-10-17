@@ -22,13 +22,13 @@ func TestJoins(t *testing.T) {
 		{"SELECT title FROM posts UNION SELECT name FROM boards", "null=[] noSource"},
 		{"SELECT 1 FROM (SELECT id FROM posts p JOIN boards b ON true) s", "null=[]"},
 		{"SELECT 1 FROM posts p JOIN LATERAL (SELECT 1) x ON true", "null=[]"},
-		{"SELECT 1 FROM posts NATURAL JOIN boards", "21: cannot tell which result columns may be NULL: a NATURAL join (D-104)"},
-		{"SELECT 1 FROM posts p LEFT JOIN (SELECT 1) x ON true", "33: cannot tell which result columns may be NULL: a LEFT JOIN of a subquery (D-104)"},
-		{"SELECT 1 FROM posts p LEFT JOIN LATERAL (SELECT 1) x ON true", "33: cannot tell which result columns may be NULL: a LEFT JOIN LATERAL (D-104)"},
-		{"WITH s AS MATERIALIZED (SELECT name FROM boards) SELECT s.name FROM posts p LEFT JOIN s ON true", "87: cannot tell which result columns may be NULL: a LEFT JOIN of the CTE s, whose columns come from other tables (D-104)"},
-		{"WITH RECURSIVE t AS (SELECT 1) SELECT 1 FROM posts p LEFT JOIN t ON true", "64: cannot tell which result columns may be NULL: a LEFT JOIN of the CTE t, whose columns come from other tables (D-104)"},
-		{"WITH x(a) AS (SELECT 1), y AS (SELECT 2) SELECT 1 FROM posts p LEFT JOIN y ON true", "74: cannot tell which result columns may be NULL: a LEFT JOIN of the CTE y, whose columns come from other tables (D-104)"},
-		{"SELECT 1 FROM (posts p LEFT JOIN boards b ON true)", "15: cannot tell which result columns may be NULL: a join in parentheses (D-104)"},
+		{"SELECT 1 FROM posts NATURAL JOIN boards", "21: cannot tell which result columns may be NULL: a NATURAL join"},
+		{"SELECT 1 FROM posts p LEFT JOIN (SELECT 1) x ON true", "33: cannot tell which result columns may be NULL: a LEFT JOIN of a subquery"},
+		{"SELECT 1 FROM posts p LEFT JOIN LATERAL (SELECT 1) x ON true", "33: cannot tell which result columns may be NULL: a LEFT JOIN LATERAL"},
+		{"WITH s AS MATERIALIZED (SELECT name FROM boards) SELECT s.name FROM posts p LEFT JOIN s ON true", "87: cannot tell which result columns may be NULL: a LEFT JOIN of the CTE s, whose columns come from other tables"},
+		{"WITH RECURSIVE t AS (SELECT 1) SELECT 1 FROM posts p LEFT JOIN t ON true", "64: cannot tell which result columns may be NULL: a LEFT JOIN of the CTE t, whose columns come from other tables"},
+		{"WITH x(a) AS (SELECT 1), y AS (SELECT 2) SELECT 1 FROM posts p LEFT JOIN y ON true", "74: cannot tell which result columns may be NULL: a LEFT JOIN of the CTE y, whose columns come from other tables"},
+		{"SELECT 1 FROM (posts p LEFT JOIN boards b ON true)", "15: cannot tell which result columns may be NULL: a join in parentheses"},
 	} {
 		q, out := readBody(t, "-- name: Q :many R\n"+c.body+"\n")
 		if out != "" {

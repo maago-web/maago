@@ -1,0 +1,52 @@
+-- blog/models.go --
+package blog
+
+import (
+	"time"
+
+	"github.com/maago-web/maago"
+)
+
+type Post struct {
+	maago.Model `maago:"table=posts,ordering=(-PublishedAt,Title),unique=(AuthorID,Slug),index=(Status,PublishedAt),admin_list=(Title,Status,PublishedAt),admin_search=(Title),admin_filter=(Status,Public)"`
+
+	ID          int64   // an int64 field named ID is the primary key
+	AuthorID    int64   `maago:"fk=Author,label='Author'"`
+	Title       string  `maago:"max=200,label='Title',help='Shown in lists'"`
+	Slug        string  `maago:"max=100,index,admin=readonly"`
+	Status      string  `maago:"max=20,choices=draft/published,default='draft'"`
+	Public      bool    `maago:"default=true"`
+	Views       int32   `maago:"default=0"`
+	Score       float64 `maago:"default=0"`
+	Body        []byte
+	Secret      string     `maago:"unique,admin=hidden"`
+	PublishedAt *time.Time // a pointer allows NULL
+	CreatedAt   time.Time  `maago:"auto=create"`
+	UpdatedAt   time.Time  `maago:"auto=update"` // UpdatePost compares it: 409 on a stale copy
+}
+
+type Author struct {
+	maago.Model `maago:"admin=hidden"`
+
+	ID       int64
+	Name     string `maago:"max=100"`
+	EditorID *int64 `maago:"fk=Author"` // an optional reference
+}
+-- blog/blog.go --
+package blog
+
+import (
+	"context"
+
+	"github.com/maago-web/maago"
+)
+
+// Publish shows the generated CRUD.
+func Publish(ctx context.Context, tx maago.Tx, authorID int64, title string) (Post, error) {
+	p, err := InsertPost(ctx, tx, NewPostInput{AuthorID: authorID, Title: title, Slug: "hello", Secret: "s", Status: maago.Set("published")})
+	if err != nil {
+		return Post{}, err
+	}
+	p.Title += "!"
+	return p, UpdatePost(ctx, tx, &p)
+}

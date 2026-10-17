@@ -1,5 +1,6 @@
 // Package diag holds what Maago reports when something is wrong: where it
-// is, what is wrong, and how to fix it (D-61, D-62, D-63). Every
+// is, what is wrong, how to fix it, and where to read more (D-61, D-62,
+// D-63, D-152). Every
 // diagnostic is an error; there are no warnings.
 package diag
 
@@ -16,8 +17,8 @@ import (
 // Diagnostic is one error. Its fields are unexported so that New, which
 // refuses a diagnostic without a fix, is the only way to fill one in.
 type Diagnostic struct {
-	pos      token.Position
-	msg, fix string
+	pos           token.Position
+	msg, fix, see string
 }
 
 // New returns a diagnostic at pos. pos.Filename is relative to the project
@@ -26,7 +27,7 @@ type Diagnostic struct {
 // caller, so New panics.
 func New(pos token.Position, msg, fix string) Diagnostic {
 	if msg == "" || fix == "" {
-		panic(fmt.Sprintf("diag: a diagnostic needs a message and a fix (D-62): %q, %q", msg, fix))
+		panic(fmt.Sprintf("diag: a diagnostic needs a message and a fix: %q, %q", msg, fix))
 	}
 	if strings.ContainsAny(msg, "\r\n") || strings.ContainsAny(fix, "\r\n") {
 		panic(fmt.Sprintf("diag: message and fix must be one line each: %q, %q", msg, fix))
@@ -40,7 +41,18 @@ func New(pos token.Position, msg, fix string) Diagnostic {
 	if pos.Line == 0 {
 		pos.Column = 0
 	}
-	return Diagnostic{pos, msg, fix}
+	return Diagnostic{pos: pos, msg: msg, fix: fix}
+}
+
+// See returns ds with each diagnostic that names no topic yet pointing at
+// maago doc topic. It modifies ds.
+func See(topic string, ds []Diagnostic) []Diagnostic {
+	for i := range ds {
+		if ds[i].see == "" {
+			ds[i].see = topic
+		}
+	}
+	return ds
 }
 
 // Write prints ds sorted by position, then message, with duplicates
@@ -62,6 +74,9 @@ func Write(w io.Writer, ds []Diagnostic) error {
 			b.WriteString(": ")
 		}
 		fmt.Fprintf(&b, "%s\n  fix: %s\n", d.msg, d.fix)
+		if d.see != "" {
+			fmt.Fprintf(&b, "  see: maago doc %s\n", d.see)
+		}
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
@@ -82,6 +97,7 @@ func compare(a, b Diagnostic) int {
 		cmp.Compare(a.pos.Column, b.pos.Column),
 		cmp.Compare(a.msg, b.msg),
 		cmp.Compare(a.fix, b.fix),
+		cmp.Compare(a.see, b.see),
 	)
 }
 

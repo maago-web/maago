@@ -59,7 +59,8 @@ maago add auth
 
 `auth/` gets the models `User` and `Permission`, the pages to sign in and sign up, `Can`, which decides who may do what in the admin, and their tests. It is this project's code now:
 add fields to `User`, change the texts. The security parts, such as password hashing, live in the library, so
-upgrading maago (`go get -u`) brings their fixes.
+upgrading maago (`go get -u`) brings their fixes. Upgrade the command with it
+(`go install github.com/maago-web/maago/cmd/maago@latest`): `maago gen` refuses a project whose maago is another release.
 
 An app of Maago is one Go package. There is no file to register it in. Make the directory `blog/` and write the model.
 
@@ -107,16 +108,19 @@ maago gen
 ```
 blog/models.go:15:33: unknown tag key "maxlen" in Post.Title
   fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin
+  see: maago doc model
 ```
 
-Maago's errors always look like this: **where, what is wrong, and how to fix it.** There are no warnings,
+Maago's errors always look like this: **where, what is wrong, how to fix it, and where to read more.**
+`maago doc model` shows every tag with a whole example; `maago doc` lists the topics. There are no warnings,
 only errors. With even one error, `maago gen` writes no file at all.
 
 Put `max` back and run it again: this time it says what to do next.
 
 ```
 auth/urls.go:5:5: app auth has routes, but no package uses auth.App
-  fix: add auth.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
+  fix: add auth.App to maago.Config.Apps in main, then run maago gen: go build works after gen
+  see: maago doc view
 ```
 
 `auth.App` goes into `main` in §5, and `maago gen` writes the generated files (`*_gen.go`) then. Do not
@@ -288,7 +292,8 @@ name, **every column must match**. Leave one out:
 
 ```
 blog/queries/published_posts.sql:3:1: result columns do not match model Post: missing "published_at"
-  fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
+  fix: select every column of Post, like SELECT * or SELECT p.*, or declare a new result type name (e.g. ":many PostSummary")
+  see: maago doc query
 ```
 
 A `Post` half filled, saved back, would erase data; this stops it. When you want only some columns, give
@@ -448,8 +453,10 @@ Change `{{.Post.Title}}` to `{{.Post.Titel}}` and `post_detail` to `post_detial`
 ```
 blog/templates/post_detail_page.html:2:15: PostDetailPage.Post has no field or method "Titel"
   fix: did you mean "Title"?
+  see: maago doc template
 blog/templates/post_list_page.html:4:26: unknown route name "post_detial"
   fix: did you mean "post_detail"? routes are declared in the apps' var Routes
+  see: maago doc template
 ```
 
 Both errors come **at once**: no fixing one, running again, fixing the other, running again. They are

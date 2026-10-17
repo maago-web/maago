@@ -12,6 +12,7 @@ import (
 	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/model"
+	"github.com/maago-web/maago/internal/ref"
 )
 
 // form is a form struct (D-119): a struct that embeds maago.Form, its
@@ -38,10 +39,7 @@ type formField struct {
 	accept             []string // the kinds of file a file field takes
 }
 
-var (
-	formTypes = []string{"string", "int64", "int32", "float64", "bool", "time.Time", "maago.File"}
-	formKeys  = []string{"label", "help", "choices", "min", "max", "min_value", "max_value", "optional", "accept"}
-)
+var formTypes = ref.FormTypes.Names()
 
 // readFormField reads an In field tagged maago:"form": a form type of the
 // package, which Forms checks.
@@ -83,7 +81,7 @@ func Forms(fset *token.FileSet, apps []*App, models func(dir string) *model.App)
 				app.forms[f.name] = f
 				if pos, ok := app.valid[f.name]; ok {
 					ds = append(ds, diag.New(fset.Position(pos), "form "+f.name+" declares Valid, which maago gen writes for it",
-						"remove it, or rename it: the generated Valid counts the form's errors and its fields' (D-119)"))
+						"remove it, or rename it: the generated Valid counts the form's errors and its fields'"))
 				}
 			}
 		}
@@ -242,6 +240,14 @@ func tagRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ident
 			errAt(o.KeyPos, fmt.Sprintf("%s of %s is given twice", o.Key, where), "keep one")
 			continue
 		}
+		if !slices.Contains(ref.FormTags.Names(), o.Key) {
+			fix := "allowed: " + strings.Join(ref.FormTags.Names(), ", ")
+			if m := diag.Suggest(o.Key, ref.FormTags.Names()); m != "" {
+				fix = fmt.Sprintf("did you mean %q? %s", m, fix)
+			}
+			errAt(o.KeyPos, fmt.Sprintf("unknown key %q in the tag of %s", o.Key, where), fix)
+			continue
+		}
 		switch o.Key {
 		case "label", "help":
 			if shape(o, model.Text, 1, "write "+o.Key+"='text'") {
@@ -315,11 +321,7 @@ func tagRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ident
 				ff.optional = true
 			}
 		default:
-			fix := "allowed: " + strings.Join(formKeys, ", ")
-			if m := diag.Suggest(o.Key, formKeys); m != "" {
-				fix = fmt.Sprintf("did you mean %q? %s", m, fix)
-			}
-			errAt(o.KeyPos, fmt.Sprintf("unknown key %q in the tag of %s", o.Key, where), fix)
+			panic("maago bug: form tag key " + o.Key + " is in ref.FormTags but not handled")
 		}
 	}
 	if ff.min > 0 && ff.max > 0 && ff.min > ff.max {

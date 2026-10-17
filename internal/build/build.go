@@ -24,6 +24,7 @@ import (
 	"github.com/maago-web/maago/internal/pipeline"
 	"github.com/maago-web/maago/internal/practicedb"
 	"github.com/maago-web/maago/internal/project"
+	"github.com/maago-web/maago/internal/ref"
 	"github.com/maago-web/maago/internal/schema"
 	"github.com/maago-web/maago/internal/web"
 )
@@ -66,6 +67,7 @@ func checking(root string) [][]pipeline.Step {
 			ds = qds
 		} else {
 			s.queries, ds = mapper.Read(s.root, files)
+			ds = diag.See(ref.Query, ds)
 		}
 		mod, mds := project.ModulePath(s.root)
 		if len(mds) > 0 {
@@ -74,21 +76,21 @@ func checking(root string) [][]pipeline.Step {
 		s.mod, s.parsed = mod, web.Parse(s.fset, s.root, s.files)
 		apps, wds := web.Read(s.fset, s.parsed, mod)
 		s.web = apps
-		return append(ds, wds...)
+		return append(ds, diag.See(ref.View, wds)...)
 	}
 	early := func() (ds []diag.Diagnostic) { // what makemigrations does not need
-		ds = web.ReadStatic(s.root, s.parsed, s.web) // before Check, which keeps routes off the static files
-		ds = append(append(ds, web.Check(s.fset, s.web)...), web.Views(s.fset, s.web)...)
-		ds = append(ds, web.Forms(s.fset, s.web, s.app)...)
+		ds = diag.See(ref.Template, web.ReadStatic(s.root, s.parsed, s.web)) // before Check, which keeps routes off the static files
+		ds = append(append(ds, diag.See(ref.View, web.Check(s.fset, s.web))...), diag.See(ref.View, web.Views(s.fset, s.web))...)
+		ds = append(ds, diag.See(ref.Form, web.Forms(s.fset, s.web, s.app))...)
 		var ads []diag.Diagnostic
 		s.admin, ads = admingen.Use(s.fset, s.parsed, s.mod, s.apps, s.web)
-		ds = append(ds, ads...)
+		ds = append(ds, diag.See(ref.Admin, ads)...)
 		s.checked, s.pkgs = map[string][]mapper.Checked{}, map[string]string{}
 		for _, qa := range s.queries {
-			ds = append(ds, mapper.Versions(s.apps, qa.Queries)...)
+			ds = append(ds, diag.See(ref.Query, mapper.Versions(s.apps, qa.Queries))...)
 			for _, q := range qa.Queries {
 				axes, vs, vds := q.Variants()
-				ds = append(ds, vds...)
+				ds = append(ds, diag.See(ref.Query, vds)...)
 				s.checked[qa.Dir] = append(s.checked[qa.Dir], mapper.Checked{Query: q, Axes: axes, Variants: vs})
 			}
 			if app := s.app(qa.Dir); app != nil {
@@ -96,7 +98,7 @@ func checking(root string) [][]pipeline.Step {
 			} else {
 				var pds []diag.Diagnostic
 				s.pkgs[qa.Dir], pds = mapper.PackageName(s.root, qa.Dir)
-				ds = append(ds, pds...)
+				ds = append(ds, diag.See(ref.Query, pds)...)
 			}
 		}
 		// The names every generator declares in each app, checked together.
@@ -120,7 +122,7 @@ func checking(root string) [][]pipeline.Step {
 					routes[app.Dir] = more
 				}
 				more.Names = append(more.Names, mapper.Name{Name: "Admin", By: "the admin", Pos: s.fset.Position(app.Models[0].Pos),
-					Fix: "rename what your code declares as Admin; maago generates it for the admin (D-131)"})
+					Fix: "rename what your code declares as Admin; maago generates it for the admin"})
 				more.Imports = append(more.Imports, admingen.Path)
 			}
 		}
@@ -218,7 +220,7 @@ func stages(s *state, parse, early, final func() []diag.Diagnostic) [][]pipeline
 		checks = append(checks, step(early))
 	}
 	parsing := []pipeline.Step{
-		step(func() (ds []diag.Diagnostic) { s.apps, ds = model.Check(s.fset, pkgs); return }),
+		step(func() (ds []diag.Diagnostic) { s.apps, ds = model.Check(s.fset, pkgs); return diag.See(ref.Model, ds) }),
 		step(func() (ds []diag.Diagnostic) { s.d, s.url, ds = project.Database(s.root, os.LookupEnv); return }),
 		step(func() (ds []diag.Diagnostic) { s.migrations, ds = migrate.ReadFiles(s.root); return }),
 	}
@@ -293,11 +295,11 @@ func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagno
 			if fatal {
 				return qds
 			}
-			ds = append(ds, qds...)
+			ds = append(ds, diag.See(ref.Query, qds)...)
 			qs, cols = append(qs, c.Query), append(cols, cs)
 		}
 		results, rds := mapper.Results(s.apps, dir, qs, cols, func(oid uint32) string { return a.TypeName(ctx, oid) })
-		ds = append(ds, rds...)
+		ds = append(ds, diag.See(ref.Query, rds)...)
 		for i := range checked {
 			checked[i].Result = results[i]
 		}

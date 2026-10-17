@@ -30,35 +30,35 @@ board/urls.go:5:5: second route table in package board
 
 # not a call
 board/urls.go:6:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.Block("name"), maago.NoTx
 
 # too few arguments
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.Block("name"), maago.NoTx
 
 # path not a literal
 board/urls.go:7:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.Block("name"), maago.NoTx
 
 # name joined
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.Block("name"), maago.NoTx
 
 # view of another package
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.Block("name"), maago.NoTx
 
 # view literal
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.Block("name"), maago.NoTx
 
 # view nil
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.Block("name"), maago.NoTx
 
 # option not maago's
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.Block("name"), maago.NoTx
 
 # dot import
 board/urls.go:5:5: route table in a file that dot-imports maago
@@ -66,7 +66,7 @@ board/urls.go:5:5: route table in a file that dot-imports maago
 
 # package main
 main.go:5:5: route table in package main
-  fix: move the routes and their views to an app package, and add its App to maago.Config.Apps in main (D-114)
+  fix: move the routes and their views to an app package, and add its App to maago.Config.Apps in main
 
 # unknown method
 board/urls.go:5:27: unknown route method maago.GETT
@@ -160,15 +160,15 @@ board/urls.go:7:12: route GET /x conflicts with a (board/urls.go:6): a request c
 
 # unused
 board/urls.go:5:5: app board has routes, but no package uses board.App
-  fix: add board.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
+  fix: add board.App to maago.Config.Apps in main, then run maago gen: go build works after gen
 
 # used by a test only
 board/urls.go:5:5: app board has routes, but no package uses board.App
-  fix: add board.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
+  fix: add board.App to maago.Config.Apps in main, then run maago gen: go build works after gen
 
 # another App used
 board/urls.go:5:5: app board has routes, but no package uses board.App
-  fix: add board.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
+  fix: add board.App to maago.Config.Apps in main, then run maago gen: go build works after gen
 
 # app dot-imported
 main.go:3:8: app board is dot-imported

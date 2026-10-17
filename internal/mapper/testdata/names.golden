@@ -1,9 +1,9 @@
 orders/extra.go:5:5: fmt is declared at the top level, but maago's generated files in this package may import a package fmt
   fix: rename it
 orders/models.go:5:6: the CRUD of model Order would declare NewOrderInput, which orders/extra_test.go:5 declares already
-  fix: rename what your code declares under that name; the CRUD's names follow the model's (D-21)
+  fix: rename what your code declares under that name; the CRUD's names follow the model's
 orders/models.go:5:6: the CRUD of model Order would declare scanOrder, which orders/extra_test.go:3 declares already
-  fix: rename what your code declares under that name; the CRUD's names follow the model's (D-21)
+  fix: rename what your code declares under that name; the CRUD's names follow the model's
 orders/queries/bar.sql:1:10: query Bar would declare Bar, which orders/extra.go:3 declares already
   fix: rename the query, or what else declares that name
 orders/queries/foo.sql:1:10: the result type of query Foo would declare Foo, which query Foo declares too, at orders/queries/foo.sql:1

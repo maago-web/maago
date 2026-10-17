@@ -15,6 +15,7 @@ import (
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/dialect"
 	"github.com/maago-web/maago/internal/model"
+	"github.com/maago-web/maago/internal/ref"
 )
 
 // App is a directory holding queries/.
@@ -77,8 +78,7 @@ type Type struct {
 }
 
 var (
-	keys      = []string{"name", "param", "column"}
-	kinds     = []string{":one", ":many", ":exec"}
+	kinds     = ref.QueryKinds.Names()
 	goName    = regexp.MustCompile(`^[A-Z][A-Za-z0-9_]*$`)
 	sqlName   = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 	baseTypes = map[string]model.Type{}
@@ -226,8 +226,8 @@ func (h *header) read(i int) {
 		return
 	}
 	key := t[start:i]
-	if !slices.Contains(keys, key) {
-		fix := "allowed: name, param, column; start a comment with something other than \"word:\""
+	if keys := ref.QueryKeys.Names(); !slices.Contains(keys, key) {
+		fix := "allowed: " + strings.Join(keys, ", ") + "; start a comment with something other than \"word:\""
 		if s := diag.Suggest(key, keys); s != "" {
 			fix = fmt.Sprintf("did you mean %q? %s", s, fix)
 		}
@@ -253,6 +253,8 @@ func (h *header) read(i int) {
 		h.param(fs)
 	case "column":
 		h.column(fs)
+	default:
+		panic("maago bug: header key " + key + " is in ref.QueryKeys but not handled")
 	}
 }
 

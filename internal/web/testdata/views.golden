@@ -82,7 +82,7 @@ site/urls.go:65:18: field X says not where its value comes from
 site/more.go:15:5: strconv is declared at the top level, but maago's generated files in this package may import a package strconv
   fix: rename it
 site/urls.go:10:5: the routes of app site would declare App, which site/more.go:14 declares already
-  fix: rename what else declares App; maago generates each app's App (D-114)
+  fix: rename what else declares App; maago generates each app's App
 site/urls.go:10:5: the templates of app site would declare maagoPages, which site/more.go:17 declares already
   fix: rename what else declares maagoPages
 site/urls.go:12:27: route post_detail would declare PostDetailURL, which site/more.go:12 declares already
@@ -107,6 +107,7 @@ site/urls.go:65:6: view A has type parameters
 # first not a context
 site/urls.go:65:6: view A takes int first, not a context.Context
   fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+  see: maago doc view
 
 # sql.DB for the database
 site/more.go:12:31: view A takes the database as *sql.DB, not maago.DB
@@ -118,7 +119,7 @@ site/more.go:12:32: view A takes maago.Tx, but route a is a GET, which does not 
 
 # a transaction and the database
 site/more.go:12:31: view A takes both maago.Tx and maago.DB
-  fix: write func A(ctx context.Context, u users.User, tx maago.Tx, in struct{}) …: the transaction reads and writes (D-150)
+  fix: write func A(ctx context.Context, u users.User, tx maago.Tx, in struct{}) …: the transaction reads and writes
 
 # sql.Tx
 site/more.go:12:32: view A takes the transaction as *sql.Tx, not maago.Tx
@@ -179,60 +180,75 @@ site/urls.go:11:2: route a writes, but view A takes maago.DB, which runs outside
 # a pointer that is no user
 site/more.go:12:6: view A takes *context.Context, which is not a user type
   fix: between ctx and In a view takes the user, a struct of the project such as auth.User (*auth.User if it may be missing), then db maago.DB
+  see: maago doc view
 
 # a string for the user
 site/more.go:12:6: view A takes string, which is not a user type
   fix: between ctx and In a view takes the user, a struct of the project such as auth.User (*auth.User if it may be missing), then db maago.DB
+  see: maago doc view
 
 # two user types
 site/more.go:14:6: view B takes the user as users.Other, but view A takes users.User
   fix: Config.Auth returns one user type; take it in every view
+  see: maago doc view
 
 # second not an error
 site/urls.go:65:6: view A returns int second, not an error
   fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+  see: maago doc view
 
 # page unnamed
 site/urls.go:65:6: view A returns struct{}, which names no template
   fix: return a struct type declared in package site: its name names the template (PostDetailPage → templates/post_detail_page.html)
+  see: maago doc view
 
 # page of another package
 site/urls.go:65:6: view A returns net/http.Request, which names no template
   fix: return a struct type declared in package site: its name names the template (PostDetailPage → templates/post_detail_page.html)
+  see: maago doc view
 
 # generic page
 site/urls.go:67:6: view A returns G[int], which names no template
   fix: return a struct type declared in package site: its name names the template (PostDetailPage → templates/post_detail_page.html)
+  see: maago doc view
 
 # page not a struct
 site/urls.go:67:6: view A returns P, which is not a struct
   fix: make the page a struct type
+  see: maago doc view
 
 # view in a file go build leaves out
 site/urls.go:13:6: view A is in a file go build leaves out
   fix: remove the file's build constraint, or move the view to a file without one
+  see: maago doc view
 
 # a broken file no page uses
 site/templates/base.html:1: bad character U+007D '}'
   fix: fix the template; it is Go's html/template
+  see: maago doc template
 
 # a template name in other letters
 site/templates/Home_Page.html: template Home_Page.html is no page's and not base.html
   fix: name it after a page type (PostPage → post_page.html), or move what it holds into a {{define}} of base.html
+  see: maago doc template
 site/urls.go:22:6: page HomePage has no template site/templates/home_page.html
-  fix: create it; a page type's template is its name in snake_case (D-116)
+  fix: create it; a page type's template is its name in snake_case
+  see: maago doc template
 
 # func(w, r) of other types
 site/urls.go:65:6: view A takes int and string, not an http.ResponseWriter and an *http.Request
   fix: write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)
+  see: maago doc view
 
 # no template
 site/urls.go:22:6: page HomePage has no template site/templates/home_page.html
-  fix: create it; a page type's template is its name in snake_case (D-116)
+  fix: create it; a page type's template is its name in snake_case
+  see: maago doc template
 
 # template syntax
 site/templates/home_page.html:2: bad character U+007D '}'
   fix: fix the template; it is Go's html/template
+  see: maago doc template
 
 # a type error first
 site/more.go:3:13: cannot use "x" (untyped string constant) as int value in variable declaration

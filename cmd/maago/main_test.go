@@ -92,6 +92,7 @@ commands:
   showmigrations list the migrations and which the database has applied
   migrate        apply the migrations the database has not applied
   add            copy contrib app APP into the project, yours from then on (apps: auth)
+  doc            show the reference of a topic; with no topic, list them
   tailwind       write each app's static/tailwind.css from its tailwind.css, with the standalone Tailwind CSS v4.3.3
 `
 	if got := stdout.String(); got != want {

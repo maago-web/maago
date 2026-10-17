@@ -232,7 +232,7 @@ func TestTemplateErrors(t *testing.T) {
 	var all strings.Builder
 	for _, c := range cases {
 		out, _ := generate(t, c.files)
-		lines := slices.DeleteFunc(strings.Split(out, "\n"), func(l string) bool { return l == "" || strings.HasPrefix(l, "  fix:") })
+		lines := slices.DeleteFunc(strings.Split(out, "\n"), func(l string) bool { return l == "" || strings.HasPrefix(l, "  ") })
 		ok := len(lines) == len(c.want)
 		for i := 0; ok && i < len(lines); i++ {
 			ok = strings.HasPrefix(lines[i], c.want[i])

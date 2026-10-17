@@ -63,12 +63,12 @@ func parseSQLiteTime(src any) (time.Time, error) {
 	case []byte:
 		s = string(v)
 	default:
-		return time.Time{}, fmt.Errorf("maago: %T in a time column, want text (D-105)", src)
+		return time.Time{}, fmt.Errorf("maago: %T in a time column, want text", src)
 	}
 	for _, layout := range []string{"2006-01-02 15:04:05.999999999", time.RFC3339Nano} {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t.UTC(), nil
 		}
 	}
-	return time.Time{}, fmt.Errorf("maago: %q in a time column is not YYYY-MM-DD HH:MM:SS.ffffff or RFC 3339 (D-105)", s)
+	return time.Time{}, fmt.Errorf("maago: %q in a time column is not YYYY-MM-DD HH:MM:SS.ffffff or RFC 3339", s)
 }

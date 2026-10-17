@@ -19,6 +19,7 @@ import (
 
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/pipeline"
+	"github.com/maago-web/maago/internal/ref"
 )
 
 const maagoPath = "github.com/maago-web/maago"
@@ -58,12 +59,8 @@ type Option struct {
 	Block string // the argument of maago.Block("name")
 }
 
-// methods are the route constructors of the runtime, and options its
-// route options.
-var (
-	methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
-	options = []string{"API", "Block", "NoTx"}
-)
+// methods are the route constructors of the runtime.
+var methods = ref.Methods.Names()
 
 // Parse parses the project's Go files by directory, for Read and the
 // admin's checks. Tests and maago's generated files are left out. files
@@ -190,14 +187,14 @@ func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath stri
 		return nil, ds
 	}
 	if app.Name == "main" {
-		errAt(app.Pos, "route table in package main", "move the routes and their views to an app package, and add its App to maago.Config.Apps in main (D-114)")
+		errAt(app.Pos, "route table in package main", "move the routes and their views to an app package, and add its App to maago.Config.Apps in main")
 	}
 	app.Routes = []Route{} // an empty table is an app, which Check rejects
 	for _, e := range table.Elts {
 		r, ok := readRoute(e, tableNames)
 		if !ok {
 			errAt(e.Pos(), "route is not written as maago.METHOD(\"/path\", \"name\", View, options…)",
-				"write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block(\"name\")")
+				"write the path and the name as string literals, the view as the name of a function of this package, and options as "+strings.Join(optionsAsWritten(), ", "))
 			continue
 		}
 		app.Routes = append(app.Routes, r)
@@ -365,7 +362,7 @@ func Check(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 		}
 		if !app.Used {
 			errAt(app.Pos, "app "+app.Name+" has routes, but no package uses "+app.Name+".App",
-				"add "+app.Name+".App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen")
+				"add "+app.Name+".App to maago.Config.Apps in main, then run maago gen: go build works after gen")
 		}
 		for i := range app.Routes {
 			r := &app.Routes[i]
@@ -375,8 +372,8 @@ func Check(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 			for j, o := range r.Options {
 				switch {
 				case o.Name == "LoginRequired": // Views says what to write instead, from the view
-				case !slices.Contains(options, o.Name):
-					errAt(o.Pos, "unknown route option maago."+o.Name, didYouMean(o.Name, options))
+				case !slices.Contains(ref.RouteOptions.Names(), o.Name):
+					errAt(o.Pos, "unknown route option maago."+o.Name, didYouMean(o.Name, ref.RouteOptions.Names()))
 				case slices.ContainsFunc(r.Options[:j], func(p Option) bool { return p.Name == o.Name }):
 					errAt(o.Pos, "route option maago."+o.Name+" given twice", "remove one")
 				case o.Name == "Block" && hasOption(r.Options, "API"):
@@ -405,7 +402,7 @@ func Check(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 				continue
 			}
 			if r.Path == "/static" || strings.HasPrefix(r.Path, "/static/") {
-				errAt(r.PathPos, fmt.Sprintf("route path %q is under /static/, where maago serves the apps' static files (D-137)", r.Path), "move the route to another path")
+				errAt(r.PathPos, fmt.Sprintf("route path %q is under /static/, where maago serves the apps' static files", r.Path), "move the route to another path")
 				continue
 			}
 			if i := slices.IndexFunc(static, func(s *Route) bool { return conflicts(s, r) }); i >= 0 {
@@ -460,4 +457,16 @@ func conflicts(a, b *Route) (yes bool) {
 	mux.Handle(a.Method+" "+a.Path, http.NotFoundHandler())
 	mux.Handle(b.Method+" "+b.Path, http.NotFoundHandler())
 	return false
+}
+
+// optionsAsWritten are the route options as a table writes them.
+func optionsAsWritten() []string {
+	var ws []string
+	for _, o := range ref.RouteOptions.Names() {
+		if o == "Block" {
+			o += `("name")`
+		}
+		ws = append(ws, "maago."+o)
+	}
+	return ws
 }

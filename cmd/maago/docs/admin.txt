@@ -1,0 +1,138 @@
+$ maago add auth
+-- main.go --
+package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/contrib/admin"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/auth"
+	"example.com/app/blog"
+)
+
+func main() {
+	ctx := context.Background()
+	db, err := maago.OpenDB(ctx, maago.DBConfig{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	auth.SiteURL = "http://localhost:8000"
+	adminApp := admin.App(admin.Config{
+		Models: [][]admin.Model{blog.Admin, auth.Admin}, // each app with models
+		Can:    auth.Can,                                // who may do what to which model
+	})
+	h, err := maago.Handler(maago.Config{
+		DB:       db,
+		Apps:     []maago.App{auth.App, adminApp},
+		Auth:     auth.Current,
+		LoginURL: "/login",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Fatal(maago.Serve(ctx, ":8000", h))
+}
+-- blog/models.go --
+package blog
+
+import (
+	"time"
+
+	"github.com/maago-web/maago"
+)
+
+type Post struct {
+	maago.Model `maago:"ordering=-ID,admin_list=(Title,Status,UpdatedAt),admin_search=(Title),admin_filter=(Status)"`
+
+	ID        int64
+	Title     string    `maago:"max=200,label='Title'"`
+	Status    string    `maago:"choices=draft/published,default='draft'"`
+	Slug      string    `maago:"max=100,default='',admin=readonly"` // shown, not edited
+	Note      string    `maago:"default='',admin=hidden"`           // not shown
+	UpdatedAt time.Time `maago:"auto=update"`                       // a stale save is a 409
+}
+
+// Log is not in the admin.
+type Log struct {
+	maago.Model `maago:"admin=hidden"`
+
+	ID   int64
+	Text string
+}
+-- blog/blog_test.go --
+package blog
+
+import (
+	"context"
+	"net/http/httptest"
+	"net/url"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/contrib/admin"
+	"github.com/maago-web/maago/maagotest"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/auth"
+)
+
+func TestAdmin(t *testing.T) {
+	db := maagotest.DB(t)
+	ctx := context.Background()
+	if _, err := auth.CreateSuperuser(ctx, db, "me@example.com", "a long passphrase"); err != nil {
+		t.Fatal(err)
+	}
+	p, err := InsertPost(ctx, db, NewPostInput{Title: "Hello", Slug: maago.Set("hello"), Note: maago.Set("secret note")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	auth.SiteURL = "http://localhost:8000"
+	adminApp := admin.App(admin.Config{Models: [][]admin.Model{Admin, auth.Admin}, Can: auth.Can})
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, adminApp}, Auth: auth.Current, LoginURL: "/login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := httptest.NewRequest("POST", "/login", strings.NewReader(url.Values{"email": {"me@example.com"}, "password": {"a long passphrase"}}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	session := w.Result().Cookies()
+	get := func(path string) (int, string) {
+		r := httptest.NewRequest("GET", path, nil)
+		for _, c := range session {
+			r.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code, w.Body.String()
+	}
+	if code, body := get("/admin/"); code != 200 || strings.Contains(body, "Log") {
+		t.Errorf("/admin/: %d, Log listed: %v", code, strings.Contains(body, "Log"))
+	}
+	id := strconv.FormatInt(p.ID, 10)
+	for path, want := range map[string]string{
+		"/admin/blog/Post/":                 "Hello",
+		"/admin/blog/Post/?q=hel":           "Hello",
+		"/admin/blog/Post/?status=draft":    "Hello",
+		"/admin/blog/Post/?page=2":          "",
+		"/admin/blog/Post/add/":             "Title",
+		"/admin/blog/Post/" + id + "/":      "hello",
+		"/admin/blog/Post/delete/?id=" + id: "Delete",
+	} {
+		if code, body := get(path); code != 200 || !strings.Contains(body, want) || strings.Contains(body, "secret note") {
+			t.Errorf("GET %s: %d", path, code)
+		}
+	}
+	if code, body := get("/admin/blog/Post/?status=published"); code != 200 || strings.Contains(body, ">Hello<") {
+		t.Errorf("filtered out: %d", code)
+	}
+	if code, _ := get("/admin/blog/Log/"); code != 404 {
+		t.Errorf("/admin/blog/Log/: %d", code)
+	}
+}

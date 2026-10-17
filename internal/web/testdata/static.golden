@@ -20,18 +20,18 @@ blog/static/x: directory in static/
 
 # a package without routes
 lib/static: static/ of a package without routes
-  fix: keep static files in an app with a route table, which serves them at /static/APP/ (D-137)
+  fix: keep static files in an app with a route table, which serves them at /static/APP/
 static: static/ of a package without routes
-  fix: keep static files in an app with a route table, which serves them at /static/APP/ (D-137)
+  fix: keep static files in an app with a route table, which serves them at /static/APP/
 
 # two packages of one name
 more/blog/static: apps blog and more/blog are both package blog, so both would serve /static/blog/
   fix: rename one package, or keep the static files in one of them
 
 # routes under /static/
-blog/urls.go:16:12: route path "/static/x" is under /static/, where maago serves the apps' static files (D-137)
+blog/urls.go:16:12: route path "/static/x" is under /static/, where maago serves the apps' static files
   fix: move the route to another path
-blog/urls.go:17:12: route path "/static" is under /static/, where maago serves the apps' static files (D-137)
+blog/urls.go:17:12: route path "/static" is under /static/, where maago serves the apps' static files
   fix: move the route to another path
 
 # a route the static files' pattern conflicts with

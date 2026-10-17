@@ -83,7 +83,7 @@ func checkTemplates(fset *token.FileSet, root, dir string, pkg *types.Package, p
 		file := p.route.view.template
 		if _, ok := srcs[file]; !ok {
 			ds = append(ds, diag.New(viewPos[p.route], fmt.Sprintf("page %s has no template %s", p.label, path.Join(tdir, file)),
-				"create it; a page type's template is its name in snake_case (D-116)"))
+				"create it; a page type's template is its name in snake_case"))
 			continue
 		}
 		if byFile[file] == nil {

@@ -1,0 +1,153 @@
+-- main.go --
+package main
+
+import (
+	"context"
+	"log"
+
+	"github.com/maago-web/maago"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/blog"
+)
+
+func main() {
+	ctx := context.Background()
+	db, err := maago.OpenDB(ctx, maago.DBConfig{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{blog.App}})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Fatal(maago.Serve(ctx, ":8000", h))
+}
+-- blog/models.go --
+package blog
+
+import (
+	"time"
+
+	"github.com/maago-web/maago"
+)
+
+type Post struct {
+	maago.Model
+
+	ID          int64
+	Title       string `maago:"max=200"`
+	PublishedAt *time.Time
+}
+-- blog/urls.go --
+package blog
+
+import "github.com/maago-web/maago"
+
+var Routes = maago.Routes{
+	maago.GET("/{$}", "post_list", PostList),
+	maago.GET("/post/{id}", "post_detail", PostDetail),
+}
+-- blog/views.go --
+package blog
+
+import (
+	"context"
+
+	"github.com/maago-web/maago"
+)
+
+type PostListPage struct {
+	Posts []Post
+	Count int // computed here, not in the template
+}
+
+func PostList(ctx context.Context, db maago.DB, in struct{}) (PostListPage, error) {
+	posts, err := AllPosts(ctx, db)
+	return PostListPage{Posts: posts, Count: len(posts)}, err
+}
+
+type PostDetailIn struct {
+	ID int64 `maago:"path=id"`
+}
+
+type PostDetailPage struct {
+	Post Post
+}
+
+func PostDetail(ctx context.Context, db maago.DB, in PostDetailIn) (PostDetailPage, error) {
+	p, err := GetPost(ctx, db, in.ID)
+	return PostDetailPage{Post: p}, err
+}
+-- blog/queries/all_posts.sql --
+-- name: AllPosts :many Post
+SELECT * FROM blog_post ORDER BY id DESC
+-- blog/static/site.css --
+main { max-width: 40rem; margin: auto; }
+-- blog/templates/base.html --
+<!doctype html>
+<title>{{block "title" .}}Blog{{end}}</title>
+<link rel="stylesheet" href="{{static "blog/site.css"}}">
+<main>{{block "content" .}}{{end}}</main>
+-- blog/templates/post_list_page.html --
+{{define "content"}}
+  <p>{{.Count}} posts</p>
+  {{range .Posts}}
+    <p><a href="{{url "post_detail" .ID}}">{{.Title}}</a> {{date "2006-01-02" .PublishedAt}}</p>
+  {{else}}
+    <p>No posts yet.</p>
+  {{end}}
+{{end}}
+-- blog/templates/post_detail_page.html --
+{{define "title"}}{{.Post.Title}}{{end}}
+{{define "content"}}<h1>{{.Post.Title}}</h1> {{.Post.PublishedAt | date "2006-01-02 15:04"}}{{end}}
+-- blog/blog_test.go --
+package blog
+
+import (
+	"context"
+	"net/http/httptest"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/maagotest"
+	_ "modernc.org/sqlite"
+)
+
+func TestPages(t *testing.T) {
+	db := maagotest.DB(t)
+	at := time.Date(2026, 10, 18, 9, 30, 0, 0, time.UTC)
+	p, err := InsertPost(context.Background(), db, NewPostInput{Title: "Hello", PublishedAt: &at})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func(path string) string {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+		if w.Code != 200 {
+			t.Fatalf("GET %s: %d", path, w.Code)
+		}
+		return w.Body.String()
+	}
+	list := get("/")
+	for _, want := range []string{`href="` + PostDetailURL(p.ID) + `"`, "2026-10-18", "<title>Blog</title>"} {
+		if !strings.Contains(list, want) {
+			t.Errorf("no %s in:\n%s", want, list)
+		}
+	}
+	css := regexp.MustCompile(`href="(/static/blog/site\.[0-9a-f]+\.css)"`).FindStringSubmatch(list)
+	if css == nil {
+		t.Fatalf("no hashed stylesheet in:\n%s", list)
+	}
+	get(css[1])
+	if detail := get(PostDetailURL(p.ID)); !strings.Contains(detail, "<title>Hello</title>") || !strings.Contains(detail, "2026-10-18 09:30") {
+		t.Errorf("detail:\n%s", detail)
+	}
+}

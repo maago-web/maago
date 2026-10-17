@@ -39,7 +39,7 @@ func ReadStatic(root string, parsed map[string][]*ast.File, apps []*App) []diag.
 		app := byDir[dir]
 		if app == nil {
 			ds = append(ds, diag.New(token.Position{Filename: sdir}, "static/ of a package without routes",
-				"keep static files in an app with a route table, which serves them at /static/APP/ (D-137)"))
+				"keep static files in an app with a route table, which serves them at /static/APP/"))
 			continue
 		}
 		for _, e := range entries {

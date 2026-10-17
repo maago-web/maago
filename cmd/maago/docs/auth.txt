@@ -1,0 +1,158 @@
+$ maago add auth
+-- main.go --
+package main
+
+import (
+	"context"
+	"flag"
+	"log"
+	"os"
+
+	"github.com/maago-web/maago"
+	authlib "github.com/maago-web/maago/contrib/auth"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/auth"
+	"example.com/app/site"
+)
+
+func main() {
+	createSuperuser := flag.Bool("createsuperuser", false, "create a staff account from MAAGO_SUPERUSER_EMAIL and MAAGO_SUPERUSER_PASSWORD")
+	flag.Parse()
+	ctx := context.Background()
+	db, err := maago.OpenDB(ctx, maago.DBConfig{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	if *createSuperuser {
+		u, err := auth.CreateSuperuser(ctx, db, os.Getenv("MAAGO_SUPERUSER_EMAIL"), os.Getenv("MAAGO_SUPERUSER_PASSWORD"))
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("created superuser %s (id %d)", u.Email, u.ID)
+		return
+	}
+	auth.SiteURL = "http://localhost:8000" // https://… in production: the cookie is then Secure
+	authlib.Mail = authlib.ConsoleMail     // the mails go to the log
+	h, err := maago.Handler(maago.Config{
+		DB:       db,
+		Apps:     []maago.App{auth.App, site.App},
+		Auth:     auth.Current,
+		LoginURL: "/login",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Fatal(maago.Serve(ctx, ":8000", h))
+}
+-- site/urls.go --
+package site
+
+import "github.com/maago-web/maago"
+
+var Routes = maago.Routes{
+	maago.GET("/me", "me", Me),
+	maago.GET("/api/me", "api_me", APIMe, maago.API),
+	maago.GET("/staff", "staff", Staff),
+}
+-- site/views.go --
+package site
+
+import (
+	"context"
+
+	"example.com/app/auth"
+)
+
+type MePage struct {
+	Email string
+}
+
+// Me requires a sign-in: u auth.User.
+func Me(ctx context.Context, u auth.User, in struct{}) (MePage, error) {
+	return MePage{Email: u.Email}, nil
+}
+
+func APIMe(ctx context.Context, u auth.User, in struct{}) (MePage, error) {
+	return MePage{Email: u.Email}, nil
+}
+
+// Staff is for staff only.
+func Staff(ctx context.Context, u auth.User, in struct{}) (MePage, error) {
+	if err := auth.RequireStaff(u); err != nil {
+		return MePage{}, err
+	}
+	return MePage{Email: u.Email}, nil
+}
+-- site/templates/base.html --
+<!doctype html>
+<main>{{block "content" .}}{{end}}</main>
+-- site/templates/me_page.html --
+{{define "content"}}<p>{{.Email}}</p>{{end}}
+-- site/site_test.go --
+package site
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+
+	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/maagotest"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/auth"
+)
+
+func TestSignIn(t *testing.T) {
+	db := maagotest.DB(t)
+	if _, err := auth.CreateSuperuser(context.Background(), db, "me@example.com", "a long passphrase"); err != nil {
+		t.Fatal(err)
+	}
+	auth.SiteURL = "http://localhost:8000"
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, App}, Auth: auth.Current, LoginURL: "/login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	do := func(r *http.Request, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+		for _, c := range cookies {
+			r.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+
+	// Nobody signed in: a page goes to the login page, the API is a 401.
+	if w := do(httptest.NewRequest("GET", "/me", nil)); w.Code != 303 || w.Header().Get("Location") != "/login?next=%2Fme" {
+		t.Errorf("GET /me: %d %s", w.Code, w.Header().Get("Location"))
+	}
+	if w := do(httptest.NewRequest("GET", "/api/me", nil)); w.Code != 401 || w.Header().Get("WWW-Authenticate") != "Bearer" {
+		t.Errorf("GET /api/me: %d %q", w.Code, w.Header().Get("WWW-Authenticate"))
+	}
+
+	// Sign in with email and password; the sign-in goes back to next.
+	r := httptest.NewRequest("POST", "/login?next=%2Fme", strings.NewReader(url.Values{"email": {"me@example.com"}, "password": {"a long passphrase"}}.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := do(r)
+	cookies := w.Result().Cookies()
+	if w.Code != 303 || w.Header().Get("Location") != "/me" || len(cookies) != 1 || cookies[0].Secure {
+		t.Fatalf("POST /login: %d %s %v", w.Code, w.Header().Get("Location"), cookies)
+	}
+	if w := do(httptest.NewRequest("GET", "/me", nil), cookies...); w.Code != 200 || !strings.Contains(w.Body.String(), "me@example.com") {
+		t.Errorf("GET /me signed in: %d", w.Code)
+	}
+	if w := do(httptest.NewRequest("GET", "/staff", nil), cookies...); w.Code != 200 {
+		t.Errorf("GET /staff as a superuser: %d", w.Code)
+	}
+
+	// A POST from another origin is refused: there is no CSRF token.
+	r = httptest.NewRequest("POST", "/logout", nil)
+	r.Header.Set("Origin", "https://elsewhere.example")
+	if w := do(r, cookies...); w.Code != 403 {
+		t.Errorf("cross-origin POST /logout: %d", w.Code)
+	}
+}

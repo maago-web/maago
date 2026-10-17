@@ -180,7 +180,7 @@ func execute(name string, imports map[string]bool, data map[string]any) []byte {
 func More(fset *token.FileSet, app *App) *mapper.More {
 	at := fset.Position(app.Pos)
 	m := &mapper.More{Imports: Imports, Names: []mapper.Name{{Name: "App", By: "the routes of app " + app.Name, Pos: at,
-		Fix: "rename what else declares App; maago generates each app's App (D-114)"},
+		Fix: "rename what else declares App; maago generates each app's App"},
 		{Name: "maagouser", By: "the views' adapters, which import the user's package under it", Pos: at, Fix: "rename what else declares maagouser"}}}
 	seen := map[string]bool{}
 	html := false

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/maago-web/maago/internal/diag"
+	refdoc "github.com/maago-web/maago/internal/ref" // ref is this package's type
 )
 
 // Type is a column type maago supports (D-77).
@@ -84,11 +85,7 @@ type Unsupported struct {
 	Reason string
 }
 
-var (
-	modelKeys = []string{"table", "ordering", "unique", "index", "admin", "admin_list", "admin_search", "admin_filter"}
-	fieldKeys = []string{"max", "unique", "index", "default", "choices", "label", "help", "fk", "auto", "admin"}
-	tableName = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
-)
+var tableName = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
 // Check gives the options of each model their meaning and reports every
 // independent error.
@@ -144,7 +141,7 @@ func (c *checker) model(app *App, rm *RawModel) *Model {
 		case rf.Name == "ID" && !rf.Embedded:
 			hasID = true
 			if typ != Int64 || ptr {
-				c.errf(rf.Pos, "declare it as ID int64 (D-74)", "%s is the primary key and must be int64, not %s", where, types.ExprString(rf.Type))
+				c.errf(rf.Pos, "declare it as ID int64", "%s is the primary key and must be int64, not %s", where, types.ExprString(rf.Type))
 				c.fieldOptions(&Field{Name: rf.Name}, rf.Options, where, app) // its options are wrong or right regardless
 				continue
 			}
@@ -163,7 +160,7 @@ func (c *checker) model(app *App, rm *RawModel) *Model {
 		m.Fields = append(m.Fields, f)
 	}
 	if !hasID {
-		c.errf(rm.Pos, "add the field ID int64 (D-74)", "model %s has no primary key", rm.Name)
+		c.errf(rm.Pos, "add the field ID int64", "model %s has no primary key", rm.Name)
 	}
 	c.modelOptions(m, rm.Options)
 	c.constraints(m)
@@ -251,15 +248,15 @@ func fieldType(e ast.Expr, timeName string) (t Type, ptr bool, why string) {
 	return 0, false, "type " + types.ExprString(e) + " is not supported"
 }
 
-const supportedTypes = "int64, int32, bool, float64, string, time.Time, []byte, or a pointer to one (D-77)"
+var supportedTypes = strings.Join(refdoc.FieldTypes.Names(), ", ") + ", or a pointer to one"
 
 func (c *checker) fieldOptions(f *Field, opts []Option, where string, app *App) {
 	seen := map[string]bool{}
 	var defaultOpt *Option
 	for i := range opts {
 		o := &opts[i]
-		if !slices.Contains(fieldKeys, o.Key) {
-			c.unknown(o.KeyPos, "tag key", o.Key, where, fieldKeys)
+		if !slices.Contains(refdoc.FieldTags.Names(), o.Key) {
+			c.unknown(o.KeyPos, "tag key", o.Key, where, refdoc.FieldTags.Names())
 			continue
 		}
 		if seen[o.Key] {
@@ -336,8 +333,8 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, app *App) 
 		case "auto":
 			switch {
 			case !c.shape(o, where, Bare, 1, "write auto=create or auto=update"):
-			case first(o) != "create" && first(o) != "update":
-				c.unknown(o.ValuePos[0], "auto value", first(o), where, []string{"create", "update"})
+			case !slices.Contains(refdoc.FieldTags.Values("auto"), first(o)):
+				c.unknown(o.ValuePos[0], "auto value", first(o), where, refdoc.FieldTags.Values("auto"))
 			case f.Type != Time || f.Pointer:
 				typ := f.Type.String()
 				if f.Pointer {
@@ -350,11 +347,13 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, app *App) 
 		case "admin":
 			switch {
 			case !c.shape(o, where, Bare, 1, "write admin=hidden or admin=readonly"):
-			case first(o) != "hidden" && first(o) != "readonly":
-				c.unknown(o.ValuePos[0], "admin value", first(o), where, []string{"hidden", "readonly"})
+			case !slices.Contains(refdoc.FieldTags.Values("admin"), first(o)):
+				c.unknown(o.ValuePos[0], "admin value", first(o), where, refdoc.FieldTags.Values("admin"))
 			default:
 				f.Admin = first(o)
 			}
+		default:
+			panic("maago bug: field tag key " + o.Key + " is in refdoc.FieldTags but not handled")
 		}
 	}
 	if defaultOpt != nil {
@@ -431,8 +430,8 @@ func (c *checker) modelOptions(m *Model, opts []Option) {
 	seen := map[string]bool{}
 	for i := range opts {
 		o := &opts[i]
-		if !slices.Contains(modelKeys, o.Key) {
-			c.unknown(o.KeyPos, "tag key", o.Key, m.Name, modelKeys)
+		if !slices.Contains(refdoc.ModelTags.Names(), o.Key) {
+			c.unknown(o.KeyPos, "tag key", o.Key, m.Name, refdoc.ModelTags.Names())
 			continue
 		}
 		if o.Key != "unique" && o.Key != "index" && seen[o.Key] {
@@ -479,8 +478,8 @@ func (c *checker) modelOptions(m *Model, opts []Option) {
 		case "admin":
 			switch {
 			case !c.shape(o, m.Name, Bare, 1, "write admin=hidden"):
-			case first(o) != "hidden":
-				c.unknown(o.ValuePos[0], "admin value", first(o), m.Name, []string{"hidden"})
+			case !slices.Contains(refdoc.ModelTags.Values("admin"), first(o)):
+				c.unknown(o.ValuePos[0], "admin value", first(o), m.Name, refdoc.ModelTags.Values("admin"))
 			default:
 				m.AdminHidden = true
 			}
@@ -502,6 +501,8 @@ func (c *checker) modelOptions(m *Model, opts []Option) {
 			default:
 				m.AdminFilter = names
 			}
+		default:
+			panic("maago bug: model tag key " + o.Key + " is in refdoc.ModelTags but not handled")
 		}
 	}
 }
