@@ -30,8 +30,8 @@ github.com/maago-web/maago
 │                          M3까지 있는 것: Model, DB·OpenDB·DBConfig(D-101), Opt·Set·Ptr(D-106),
 │                          ErrManyRows·ErrEmptySlice(D-111).
 │                          M4가 더한 것: Handler·Config(DB·Apps·Origins·OnError·Messages·TimeZone·
-│                          Auth·LoginURL·Prefix)·App(D-114), Routes·GET·POST·…·API·Block·LoginRequired
-│                          (D-115, D-45, D-121), Result·Show·SeeOther·Status(D-116), DBFrom·WithDB,
+│                          Auth·LoginURL·Prefix)·App(D-114), Routes·GET·POST·…·API·Block(LoginRequired는
+│                          M10에서 지움: 뷰의 사용자가 말한다, D-149) (D-115, D-45, D-121), Result·Show·SeeOther·Status(D-116), DBFrom·WithDB,
 │                          Form·Field·Messages·Invalid·InvalidForm(D-119, D-120), UserFrom·WithUser
 │                          (D-121), Prefix(D-122).
 │                          M5가 더한 것: SetCookie(D-125), RemoteAddrFrom(D-128).

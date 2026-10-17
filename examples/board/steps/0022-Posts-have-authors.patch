@@ -33,8 +33,8 @@ staff publish, archive and delete.
   follow), and an API route is a 401 with WWW-Authenticate: Bearer. The
   comment form is on the post page, so a comment without a sign-in gets
   a 401. u is the door: a view that never reads it still needs it, and
-  without it the route is open to anybody. maago gen refuses the old
-  route option maago.LoginRequired beside such a view
+  without it the route is open to anybody. There is no route option for
+  it: maago gen answers a maago.LoginRequired with what to write instead
 - A new post's author is that user: savePost(ctx, tx, u, …) gives
   InsertPost AuthorID: &u.ID. A frontend that writes through the API
   sends the user's API token as Authorization: Bearer

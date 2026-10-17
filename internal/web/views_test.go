@@ -112,7 +112,7 @@ var Routes = maago.Routes{
 	maago.GET("/{$}", "home", Home),
 	maago.GET("/posts/{id}", "post_detail", PostDetail),
 	maago.GET("/tags/{tag}/{n}", "tag_page", TagPage),
-	maago.POST("/posts/{id}", "post_update", PostUpdate, maago.LoginRequired),
+	maago.POST("/posts/{id}", "post_update", PostUpdate),
 	maago.GET("/api/posts/{id}", "api_post", APIPost, maago.API),
 	maago.GET("/feed.csv", "feed", Feed),
 	maago.GET("/by/{post_id}", "by_post_id", ByPostID),
@@ -197,13 +197,15 @@ const usersPkg = "package users\n\ntype User struct{ Email string }\n\ntype Othe
 // A view takes the user and the database in its signature; the adapter
 // passes them, and the route requires login when the user must be there.
 func TestViewSignature(t *testing.T) {
-	src := strings.Replace(site, "var Routes = maago.Routes{", "var Routes = maago.Routes{\n\tmaago.GET(\"/me\", \"me\", Me),\n\tmaago.GET(\"/maybe\", \"maybe\", Maybe, maago.API),\n\tmaago.POST(\"/here\", \"here\", Here),\n\tmaago.POST(\"/save\", \"save\", Save),\n\tmaago.POST(\"/api/save\", \"api_save\", APISave, maago.API),", 1)
-	more := "package site\n\nimport (\n\t\"context\"\n\n\t\"github.com/maago-web/maago\"\n\n\t\"example.com/app/users\"\n)\n\n" +
+	src := strings.Replace(site, "var Routes = maago.Routes{", "var Routes = maago.Routes{\n\tmaago.GET(\"/me\", \"me\", Me),\n\tmaago.GET(\"/maybe\", \"maybe\", Maybe, maago.API),\n\tmaago.POST(\"/here\", \"here\", Here, maago.NoTx),\n\tmaago.POST(\"/save\", \"save\", Save),\n\tmaago.POST(\"/api/save\", \"api_save\", APISave, maago.API),\n\tmaago.GET(\"/raw\", \"raw\", Raw),", 1)
+	more := "package site\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\n\t\"github.com/maago-web/maago\"\n\n\t\"example.com/app/users\"\n)\n\n" +
 		"func Me(ctx context.Context, u users.User, db maago.DB, in struct{}) (HomePage, error) { return HomePage{}, nil }\n\n" +
 		"func Maybe(ctx context.Context, u *users.User, in struct{}) (*users.User, error) { return u, nil }\n\n" +
 		"func Here(ctx context.Context, db maago.DB, in struct{}) (maago.Result[HomePage], error) { return maago.Show(HomePage{}), nil }\n\n" +
 		"func Save(ctx context.Context, u users.User, tx maago.Tx, in struct{}) (maago.Result[HomePage], error) { return maago.Show(HomePage{}), nil }\n\n" +
-		"func APISave(ctx context.Context, tx maago.Tx, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"
+		"func APISave(ctx context.Context, tx maago.Tx, in struct{}) (HomePage, error) { return HomePage{}, nil }\n\n" +
+		// A func(w, r) has no parameters for them: it reads ctx (D-149).
+		"func Raw(w http.ResponseWriter, r *http.Request) { _, _ = maago.DBFrom(r.Context()), maago.UserFrom[users.User] }\n"
 	out, files := generate(t, siteFiles("site/urls.go", src, "site/more.go", more, "users/users.go", usersPkg))
 	if out != "" {
 		t.Fatalf("errors:\n%s", out)
@@ -281,11 +283,11 @@ func TestViewErrors(t *testing.T) {
 		{"two databases", user(`maago.GET("/a", "a", A),`, "func A(ctx context.Context, db, db2 maago.DB, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
 			[]string{"site/more.go:12:37: view A takes its values out of order"}},
 		{"login twice", user(`maago.GET("/a", "a", A, maago.LoginRequired),`, "func A(ctx context.Context, u users.User, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
-			[]string{"site/urls.go:11:26: route a has maago.LoginRequired, but view A takes the user, which requires login already"}},
+			[]string{"site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it"}},
 		{"login with a user that may be missing", user(`maago.GET("/a", "a", A, maago.LoginRequired),`, "func A(ctx context.Context, u *users.User, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
-			[]string{"site/urls.go:11:26: route a requires login, but view A takes the user as a pointer"}},
+			[]string{"site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it"}},
 		{"login on one route of a view", user(`maago.GET("/a", "a", A), maago.POST("/a", "a_post", A, maago.LoginRequired),`, "func A(ctx context.Context, u *users.User, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
-			[]string{"site/urls.go:11:57: route a_post requires login, but view A serves a too, which does not"}},
+			[]string{"site/urls.go:11:57: there is no maago.LoginRequired: the view's user says it"}},
 		{"untagged field", routes(`maago.GET("/a", "a", A),`, "\ntype AIn struct{ X int64 }\n\nfunc A(ctx context.Context, in AIn) (HomePage, error) { return HomePage{}, nil }\n"),
 			[]string{"site/urls.go:65:18: field X says not where its value comes from"}},
 		{"unknown key", routes(`maago.GET("/a", "a", A),`, "\ntype AIn struct{ X int64 `maago:\"qery=x\"` }\n\nfunc A(ctx context.Context, in AIn) (HomePage, error) { return HomePage{}, nil }\n"),
@@ -342,7 +344,19 @@ func TestViewErrors(t *testing.T) {
 		{"a pointer to maago.DB", user(`maago.GET("/a", "a", A),`, "func A(ctx context.Context, db *maago.DB, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
 			[]string{"site/more.go:12:32: view A takes the database as *maago.DB, not maago.DB"}},
 		{"login on one route of a view that requires it", user(`maago.GET("/a", "a", A), maago.POST("/a", "a_post", A, maago.LoginRequired),`, "func A(ctx context.Context, u users.User, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
-			[]string{"site/urls.go:11:57: route a_post has maago.LoginRequired, but view A takes the user, which requires login already"}},
+			[]string{"site/urls.go:11:57: there is no maago.LoginRequired: the view's user says it"}},
+		{"login on a view without the user", user(`maago.GET("/a", "a", A, maago.LoginRequired),`, "func A(ctx context.Context, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
+			[]string{"site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it"}},
+		{"login on a func(w, r)", routes(`maago.GET("/a", "a", A, maago.LoginRequired),`, "\nfunc A(w http.ResponseWriter, r *http.Request) {}\n"),
+			[]string{"site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it"}},
+		{"the user from ctx", user(`maago.GET("/a", "a", A),`, "func A(ctx context.Context, in struct{}) (HomePage, error) {\n\tu, _ := maago.UserFrom[users.User](ctx)\n\t_ = u\n\treturn HomePage{}, nil\n}\n"),
+			[]string{"site/more.go:13:10: view A calls maago.UserFrom: a typed view takes the user as a parameter"}},
+		{"the database from ctx in a closure", user(`maago.GET("/a", "a", A),`, "func A(ctx context.Context, in struct{}) (HomePage, error) {\n\tf := func() { _ = maago.DBFrom(ctx) }\n\tf()\n\treturn HomePage{}, nil\n}\n"),
+			[]string{"site/more.go:13:20: view A calls maago.DBFrom: a typed view takes the database as a parameter"}},
+		{"a write on the database", user(`maago.POST("/a", "a", A),`, "func A(ctx context.Context, db maago.DB, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
+			[]string{"site/urls.go:11:2: route a writes, but view A takes maago.DB, which runs outside a transaction"}},
+		{"two writes on the database", user(`maago.POST("/a", "a", A), maago.PUT("/a", "a_put", A),`, "func A(ctx context.Context, db maago.DB, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
+			[]string{"site/urls.go:11:2: route a writes, but view A takes maago.DB, which runs outside a transaction"}},
 		{"a pointer that is no user", user(`maago.GET("/a", "a", A),`, "func A(ctx context.Context, u *context.Context, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),
 			[]string{"site/more.go:12:6: view A takes *context.Context, which is not a user type"}},
 		{"a string for the user", user(`maago.GET("/a", "a", A),`, "func A(ctx context.Context, u string, in struct{}) (HomePage, error) { return HomePage{}, nil }\n"),

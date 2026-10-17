@@ -51,7 +51,7 @@ type Route struct {
 	view *view // filled by Views
 }
 
-// Option is a route option as written: maago.LoginRequired.
+// Option is a route option as written: maago.API.
 type Option struct {
 	Name  string
 	Pos   token.Pos
@@ -62,7 +62,7 @@ type Option struct {
 // route options.
 var (
 	methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
-	options = []string{"LoginRequired", "API", "Block", "NoTx"}
+	options = []string{"API", "Block", "NoTx"}
 )
 
 // Parse parses the project's Go files by directory, for Read and the
@@ -197,7 +197,7 @@ func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath stri
 		r, ok := readRoute(e, tableNames)
 		if !ok {
 			errAt(e.Pos(), "route is not written as maago.METHOD(\"/path\", \"name\", View, options…)",
-				"write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block(\"name\")")
+				"write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block(\"name\")")
 			continue
 		}
 		app.Routes = append(app.Routes, r)
@@ -374,6 +374,7 @@ func Check(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 			}
 			for j, o := range r.Options {
 				switch {
+				case o.Name == "LoginRequired": // Views says what to write instead, from the view
 				case !slices.Contains(options, o.Name):
 					errAt(o.Pos, "unknown route option maago."+o.Name, didYouMean(o.Name, options))
 				case slices.ContainsFunc(r.Options[:j], func(p Option) bool { return p.Name == o.Name }):

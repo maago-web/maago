@@ -71,33 +71,35 @@ func Views(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 	return ds
 }
 
-// loginOptions checks maago.LoginRequired against the views that take the
-// user, whose signature says it already (D-149).
+// loginOptions reports maago.LoginRequired, which there is not: a view's
+// user says whether its routes need a sign-in (D-149). The fix depends on
+// the view, and names the user's type when another view takes it.
 func loginOptions(fset *token.FileSet, app *App) []diag.Diagnostic {
 	var ds []diag.Diagnostic
-	routes := map[string][]*Route{} // the routes of each view that takes the user
-	for i := range app.Routes {
-		if r := &app.Routes[i]; r.view != nil && r.view.user {
-			routes[r.View] = append(routes[r.View], r)
+	user := "U"
+	for _, r := range app.Routes {
+		if r.view != nil && r.view.user {
+			user = strings.TrimPrefix(r.view.userExpr, "*")
+			break
 		}
 	}
-	for _, view := range slices.Sorted(maps.Keys(routes)) {
-		rs := routes[view]
-		with := slices.DeleteFunc(slices.Clone(rs), func(r *Route) bool { return !hasOption(r.Options, "LoginRequired") })
-		switch {
-		case len(with) == 0:
-		case len(with) < len(rs) && rs[0].view.userPtr:
-			ds = append(ds, diag.New(fset.Position(optionPos(with[0], "LoginRequired")), fmt.Sprintf("route %s requires login, but view %s serves %s too, which does not", with[0].Name, view, rs[slices.IndexFunc(rs, func(r *Route) bool { return !hasOption(r.Options, "LoginRequired") })].Name),
-				"split the view: the one without login takes u "+rs[0].view.userExpr+", the one with login u "+strings.TrimPrefix(rs[0].view.userExpr, "*")+", and neither route has maago.LoginRequired"))
-		case rs[0].view.userPtr:
-			ds = append(ds, diag.New(fset.Position(optionPos(with[0], "LoginRequired")), fmt.Sprintf("route %s requires login, but view %s takes the user as a pointer, which is for a user that may be missing", with[0].Name, view),
-				"take u "+strings.TrimPrefix(rs[0].view.userExpr, "*")+", not "+rs[0].view.userExpr+", and remove maago.LoginRequired: the view's user requires login"))
-		default:
-			for _, r := range with {
-				ds = append(ds, diag.New(fset.Position(optionPos(r, "LoginRequired")), fmt.Sprintf("route %s has maago.LoginRequired, but view %s takes the user, which requires login already", r.Name, view),
-					"remove maago.LoginRequired"))
-			}
+	for _, r := range app.Routes {
+		if !hasOption(r.Options, "LoginRequired") {
+			continue
 		}
+		v, fix := r.view, "remove it, and take u "+user+" in the view (the route then requires login; u *"+user+" lets anybody in)"
+		switch {
+		case v == nil:
+		case v.escape:
+			fix = "remove it; a func(w, r) view reads maago.UserFrom itself and answers 401 or 303"
+		case v.user && !v.userPtr:
+			fix = "remove it"
+		case v.user && slices.ContainsFunc(app.Routes, func(o Route) bool { return o.View == r.View && !hasOption(o.Options, "LoginRequired") }):
+			fix = "remove it, and split the view: a view for route " + r.Name + " takes u " + strings.TrimPrefix(v.userExpr, "*") + ", which requires login; the other keeps u " + v.userExpr
+		case v.user:
+			fix = "remove it, and take u " + strings.TrimPrefix(v.userExpr, "*") + ", not " + v.userExpr + ": the route then requires login"
+		}
+		ds = append(ds, diag.New(fset.Position(optionPos(&r, "LoginRequired")), "there is no maago.LoginRequired: the view's user says it", fix))
 	}
 	return ds
 }
@@ -129,6 +131,29 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 		errAt(fd.Name.Pos(), fmt.Sprintf("view %s takes %d values and returns %d", r.View, len(params), len(results)), shapes)
 		return nil, ds
 	}
+	// The user and the database come as parameters (D-149): a typed view
+	// that reads them from ctx hides what it needs. Direct calls only, in
+	// closures too; a helper's are its own.
+	names := app.maago[r.View]
+	if fd.Body != nil {
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			fun, user := call.Fun, "U"
+			if ix, ok := fun.(*ast.IndexExpr); ok {
+				fun, user = ix.X, types.ExprString(ix.Index)
+			}
+			switch {
+			case isMaago(fun, "DBFrom", names):
+				errAt(call.Pos(), "view "+r.View+" calls maago.DBFrom: a typed view takes the database as a parameter", "take db maago.DB (tx maago.Tx to write) between ctx and in")
+			case isMaago(fun, "UserFrom", names):
+				errAt(call.Pos(), "view "+r.View+" calls maago.UserFrom: a typed view takes the user as a parameter", "take u "+user+" between ctx and the database (u *"+user+" when it may be missing)")
+			}
+			return true
+		})
+	}
 	v := &view{}
 	last := params[len(params)-1]
 	in := last
@@ -141,7 +166,6 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 		return nil, ds
 	}
 	// Between ctx and In, the user, then the database (D-149).
-	names := app.maago[r.View]
 	var user ast.Expr
 	order, wrong, both := false, "", false
 	for _, p := range params[1 : len(params)-1] {
@@ -408,8 +432,8 @@ func isForm(app *App, name string) bool {
 }
 
 // noTxOptions checks maago.NoTx against the routes and their views: it is
-// for a view that writes and takes maago.DB, on every route it serves
-// (D-150).
+// for a view that writes and takes maago.DB, on every route it serves, and
+// such a view without it is an error (D-150).
 func noTxOptions(fset *token.FileSet, app *App) []diag.Diagnostic {
 	var ds []diag.Diagnostic
 	routes := map[string][]*Route{} // the routes of each view, in order
@@ -443,9 +467,15 @@ func noTxOptions(fset *token.FileSet, app *App) []diag.Diagnostic {
 				without = cmp.Or(without, r)
 			}
 		}
-		if with != nil && without != nil {
+		switch v := routes[view][0].view; {
+		case with != nil && without != nil:
 			ds = append(ds, diag.New(fset.Position(optionPos(with, "NoTx")), fmt.Sprintf("route %s has maago.NoTx, but route %s of the same view %s does not", with.Name, without.Name, view),
 				"give both maago.NoTx, or split the view"))
+		case without != nil && v != nil && v.db:
+			// A write outside a transaction is maago.NoTx's to ask for;
+			// the fix does not offer it, or it would be the reflex (D-150).
+			ds = append(ds, diag.New(fset.Position(without.Pos), fmt.Sprintf("route %s writes, but view %s takes maago.DB, which runs outside a transaction", without.Name, view),
+				"take tx maago.Tx"))
 		}
 	}
 	return ds

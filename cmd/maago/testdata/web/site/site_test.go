@@ -359,8 +359,8 @@ func TestExportStreams(t *testing.T) {
 	}
 }
 
-// TestLogin: maago.LoginRequired in the route table, with the fake Auth
-// (D-121).
+// TestLogin: a view that takes the user as a value requires login, with
+// the fake Auth (D-121, D-149).
 func TestLogin(t *testing.T) {
 	h, _, _ := handler(t)
 	for _, c := range []struct {

@@ -18,8 +18,8 @@ type PostPage struct {
 	Post Post
 }
 
-func PostDetail(ctx context.Context, in PostDetailIn) (PostPage, error) {
-	p, err := GetPost(ctx, maago.DBFrom(ctx), in.ID)
+func PostDetail(ctx context.Context, db maago.DB, in PostDetailIn) (PostPage, error) {
+	p, err := GetPost(ctx, db, in.ID)
 	return PostPage{Post: p}, err
 }
 
@@ -54,16 +54,16 @@ func PostList(ctx context.Context, in ListIn) (ListPage, error) {
 	return ListPage{Page: in.Page, Draft: draft}, nil
 }
 
-func PostCreate(ctx context.Context, in struct{}) (maago.Result[PostPage], error) {
-	p, err := InsertPost(ctx, maago.DBFrom(ctx), NewPostInput{Title: "new"})
+func PostCreate(ctx context.Context, tx maago.Tx, in struct{}) (maago.Result[PostPage], error) {
+	p, err := InsertPost(ctx, tx, NewPostInput{Title: "new"})
 	if err != nil {
 		return maago.Result[PostPage]{}, err
 	}
 	return maago.SeeOther[PostPage](PostDetailURL(p.ID)), nil
 }
 
-func APIPost(ctx context.Context, in PostDetailIn) (Post, error) {
-	return GetPost(ctx, maago.DBFrom(ctx), in.ID)
+func APIPost(ctx context.Context, db maago.DB, in PostDetailIn) (Post, error) {
+	return GetPost(ctx, db, in.ID)
 }
 
 type BrokenPage struct {
@@ -98,14 +98,18 @@ type PostFormPage struct {
 	Form NewPostForm
 }
 
-// PostForm draws the form on GET and saves it on POST. A taken title is
-// a check that needs the database, so the view makes it (D-119), and the
-// field error it sets makes the form not Valid.
-func PostForm(ctx context.Context, in PostFormIn) (maago.Result[PostFormPage], error) {
+// PostForm draws the form.
+func PostForm(ctx context.Context, in PostFormIn) (PostFormPage, error) {
+	return PostFormPage{in.Form}, nil
+}
+
+// PostFormSave saves the form. A taken title is a check that needs the
+// database, so the view makes it (D-119), and the field error it sets
+// makes the form not Valid.
+func PostFormSave(ctx context.Context, tx maago.Tx, in PostFormIn) (maago.Result[PostFormPage], error) {
 	f := in.Form
-	db := maago.DBFrom(ctx)
 	if f.Valid() {
-		taken, err := TitleTaken(ctx, db, TitleTakenParams{Title: f.Title.Value})
+		taken, err := TitleTaken(ctx, tx, TitleTakenParams{Title: f.Title.Value})
 		if err != nil {
 			return maago.Result[PostFormPage]{}, err
 		}
@@ -116,7 +120,7 @@ func PostForm(ctx context.Context, in PostFormIn) (maago.Result[PostFormPage], e
 	if !f.Valid() {
 		return maago.Show(PostFormPage{f}), nil
 	}
-	p, err := InsertPost(ctx, db, NewPostInput{Title: f.Title.Value})
+	p, err := InsertPost(ctx, tx, NewPostInput{Title: f.Title.Value})
 	if err != nil {
 		return maago.Result[PostFormPage]{}, err
 	}
@@ -129,18 +133,17 @@ var apiCalls int
 
 // APIPostCreate takes the same form as JSON. What only the database can
 // say comes back as maago.Invalid, a 422.
-func APIPostCreate(ctx context.Context, in PostFormIn) (Post, error) {
+func APIPostCreate(ctx context.Context, tx maago.Tx, in PostFormIn) (Post, error) {
 	apiCalls++
 	f := in.Form
-	db := maago.DBFrom(ctx)
-	taken, err := TitleTaken(ctx, db, TitleTakenParams{Title: f.Title.Value})
+	taken, err := TitleTaken(ctx, tx, TitleTakenParams{Title: f.Title.Value})
 	if err != nil {
 		return Post{}, err
 	}
 	if taken.Taken {
 		return Post{}, maago.Invalid(&f.Title, "that title is taken")
 	}
-	return InsertPost(ctx, db, NewPostInput{Title: f.Title.Value})
+	return InsertPost(ctx, tx, NewPostInput{Title: f.Title.Value})
 }
 
 // exportGate, when a test sets it, holds PostExport between its two rows,
@@ -188,10 +191,9 @@ type SecretPage struct {
 	Name string
 }
 
-// Secret requires login; the route table says so.
-func Secret(ctx context.Context, in struct{}) (SecretPage, error) {
-	a, _ := maago.UserFrom[Account](ctx)
-	return SecretPage{a.Name}, nil
+// Secret requires login: u is an Account, not a pointer (D-149).
+func Secret(ctx context.Context, u Account, in struct{}) (SecretPage, error) {
+	return SecretPage{u.Name}, nil
 }
 
 // Mine takes the user and the database in its signature (D-149): the

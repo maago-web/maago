@@ -30,35 +30,35 @@ board/urls.go:5:5: second route table in package board
 
 # not a call
 board/urls.go:6:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
 
 # too few arguments
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
 
 # path not a literal
 board/urls.go:7:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
 
 # name joined
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
 
 # view of another package
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
 
 # view literal
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
 
 # view nil
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
 
 # option not maago's
 board/urls.go:5:27: route is not written as maago.METHOD("/path", "name", View, options…)
-  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.LoginRequired, maago.API, maago.NoTx or maago.Block("name")
+  fix: write the path and the name as string literals, the view as the name of a function of this package, and options as maago.API, maago.NoTx or maago.Block("name")
 
 # dot import
 board/urls.go:5:5: route table in a file that dot-imports maago
@@ -84,7 +84,7 @@ board/urls.go:5:48: no function M in package board
 
 # unknown option
 board/urls.go:5:54: unknown route option maago.Login
-  fix: did you mean "LoginRequired"? allowed: LoginRequired, API, Block, NoTx
+  fix: allowed: API, Block, NoTx
 
 # option twice
 board/urls.go:5:65: route option maago.API given twice

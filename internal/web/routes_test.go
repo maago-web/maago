@@ -54,7 +54,7 @@ import m "github.com/maago-web/maago"
 
 var Routes = m.Routes{
 	m.GET("/{$}", "board_list", BoardList),
-	m.POST("/boards/{id}", "board_update", BoardUpdate, m.LoginRequired, m.API),
+	m.POST("/boards/{id}", "board_update", BoardUpdate, m.NoTx, m.API),
 }
 `,
 		"board/views.go":    "package board\n\nfunc BoardList()   {}\nfunc BoardUpdate() {}\n",
@@ -82,7 +82,7 @@ var Routes = m.Routes{
   GET "/posts/{id}" "post_detail" PostDetail blog/urls.go:5:27 blog/urls.go:5:37 blog/urls.go:5:52 blog/urls.go:5:67
 board board example.com/app/board board/urls.go:5:5 used=true funcs=[BoardList BoardUpdate]
   GET "/{$}" "board_list" BoardList board/urls.go:6:2 board/urls.go:6:8 board/urls.go:6:16 board/urls.go:6:30
-  POST "/boards/{id}" "board_update" BoardUpdate board/urls.go:7:2 board/urls.go:7:9 board/urls.go:7:25 board/urls.go:7:41 LoginRequired@board/urls.go:7:54 API@board/urls.go:7:71
+  POST "/boards/{id}" "board_update" BoardUpdate board/urls.go:7:2 board/urls.go:7:9 board/urls.go:7:25 board/urls.go:7:41 NoTx@board/urls.go:7:54 API@board/urls.go:7:62
 `
 	if got.String() != want {
 		t.Errorf("got\n%s\nwant\n%s", got.String(), want)

@@ -70,11 +70,19 @@ func TestBoardTutorialCatches(t *testing.T) {
 		// What maago add writes comes from the trailer, not the patch.
 		{"no maago add", "0020-Add-accounts.patch", "\nMaago-Run: maago add auth", "", "maago gen: expected\n"},
 		{"an unknown trailer", "0020-Add-accounts.patch", "Maago-Run: maago add auth", "Maago-Run: maago add auth now", "unknown trailer "},
+		// A write outside the request's transaction (D-150).
+		{"a write without a transaction", "0011-Write-boards-and-posts.patch", "+func CreateBoard(ctx context.Context, tx maago.Tx, in NewBoardIn) (maago.Result[BoardFormPage], error) {", "+func CreateBoard(ctx context.Context, tx maago.DB, in NewBoardIn) (maago.Result[BoardFormPage], error) {", "maago gen:\n"},
+		// Who may do what, step by step (D-149): taking the check out fails
+		// the app's tests; taking the user out of a signature fails to
+		// compile where the view reads u, and fails the tests where it
+		// does not (0022's TestAuthors).
 		{"author check", "0022-Posts-have-authors.patch", "+\tif u.IsStaff || p.AuthorID != nil && *p.AuthorID == u.ID {", "+\tif u.IsStaff || true {", "go test: "},
 		{"admin columns", "0025-Board-in-the-admin.patch", ",admin_list=(Title,BoardID,Status,AuthorID,CreatedAt)", "", "go test: "},
 		// Who gets a draft's file is the view's to check (D-140).
 		{"a draft's file", "0029-Attach-files-to-posts.patch", "+\tif post.Status == \"draft\" {", "+\tif false {", "go test: "},
 		// The user in the signature is the sign-in: a pointer lets nobody in.
+		// A typed view takes the database; read from ctx, it is refused.
+		{"me from the context", "0030-Me.patch", "+\tps, err := MyPosts(ctx, db, MyPostsParams{AuthorID: u.ID})", "+\tps, err := MyPosts(ctx, maago.DBFrom(ctx), MyPostsParams{AuthorID: u.ID})", "maago gen:\n"},
 		{"me without a sign-in", "0030-Me.patch", "+func Me(ctx context.Context, u auth.User, db maago.DB, in struct{}) (MePage, error) {", "+func Me(ctx context.Context, u *auth.User, db maago.DB, in struct{}) (MePage, error) {", "go test: "},
 		{"anybody edits", "0031-Edit-a-post.patch", "+\tif err := mayChange(u, p); err != nil {", "+\tif err := error(nil); err != nil {", "go test: "},
 		{"a draft to anybody", "0032-Drafts-are-their-author-s.patch", "+\tcase p.Status == \"draft\" || p.PublishAt != nil && p.PublishAt.After(time.Now()):", "+\tcase false:", "go test: "},

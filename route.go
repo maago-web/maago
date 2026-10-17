@@ -9,13 +9,12 @@ type Routes []Route
 // nothing.
 type Route struct{}
 
-// RouteOption is what a route may add after its view: LoginRequired, API,
-// NoTx, Block("name").
+// RouteOption is what a route may add after its view: API, NoTx,
+// Block("name"). Whether a route needs a sign-in, its view's user says:
+// u U requires one, u *U is nil for nobody (D-149).
 type RouteOption struct{ name, block string }
 
 var (
-	// LoginRequired lets only a signed-in user reach the route.
-	LoginRequired = RouteOption{name: "LoginRequired"}
 	// API makes the route answer JSON, and its errors RFC 9457 problems.
 	API = RouteOption{name: "API"}
 	// NoTx lets a route that writes run its view without the request's

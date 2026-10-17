@@ -135,15 +135,13 @@ import "github.com/maago-web/maago"
 
 var Routes = maago.Routes{
 	maago.GET("/staff", "staff", Staff),
-	maago.GET("/api/me", "api_me", Me, maago.API, maago.LoginRequired),
+	maago.GET("/api/me", "api_me", Me, maago.API),
 }
 `,
 	"views.go": `package site
 
 import (
 	"context"
-
-	"github.com/maago-web/maago"
 
 	"example.com/app/auth"
 )
@@ -154,8 +152,7 @@ type MeOut struct {
 	Email string ` + "`json:\"email\"`" + `
 }
 
-func Me(ctx context.Context, in struct{}) (MeOut, error) {
-	u, _ := maago.UserFrom[auth.User](ctx) // the route requires login
+func Me(ctx context.Context, u auth.User, in struct{}) (MeOut, error) {
 	return MeOut{u.Email}, nil
 }
 

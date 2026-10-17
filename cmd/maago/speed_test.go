@@ -112,7 +112,7 @@ func speedProject(t *testing.T) string {
 		// A page, so that gen type-checks the app's Go as it does a
 		// service's (D-117).
 		writeFile(t, filepath.Join(root, app, "urls.go"), fmt.Sprintf("package %[1]s\n\nimport \"github.com/maago-web/maago\"\n\nvar Routes = maago.Routes{\n\tmaago.GET(\"/%[1]s/{$}\", \"%[1]s_list\", List),\n}\n", app))
-		writeFile(t, filepath.Join(root, app, "views.go"), fmt.Sprintf("package %s\n\nimport (\n\t\"context\"\n\n\t\"github.com/maago-web/maago\"\n)\n\ntype ListPage struct {\n\tThings []Thing1\n}\n\nfunc List(ctx context.Context, in struct{}) (ListPage, error) {\n\tts, err := ListThing1(ctx, maago.DBFrom(ctx), ListThing1Params{Limit: 20})\n\treturn ListPage{ts}, err\n}\n", app))
+		writeFile(t, filepath.Join(root, app, "views.go"), fmt.Sprintf("package %s\n\nimport (\n\t\"context\"\n\n\t\"github.com/maago-web/maago\"\n)\n\ntype ListPage struct {\n\tThings []Thing1\n}\n\nfunc List(ctx context.Context, db maago.DB, in struct{}) (ListPage, error) {\n\tts, err := ListThing1(ctx, db, ListThing1Params{Limit: 20})\n\treturn ListPage{ts}, err\n}\n", app))
 		writeFile(t, filepath.Join(root, app, "templates", "base.html"), `<!doctype html><title>Speed</title>{{block "content" .}}{{end}}`)
 		writeFile(t, filepath.Join(root, app, "templates", "list_page.html"), `{{define "content"}}<ul>{{range .Things}}<li>{{.Name}}</li>{{end}}</ul>{{end}}`)
 	}

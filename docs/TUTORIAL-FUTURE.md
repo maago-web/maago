@@ -371,7 +371,8 @@ var Routes = maago.Routes{
 `app blog has routes, but no package uses blog.App`이라고 알려 줍니다.
 
 뷰는 `http.ResponseWriter`를 받지 않습니다. 들어오는 값과 나가는 값이 타입으로 정해져 있고,
-요청을 해석하고 템플릿을 그리는 코드는 Maago가 생성합니다.
+요청을 해석하고 템플릿을 그리는 코드는 Maago가 생성합니다. 뷰가 무엇을 쓰는지는 서명이 말합니다:
+DB를 읽으면 `ctx`와 In 사이에 `db maago.DB`(쓰는 뷰는 `tx maago.Tx`), 로그인한 사용자가 필요하면 그 앞에 `u auth.User`(누구나 보는 화면이면 `u *auth.User`, 익명은 nil).
 
 ```go
 // blog/views.go
@@ -387,8 +388,8 @@ type PostListPage struct {
 	Posts []Post
 }
 
-func PostList(ctx context.Context, in struct{}) (PostListPage, error) {
-	posts, err := PublishedPosts(ctx, maago.DBFrom(ctx))
+func PostList(ctx context.Context, db maago.DB, in struct{}) (PostListPage, error) {
+	posts, err := PublishedPosts(ctx, db)
 	return PostListPage{Posts: posts}, err
 }
 
@@ -400,8 +401,8 @@ type PostDetailPage struct {
 	Post Post
 }
 
-func PostDetail(ctx context.Context, in PostDetailIn) (PostDetailPage, error) {
-	post, err := GetPost(ctx, maago.DBFrom(ctx), in.ID) // GetPost: PK 기준 CRUD는 생성된다
+func PostDetail(ctx context.Context, db maago.DB, in PostDetailIn) (PostDetailPage, error) {
+	post, err := GetPost(ctx, db, in.ID) // GetPost: PK 기준 CRUD는 생성된다
 	return PostDetailPage{Post: post}, err
 }
 ```

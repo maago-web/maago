@@ -49,14 +49,14 @@ type Config struct {
 	// TimeZone is where the times people enter and see are; nil is UTC.
 	TimeZone *time.Location
 
-	// Auth tells who sent r (D-121): a user, which views read with
-	// UserFrom, or nil for nobody. It runs once for each request, before
+	// Auth tells who sent r (D-121): a user, which views take as their u
+	// (and func(w, r) views read with UserFrom), or nil for nobody. It runs once for each request, before
 	// the route. Its error answers as a view's does: a Status's code, else
 	// a 500. A nil pointer returned as the user is a user: return nil
 	// itself for nobody, also for a missing or expired session or token
 	// (an sql.ErrNoRows would answer 404, a Status(401) would not send a
-	// page to the login page; a route with LoginRequired answers an API
-	// request without a user with 401 and WWW-Authenticate: Bearer). The
+	// page to the login page; a route whose view takes u U answers an
+	// API request without a user with 401 and WWW-Authenticate: Bearer). The
 	// database is in r's context: DBFrom(r.Context()).
 	Auth func(r *http.Request) (any, error)
 
@@ -486,8 +486,10 @@ func RemoteAddrFrom(ctx context.Context) string {
 
 type dbKey struct{}
 
-// WithDB returns ctx carrying db, as Handler gives each request. A view
-// tested without HTTP gets its database this way.
+// WithDB returns ctx carrying db, as Handler gives each request: for
+// testing without HTTP the code that reads DBFrom, such as Config.Auth or
+// a func(w, r) view. A typed view takes the database as a parameter, so
+// its test passes it (D-149).
 func WithDB(ctx context.Context, db *sql.DB) context.Context {
 	return context.WithValue(ctx, dbKey{}, db)
 }
@@ -538,14 +540,19 @@ func (h *handler) loginURL(r *http.Request) string {
 type userKey struct{}
 
 // WithUser returns ctx carrying user, as Handler gives each request
-// Config.Auth's answer. A view tested without HTTP gets its user this way.
+// Config.Auth's answer: for testing without HTTP the code that reads
+// UserFrom. A typed view takes the user as a parameter (D-149).
 func WithUser(ctx context.Context, user any) context.Context {
 	return context.WithValue(ctx, userKey{}, user)
 }
 
 // UserFrom is the user of the request, as Config.Auth told it, and
 // whether there is one (D-121). A user of another type than U is a
-// mismatch between Config.Auth and the view, and panics.
+// mismatch between Config.Auth and the view, and panics. A typed view
+// takes the user as a parameter instead, and maago gen refuses it there
+// (D-149). A func(w, r) view that needs a sign-in reads it here, and
+// answers nobody itself: a 401 to an API client, a redirect to the login
+// page to a browser.
 func UserFrom[U any](ctx context.Context) (U, bool) {
 	var zero U
 	v := ctx.Value(userKey{})

@@ -27,6 +27,7 @@ var maagoRoutes = map[string]string{
 	"me":          "/me",
 	"post_detail": "/posts/{id}",
 	"post_update": "/posts/{id}",
+	"raw":         "/raw",
 	"save":        "/save",
 	"tag_page":    "/tags/{tag}/{n}",
 }
@@ -128,6 +129,12 @@ func serveAPISave(w http.ResponseWriter, r *http.Request) error {
 		return txErr
 	}
 	return b.Send(w)
+}
+
+// serveRaw serves route raw with view Raw.
+func serveRaw(w http.ResponseWriter, r *http.Request) error {
+	Raw(w, r)
+	return nil
 }
 
 // serveHome serves route home with view Home.

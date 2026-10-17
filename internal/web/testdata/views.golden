@@ -23,16 +23,16 @@ site/more.go:12:37: view A takes its values out of order
   fix: write func A(ctx context.Context, db maago.DB, in struct{}) …
 
 # login twice
-site/urls.go:11:26: route a has maago.LoginRequired, but view A takes the user, which requires login already
-  fix: remove maago.LoginRequired
+site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it
+  fix: remove it
 
 # login with a user that may be missing
-site/urls.go:11:26: route a requires login, but view A takes the user as a pointer, which is for a user that may be missing
-  fix: take u users.User, not *users.User, and remove maago.LoginRequired: the view's user requires login
+site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it
+  fix: remove it, and take u users.User, not *users.User: the route then requires login
 
 # login on one route of a view
-site/urls.go:11:57: route a_post requires login, but view A serves a too, which does not
-  fix: split the view: the one without login takes u *users.User, the one with login u users.User, and neither route has maago.LoginRequired
+site/urls.go:11:57: there is no maago.LoginRequired: the view's user says it
+  fix: remove it, and split the view: a view for route a_post takes u users.User, which requires login; the other keeps u *users.User
 
 # untagged field
 site/urls.go:65:18: field X says not where its value comes from
@@ -149,8 +149,32 @@ site/more.go:12:32: view A takes the database as *maago.DB, not maago.DB
   fix: write func A(ctx context.Context, db maago.DB, in struct{}) …
 
 # login on one route of a view that requires it
-site/urls.go:11:57: route a_post has maago.LoginRequired, but view A takes the user, which requires login already
-  fix: remove maago.LoginRequired
+site/urls.go:11:57: there is no maago.LoginRequired: the view's user says it
+  fix: remove it
+
+# login on a view without the user
+site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it
+  fix: remove it, and take u U in the view (the route then requires login; u *U lets anybody in)
+
+# login on a func(w, r)
+site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it
+  fix: remove it; a func(w, r) view reads maago.UserFrom itself and answers 401 or 303
+
+# the user from ctx
+site/more.go:13:10: view A calls maago.UserFrom: a typed view takes the user as a parameter
+  fix: take u users.User between ctx and the database (u *users.User when it may be missing)
+
+# the database from ctx in a closure
+site/more.go:13:20: view A calls maago.DBFrom: a typed view takes the database as a parameter
+  fix: take db maago.DB (tx maago.Tx to write) between ctx and in
+
+# a write on the database
+site/urls.go:11:2: route a writes, but view A takes maago.DB, which runs outside a transaction
+  fix: take tx maago.Tx
+
+# two writes on the database
+site/urls.go:11:2: route a writes, but view A takes maago.DB, which runs outside a transaction
+  fix: take tx maago.Tx
 
 # a pointer that is no user
 site/more.go:12:6: view A takes *context.Context, which is not a user type
