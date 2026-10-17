@@ -480,4 +480,8 @@ func TestPrefix(t *testing.T) {
 	if got := do("GET", loc, "", ""); got.Code != 200 || !strings.Contains(got.Body.String(), "prefixed") { // a doubled prefix would be a 404
 		t.Errorf("following SeeOther: %d %s", got.Code, got.Body)
 	}
+	// {{static}} reads the Prefix this Handler set, as {{url}} and {{date}} do.
+	if body := do("GET", loc, "", "").Body.String(); !regexp.MustCompile(`href="/app/static/site/app\.[0-9a-f]{16}\.css"`).MatchString(body) {
+		t.Errorf("no prefixed static link in %s", body)
+	}
 }

@@ -17,8 +17,8 @@ import (
 	"strings"
 	"text/template/parse"
 
-	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/internal/diag"
+	"github.com/maago-web/maago/rt"
 )
 
 // funcNames are the functions templates may call beside text/template's
@@ -104,7 +104,7 @@ func checkTemplates(fset *token.FileSet, root, dir string, pkg *types.Package, p
 				fmt.Sprintf(`route %s reads a form with a file, but its page draws no form with enctype="multipart/form-data"`, byFile[file][i].route.Name),
 				`write <form method="post" enctype="multipart/form-data"> in the page or base.html; without it the browser sends the file's name, not the file`))
 		}
-		parsed, err := maago.ParsePages(fsys, funcNames, file)
+		parsed, err := rt.ParsePages(fsys, funcNames, file)
 		if err != nil {
 			ds = append(ds, templateDiag(tdir, err))
 			continue
@@ -141,7 +141,7 @@ func checkTemplates(fset *token.FileSet, root, dir string, pkg *types.Package, p
 		for _, b := range blocks {
 			// Sent alone, it must escape alone: in a new set, since the page's
 			// execution escaped it already, without the end check.
-			fresh, _ := maago.ParsePages(fsys, funcNames, file)
+			fresh, _ := rt.ParsePages(fsys, funcNames, file)
 			if err := fresh[file].ExecuteTemplate(io.Discard, b, nil); escapeError(err) {
 				ds = append(ds, escapeDiag(where, err, pos, "block "+b+", sent alone, "))
 			}

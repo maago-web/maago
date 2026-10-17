@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // NewPostInput is what InsertPost takes (D-106): every column but
@@ -37,7 +38,7 @@ type NewPostInput struct {
 
 // GetPost reads the Post with id: sql.ErrNoRows if there is none.
 func GetPost(ctx context.Context, db maago.DB, id int64) (Post, error) {
-	return maago.One(ctx, db, scanPost, `SELECT "id", "author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at" FROM "blog_post" WHERE "id" = $1`, id)
+	return rt.One(ctx, db, scanPost, `SELECT "id", "author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at" FROM "blog_post" WHERE "id" = $1`, id)
 }
 
 // InsertPost inserts in and returns the Post: in's fields, with
@@ -66,7 +67,7 @@ func InsertPost(ctx context.Context, db maago.DB, in NewPostInput) (Post, error)
 // so pass what GetPost returned, changed: sql.ErrNoRows if there is no
 // such row.
 func UpdatePost(ctx context.Context, db maago.DB, o *Post) error {
-	n, err := maago.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = $1, "title" = $2, "slug" = $3, "status" = $4, "views" = $5, "likes" = $6, "score" = $7, "public" = $8, "body" = $9, "published_at" = $10 WHERE "id" = $11`, o.AuthorID, o.Title, o.Slug, o.Status, o.Views, o.Likes, o.Score, o.Public, o.Body, o.PublishedAt, o.ID)
+	n, err := rt.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = $1, "title" = $2, "slug" = $3, "status" = $4, "views" = $5, "likes" = $6, "score" = $7, "public" = $8, "body" = $9, "published_at" = $10 WHERE "id" = $11`, o.AuthorID, o.Title, o.Slug, o.Status, o.Views, o.Likes, o.Score, o.Public, o.Body, o.PublishedAt, o.ID)
 	if err != nil {
 		return err
 	}
@@ -78,7 +79,7 @@ func UpdatePost(ctx context.Context, db maago.DB, o *Post) error {
 
 // DeletePost deletes the Post with id: sql.ErrNoRows if there is none.
 func DeletePost(ctx context.Context, db maago.DB, id int64) error {
-	n, err := maago.Exec(ctx, db, `DELETE FROM "blog_post" WHERE "id" = $1`, id)
+	n, err := rt.Exec(ctx, db, `DELETE FROM "blog_post" WHERE "id" = $1`, id)
 	if err != nil {
 		return err
 	}
@@ -109,7 +110,7 @@ type NewAuthorInput struct {
 
 // GetAuthor reads the Author with id: sql.ErrNoRows if there is none.
 func GetAuthor(ctx context.Context, db maago.DB, id int64) (Author, error) {
-	return maago.One(ctx, db, scanAuthor, `SELECT "id", "name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at" FROM "people" WHERE "id" = $1`, id)
+	return rt.One(ctx, db, scanAuthor, `SELECT "id", "name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at" FROM "people" WHERE "id" = $1`, id)
 }
 
 // InsertAuthor inserts in and returns the Author: in's fields, with
@@ -142,7 +143,7 @@ func InsertAuthor(ctx context.Context, db maago.DB, in NewAuthorInput) (Author, 
 // Once the row is written, o has its new auto times.
 func UpdateAuthor(ctx context.Context, db maago.DB, o *Author) error {
 	now := time.Now().Truncate(time.Microsecond)
-	n, err := maago.Exec(ctx, db, `UPDATE "people" SET "name" = $1, "parent_id" = $2, "editor_id" = $3, "reviewer_id" = $4, "code" = $5, "order" = $6, "admin" = $7, "updated_at" = $8 WHERE "id" = $9 AND "updated_at" = $10`, o.Name, o.ParentID, o.EditorID, o.ReviewerID, o.Code, o.Order, o.Admin, now, o.ID, o.UpdatedAt)
+	n, err := rt.Exec(ctx, db, `UPDATE "people" SET "name" = $1, "parent_id" = $2, "editor_id" = $3, "reviewer_id" = $4, "code" = $5, "order" = $6, "admin" = $7, "updated_at" = $8 WHERE "id" = $9 AND "updated_at" = $10`, o.Name, o.ParentID, o.EditorID, o.ReviewerID, o.Code, o.Order, o.Admin, now, o.ID, o.UpdatedAt)
 	if err != nil {
 		return err
 	}
@@ -162,7 +163,7 @@ func UpdateAuthor(ctx context.Context, db maago.DB, o *Author) error {
 
 // DeleteAuthor deletes the Author with id: sql.ErrNoRows if there is none.
 func DeleteAuthor(ctx context.Context, db maago.DB, id int64) error {
-	n, err := maago.Exec(ctx, db, `DELETE FROM "people" WHERE "id" = $1`, id)
+	n, err := rt.Exec(ctx, db, `DELETE FROM "people" WHERE "id" = $1`, id)
 	if err != nil {
 		return err
 	}

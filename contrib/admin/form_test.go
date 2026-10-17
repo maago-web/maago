@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // The helpers of admin_gen.go: the kind of each input, and a value as its
@@ -56,7 +57,7 @@ func TestInputs(t *testing.T) {
 
 	// What Raw draws, BindTime reads back to the microsecond.
 	var tf maago.Field[time.Time]
-	maago.BindTime(context.Background(), url.Values{"t": {Raw(at)}}, &tf, maago.Rule{Name: "t"})
+	rt.BindTime(context.Background(), url.Values{"t": {Raw(at)}}, &tf, rt.Rule{Name: "t"})
 	if !tf.Value.Equal(at) {
 		t.Errorf("time round trip: %v, want %v", tf.Value, at)
 	}
@@ -96,11 +97,11 @@ func (p *post) model(add, edit bool) Model {
 		var author maago.Field[int64]
 		var public maago.Field[bool]
 		var at maago.Field[time.Time]
-		maago.BindString(ctx, vals, &title, maago.Rule{Name: "title", Label: "Title", Max: 5})
-		maago.BindInt64(ctx, vals, &author, maago.Rule{Name: "author_id", Label: "Author", Optional: true})
-		maago.BindString(ctx, vals, &status, maago.Rule{Name: "status", Label: "Status", Choices: []string{"draft", "published"}, Optional: true})
-		maago.BindBool(ctx, vals, &public, maago.Rule{Name: "public", Label: "Public"})
-		maago.BindTime(ctx, vals, &at, maago.Rule{Name: "at", Label: "At", Optional: true})
+		rt.BindString(ctx, vals, &title, rt.Rule{Name: "title", Label: "Title", Max: 5})
+		rt.BindInt64(ctx, vals, &author, rt.Rule{Name: "author_id", Label: "Author", Optional: true})
+		rt.BindString(ctx, vals, &status, rt.Rule{Name: "status", Label: "Status", Choices: []string{"draft", "published"}, Optional: true})
+		rt.BindBool(ctx, vals, &public, rt.Rule{Name: "public", Label: "Public"})
+		rt.BindTime(ctx, vals, &at, rt.Rule{Name: "at", Label: "At", Optional: true})
 		if vals == nil && id != 0 {
 			title.Raw, author.Raw, status.Raw, public.Raw = "old", "3", "published", "on"
 			at.Raw = Raw(time.Date(2026, 10, 13, 9, 30, 15, 123456000, time.UTC))
@@ -268,7 +269,7 @@ func TestFormConflict(t *testing.T) {
 	m.Edit = true
 	m.Form = func(ctx context.Context, _ maago.DB, id int64, vals url.Values) (Form, error) {
 		var title maago.Field[string]
-		maago.BindString(ctx, vals, &title, maago.Rule{Name: "title", Label: "Title"})
+		rt.BindString(ctx, vals, &title, rt.Rule{Name: "title", Label: "Title"})
 		f := Form{Inputs: []Input{In(&title, true, "")}, Version: version}
 		if vals == nil {
 			return f, nil

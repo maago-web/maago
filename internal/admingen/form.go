@@ -136,7 +136,7 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 				mf = &c
 			}
 			bind, rule := web.ModelRule(mf, optional(f))
-			w("maago.%s(ctx, vals, &f.%s, %s)", bind, f.Name, rule)
+			w("rt.%s(ctx, vals, &f.%s, %s)", bind, f.Name, rule)
 		}
 		w("if vals == nil && id != 0 {")
 		for _, f := range fields {
@@ -159,7 +159,7 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 			w("if found, err := admin.Exists(ctx, db, %s, f.%s.Value); err != nil {", mapper.GoString(existsSQL(f, d)), f.Name)
 			w("return admin.Form{}, err")
 			w("} else if !found {")
-			w("maago.NoRow(ctx, &f.%s)", f.Name)
+			w("rt.NoRow(ctx, &f.%s)", f.Name)
 			w("}")
 			w("}")
 		}
@@ -233,7 +233,7 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 	if version != nil {
 		args = append(args, sqlArg(d, "ver", version))
 	}
-	w("err := admin.Updated(maago.Exec(ctx, db, %s, %s))", mapper.GoString(update), strings.Join(args, ", "))
+	w("err := admin.Updated(rt.Exec(ctx, db, %s, %s))", mapper.GoString(update), strings.Join(args, ", "))
 	if version != nil {
 		w("err = admin.Changed(ctx, db, %s, id, err)", mapper.GoString(rowSQL(m, d)))
 	}
@@ -274,9 +274,9 @@ func sqlArg(d project.Dialect, v string, f *model.Field) string {
 	case d != project.SQLite || f.Type != model.Time:
 		return v
 	case f.Pointer:
-		return "maago.SQLiteNullTime(" + v + ")"
+		return "rt.SQLiteNullTime(" + v + ")"
 	}
-	return "maago.SQLiteTime(" + v + ")"
+	return "rt.SQLiteTime(" + v + ")"
 }
 
 // defaultRaw is f's default as its input draws it, for a new row.

@@ -243,7 +243,7 @@ func TestEscapeOnly(t *testing.T) {
 	if v := string(files["feed/views_gen.go"]); strings.Contains(v, "\"github.com/maago-web/maago\"") || strings.Contains(v, "embed") {
 		t.Errorf("an app of func(w, r) views imports what it does not use:\n%s", v)
 	}
-	if u := string(files["feed/urls_gen.go"]); !strings.Contains(u, "func FeedURL(name string) string {\n\treturn maago.Prefix() + \"/f/\" + maago.PathSegment(name)") {
+	if u := string(files["feed/urls_gen.go"]); !strings.Contains(u, "func FeedURL(name string) string {\n\treturn maago.Prefix() + \"/f/\" + rt.PathSegment(name)") {
 		t.Errorf("urls_gen.go:\n%s", u)
 	}
 }

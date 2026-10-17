@@ -8,11 +8,12 @@ import (
 	"fmt"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // DeleteEmptyNotes runs queries/delete_empty_notes.sql.
 func DeleteEmptyNotes(ctx context.Context, db maago.DB) (int64, error) {
-	return maago.Exec(ctx, db, `DELETE FROM notes WHERE body = ''`)
+	return rt.Exec(ctx, db, `DELETE FROM notes WHERE body = ''`)
 }
 
 // NotesParams is what Notes takes.
@@ -37,7 +38,7 @@ ORDER BY id`
 WHERE length(body) > 3
 ORDER BY id`
 	}
-	return maago.Many(ctx, db, scanNotes, query, args...)
+	return rt.Many(ctx, db, scanNotes, query, args...)
 }
 
 func scanNotes(rows *sql.Rows) (Note, error) {

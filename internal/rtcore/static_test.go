@@ -1,7 +1,9 @@
-package maago
+package rtcore
 
 import (
 	"html/template"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -20,7 +22,7 @@ func staticFS(files map[string]string) fstest.MapFS {
 // year and the plain one asked again, with one ETag; a name of neither
 // is 404 (D-136, D-137, M7's condition 3).
 func TestStatic(t *testing.T) {
-	t.Cleanup(func() { current.Store(nil) })
+	t.Cleanup(func() { Current.Store(nil) })
 	s := Static("board", staticFS(map[string]string{"static/app.css": "body{}", "static/same.css": "body{}", "static/README": "hi"}), "app.css")
 	if again := Static("board", staticFS(map[string]string{"static/app.css": "body{}"})); again.files["app.css"].hashed != s.files["app.css"].hashed {
 		t.Error("the same content has another name")
@@ -37,10 +39,8 @@ func TestStatic(t *testing.T) {
 		t.Error("two names, one hashed name")
 	}
 
-	h, err := Handler(Config{DB: testDB, Apps: []App{NewApp("example.com/board", route("GET", "/x", false, ok)).WithStatic(s)}})
-	if err != nil {
-		t.Fatal(err)
-	}
+	h := http.NewServeMux() // as Handler serves them
+	h.HandleFunc("GET /static/board/{name}", s.Serve)
 	get := func(method, target string, header ...string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, target, nil)
 		for i := 0; i < len(header); i += 2 {
@@ -84,21 +84,22 @@ func TestStatic(t *testing.T) {
 }
 
 // {{static}} in a template made before the Handler: the escaping pass
-// that Pages runs gets an error, not a panic, and the page renders the
+// that rt.Pages runs gets an error, not a panic, and the page renders the
 // path once the Handler has the files, under Config.Prefix.
 func TestStaticFunc(t *testing.T) {
-	current.Store(nil) // as if no test had made a Handler
-	t.Cleanup(func() { current.Store(nil) })
+	Current.Store(nil) // as if no test had made a Handler
+	t.Cleanup(func() { Current.Store(nil) })
 	if _, err := StaticFunc("board/app.css"); err == nil {
 		t.Error("before any Handler")
 	}
-	pages := Pages(staticFS(map[string]string{"templates/home_page.html": `<link href="{{static "board/app.css"}}">`}), template.FuncMap{"static": StaticFunc}, "home_page.html")
-	s := Static("board", staticFS(map[string]string{"static/app.css": "body{}"}), "app.css")
-	if _, err := Handler(Config{DB: testDB, Apps: []App{NewApp("example.com/board").WithStatic(s)}, Prefix: "/app"}); err != nil {
-		t.Fatal(err)
+	page := template.Must(template.New("home_page.html").Funcs(template.FuncMap{"static": StaticFunc}).Parse(`<link href="{{static "board/app.css"}}">`))
+	if err := page.Execute(io.Discard, nil); err == nil { // the escaping pass of rt.Pages
+		t.Error("executed before any Handler")
 	}
+	s := Static("board", staticFS(map[string]string{"static/app.css": "body{}"}), "app.css")
+	Current.Store(&Process{Prefix: "/app", Static: map[string]*StaticFiles{"board": s}}) // as Handler does
 	var b strings.Builder
-	if err := pages["home_page.html"].Execute(&b, nil); err != nil || b.String() != `<link href="/app/static/board/`+s.files["app.css"].hashed+`">` {
+	if err := page.Execute(&b, nil); err != nil || b.String() != `<link href="/app/static/board/`+s.files["app.css"].hashed+`">` {
 		t.Errorf("page: %q %v", b.String(), err)
 	}
 	for _, ref := range []string{"auth/app.css", "board/nope.css", "board/" + s.files["app.css"].hashed, "app.css"} {

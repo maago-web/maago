@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"embed"
 	"fmt"
-	"go/format"
 	"maps"
 	"slices"
 	"strconv"
@@ -61,21 +60,17 @@ func QueriesFile(d project.Dialect, pkg string, qs []Checked) []byte {
 // they need, since go/format does not remove an unused one.
 type gen struct {
 	d       project.Dialect
-	imports map[string]bool // standard library only; maago is always imported
+	imports map[string]bool // standard library only; maago's are added
 }
 
 func (g *gen) execute(name string, data map[string]any) []byte {
 	data["Marker"] = pipeline.Marker
-	data["Imports"] = append(slices.Sorted(maps.Keys(g.imports)), "", "github.com/maago-web/maago")
+	data["Imports"] = append(append(slices.Sorted(maps.Keys(g.imports)), ""), pipeline.Runtime...)
 	var b bytes.Buffer
 	if err := templates.ExecuteTemplate(&b, name, data); err != nil {
 		panic(err)
 	}
-	out, err := format.Source(b.Bytes())
-	if err != nil { // a bug of maago: never write what is not Go
-		panic(fmt.Sprintf("mapper: %s is not Go: %v\n%s", name, err, b.Bytes()))
-	}
-	return out
+	return pipeline.Format(name, b.Bytes())
 }
 
 type modelView struct {
@@ -303,11 +298,11 @@ func (g *gen) body(c Checked, zero string) string {
 	call := func(query, args string) {
 		switch q.Kind {
 		case One:
-			w("return maago.One(ctx, db, scan%s, %s%s)", q.Name, query, args)
+			w("return rt.One(ctx, db, scan%s, %s%s)", q.Name, query, args)
 		case Many:
-			w("return maago.Many(ctx, db, scan%s, %s%s)", q.Name, query, args)
+			w("return rt.Many(ctx, db, scan%s, %s%s)", q.Name, query, args)
 		case Exec:
-			w("return maago.Exec(ctx, db, %s%s)", query, args)
+			w("return rt.Exec(ctx, db, %s%s)", query, args)
 		}
 	}
 	if v := c.Variants[0]; !multi && v.Slices == nil {
@@ -378,7 +373,7 @@ func (g *gen) sql(v Variant) string {
 			for _, prev := range v.Slices[:slices.Index(v.Slices, p.Slice)] {
 				first += "+len(p." + FieldName(prev) + ")"
 			}
-			parts = append(parts, fmt.Sprintf("maago.Placeholders(%q, %s, len(p.%s))", mark, first, FieldName(p.Slice)))
+			parts = append(parts, fmt.Sprintf("rt.Placeholders(%q, %s, len(p.%s))", mark, first, FieldName(p.Slice)))
 		case p.Arg > 0:
 			s.WriteString(mark + strconv.Itoa(p.Arg))
 		default:
@@ -422,9 +417,9 @@ func (g *gen) arg(x string, t model.Type, pointer bool) string {
 	case g.d != project.SQLite || t != model.Time:
 		return x
 	case pointer:
-		return "maago.SQLiteNullTime(" + x + ")"
+		return "rt.SQLiteNullTime(" + x + ")"
 	}
-	return "maago.SQLiteTime(" + x + ")"
+	return "rt.SQLiteTime(" + x + ")"
 }
 
 // dest is where Scan puts a column into x.
@@ -433,9 +428,9 @@ func (g *gen) dest(x string, t model.Type, pointer bool) string {
 	case g.d != project.SQLite || t != model.Time:
 		return "&" + x
 	case pointer:
-		return "maago.ScanNullSQLiteTime(&" + x + ")"
+		return "rt.ScanNullSQLiteTime(&" + x + ")"
 	}
-	return "maago.ScanSQLiteTime(&" + x + ")"
+	return "rt.ScanSQLiteTime(&" + x + ")"
 }
 
 // GoString is a Go literal of s: a raw string, which keeps SQL readable,

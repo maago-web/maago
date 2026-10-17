@@ -7,6 +7,7 @@ import (
 	"database/sql"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // NewNoteInput is what InsertNote takes (D-106): every column but
@@ -17,7 +18,7 @@ type NewNoteInput struct {
 
 // GetNote reads the Note with id: sql.ErrNoRows if there is none.
 func GetNote(ctx context.Context, db maago.DB, id int64) (Note, error) {
-	return maago.One(ctx, db, scanNote, `SELECT "id", "body" FROM "notes" WHERE "id" = $1`, id)
+	return rt.One(ctx, db, scanNote, `SELECT "id", "body" FROM "notes" WHERE "id" = $1`, id)
 }
 
 // InsertNote inserts in and returns the Note: in's fields, with
@@ -37,7 +38,7 @@ func InsertNote(ctx context.Context, db maago.DB, in NewNoteInput) (Note, error)
 // so pass what GetNote returned, changed: sql.ErrNoRows if there is no
 // such row.
 func UpdateNote(ctx context.Context, db maago.DB, o *Note) error {
-	n, err := maago.Exec(ctx, db, `UPDATE "notes" SET "body" = $1 WHERE "id" = $2`, o.Body, o.ID)
+	n, err := rt.Exec(ctx, db, `UPDATE "notes" SET "body" = $1 WHERE "id" = $2`, o.Body, o.ID)
 	if err != nil {
 		return err
 	}
@@ -49,7 +50,7 @@ func UpdateNote(ctx context.Context, db maago.DB, o *Note) error {
 
 // DeleteNote deletes the Note with id: sql.ErrNoRows if there is none.
 func DeleteNote(ctx context.Context, db maago.DB, id int64) error {
-	n, err := maago.Exec(ctx, db, `DELETE FROM "notes" WHERE "id" = $1`, id)
+	n, err := rt.Exec(ctx, db, `DELETE FROM "notes" WHERE "id" = $1`, id)
 	if err != nil {
 		return err
 	}

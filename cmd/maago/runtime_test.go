@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // sqliteFile makes an empty SQLite database app.db in a new working
@@ -162,30 +163,30 @@ func TestOneMany(t *testing.T) {
 		return x, r.Scan(&x)
 	}
 	c := context.Background()
-	if v, err := maago.One(c, db, scan, "SELECT x FROM t WHERE x = ?1", 2); v != 2 || err != nil {
+	if v, err := rt.One(c, db, scan, "SELECT x FROM t WHERE x = ?1", 2); v != 2 || err != nil {
 		t.Errorf("one row: %d %v", v, err)
 	}
-	if _, err := maago.One(c, db, scan, "SELECT x FROM t WHERE x = ?1", 3); !errors.Is(err, sql.ErrNoRows) {
+	if _, err := rt.One(c, db, scan, "SELECT x FROM t WHERE x = ?1", 3); !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("no row: %v", err)
 	}
-	if _, err := maago.One(c, db, scan, "SELECT x FROM t"); !errors.Is(err, maago.ErrManyRows) {
+	if _, err := rt.One(c, db, scan, "SELECT x FROM t"); !errors.Is(err, maago.ErrManyRows) {
 		t.Errorf("two rows: %v", err)
 	}
-	if _, err := maago.One(c, db, scan, "SELECT nope FROM t"); err == nil || !strings.Contains(err.Error(), "nope") {
+	if _, err := rt.One(c, db, scan, "SELECT nope FROM t"); err == nil || !strings.Contains(err.Error(), "nope") {
 		t.Errorf("query error: %v", err)
 	}
-	if vs, err := maago.Many(c, db, scan, "SELECT x FROM t ORDER BY x"); len(vs) != 2 || vs[1] != 2 || err != nil {
+	if vs, err := rt.Many(c, db, scan, "SELECT x FROM t ORDER BY x"); len(vs) != 2 || vs[1] != 2 || err != nil {
 		t.Errorf("many: %v %v", vs, err)
 	}
-	if vs, err := maago.Many(c, db, scan, "SELECT x FROM t WHERE false"); vs == nil || len(vs) != 0 || err != nil {
+	if vs, err := rt.Many(c, db, scan, "SELECT x FROM t WHERE false"); vs == nil || len(vs) != 0 || err != nil {
 		t.Errorf("no rows: %#v %v, want an empty slice", vs, err)
 	}
 	// A Scan error stops the query.
 	bad := func(r *sql.Rows) (string, error) {
 		var s time.Time
-		return "", r.Scan(maago.ScanSQLiteTime(&s))
+		return "", r.Scan(rt.ScanSQLiteTime(&s))
 	}
-	if _, err := maago.Many(c, db, bad, "SELECT x FROM t"); err == nil {
+	if _, err := rt.Many(c, db, bad, "SELECT x FROM t"); err == nil {
 		t.Error("scan error: none")
 	}
 }
@@ -201,7 +202,7 @@ func TestSQLiteTimes(t *testing.T) {
 	later := time.Date(2026, 9, 27, 12, 0, 5, 500_000_000, kst)       // 03:00:05.5 UTC
 	earlier := time.Date(2026, 9, 27, 3, 0, 5, 250_000_000, time.UTC) // .25: fewer digits, earlier
 	past, future := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
-	for i, v := range []any{maago.SQLiteTime(later), maago.SQLiteTime(earlier), maago.SQLiteTime(past), maago.SQLiteTime(future),
+	for i, v := range []any{rt.SQLiteTime(later), rt.SQLiteTime(earlier), rt.SQLiteTime(past), rt.SQLiteTime(future),
 		nil, "2026-09-27T12:00:00+09:00", "yesterday", later} {
 		if _, err := db.Exec("INSERT INTO times VALUES (?1, ?2)", i+1, v); err != nil {
 			t.Fatal(err)
@@ -240,8 +241,8 @@ func TestSQLiteTimes(t *testing.T) {
 	scan := func(id int) (time.Time, *time.Time, error, error) {
 		var v time.Time
 		var p *time.Time
-		err1 := db.QueryRow("SELECT at FROM times WHERE id = ?1", id).Scan(maago.ScanSQLiteTime(&v))
-		err2 := db.QueryRow("SELECT at FROM times WHERE id = ?1", id).Scan(maago.ScanNullSQLiteTime(&p))
+		err1 := db.QueryRow("SELECT at FROM times WHERE id = ?1", id).Scan(rt.ScanSQLiteTime(&v))
+		err2 := db.QueryRow("SELECT at FROM times WHERE id = ?1", id).Scan(rt.ScanNullSQLiteTime(&p))
 		return v, p, err1, err2
 	}
 	if v, _, err, _ := scan(1); err != nil || !v.Equal(later) {

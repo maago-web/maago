@@ -6,17 +6,18 @@ import (
 	"strconv"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // App is this app's routes, to put in maago.Config.Apps (D-114).
-var App = maago.NewApp("example.com/app/site",
-	maago.AppRoute{Method: "GET", Path: "/{$}", Name: "home", Serve: serveHome},
-	maago.AppRoute{Method: "GET", Path: "/posts/{id}", Name: "post_detail", Serve: servePostDetail},
-	maago.AppRoute{Method: "GET", Path: "/tags/{tag}/{n}", Name: "tag_page", Serve: serveTagPage},
-	maago.AppRoute{Method: "POST", Path: "/posts/{id}", Name: "post_update", Serve: servePostUpdate},
-	maago.AppRoute{Method: "GET", Path: "/api/posts/{id}", Name: "api_post", API: true, Serve: serveAPIPost},
-	maago.AppRoute{Method: "GET", Path: "/feed.csv", Name: "feed", Serve: serveFeed},
-	maago.AppRoute{Method: "GET", Path: "/by/{post_id}", Name: "by_post_id", Serve: serveByPostID},
+var App = rt.NewApp("example.com/app/site", nil,
+	rt.AppRoute{Method: "GET", Path: "/{$}", Name: "home", Serve: serveHome},
+	rt.AppRoute{Method: "GET", Path: "/posts/{id}", Name: "post_detail", Serve: servePostDetail},
+	rt.AppRoute{Method: "GET", Path: "/tags/{tag}/{n}", Name: "tag_page", Serve: serveTagPage},
+	rt.AppRoute{Method: "POST", Path: "/posts/{id}", Name: "post_update", Serve: servePostUpdate},
+	rt.AppRoute{Method: "GET", Path: "/api/posts/{id}", Name: "api_post", API: true, Serve: serveAPIPost},
+	rt.AppRoute{Method: "GET", Path: "/feed.csv", Name: "feed", Serve: serveFeed},
+	rt.AppRoute{Method: "GET", Path: "/by/{post_id}", Name: "by_post_id", Serve: serveByPostID},
 )
 
 // HomeURL is the path of route home: GET /{$}.
@@ -31,7 +32,7 @@ func PostDetailURL(id int64) string {
 
 // TagPageURL is the path of route tag_page: GET /tags/{tag}/{n}.
 func TagPageURL(tag string, n int32) string {
-	return maago.Prefix() + "/tags/" + maago.PathSegment(tag) + "/" + strconv.FormatInt(int64(n), 10)
+	return maago.Prefix() + "/tags/" + rt.PathSegment(tag) + "/" + strconv.FormatInt(int64(n), 10)
 }
 
 // PostUpdateURL is the path of route post_update: POST /posts/{id}.

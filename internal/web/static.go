@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/internal/diag"
+	"github.com/maago-web/maago/internal/rtcore"
 )
 
 // ReadStatic reads the static/ of each app with routes into its Static
@@ -50,7 +50,7 @@ func ReadStatic(root string, parsed map[string][]*ast.File, apps []*App) []diag.
 			case !e.Type().IsRegular():
 				ds = append(ds, diag.New(at, "not a regular file", "put the file itself there; //go:embed leaves out links"))
 			default:
-				if err := maago.StaticName(e.Name()); err != nil {
+				if err := rtcore.StaticName(e.Name()); err != nil {
 					ds = append(ds, diag.New(at, err.Error(), "rename it, such as app.css"))
 				} else {
 					app.Static, app.used = append(app.Static, e.Name()), map[string]bool{}

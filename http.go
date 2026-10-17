@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/maago-web/maago/internal/rtcore"
 )
 
 // Config is how main puts the apps together into one handler (D-114).
@@ -88,29 +90,8 @@ type Config struct {
 }
 
 // App is an app's routes, as maago gen generates them into the app's App
-// value; contrib/admin makes the admin's (D-131). Nothing else does.
-type App struct {
-	name   string
-	routes []AppRoute
-	static *StaticFiles
-}
-
-// AppRoute is one route of an App. Serve answers the request; when it
-// returns an error it must not have written anything yet, and the error
-// becomes the response (see Status). Once it has written, it handles its
-// own failures and returns nil. The writer is an http.Flusher, for streaming.
-type AppRoute struct {
-	Method, Path, Name string
-	API                bool
-	LoginRequired      bool // a request without a user does not reach Serve (D-121)
-	User               bool // its view takes the user (D-149): Config.Auth is needed
-	Files              bool // it reads a form with a file: Config.MediaDir is needed (D-140)
-	Serve              func(w http.ResponseWriter, r *http.Request) error
-}
-
-// NewApp is the App of the app named name. Only generated code and
-// contrib/admin call it.
-func NewApp(name string, routes ...AppRoute) App { return App{name, routes, nil} }
+// value: board.App. contrib/admin makes the admin's (D-131).
+type App = rtcore.App
 
 // Handler serves the apps of cfg. It rejects what cfg gets wrong; the
 // routes themselves maago gen has checked.
@@ -121,34 +102,35 @@ func Handler(cfg Config) (http.Handler, error) {
 	if len(cfg.Apps) == 0 {
 		return nil, errors.New("maago: Config.Apps is empty; add each app's App, such as board.App")
 	}
-	h := &handler{cfg: cfg, mux: http.NewServeMux(), routes: map[string]*AppRoute{}, forms: newFormSettings(cfg.Messages, cfg.TimeZone)}
-	if err := h.forms.msgs.check(); err != nil {
+	h := &handler{cfg: cfg, mux: http.NewServeMux(), routes: map[string]*rtcore.Route{}, forms: rtcore.NewSettings(rtcore.Messages(cfg.Messages), rtcore.Messages(DefaultMessages), cfg.TimeZone)}
+	if err := Messages(h.forms.Msgs).check(); err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}
-	static := map[string]*StaticFiles{}
+	static := map[string]*rtcore.StaticFiles{}
 	staticOf := map[string]string{}  // the app, by the package name of its static files
 	login, htmlLogin := false, false // some route requires login; some HTML one does
 	files := false                   // some route reads a form with a file
 	for _, app := range cfg.Apps {
+		name, routes, s := rtcore.Parts(app)
 		switch {
-		case app.name == "":
+		case name == "":
 			return nil, errors.New("maago: Config.Apps holds an empty App; use the one maago gen makes, such as board.App, and run maago gen")
-		case seen[app.name]:
-			return nil, fmt.Errorf("maago: app %s is in Config.Apps twice", app.name)
+		case seen[name]:
+			return nil, fmt.Errorf("maago: app %s is in Config.Apps twice", name)
 		}
-		seen[app.name] = true
-		if s := app.static; s != nil {
-			if other, ok := staticOf[s.app]; ok {
-				return nil, fmt.Errorf("maago: apps %s and %s both serve static files at /static/%s/; rename one package", other, app.name, s.app)
+		seen[name] = true
+		if s != nil {
+			if other, ok := staticOf[s.App()]; ok {
+				return nil, fmt.Errorf("maago: apps %s and %s both serve static files at /static/%s/; rename one package", other, name, s.App())
 			}
-			staticOf[s.app], static[s.app] = app.name, s
-			h.mux.HandleFunc("GET /static/"+s.app+"/{name}", s.serve)
+			staticOf[s.App()], static[s.App()] = name, s
+			h.mux.HandleFunc("GET /static/"+s.App()+"/{name}", s.Serve)
 		}
-		for i := range app.routes {
-			r := &app.routes[i]
+		for i := range routes {
+			r := &routes[i]
 			if r.Serve == nil {
-				return nil, fmt.Errorf("maago: route %s of app %s serves nothing; run maago gen", r.Name, app.name)
+				return nil, fmt.Errorf("maago: route %s of app %s serves nothing; run maago gen", r.Name, name)
 			}
 			pattern := r.Method + " " + r.Path
 			h.routes[pattern] = r
@@ -199,15 +181,15 @@ func Handler(cfg Config) (http.Handler, error) {
 	if tz == nil {
 		tz = time.UTC
 	}
-	current.Store(&process{cfg.Prefix, tz, static}) // the last Handler wins (D-122)
+	rtcore.Current.Store(&rtcore.Process{Prefix: cfg.Prefix, TZ: tz, Static: static}) // the last Handler wins (D-122)
 	return h, nil
 }
 
 type handler struct {
 	cfg    Config
 	mux    *http.ServeMux
-	routes map[string]*AppRoute // by pattern
-	forms  *formSettings
+	routes map[string]*rtcore.Route // by pattern
+	forms  *rtcore.Settings
 	next   http.Handler // CSRF, then the routes
 }
 
@@ -258,17 +240,17 @@ func allow(w http.ResponseWriter, origin string) {
 }
 
 // route is the route r reaches, or nil.
-func (h *handler) route(r *http.Request) *AppRoute {
+func (h *handler) route(r *http.Request) *rtcore.Route {
 	_, pattern := h.mux.Handler(r)
 	return h.routes[pattern]
 }
 
 // serve runs a route with the database in its context, and turns its
 // error or panic into the response.
-func (h *handler) serve(route *AppRoute) http.Handler {
+func (h *handler) serve(route *rtcore.Route) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ww := &written{ResponseWriter: w}
-		ctx := context.WithValue(WithDB(r.Context(), h.cfg.DB), formKey{}, h.forms)
+		ctx := rtcore.WithSettings(WithDB(r.Context(), h.cfg.DB), h.forms)
 		ctx = context.WithValue(ctx, remoteAddrKey{}, r.RemoteAddr)
 		if h.cfg.MediaDir != "" {
 			ctx = WithMediaDir(ctx, h.cfg.MediaDir)
@@ -307,7 +289,7 @@ func (h *handler) serve(route *AppRoute) http.Handler {
 		if h.cfg.Auth != nil {
 			u, err := h.cfg.Auth(r)
 			if err != nil {
-				h.report(ww, r, route, status(err), err)
+				h.report(ww, r, route, rtcore.Code(err), err)
 				return
 			}
 			if u != nil {
@@ -323,14 +305,14 @@ func (h *handler) serve(route *AppRoute) http.Handler {
 			return
 		}
 		if err := route.Serve(ww, r); err != nil {
-			h.report(ww, r, route, status(err), err)
+			h.report(ww, r, route, rtcore.Code(err), err)
 		}
 	})
 }
 
 // report answers with code, unless the route wrote already, and tells
 // OnError of a 5xx.
-func (h *handler) report(w *written, r *http.Request, route *AppRoute, code int, err error) {
+func (h *handler) report(w *written, r *http.Request, route *rtcore.Route, code int, err error) {
 	if code >= 500 {
 		if h.cfg.OnError != nil {
 			h.cfg.OnError(r.Context(), r, err)
@@ -344,42 +326,23 @@ func (h *handler) report(w *written, r *http.Request, route *AppRoute, code int,
 	}
 }
 
-// status is the response's code for err: a body past Config.MaxBody
-// first, even inside a Status (a form's 400 that could not read it); then
-// a Status, then sql.ErrNoRows, which is a row that is not there; else 500.
-func status(err error) int {
-	var s *statusError
-	var tooLarge *http.MaxBytesError
-	switch {
-	case errors.As(err, &tooLarge):
-		return http.StatusRequestEntityTooLarge
-	case errors.As(err, &s):
-		return s.code
-	case errors.Is(err, sql.ErrNoRows):
-		return http.StatusNotFound
-	case errors.Is(err, ErrConflict):
-		return http.StatusConflict
-	}
-	return http.StatusInternalServerError
-}
-
 // fail writes the error response: an RFC 9457 problem for an API route
 // (D-44), plain text otherwise. Only a 4xx says why: a 500's error stays
 // inside, with OnError.
-func (h *handler) fail(w http.ResponseWriter, route *AppRoute, code int, err error) {
+func (h *handler) fail(w http.ResponseWriter, route *rtcore.Route, code int, err error) {
 	if route == nil || !route.API {
 		http.Error(w, http.StatusText(code), code)
 		return
 	}
 	p := struct {
-		Type   string       `json:"type"`
-		Title  string       `json:"title"`
-		Status int          `json:"status"`
-		Detail string       `json:"detail,omitempty"`
-		Errors []FieldError `json:"errors,omitempty"` // a form's, for a 422 (D-120)
+		Type   string              `json:"type"`
+		Title  string              `json:"title"`
+		Status int                 `json:"status"`
+		Detail string              `json:"detail,omitempty"`
+		Errors []rtcore.FieldError `json:"errors,omitempty"` // a form's, for a 422 (D-120)
 	}{"about:blank", http.StatusText(code), code, "", nil}
 	if code == http.StatusUnprocessableEntity {
-		p.Errors = fieldErrors(err)
+		p.Errors = rtcore.FieldErrors(err)
 	}
 	if code < 500 && p.Errors == nil {
 		p.Detail = err.Error()
@@ -429,23 +392,7 @@ func (w *written) Unwrap() http.ResponseWriter { return w.ResponseWriter } // fo
 // Status makes err, which is not nil, answer with code, from 400 to 599: a view returns
 // maago.Status(http.StatusForbidden, err) to refuse. The generated code
 // uses it for what it cannot parse. An error wrapping it keeps the code.
-func Status(code int, err error) error {
-	if code < 400 || code > 599 {
-		panic(fmt.Sprintf("maago: Status(%d): the code must be from 400 to 599", code))
-	}
-	if err == nil {
-		panic("maago: Status with a nil error")
-	}
-	return &statusError{code, err}
-}
-
-type statusError struct {
-	code int
-	err  error
-}
-
-func (e *statusError) Error() string { return e.err.Error() }
-func (e *statusError) Unwrap() error { return e.err }
+func Status(code int, err error) error { return rtcore.Status(code, err) }
 
 type cookiesKey struct{}
 

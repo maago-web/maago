@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 //go:embed templates/*.html
@@ -24,7 +24,7 @@ var maagoRoutes = map[string]string{
 
 // maagoPages are the template sets of the pages: base.html, if there is
 // one, and the page.
-var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes), "date": maago.DateFunc, "static": maago.StaticFunc},
+var maagoPages = rt.Pages(maagoTemplateFiles, template.FuncMap{"url": rt.URLFunc(maagoRoutes), "date": rt.DateFunc, "static": rt.StaticFunc},
 	"board_page.html",
 	"notice_page.html",
 )
@@ -33,7 +33,7 @@ var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.U
 func serveBoardNew(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in BoardIn
-	vals, err := maago.FormValues(r, "name", "kind")
+	vals, err := rt.FormValues(r, "name", "kind")
 	if err != nil {
 		return err
 	}
@@ -43,14 +43,14 @@ func serveBoardNew(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoPages, "board_page.html", "", page)
+	return rt.Render(w, maagoPages, "board_page.html", "", page)
 }
 
 // serveBoardCreate serves route board_create with view BoardNew.
 func serveBoardCreate(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in BoardIn
-	vals, err := maago.FormValues(r, "name", "kind")
+	vals, err := rt.FormValues(r, "name", "kind")
 	if err != nil {
 		return err
 	}
@@ -60,14 +60,14 @@ func serveBoardCreate(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoPages, "board_page.html", "", page)
+	return rt.Render(w, maagoPages, "board_page.html", "", page)
 }
 
 // serveNoticeCreate serves route notice_create with view NoticeCreate.
 func serveNoticeCreate(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in NoticeIn
-	vals, err := maago.FormValues(r, "title", "days", "rate", "pinned", "start")
+	vals, err := rt.FormValues(r, "title", "days", "rate", "pinned", "start")
 	if err != nil {
 		return err
 	}
@@ -81,14 +81,14 @@ func serveNoticeCreate(w http.ResponseWriter, r *http.Request) error {
 		http.Redirect(w, r, to, http.StatusSeeOther)
 		return nil
 	}
-	return maago.Render(w, maagoPages, "notice_page.html", "", page)
+	return rt.Render(w, maagoPages, "notice_page.html", "", page)
 }
 
 // serveAPINoticeCreate serves route api_notice_create with view APINotice.
 func serveAPINoticeCreate(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in NoticeIn
-	vals, err := maago.JSONValues(r, "title", "days", "rate", "pinned", "start")
+	vals, err := rt.JSONValues(r, "title", "days", "rate", "pinned", "start")
 	if err != nil {
 		return err
 	}
@@ -101,42 +101,42 @@ func serveAPINoticeCreate(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.JSON(w, page)
+	return rt.JSON(w, page)
 }
 
 // bindBoardForm reads form BoardForm from the values the request sent, or
 // for a GET or HEAD, which sends none, only describes its fields, for
 // drawing it empty (D-119).
 func bindBoardForm(r *http.Request, vals url.Values, f *BoardForm) {
-	maago.BindString(r.Context(), vals, &f.Name, maago.Rule{Name: "name", Label: "이름", Max: 50})
-	maago.BindString(r.Context(), vals, &f.Kind, maago.Rule{Name: "kind", Label: "Kind", Choices: []string{"free", "notice"}, Optional: true})
+	rt.BindString(r.Context(), vals, &f.Name, rt.Rule{Name: "name", Label: "이름", Max: 50})
+	rt.BindString(r.Context(), vals, &f.Kind, rt.Rule{Name: "kind", Label: "Kind", Choices: []string{"free", "notice"}, Optional: true})
 	ok := func() bool {
 		return f.Name.Error == "" && f.Kind.Error == ""
 	}
-	maago.FinishForm(&f.Form, vals != nil, ok())
+	rt.FinishForm(&f.Form, vals != nil, ok())
 }
 
 // bindNoticeForm reads form NoticeForm from the values the request sent, or
 // for a GET or HEAD, which sends none, only describes its fields, for
 // drawing it empty (D-119).
 func bindNoticeForm(r *http.Request, vals url.Values, f *NoticeForm) {
-	maago.BindString(r.Context(), vals, &f.Title, maago.Rule{Name: "title", Label: "제목", Help: "짧게", Min: 2, Max: 200})
-	maago.BindInt32(r.Context(), vals, &f.Days, maago.Rule{Name: "days", Label: "Days", MinValue: "1", MaxValue: "30"})
-	maago.BindFloat64(r.Context(), vals, &f.Rate, maago.Rule{Name: "rate", Label: "Rate", Optional: true})
-	maago.BindBool(r.Context(), vals, &f.Pinned, maago.Rule{Name: "pinned", Label: "Pinned"})
-	maago.BindTime(r.Context(), vals, &f.Start, maago.Rule{Name: "start", Label: "Start", Optional: true})
+	rt.BindString(r.Context(), vals, &f.Title, rt.Rule{Name: "title", Label: "제목", Help: "짧게", Min: 2, Max: 200})
+	rt.BindInt32(r.Context(), vals, &f.Days, rt.Rule{Name: "days", Label: "Days", MinValue: "1", MaxValue: "30"})
+	rt.BindFloat64(r.Context(), vals, &f.Rate, rt.Rule{Name: "rate", Label: "Rate", Optional: true})
+	rt.BindBool(r.Context(), vals, &f.Pinned, rt.Rule{Name: "pinned", Label: "Pinned"})
+	rt.BindTime(r.Context(), vals, &f.Start, rt.Rule{Name: "start", Label: "Start", Optional: true})
 	ok := func() bool {
 		return f.Title.Error == "" && f.Days.Error == "" && f.Rate.Error == "" && f.Pinned.Error == "" && f.Start.Error == ""
 	}
 	if vals != nil && ok() {
 		f.Validate()
 	}
-	maago.FinishForm(&f.Form, vals != nil, ok())
+	rt.FinishForm(&f.Form, vals != nil, ok())
 }
 
 // invalidNoticeForm is the 422 of form NoticeForm on an API route (D-120).
 func invalidNoticeForm(f *NoticeForm) error {
-	return maago.Unprocessable([]maago.FieldError{
+	return rt.Unprocessable([]rt.FieldError{
 		{Field: f.Title.Name, Detail: f.Title.Error},
 		{Field: f.Days.Name, Detail: f.Days.Error},
 		{Field: f.Rate.Name, Detail: f.Rate.Error},

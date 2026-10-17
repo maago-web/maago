@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"embed"
 	"fmt"
-	"go/format"
 	"go/token"
 	"maps"
 	"net/url"
@@ -47,7 +46,7 @@ func URLsFile(app *App, stub bool) []byte {
 				params = append(params, p.name+" "+p.typ)
 				switch p.typ {
 				case "string":
-					part = `"/" + maago.PathSegment(` + p.name + `)`
+					part = `"/" + rt.PathSegment(` + p.name + `)`
 				case "int64":
 					part, imports["strconv"] = `"/" + strconv.FormatInt(`+p.name+`, 10)`, true
 				default:
@@ -114,7 +113,6 @@ func ViewsFile(app *App, apps []*App) []byte {
 		imports["embed"], imports["html/template"] = true, true
 	}
 	imports["embed"] = imports["embed"] || static
-	imports["maago"] = static || slices.ContainsFunc(app.Routes, func(r Route) bool { return !r.view.escape })
 	forms := formsData(app)
 	if len(forms) > 0 {
 		imports["net/url"] = true // bindXxx takes url.Values
@@ -148,8 +146,8 @@ func FormsFile(app *App) []byte {
 	return execute("forms.go.tmpl", map[string]bool{}, map[string]any{"Package": app.Name, "Forms": forms})
 }
 
-// execute writes the file name. imports are the standard packages it uses;
-// maago it imports unless imports["maago"] is false.
+// execute writes the file name. imports are the standard packages it
+// uses; of maago's, it imports those it uses.
 func execute(name string, imports map[string]bool, data map[string]any) []byte {
 	data["Marker"] = pipeline.Marker
 	var list []string
@@ -158,19 +156,13 @@ func execute(name string, imports map[string]bool, data map[string]any) []byte {
 			list = append(list, i)
 		}
 	}
-	if m, ok := imports["maago"]; m || !ok {
-		list = append(list, "", "github.com/maago-web/maago")
-	}
+	list = append(append(list, ""), pipeline.Runtime...)
 	data["Imports"] = list
 	var b bytes.Buffer
 	if err := templates.ExecuteTemplate(&b, name, data); err != nil {
 		panic(err)
 	}
-	out, err := format.Source(b.Bytes())
-	if err != nil { // a bug of maago: never write what is not Go
-		panic(fmt.Sprintf("web: %s is not Go: %v\n%s", name, err, b.Bytes()))
-	}
-	return out
+	return pipeline.Format(name, b.Bytes())
 }
 
 // More is what the files of app declare, for the name checks of the
@@ -254,7 +246,7 @@ func formsData(app *App) []map[string]any {
 // binds are the Bind functions of the form field types.
 var binds = map[string]string{"string": "BindString", "int64": "BindInt64", "int32": "BindInt32", "float64": "BindFloat64", "bool": "BindBool", "time.Time": "BindTime", "maago.File": "BindFile"}
 
-// ModelRule is the Bind function and the maago.Rule, as Go, of a model
+// ModelRule is the Bind function and the rt.Rule, as Go, of a model
 // form's field for mf: the rules a model form takes from its model
 // (D-119), for the admin's forms (D-131).
 func ModelRule(mf *model.Field, optional bool) (bind, rule string) {
@@ -265,7 +257,7 @@ func ModelRule(mf *model.Field, optional bool) (bind, rule string) {
 	return binds[ff.typ], ruleLit(ff)
 }
 
-// ruleLit is ff's maago.Rule as Go: only the parts it has.
+// ruleLit is ff's rt.Rule as Go: only the parts it has.
 func ruleLit(ff formField) string {
 	parts := []string{"Name: " + strconv.Quote(model.Snake(ff.name)), "Label: " + strconv.Quote(ff.label)}
 	if ff.help != "" {
@@ -300,7 +292,7 @@ func ruleLit(ff formField) string {
 		}
 		parts = append(parts, "Accept: []string{"+strings.Join(qs, ", ")+"}")
 	}
-	return "maago.Rule{" + strings.Join(parts, ", ") + "}"
+	return "rt.Rule{" + strings.Join(parts, ", ") + "}"
 }
 
 // keysOf are the keys of f's fields, quoted for Go.

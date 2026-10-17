@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // CustomerOrder is a row of CustomerOrders.
@@ -20,7 +21,7 @@ type CustomerOrder struct {
 
 // CustomerOrders runs queries/customer_orders.sql.
 func CustomerOrders(ctx context.Context, db maago.DB) ([]CustomerOrder, error) {
-	return maago.Many(ctx, db, scanCustomerOrders, `SELECT c.id, c.name, o.amount
+	return rt.Many(ctx, db, scanCustomerOrders, `SELECT c.id, c.name, o.amount
 FROM customers c LEFT JOIN orders o ON o.customer_id = c.id
 ORDER BY c.id, o.id`)
 }
@@ -42,7 +43,7 @@ type CustomerOrderStrict struct {
 
 // CustomerOrdersStrict runs queries/customer_orders_strict.sql.
 func CustomerOrdersStrict(ctx context.Context, db maago.DB) ([]CustomerOrderStrict, error) {
-	return maago.Many(ctx, db, scanCustomerOrdersStrict, `SELECT c.id, c.name, o.amount
+	return rt.Many(ctx, db, scanCustomerOrdersStrict, `SELECT c.id, c.name, o.amount
 FROM customers c LEFT JOIN orders o ON o.customer_id = c.id
 ORDER BY c.id, o.id`)
 }
@@ -67,16 +68,16 @@ func DeleteOrders(ctx context.Context, db maago.DB, p DeleteOrdersParams) (int64
 	if len(p.IDs) == 0 {
 		return 0, fmt.Errorf("DeleteOrders: ids: %w", maago.ErrEmptySlice)
 	}
-	query = `DELETE FROM orders WHERE id IN (` + maago.Placeholders("$", 1, len(p.IDs)) + `)`
+	query = `DELETE FROM orders WHERE id IN (` + rt.Placeholders("$", 1, len(p.IDs)) + `)`
 	for _, x := range p.IDs {
 		args = append(args, x)
 	}
-	return maago.Exec(ctx, db, query, args...)
+	return rt.Exec(ctx, db, query, args...)
 }
 
 // OrderAmounts runs queries/order_amounts.sql.
 func OrderAmounts(ctx context.Context, db maago.DB) ([]int64, error) {
-	return maago.Many(ctx, db, scanOrderAmounts, `SELECT amount FROM orders ORDER BY id`)
+	return rt.Many(ctx, db, scanOrderAmounts, `SELECT amount FROM orders ORDER BY id`)
 }
 
 func scanOrderAmounts(rows *sql.Rows) (int64, error) {
@@ -94,7 +95,7 @@ type OrderByAmountParams struct {
 
 // OrderByAmount runs queries/order_by_amount.sql.
 func OrderByAmount(ctx context.Context, db maago.DB, p OrderByAmountParams) (Order, error) {
-	return maago.One(ctx, db, scanOrderByAmount, `SELECT amount, status, id, updated_at, customer_id, created_at, priority
+	return rt.One(ctx, db, scanOrderByAmount, `SELECT amount, status, id, updated_at, customer_id, created_at, priority
 FROM orders
 WHERE amount = $1`, p.Amount)
 }
@@ -119,11 +120,11 @@ func OrderCreated(ctx context.Context, db maago.DB, p OrderCreatedParams) (time.
 	if len(p.IDs) == 0 {
 		return time.Time{}, fmt.Errorf("OrderCreated: ids: %w", maago.ErrEmptySlice)
 	}
-	query = `SELECT created_at FROM orders WHERE id IN (` + maago.Placeholders("$", 1, len(p.IDs)) + `)`
+	query = `SELECT created_at FROM orders WHERE id IN (` + rt.Placeholders("$", 1, len(p.IDs)) + `)`
 	for _, x := range p.IDs {
 		args = append(args, x)
 	}
-	return maago.One(ctx, db, scanOrderCreated, query, args...)
+	return rt.One(ctx, db, scanOrderCreated, query, args...)
 }
 
 func scanOrderCreated(rows *sql.Rows) (time.Time, error) {
@@ -146,11 +147,11 @@ func OrderExists(ctx context.Context, db maago.DB, p OrderExistsParams) (bool, e
 	if len(p.Amounts) == 0 {
 		return false, fmt.Errorf("OrderExists: amounts: %w", maago.ErrEmptySlice)
 	}
-	query = `SELECT EXISTS (SELECT 1 FROM orders WHERE amount IN (` + maago.Placeholders("$", 1, len(p.Amounts)) + `))`
+	query = `SELECT EXISTS (SELECT 1 FROM orders WHERE amount IN (` + rt.Placeholders("$", 1, len(p.Amounts)) + `))`
 	for _, x := range p.Amounts {
 		args = append(args, x)
 	}
-	return maago.One(ctx, db, scanOrderExists, query, args...)
+	return rt.One(ctx, db, scanOrderExists, query, args...)
 }
 
 func scanOrderExists(rows *sql.Rows) (bool, error) {
@@ -193,8 +194,8 @@ func OrdersMatching(ctx context.Context, db maago.DB, p OrdersMatchingParams) ([
 		}
 		query = `SELECT id, amount FROM orders
 WHERE
-  id IN (` + maago.Placeholders("$", 2, len(p.IDs)) + `)
-  AND created_at IN (` + maago.Placeholders("$", 2+len(p.IDs), len(p.Times)) + `)
+  id IN (` + rt.Placeholders("$", 2, len(p.IDs)) + `)
+  AND created_at IN (` + rt.Placeholders("$", 2+len(p.IDs), len(p.Times)) + `)
   AND amount >= $1
 ORDER BY id`
 		args = []any{p.Min}
@@ -216,9 +217,9 @@ ORDER BY id`
 		}
 		query = `SELECT id, amount FROM orders
 WHERE
-  id IN (` + maago.Placeholders("$", 2, len(p.IDs)) + `)
-  AND status IN (` + maago.Placeholders("$", 2+len(p.IDs), len(p.Statuses)) + `)
-  AND created_at IN (` + maago.Placeholders("$", 2+len(p.IDs)+len(p.Statuses), len(p.Times)) + `)
+  id IN (` + rt.Placeholders("$", 2, len(p.IDs)) + `)
+  AND status IN (` + rt.Placeholders("$", 2+len(p.IDs), len(p.Statuses)) + `)
+  AND created_at IN (` + rt.Placeholders("$", 2+len(p.IDs)+len(p.Statuses), len(p.Times)) + `)
   AND amount >= $1
 ORDER BY id`
 		args = []any{p.Min}
@@ -232,7 +233,7 @@ ORDER BY id`
 			args = append(args, x)
 		}
 	}
-	return maago.Many(ctx, db, scanOrdersMatching, query, args...)
+	return rt.Many(ctx, db, scanOrdersMatching, query, args...)
 }
 
 func scanOrdersMatching(rows *sql.Rows) (OrderMatch, error) {
@@ -359,7 +360,7 @@ ORDER BY
 LIMIT $4`
 		args = []any{*p.Status, *p.From, *p.To, p.Limit}
 	}
-	return maago.Many(ctx, db, scanSearchOrders, query, args...)
+	return rt.Many(ctx, db, scanSearchOrders, query, args...)
 }
 
 func scanSearchOrders(rows *sql.Rows) (OrderSummary, error) {
@@ -379,5 +380,5 @@ type SetOrderStatusParams struct {
 
 // SetOrderStatus runs queries/set_order_status.sql.
 func SetOrderStatus(ctx context.Context, db maago.DB, p SetOrderStatusParams) (int64, error) {
-	return maago.Exec(ctx, db, `UPDATE orders SET status = $1, updated_at = $2 WHERE id = $3`, p.Status, p.Now, p.ID)
+	return rt.Exec(ctx, db, `UPDATE orders SET status = $1, updated_at = $2 WHERE id = $3`, p.Status, p.Now, p.ID)
 }

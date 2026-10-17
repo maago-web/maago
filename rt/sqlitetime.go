@@ -1,4 +1,4 @@
-package maago
+package rt
 
 import (
 	"database/sql"

@@ -1,32 +1,36 @@
 package maago
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"io/fs"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/maago-web/maago/internal/rtcore"
 )
 
 // sentFile is the File of a form that sent body under name.
 func sentFile(t *testing.T, name string, body []byte) File {
 	t.Helper()
-	r := multipartRequest(t, "/f", filePart("doc", name, body, "application/octet-stream"))
-	vals, err := MultipartValues(r, "doc")
-	if err != nil {
+	var b bytes.Buffer
+	mw := multipart.NewWriter(&b)
+	w, _ := mw.CreateFormFile("doc", name)
+	w.Write(body)
+	mw.Close()
+	r := httptest.NewRequest("POST", "/f", &b)
+	r.Header.Set("Content-Type", mw.FormDataContentType())
+	if err := r.ParseMultipartForm(1 << 20); err != nil {
 		t.Fatal(err)
 	}
-	var f Field[File]
-	BindFile(r, vals, &f, Rule{Name: "doc"})
-	if f.Error != "" {
-		t.Fatal(f.Error)
-	}
-	return f.Value
+	return rtcore.NewFile(r.MultipartForm.File["doc"][0], "image/png").(File)
 }
 
 // A file is kept under a random key, never its name: ../ in a name goes
@@ -178,3 +182,5 @@ func TestMediaDirConfig(t *testing.T) {
 		t.Errorf("the request's directory: %q", got)
 	}
 }
+
+var pngBytes = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 100)...)

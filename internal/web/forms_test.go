@@ -164,7 +164,7 @@ func TestFormValidUnread(t *testing.T) {
 	if out != "" {
 		t.Fatalf("errors:\n%s", out)
 	}
-	if !strings.Contains(string(files["board/forms_gen.go"]), "func (f DraftForm) Valid() bool {\n\treturn maago.FormValid(f.Form) && f.Note.Error == \"\"\n}") {
+	if !strings.Contains(string(files["board/forms_gen.go"]), "func (f DraftForm) Valid() bool {\n\treturn rt.FormValid(f.Form) && f.Note.Error == \"\"\n}") {
 		t.Errorf("no Valid of DraftForm:\n%s", files["board/forms_gen.go"])
 	}
 }
@@ -178,7 +178,7 @@ func TestModelFormPointerOptional(t *testing.T) {
 	if out != "" {
 		t.Fatalf("errors:\n%s", out)
 	}
-	if want := `maago.Rule{Name: "note", Label: "Note", Optional: true}`; !strings.Contains(string(gen["board/views_gen.go"]), want) {
+	if want := `rt.Rule{Name: "note", Label: "Note", Optional: true}`; !strings.Contains(string(gen["board/views_gen.go"]), want) {
 		t.Errorf("no %s in\n%s", want, gen["board/views_gen.go"])
 	}
 }

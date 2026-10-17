@@ -19,7 +19,7 @@ type New{{.Name}}Input struct {
 
 // Get{{.Name}} reads the {{.Name}} with id: sql.ErrNoRows if there is none.
 func Get{{.Name}}(ctx context.Context, db maago.DB, id int64) ({{.Name}}, error) {
-	return maago.One(ctx, db, scan{{.Name}}, {{.Get}}, id)
+	return rt.One(ctx, db, scan{{.Name}}, {{.Get}}, id)
 }
 
 // Insert{{.Name}} inserts in and returns the {{.Name}}: in's fields, with
@@ -44,7 +44,7 @@ func Insert{{.Name}}(ctx context.Context, db maago.DB, in New{{.Name}}Input) ({{
 // Once the row is written, o has its new auto times.{{end}}
 func Update{{.Name}}(ctx context.Context, db maago.DB, o *{{.Name}}) error {
 {{if .UpdateNow}}	now := time.Now().Truncate(time.Microsecond)
-{{end}}	n, err := maago.Exec(ctx, db, {{.Update}}{{range .UpdateArgs}}, {{.}}{{end}})
+{{end}}	n, err := rt.Exec(ctx, db, {{.Update}}{{range .UpdateArgs}}, {{.}}{{end}})
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func Update{{.Name}}(ctx context.Context, db maago.DB, o *{{.Name}}) error {
 {{end}}
 // Delete{{.Name}} deletes the {{.Name}} with id: sql.ErrNoRows if there is none.
 func Delete{{.Name}}(ctx context.Context, db maago.DB, id int64) error {
-	n, err := maago.Exec(ctx, db, {{.Delete}}, id)
+	n, err := rt.Exec(ctx, db, {{.Delete}}, id)
 	if err != nil {
 		return err
 	}

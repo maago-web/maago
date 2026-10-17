@@ -1,4 +1,4 @@
-package maago
+package rtcore
 
 import (
 	"bytes"
@@ -13,9 +13,7 @@ import (
 	"time"
 )
 
-// StaticFiles is an app's static/ (D-136): each file under its own name
-// and a name with the hash of its content, which never changes, so
-// browsers keep it.
+// StaticFiles is rt.StaticFiles.
 type StaticFiles struct {
 	app   string
 	files map[string]staticFile // by the name and by the hashed name
@@ -28,10 +26,7 @@ type staticFile struct {
 	body   []byte
 }
 
-// Static reads static/ of fsys, the app's embedded files, for the generated
-// code of the app whose package is named app. names are the files the
-// project's templates ask for with {{static}}; maago gen has checked them,
-// and a missing one panics here, as the process starts (D-136).
+// Static is rt.Static.
 func Static(app string, fsys fs.FS, names ...string) *StaticFiles {
 	entries, err := fs.ReadDir(fsys, "static")
 	if err != nil {
@@ -91,17 +86,10 @@ func hashedName(name, hash string) string {
 	return strings.TrimSuffix(name, ext) + "." + hash + ext
 }
 
-// WithStatic is the App with its static files, which Handler serves at
-// /static/APP/ (D-137). Only generated code calls it.
-func (a App) WithStatic(s *StaticFiles) App {
-	a.static = s
-	return a
-}
-
-// serve answers a file by either name: the hashed one for a year, the
+// Serve answers a file by either name: the hashed one for a year, the
 // other always asked again. Neither runs Config.Auth: these files are
 // for anyone.
-func (s *StaticFiles) serve(w http.ResponseWriter, r *http.Request) {
+func (s *StaticFiles) Serve(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	f, ok := s.files[name]
 	if !ok {
@@ -117,18 +105,14 @@ func (s *StaticFiles) serve(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, f.name, time.Time{}, bytes.NewReader(f.body))
 }
 
-// StaticFunc is the static function of templates: {{static "board/app.css"}}
-// is the path of the file app.css in static/ of app board under its hashed
-// name, after Config.Prefix (D-137). maago gen has checked the app and the
-// file; the files are those of the last Handler made, so before any it is
-// an error, as is a name maago gen would not let through.
+// StaticFunc is rt.StaticFunc.
 func StaticFunc(ref string) (string, error) {
 	app, name, _ := strings.Cut(ref, "/")
-	p := current.Load()
+	p := Current.Load()
 	if p == nil {
 		return "", fmt.Errorf("static %q: no Handler made yet", ref)
 	}
-	s, ok := p.static[app]
+	s, ok := p.Static[app]
 	if !ok {
 		return "", fmt.Errorf("static %q: no app %s with static files in Config.Apps", ref, app)
 	}
@@ -136,5 +120,8 @@ func StaticFunc(ref string) (string, error) {
 	if !ok || f.name != name {
 		return "", fmt.Errorf("static %q: app %s has no static/%s", ref, app, name)
 	}
-	return p.prefix + "/static/" + app + "/" + f.hashed, nil
+	return p.Prefix + "/static/" + app + "/" + f.hashed, nil
 }
+
+// App is the package name of the app whose static files these are.
+func (s *StaticFiles) App() string { return s.app }

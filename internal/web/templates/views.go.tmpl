@@ -12,7 +12,7 @@ var maagoStaticFiles embed.FS
 
 // maagoStatic are the files of static/, with the names the project's
 // templates ask for (D-136).
-var maagoStatic = maago.Static({{printf "%q" .Package}}, maagoStaticFiles{{range .Used}}, {{printf "%q" .}}{{end}})
+var maagoStatic = rt.Static({{printf "%q" .Package}}, maagoStaticFiles{{range .Used}}, {{printf "%q" .}}{{end}})
 {{end}}{{if .HTML}}
 //go:embed templates/*.html
 var maagoTemplateFiles embed.FS
@@ -24,7 +24,7 @@ var maagoRoutes = map[string]string{
 
 // maagoPages are the template sets of the pages: base.html, if there is
 // one, and the page.
-var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes), "date": maago.DateFunc, "static": maago.StaticFunc},
+var maagoPages = rt.Pages(maagoTemplateFiles, template.FuncMap{"url": rt.URLFunc(maagoRoutes), "date": rt.DateFunc, "static": rt.StaticFunc},
 {{range .Pages}}	{{printf "%q" .}},
 {{end}})
 {{end}}{{range $route := .Routes}}
@@ -35,7 +35,7 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	return nil
 {{- else}}
 {{- if .Query}}
-	q, err := maago.ParseQuery(r)
+	q, err := rt.ParseQuery(r)
 	if err != nil {
 		return err
 	}
@@ -45,7 +45,7 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	var in {{.In}}
 {{- range .Fields}}
 {{- if eq .Source "form"}}
-	vals, err := maago.{{if $route.API}}JSONValues{{else if .Multipart}}MultipartValues{{else}}FormValues{{end}}(r{{range .Keys}}, {{.}}{{end}})
+	vals, err := rt.{{if $route.API}}JSONValues{{else if .Multipart}}MultipartValues{{else}}FormValues{{end}}(r{{range .Keys}}, {{.}}{{end}})
 	if err != nil {
 		return err
 	}
@@ -56,17 +56,17 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	}
 {{- end}}
 {{- else if eq .Source "path"}}
-	if in.{{.Name}}, err = maago.Path(r, {{printf "%q" .Key}}, maago.Parse{{.Parser}}); err != nil {
+	if in.{{.Name}}, err = rt.Path(r, {{printf "%q" .Key}}, rt.Parse{{.Parser}}); err != nil {
 		return err
 	}
 {{- else if .Pointer}}
-	if v, ok, err := maago.Query(q, {{printf "%q" .Key}}, maago.Parse{{.Parser}}, false); err != nil {
+	if v, ok, err := rt.Query(q, {{printf "%q" .Key}}, rt.Parse{{.Parser}}, false); err != nil {
 		return err
 	} else if ok {
 		in.{{.Name}} = &v
 	}
 {{- else}}
-	if in.{{.Name}}, _, err = maago.Query(q, {{printf "%q" .Key}}, maago.Parse{{.Parser}}, true); err != nil {
+	if in.{{.Name}}, _, err = rt.Query(q, {{printf "%q" .Key}}, rt.Parse{{.Parser}}, true); err != nil {
 		return err
 	}
 {{- end}}
@@ -84,7 +84,7 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 {{- if .Tx}}
 	// The view runs in a transaction, and its page is drawn before the
 	// commit: one that fails to draw rolls it back (D-150).
-	b := maago.NewBuffer()
+	b := rt.NewBuffer()
 {{- if .Result}}
 	to := ""
 {{- end}}
@@ -103,9 +103,9 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 		page := p
 {{- end}}
 {{- if .API}}
-		return maago.JSON(b, page)
+		return rt.JSON(b, page)
 {{- else}}
-		return maago.Render(b, maagoPages, {{printf "%q" .Template}}, {{printf "%q" .Block}}, page)
+		return rt.Render(b, maagoPages, {{printf "%q" .Template}}, {{printf "%q" .Block}}, page)
 {{- end}}
 	})
 	if txErr != nil {
@@ -133,9 +133,9 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	page := p
 {{- end}}
 {{- if .API}}
-	return maago.JSON(w, page)
+	return rt.JSON(w, page)
 {{- else}}
-	return maago.Render(w, maagoPages, {{printf "%q" .Template}}, {{printf "%q" .Block}}, page)
+	return rt.Render(w, maagoPages, {{printf "%q" .Template}}, {{printf "%q" .Block}}, page)
 {{- end}}
 {{- end}}
 {{- end}}
@@ -147,7 +147,7 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 // drawing it empty (D-119).
 func bind{{.Name}}(r *http.Request, vals url.Values, f *{{.Name}}) {
 {{- range .Fields}}
-	maago.{{.Bind}}({{.Arg}}, vals, &f.{{.Name}}, {{.Rule}})
+	rt.{{.Bind}}({{.Arg}}, vals, &f.{{.Name}}, {{.Rule}})
 {{- end}}
 	ok := func() bool {
 		return {{range $i, $f := .Fields}}{{if $i}} && {{end}}f.{{$f.Name}}.Error == ""{{else}}true{{end}}
@@ -157,13 +157,13 @@ func bind{{.Name}}(r *http.Request, vals url.Values, f *{{.Name}}) {
 		f.Validate()
 	}
 {{- end}}
-	maago.FinishForm(&f.Form, vals != nil, ok())
+	rt.FinishForm(&f.Form, vals != nil, ok())
 }
 {{- if .API}}
 
 // invalid{{.Name}} is the 422 of form {{.Name}} on an API route (D-120).
 func invalid{{.Name}}(f *{{.Name}}) error {
-	return maago.Unprocessable([]maago.FieldError{
+	return rt.Unprocessable([]rt.FieldError{
 {{- range .Fields}}
 		{Field: f.{{.Name}}.Name, Detail: f.{{.Name}}.Error},
 {{- end}}

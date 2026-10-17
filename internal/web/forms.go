@@ -9,10 +9,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/ref"
+	"github.com/maago-web/maago/rt"
 )
 
 // form is a form struct (D-119): a struct that embeds maago.Form, its
@@ -301,7 +301,7 @@ func tagRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ident
 			case ff.typ != "maago.File":
 				errAt(o.KeyPos, fmt.Sprintf("accept applies to file fields, but %s is %s", where, ff.typ), "remove accept, or make the field maago.Field[maago.File]")
 			case shape(o, model.Bare, -1, "list the kinds with /, like accept=png/jpeg"):
-				kinds := maago.FileKinds()
+				kinds := rt.FileKinds()
 				for i, k := range o.Values {
 					if !slices.Contains(kinds, k) {
 						fix := "allowed: " + strings.Join(kinds, ", ")

@@ -8,7 +8,6 @@ import (
 	_ "embed"
 	"fmt"
 	"go/ast"
-	"go/format"
 	"go/token"
 	"slices"
 	"strconv"
@@ -29,7 +28,7 @@ import (
 const Path = "github.com/maago-web/maago/contrib/admin"
 
 // Imports are the packages admin_gen.go may import (D-66).
-var Imports = []string{"context", "net/url", "time", "github.com/maago-web/maago", Path}
+var Imports = []string{"context", "net/url", "time", "github.com/maago-web/maago", "github.com/maago-web/maago/rt", Path}
 
 //go:embed templates/admin.go.tmpl
 var text string
@@ -278,18 +277,14 @@ func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
 		if imports["time"] {
 			paths = append(paths, "time")
 		}
-		paths = append(paths, "", "github.com/maago-web/maago", Path)
+		paths = append(append(append(paths, ""), pipeline.Runtime...), Path)
 	}
 	var b bytes.Buffer
 	err := tmpl.Execute(&b, map[string]any{"Marker": pipeline.Marker, "Package": app.Name, "Imports": paths, "Models": ms, "NoAdd": noAdd})
 	if err != nil {
 		panic(err)
 	}
-	out, err := format.Source(b.Bytes())
-	if err != nil { // a bug of maago: never write what is not Go
-		panic(fmt.Sprintf("admingen: admin_gen.go is not Go: %v\n%s", err, b.Bytes()))
-	}
-	return out
+	return pipeline.Format("admin_gen.go", b.Bytes())
 }
 
 // Use reports whether the project uses the admin: a file of it that is

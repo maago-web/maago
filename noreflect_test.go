@@ -93,7 +93,7 @@ func TestGeneratedImportsGate(t *testing.T) {
 		"a/generator.go":    "package a\n\nimport _ \"text/template\"\n",
 		"a/os_gen.go":       pipeline.Marker + "\n\npackage a\n\nimport _ \"os\"\n", // allowed nowhere, not only forbidden
 		"a/web_gen.go":      pipeline.Marker + "\n\npackage a\n\nimport (\n\t_ \"net/http\"\n\t_ \"strconv\"\n)\n",
-		"a/ok_gen.go":       pipeline.Marker + "\n\npackage a\n\nimport (\n\t_ \"context\"\n\t_ \"github.com/maago-web/maago\"\n)\n",
+		"a/ok_gen.go":       pipeline.Marker + "\n\npackage a\n\nimport (\n\t_ \"context\"\n\t_ \"github.com/maago-web/maago\"\n\t_ \"github.com/maago-web/maago/rt\"\n)\n",
 		"a/admin_gen.go":    pipeline.Marker + "\n\npackage a\n\nimport _ \"github.com/maago-web/maago/contrib/admin\"\n",
 		"a/user_gen.go":     pipeline.Marker + "\n\npackage a\n\nimport maagouser \"board\"\n",
 		"a/userr_gen.go":    pipeline.Marker + "\n\npackage a\n\nimport maagouser \"reflect\"\n",

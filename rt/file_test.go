@@ -1,4 +1,4 @@
-package maago
+package rt
 
 import (
 	"bytes"
@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/maago-web/maago"
 )
 
 var pngBytes = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 100)...)
@@ -72,7 +74,8 @@ func TestMultipart(t *testing.T) {
 		}
 		panic("after reading")
 	}
-	cfg := Config{Apps: []App{NewApp("a", route("POST", "/f", false, read), route("POST", "/p", false, panics))}, Auth: fakeAuth, MaxBody: 4 << 20}
+	cfg := maago.Config{Apps: []maago.App{NewApp("a", nil, route("POST", "/f", read), route("POST", "/p", panics))}, MaxBody: 4 << 20,
+		Auth: func(*http.Request) (any, error) { return "ann", nil }} // Auth gives the route a new r
 	big := make([]byte, 2<<20) // past the 1MB kept in memory: a temporary file
 	for _, c := range []struct {
 		name string
@@ -97,7 +100,6 @@ func TestMultipart(t *testing.T) {
 			return r
 		}(), 400},
 	} {
-		c.r.Header.Set("X-User", "ann") // Auth gives the route a new r
 		w, _ := serve(t, cfg, c.r)
 		if w.Code != c.code {
 			t.Errorf("%s: %d %q, want %d", c.name, w.Code, w.Body, c.code)
@@ -115,9 +117,9 @@ func TestMultipart(t *testing.T) {
 // its kind is its content's, not its name's or the browser's word.
 func TestBindFile(t *testing.T) {
 	html := []byte("<!DOCTYPE html><script>alert(1)</script>")
-	bind := func(r *http.Request, rule Rule) Field[File] {
+	bind := func(r *http.Request, rule Rule) maago.Field[maago.File] {
 		t.Helper()
-		var f Field[File]
+		var f maago.Field[maago.File]
 		vals, err := MultipartValues(r, rule.Name)
 		if err != nil {
 			t.Fatal(err)
@@ -140,10 +142,10 @@ func TestBindFile(t *testing.T) {
 		rule Rule
 		err  string
 	}{
-		"html named .png, said to be png": {multipartRequest(t, "/f", filePart("doc", "a.png", html, "image/png")), rule, DefaultMessages.NotKind},
-		"no file chosen, required":        {multipartRequest(t, "/f", filePart("doc", "", nil, "application/octet-stream")), rule, DefaultMessages.Required},
-		"no part at all":                  {multipartRequest(t, "/f", part{name: "x", body: []byte("1")}), rule, DefaultMessages.Required},
-		"text in a file field":            {multipartRequest(t, "/f", part{name: "doc", body: []byte("a.png")}), rule, DefaultMessages.Required},
+		"html named .png, said to be png": {multipartRequest(t, "/f", filePart("doc", "a.png", html, "image/png")), rule, maago.DefaultMessages.NotKind},
+		"no file chosen, required":        {multipartRequest(t, "/f", filePart("doc", "", nil, "application/octet-stream")), rule, maago.DefaultMessages.Required},
+		"no part at all":                  {multipartRequest(t, "/f", part{name: "x", body: []byte("1")}), rule, maago.DefaultMessages.Required},
+		"text in a file field":            {multipartRequest(t, "/f", part{name: "doc", body: []byte("a.png")}), rule, maago.DefaultMessages.Required},
 		"no file chosen, optional":        {multipartRequest(t, "/f", filePart("doc", "", nil, "application/octet-stream")), Rule{Name: "doc", Optional: true}, ""},
 		"html, any kind":                  {multipartRequest(t, "/f", filePart("doc", "a.html", html, "text/html")), Rule{Name: "doc"}, ""},
 		"an empty file is sent":           {multipartRequest(t, "/f", filePart("doc", "e.txt", nil, "text/plain")), Rule{Name: "doc"}, ""},
@@ -155,12 +157,12 @@ func TestBindFile(t *testing.T) {
 	if f := bind(multipartRequest(t, "/f", filePart("doc", "a.html", html, "image/png")), Rule{Name: "doc"}); f.Value.Type != "text/html" {
 		t.Errorf("the type is the content's: %q", f.Value.Type)
 	}
-	var get Field[File] // a GET draws the field
+	var get maago.Field[maago.File] // a GET draws the field
 	BindFile(httptest.NewRequest("GET", "/f", nil).WithContext(context.Background()), nil, &get, rule)
 	if get.Error != "" || get.Given || get.Name != "doc" {
 		t.Errorf("GET: %+v", get)
 	}
-	if _, err := (File{}).Open(); err == nil {
+	if _, err := (maago.File{}).Open(); err == nil {
 		t.Error("the zero File opens")
 	}
 	if !strings.Contains(strings.Join(FileKinds(), ","), "jpeg,pdf,png") {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/contrib/admin"
+	"github.com/maago-web/maago/rt"
 )
 
 var Admin = []admin.Model{
@@ -58,7 +59,7 @@ var Admin = []admin.Model{
 			if err != nil {
 				return nil, err
 			}
-			vs, err := maago.Many(ctx, db, scanPost, `SELECT "id", "author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at" FROM "blog_post" WHERE (LOWER("title") LIKE LOWER($1) ESCAPE E'\\' OR LOWER("slug") LIKE LOWER($1) ESCAPE E'\\' OR $1 IS NULL) AND ("status" = $2 OR $2 IS NULL) AND ("public" = $3 OR $3 IS NULL) AND ("author_id" = $4 OR $4 IS NULL) ORDER BY "published_at" DESC NULLS LAST, "title", "id" DESC LIMIT $5 OFFSET $6`, vSearch, vStatus, vPublic, vAuthorID, q.Limit, q.Offset)
+			vs, err := rt.Many(ctx, db, scanPost, `SELECT "id", "author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at" FROM "blog_post" WHERE (LOWER("title") LIKE LOWER($1) ESCAPE E'\\' OR LOWER("slug") LIKE LOWER($1) ESCAPE E'\\' OR $1 IS NULL) AND ("status" = $2 OR $2 IS NULL) AND ("public" = $3 OR $3 IS NULL) AND ("author_id" = $4 OR $4 IS NULL) ORDER BY "published_at" DESC NULLS LAST, "title", "id" DESC LIMIT $5 OFFSET $6`, vSearch, vStatus, vPublic, vAuthorID, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -103,14 +104,14 @@ var Admin = []admin.Model{
 				Public      maago.Field[bool]
 				PublishedAt maago.Field[time.Time]
 			}
-			maago.BindInt64(ctx, vals, &f.AuthorID, maago.Rule{Name: "author_id", Label: "AuthorID"})
-			maago.BindString(ctx, vals, &f.Title, maago.Rule{Name: "title", Label: "제목", Help: "Shown in lists", Max: 200})
-			maago.BindString(ctx, vals, &f.Status, maago.Rule{Name: "status", Label: "Status", Choices: []string{"draft", "published"}})
-			maago.BindInt32(ctx, vals, &f.Views, maago.Rule{Name: "views", Label: "Views"})
-			maago.BindInt32(ctx, vals, &f.Likes, maago.Rule{Name: "likes", Label: "Likes"})
-			maago.BindFloat64(ctx, vals, &f.Score, maago.Rule{Name: "score", Label: "Score", Optional: true})
-			maago.BindBool(ctx, vals, &f.Public, maago.Rule{Name: "public", Label: "Public"})
-			maago.BindTime(ctx, vals, &f.PublishedAt, maago.Rule{Name: "published_at", Label: "PublishedAt", Optional: true})
+			rt.BindInt64(ctx, vals, &f.AuthorID, rt.Rule{Name: "author_id", Label: "AuthorID"})
+			rt.BindString(ctx, vals, &f.Title, rt.Rule{Name: "title", Label: "제목", Help: "Shown in lists", Max: 200})
+			rt.BindString(ctx, vals, &f.Status, rt.Rule{Name: "status", Label: "Status", Choices: []string{"draft", "published"}})
+			rt.BindInt32(ctx, vals, &f.Views, rt.Rule{Name: "views", Label: "Views"})
+			rt.BindInt32(ctx, vals, &f.Likes, rt.Rule{Name: "likes", Label: "Likes"})
+			rt.BindFloat64(ctx, vals, &f.Score, rt.Rule{Name: "score", Label: "Score", Optional: true})
+			rt.BindBool(ctx, vals, &f.Public, rt.Rule{Name: "public", Label: "Public"})
+			rt.BindTime(ctx, vals, &f.PublishedAt, rt.Rule{Name: "published_at", Label: "PublishedAt", Optional: true})
 			if vals == nil && id != 0 {
 				f.AuthorID.Raw = admin.Raw(o.AuthorID)
 				f.Title.Raw = admin.Raw(o.Title)
@@ -131,7 +132,7 @@ var Admin = []admin.Model{
 				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = $1`, f.AuthorID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
-					maago.NoRow(ctx, &f.AuthorID)
+					rt.NoRow(ctx, &f.AuthorID)
 				}
 			}
 			var in []admin.Input
@@ -158,7 +159,7 @@ var Admin = []admin.Model{
 			if id == 0 {
 				return admin.Form{}, admin.NoAdding("Post")
 			}
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = $1, "title" = $2, "status" = $3, "views" = $4, "likes" = $5, "score" = $6, "public" = $7, "published_at" = $8 WHERE "id" = $9`, f.AuthorID.Value, f.Title.Value, f.Status.Value, f.Views.Value, f.Likes.Value, admin.Ptr(f.Score), f.Public.Value, admin.Ptr(f.PublishedAt), id))
+			err := admin.Updated(rt.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = $1, "title" = $2, "status" = $3, "views" = $4, "likes" = $5, "score" = $6, "public" = $7, "published_at" = $8 WHERE "id" = $9`, f.AuthorID.Value, f.Title.Value, f.Status.Value, f.Views.Value, f.Likes.Value, admin.Ptr(f.Score), f.Public.Value, admin.Ptr(f.PublishedAt), id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
 		},
 		Delete: DeletePost,
@@ -190,7 +191,7 @@ var Admin = []admin.Model{
 			if err != nil {
 				return nil, err
 			}
-			vs, err := maago.Many(ctx, db, scanAuthor, `SELECT "id", "name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at" FROM "people" WHERE ("parent_id" = $1 OR $1 IS NULL) ORDER BY "id" DESC LIMIT $2 OFFSET $3`, vParentID, q.Limit, q.Offset)
+			vs, err := rt.Many(ctx, db, scanAuthor, `SELECT "id", "name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at" FROM "people" WHERE ("parent_id" = $1 OR $1 IS NULL) ORDER BY "id" DESC LIMIT $2 OFFSET $3`, vParentID, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -228,12 +229,12 @@ var Admin = []admin.Model{
 				Order      maago.Field[int32]
 				Admin      maago.Field[bool]
 			}
-			maago.BindString(ctx, vals, &f.Name, maago.Rule{Name: "name", Label: "Name"})
-			maago.BindInt64(ctx, vals, &f.ParentID, maago.Rule{Name: "parent_id", Label: "ParentID", Optional: true})
-			maago.BindInt64(ctx, vals, &f.EditorID, maago.Rule{Name: "editor_id", Label: "EditorID"})
-			maago.BindInt64(ctx, vals, &f.ReviewerID, maago.Rule{Name: "reviewer_id", Label: "ReviewerID", Optional: true})
-			maago.BindInt32(ctx, vals, &f.Order, maago.Rule{Name: "order", Label: "Order"})
-			maago.BindBool(ctx, vals, &f.Admin, maago.Rule{Name: "admin", Label: "Admin"})
+			rt.BindString(ctx, vals, &f.Name, rt.Rule{Name: "name", Label: "Name"})
+			rt.BindInt64(ctx, vals, &f.ParentID, rt.Rule{Name: "parent_id", Label: "ParentID", Optional: true})
+			rt.BindInt64(ctx, vals, &f.EditorID, rt.Rule{Name: "editor_id", Label: "EditorID"})
+			rt.BindInt64(ctx, vals, &f.ReviewerID, rt.Rule{Name: "reviewer_id", Label: "ReviewerID", Optional: true})
+			rt.BindInt32(ctx, vals, &f.Order, rt.Rule{Name: "order", Label: "Order"})
+			rt.BindBool(ctx, vals, &f.Admin, rt.Rule{Name: "admin", Label: "Admin"})
 			if vals == nil && id != 0 {
 				f.Name.Raw = admin.Raw(o.Name)
 				f.ParentID.Raw = admin.Raw(o.ParentID)
@@ -249,21 +250,21 @@ var Admin = []admin.Model{
 				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = $1`, f.ParentID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
-					maago.NoRow(ctx, &f.ParentID)
+					rt.NoRow(ctx, &f.ParentID)
 				}
 			}
 			if vals != nil && f.EditorID.Error == "" && f.EditorID.Given {
 				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = $1`, f.EditorID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
-					maago.NoRow(ctx, &f.EditorID)
+					rt.NoRow(ctx, &f.EditorID)
 				}
 			}
 			if vals != nil && f.ReviewerID.Error == "" && f.ReviewerID.Given {
 				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "people" WHERE "id" = $1`, f.ReviewerID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
-					maago.NoRow(ctx, &f.ReviewerID)
+					rt.NoRow(ctx, &f.ReviewerID)
 				}
 			}
 			var in []admin.Input
@@ -289,7 +290,7 @@ var Admin = []admin.Model{
 				return admin.Form{}, admin.NoAdding("Author")
 			}
 			now := time.Now().Truncate(time.Microsecond)
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "people" SET "name" = $1, "parent_id" = $2, "editor_id" = $3, "reviewer_id" = $4, "order" = $5, "admin" = $6, "updated_at" = $7 WHERE "id" = $8 AND "updated_at" = $9`, f.Name.Value, admin.Ptr(f.ParentID), f.EditorID.Value, admin.Ptr(f.ReviewerID), f.Order.Value, f.Admin.Value, now, id, ver))
+			err := admin.Updated(rt.Exec(ctx, db, `UPDATE "people" SET "name" = $1, "parent_id" = $2, "editor_id" = $3, "reviewer_id" = $4, "order" = $5, "admin" = $6, "updated_at" = $7 WHERE "id" = $8 AND "updated_at" = $9`, f.Name.Value, admin.Ptr(f.ParentID), f.EditorID.Value, admin.Ptr(f.ReviewerID), f.Order.Value, f.Admin.Value, now, id, ver))
 			err = admin.Changed(ctx, db, `SELECT 1 FROM "people" WHERE "id" = $1`, id, err)
 			return admin.Form{Inputs: in, Version: ver, Saved: err == nil}, err
 		},

@@ -10,6 +10,6 @@ import (
 // its own nor one of its fields', which binding, Validate or the view set
 // (D-119).
 func (f {{.Name}}) Valid() bool {
-	return maago.FormValid(f.Form){{range .Fields}} && f.{{.Name}}.Error == ""{{end}}
+	return rt.FormValid(f.Form){{range .Fields}} && f.{{.Name}}.Error == ""{{end}}
 }
 {{end}}

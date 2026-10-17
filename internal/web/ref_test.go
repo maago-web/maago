@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/ref"
+	"github.com/maago-web/maago/rt"
 )
 
 // The lists of maago doc whose source is elsewhere say what that source
@@ -43,7 +43,7 @@ func TestRefLists(t *testing.T) {
 	if got := ref.Methods.Names(); !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(constructors))) {
 		t.Errorf("ref.Methods: %v, route.go: %v", got, constructors)
 	}
-	for _, k := range maago.FileKinds() {
+	for _, k := range rt.FileKinds() {
 		if accept := ref.FormTags.Items[slices.Index(ref.FormTags.Names(), "accept")].Text; !strings.Contains(accept, k) {
 			t.Errorf("accept says not %s: %s", k, accept)
 		}

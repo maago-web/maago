@@ -62,9 +62,9 @@ func TestFileForm(t *testing.T) {
 	}
 	v := string(files["up/views_gen.go"])
 	for _, want := range []string{
-		`vals, err := maago.MultipartValues(r, "title", "doc")`,
-		`maago.BindString(r.Context(), vals, &f.Title, maago.Rule{Name: "title", Label: "Title"})`,
-		`maago.BindFile(r, vals, &f.Doc, maago.Rule{Name: "doc", Label: "Document", Accept: []string{"png", "pdf"}})`,
+		`vals, err := rt.MultipartValues(r, "title", "doc")`,
+		`rt.BindString(r.Context(), vals, &f.Title, rt.Rule{Name: "title", Label: "Title"})`,
+		`rt.BindFile(r, vals, &f.Doc, rt.Rule{Name: "doc", Label: "Document", Accept: []string{"png", "pdf"}})`,
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("views_gen.go has no %s:\n%s", want, v)

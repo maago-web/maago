@@ -86,7 +86,7 @@ func TestNoEditAndPasswordForm(t *testing.T) {
 		{Name: "Password", Column: "password", Type: model.String},
 	}}
 	app = &model.App{Dir: "auth", Name: "auth", Models: []*model.Model{user}}
-	if got := string(File(project.SQLite, app, []*model.App{app})); !strings.Contains(got, `maago.BindString(ctx, vals, &f.Password, maago.Rule{Name: "password", Label: "Password"})`) {
+	if got := string(File(project.SQLite, app, []*model.App{app})); !strings.Contains(got, `rt.BindString(ctx, vals, &f.Password, rt.Rule{Name: "password", Label: "Password"})`) {
 		t.Errorf("admin_gen.go:\n%s", got)
 	}
 }
@@ -101,7 +101,7 @@ func TestNullBool(t *testing.T) {
 	}}
 	app := &model.App{Dir: "f", Name: "f", Models: []*model.Model{m}}
 	got := string(File(project.SQLite, app, []*model.App{app}))
-	for _, want := range []string{"On maago.Field[string]", `maago.BindString(ctx, vals, &f.On, maago.Rule{Name: "on", Label: "On", Choices: []string{"yes", "no"}, Optional: true})`,
+	for _, want := range []string{"On maago.Field[string]", `rt.BindString(ctx, vals, &f.On, rt.Rule{Name: "on", Label: "On", Choices: []string{"yes", "no"}, Optional: true})`,
 		`f.On.Raw = "yes"`, "On: maago.Set(admin.Bool(f.On))", "admin.Bool(f.On), id"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("admin_gen.go lacks %s:\n%s", want, got)
@@ -118,7 +118,7 @@ func TestEmptyDefault(t *testing.T) {
 	}}
 	app := &model.App{Dir: "n", Name: "n", Models: []*model.Model{m}}
 	got := string(File(project.SQLite, app, []*model.App{app}))
-	if !strings.Contains(got, `maago.Rule{Name: "nick", Label: "Nick", Optional: true}`) || !strings.Contains(got, `admin.In(&f.Nick, false, "")`) {
+	if !strings.Contains(got, `rt.Rule{Name: "nick", Label: "Nick", Optional: true}`) || !strings.Contains(got, `admin.In(&f.Nick, false, "")`) {
 		t.Errorf("admin_gen.go:\n%s", got)
 	}
 }

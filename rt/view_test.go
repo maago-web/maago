@@ -1,4 +1,4 @@
-package maago
+package rt
 
 import (
 	"net/http"
@@ -6,14 +6,6 @@ import (
 	"testing"
 	"testing/fstest"
 )
-
-// code is the status err answers with, as Handler decides it.
-func code(err error) int {
-	if err == nil {
-		return 0
-	}
-	return status(err)
-}
 
 func TestQuery(t *testing.T) {
 	r := httptest.NewRequest("GET", "/x?n=7&s=&two=1&two=2&b&f=NaN&e=", nil)

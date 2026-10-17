@@ -118,12 +118,12 @@ func TestStaticTemplates(t *testing.T) {
 	}
 	views, urls := string(files["blog/views_gen.go"]), string(files["blog/urls_gen.go"])
 	if !strings.Contains(views, "//go:embed static\nvar maagoStaticFiles embed.FS\n") ||
-		!strings.Contains(views, `var maagoStatic = maago.Static("blog", maagoStaticFiles, "app.css", "logo.png")`) ||
-		!strings.Contains(views, `"static": maago.StaticFunc}`) || !strings.Contains(urls, ").WithStatic(maagoStatic)\n") {
+		!strings.Contains(views, `var maagoStatic = rt.Static("blog", maagoStaticFiles, "app.css", "logo.png")`) ||
+		!strings.Contains(views, `"static": rt.StaticFunc}`) || !strings.Contains(urls, `rt.NewApp("example.com/app/blog", maagoStatic,`) {
 		t.Errorf("blog:\n%s\n%s", views, urls)
 	}
-	if s := string(files["site/views_gen.go"]); strings.Contains(s, "maagoStatic") || !strings.Contains(s, `"static": maago.StaticFunc}`) ||
-		strings.Contains(string(files["site/urls_gen.go"]), "WithStatic") {
+	if s := string(files["site/views_gen.go"]); strings.Contains(s, "maagoStatic") || !strings.Contains(s, `"static": rt.StaticFunc}`) ||
+		strings.Contains(string(files["site/urls_gen.go"]), "maagoStatic") {
 		t.Errorf("site:\n%s", s)
 	}
 }
@@ -139,8 +139,8 @@ func TestEscapeOnlyStatic(t *testing.T) {
 	if out != "" {
 		t.Fatal(out)
 	}
-	if v := string(files["feed/views_gen.go"]); !strings.Contains(v, "\t\"embed\"\n") || !strings.Contains(v, "\t\"github.com/maago-web/maago\"\n") ||
-		!strings.Contains(v, `var maagoStatic = maago.Static("feed", maagoStaticFiles)`) {
+	if v := string(files["feed/views_gen.go"]); !strings.Contains(v, "\t\"embed\"\n") || !strings.Contains(v, "\t\"github.com/maago-web/maago/rt\"\n") ||
+		!strings.Contains(v, `var maagoStatic = rt.Static("feed", maagoStaticFiles)`) {
 		t.Errorf("views_gen.go:\n%s", v)
 	}
 }

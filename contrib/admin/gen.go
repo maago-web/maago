@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // The functions of this file are what admin_gen.go calls (D-131): what
@@ -71,7 +72,7 @@ func Raw(v any) string {
 		}
 		return ""
 	case time.Time:
-		s, _ := maago.DateFunc("2006-01-02T15:04:05.999999", v)
+		s, _ := rt.DateFunc("2006-01-02T15:04:05.999999", v)
 		return s
 	case *string:
 		return raw(v)

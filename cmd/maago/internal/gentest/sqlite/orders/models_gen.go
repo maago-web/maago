@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // NewCustomerInput is what InsertCustomer takes (D-106): every column but
@@ -19,7 +20,7 @@ type NewCustomerInput struct {
 
 // GetCustomer reads the Customer with id: sql.ErrNoRows if there is none.
 func GetCustomer(ctx context.Context, db maago.DB, id int64) (Customer, error) {
-	return maago.One(ctx, db, scanCustomer, `SELECT "id", "name" FROM "customers" WHERE "id" = ?1`, id)
+	return rt.One(ctx, db, scanCustomer, `SELECT "id", "name" FROM "customers" WHERE "id" = ?1`, id)
 }
 
 // InsertCustomer inserts in and returns the Customer: in's fields, with
@@ -39,7 +40,7 @@ func InsertCustomer(ctx context.Context, db maago.DB, in NewCustomerInput) (Cust
 // so pass what GetCustomer returned, changed: sql.ErrNoRows if there is no
 // such row.
 func UpdateCustomer(ctx context.Context, db maago.DB, o *Customer) error {
-	n, err := maago.Exec(ctx, db, `UPDATE "customers" SET "name" = ?1 WHERE "id" = ?2`, o.Name, o.ID)
+	n, err := rt.Exec(ctx, db, `UPDATE "customers" SET "name" = ?1 WHERE "id" = ?2`, o.Name, o.ID)
 	if err != nil {
 		return err
 	}
@@ -51,7 +52,7 @@ func UpdateCustomer(ctx context.Context, db maago.DB, o *Customer) error {
 
 // DeleteCustomer deletes the Customer with id: sql.ErrNoRows if there is none.
 func DeleteCustomer(ctx context.Context, db maago.DB, id int64) error {
-	n, err := maago.Exec(ctx, db, `DELETE FROM "customers" WHERE "id" = ?1`, id)
+	n, err := rt.Exec(ctx, db, `DELETE FROM "customers" WHERE "id" = ?1`, id)
 	if err != nil {
 		return err
 	}
@@ -80,7 +81,7 @@ type NewOrderInput struct {
 
 // GetOrder reads the Order with id: sql.ErrNoRows if there is none.
 func GetOrder(ctx context.Context, db maago.DB, id int64) (Order, error) {
-	return maago.One(ctx, db, scanOrder, `SELECT "id", "customer_id", "status", "amount", "priority", "created_at", "updated_at" FROM "orders" WHERE "id" = ?1`, id)
+	return rt.One(ctx, db, scanOrder, `SELECT "id", "customer_id", "status", "amount", "priority", "created_at", "updated_at" FROM "orders" WHERE "id" = ?1`, id)
 }
 
 // InsertOrder inserts in and returns the Order: in's fields, with
@@ -96,7 +97,7 @@ func InsertOrder(ctx context.Context, db maago.DB, in NewOrderInput) (Order, err
 		CreatedAt:  in.CreatedAt,
 		UpdatedAt:  now,
 	}
-	if err := db.QueryRowContext(ctx, `INSERT INTO "orders" ("customer_id", "status", "amount", "priority", "created_at", "updated_at") VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING "id"`, o.CustomerID, o.Status, o.Amount, o.Priority, maago.SQLiteTime(o.CreatedAt), maago.SQLiteTime(o.UpdatedAt)).Scan(&o.ID); err != nil {
+	if err := db.QueryRowContext(ctx, `INSERT INTO "orders" ("customer_id", "status", "amount", "priority", "created_at", "updated_at") VALUES (?1, ?2, ?3, ?4, ?5, ?6) RETURNING "id"`, o.CustomerID, o.Status, o.Amount, o.Priority, rt.SQLiteTime(o.CreatedAt), rt.SQLiteTime(o.UpdatedAt)).Scan(&o.ID); err != nil {
 		return Order{}, err
 	}
 	return o, nil
@@ -110,7 +111,7 @@ func InsertOrder(ctx context.Context, db maago.DB, in NewOrderInput) (Order, err
 // Once the row is written, o has its new auto times.
 func UpdateOrder(ctx context.Context, db maago.DB, o *Order) error {
 	now := time.Now().Truncate(time.Microsecond)
-	n, err := maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = ?1, "status" = ?2, "amount" = ?3, "priority" = ?4, "created_at" = ?5, "updated_at" = ?6 WHERE "id" = ?7 AND "updated_at" = ?8`, o.CustomerID, o.Status, o.Amount, o.Priority, maago.SQLiteTime(o.CreatedAt), maago.SQLiteTime(now), o.ID, maago.SQLiteTime(o.UpdatedAt))
+	n, err := rt.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = ?1, "status" = ?2, "amount" = ?3, "priority" = ?4, "created_at" = ?5, "updated_at" = ?6 WHERE "id" = ?7 AND "updated_at" = ?8`, o.CustomerID, o.Status, o.Amount, o.Priority, rt.SQLiteTime(o.CreatedAt), rt.SQLiteTime(now), o.ID, rt.SQLiteTime(o.UpdatedAt))
 	if err != nil {
 		return err
 	}
@@ -130,7 +131,7 @@ func UpdateOrder(ctx context.Context, db maago.DB, o *Order) error {
 
 // DeleteOrder deletes the Order with id: sql.ErrNoRows if there is none.
 func DeleteOrder(ctx context.Context, db maago.DB, id int64) error {
-	n, err := maago.Exec(ctx, db, `DELETE FROM "orders" WHERE "id" = ?1`, id)
+	n, err := rt.Exec(ctx, db, `DELETE FROM "orders" WHERE "id" = ?1`, id)
 	if err != nil {
 		return err
 	}
@@ -142,6 +143,6 @@ func DeleteOrder(ctx context.Context, db maago.DB, id int64) error {
 
 func scanOrder(rows *sql.Rows) (Order, error) {
 	var v Order
-	err := rows.Scan(&v.ID, &v.CustomerID, &v.Status, &v.Amount, &v.Priority, maago.ScanSQLiteTime(&v.CreatedAt), maago.ScanSQLiteTime(&v.UpdatedAt))
+	err := rows.Scan(&v.ID, &v.CustomerID, &v.Status, &v.Amount, &v.Priority, rt.ScanSQLiteTime(&v.CreatedAt), rt.ScanSQLiteTime(&v.UpdatedAt))
 	return v, err
 }

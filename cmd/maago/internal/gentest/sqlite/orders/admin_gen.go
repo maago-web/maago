@@ -13,6 +13,7 @@ import (
 
 	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/contrib/admin"
+	"github.com/maago-web/maago/rt"
 )
 
 var Admin = []admin.Model{
@@ -25,7 +26,7 @@ var Admin = []admin.Model{
 		},
 		List: []string{"ID", "Name"},
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			vs, err := maago.Many(ctx, db, scanCustomer, `SELECT "id", "name" FROM "customers" ORDER BY "id" DESC LIMIT ?1 OFFSET ?2`, q.Limit, q.Offset)
+			vs, err := rt.Many(ctx, db, scanCustomer, `SELECT "id", "name" FROM "customers" ORDER BY "id" DESC LIMIT ?1 OFFSET ?2`, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -50,7 +51,7 @@ var Admin = []admin.Model{
 			var f struct {
 				Name maago.Field[string]
 			}
-			maago.BindString(ctx, vals, &f.Name, maago.Rule{Name: "name", Label: "Name", Max: 100})
+			rt.BindString(ctx, vals, &f.Name, rt.Rule{Name: "name", Label: "Name", Max: 100})
 			if vals == nil && id != 0 {
 				f.Name.Raw = admin.Raw(o.Name)
 			}
@@ -68,7 +69,7 @@ var Admin = []admin.Model{
 				})
 				return admin.Form{Inputs: in, Saved: err == nil}, err
 			}
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "customers" SET "name" = ?1 WHERE "id" = ?2`, f.Name.Value, id))
+			err := admin.Updated(rt.Exec(ctx, db, `UPDATE "customers" SET "name" = ?1 WHERE "id" = ?2`, f.Name.Value, id))
 			return admin.Form{Inputs: in, Saved: err == nil}, err
 		},
 		Delete: DeleteCustomer,
@@ -94,7 +95,7 @@ var Admin = []admin.Model{
 		},
 		List: []string{"ID", "CustomerID", "Status", "Amount", "Priority", "CreatedAt", "UpdatedAt"},
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			vs, err := maago.Many(ctx, db, scanOrder, `SELECT "id", "customer_id", "status", "amount", "priority", "created_at", "updated_at" FROM "orders" ORDER BY "customer_id" NULLS LAST, "id" DESC LIMIT ?1 OFFSET ?2`, q.Limit, q.Offset)
+			vs, err := rt.Many(ctx, db, scanOrder, `SELECT "id", "customer_id", "status", "amount", "priority", "created_at", "updated_at" FROM "orders" ORDER BY "customer_id" NULLS LAST, "id" DESC LIMIT ?1 OFFSET ?2`, q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}
@@ -127,11 +128,11 @@ var Admin = []admin.Model{
 				Priority   maago.Field[int32]
 				CreatedAt  maago.Field[time.Time]
 			}
-			maago.BindInt64(ctx, vals, &f.CustomerID, maago.Rule{Name: "customer_id", Label: "CustomerID", Optional: true})
-			maago.BindString(ctx, vals, &f.Status, maago.Rule{Name: "status", Label: "Status", Max: 20})
-			maago.BindInt64(ctx, vals, &f.Amount, maago.Rule{Name: "amount", Label: "Amount"})
-			maago.BindInt32(ctx, vals, &f.Priority, maago.Rule{Name: "priority", Label: "Priority", Optional: true})
-			maago.BindTime(ctx, vals, &f.CreatedAt, maago.Rule{Name: "created_at", Label: "CreatedAt"})
+			rt.BindInt64(ctx, vals, &f.CustomerID, rt.Rule{Name: "customer_id", Label: "CustomerID", Optional: true})
+			rt.BindString(ctx, vals, &f.Status, rt.Rule{Name: "status", Label: "Status", Max: 20})
+			rt.BindInt64(ctx, vals, &f.Amount, rt.Rule{Name: "amount", Label: "Amount"})
+			rt.BindInt32(ctx, vals, &f.Priority, rt.Rule{Name: "priority", Label: "Priority", Optional: true})
+			rt.BindTime(ctx, vals, &f.CreatedAt, rt.Rule{Name: "created_at", Label: "CreatedAt"})
 			if vals == nil && id != 0 {
 				f.CustomerID.Raw = admin.Raw(o.CustomerID)
 				f.Status.Raw = admin.Raw(o.Status)
@@ -146,7 +147,7 @@ var Admin = []admin.Model{
 				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "customers" WHERE "id" = ?1`, f.CustomerID.Value); err != nil {
 					return admin.Form{}, err
 				} else if !found {
-					maago.NoRow(ctx, &f.CustomerID)
+					rt.NoRow(ctx, &f.CustomerID)
 				}
 			}
 			var in []admin.Input
@@ -175,7 +176,7 @@ var Admin = []admin.Model{
 				return admin.Form{Inputs: in, Saved: err == nil}, err
 			}
 			now := time.Now().Truncate(time.Microsecond)
-			err := admin.Updated(maago.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = ?1, "status" = ?2, "amount" = ?3, "priority" = ?4, "created_at" = ?5, "updated_at" = ?6 WHERE "id" = ?7 AND "updated_at" = ?8`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), maago.SQLiteTime(f.CreatedAt.Value), maago.SQLiteTime(now), id, maago.SQLiteTime(ver)))
+			err := admin.Updated(rt.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = ?1, "status" = ?2, "amount" = ?3, "priority" = ?4, "created_at" = ?5, "updated_at" = ?6 WHERE "id" = ?7 AND "updated_at" = ?8`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), rt.SQLiteTime(f.CreatedAt.Value), rt.SQLiteTime(now), id, rt.SQLiteTime(ver)))
 			err = admin.Changed(ctx, db, `SELECT 1 FROM "orders" WHERE "id" = ?1`, id, err)
 			return admin.Form{Inputs: in, Version: ver, Saved: err == nil}, err
 		},

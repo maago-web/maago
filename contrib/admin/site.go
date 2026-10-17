@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // What Can is asked to allow (D-133): the words of the Action of the
@@ -47,7 +48,7 @@ const pageSize = 50
 //go:embed templates admin.css
 var files embed.FS
 
-var pages = maago.Pages(files, template.FuncMap{"cell": cell, "css": css}, "index.html", "list.html", "form.html", "delete.html")
+var pages = rt.Pages(files, template.FuncMap{"cell": cell, "css": css}, "index.html", "list.html", "form.html", "delete.html")
 
 // App is the admin's routes, under Prefix, for main's Config.Apps: each
 // requires login (D-121). It panics on a Config that cannot work, as main
@@ -82,10 +83,10 @@ func App(cfg Config) maago.App {
 	if len(s.models) == 0 {
 		panic("admin: Config.Models has no model; add each app's Admin, such as board.Admin (a model with admin=hidden is not there)")
 	}
-	route := func(method, path, name string, serve func(http.ResponseWriter, *http.Request) error) maago.AppRoute {
-		return maago.AppRoute{Method: method, Path: Prefix + path, Name: name, LoginRequired: true, Serve: serve}
+	route := func(method, path, name string, serve func(http.ResponseWriter, *http.Request) error) rt.AppRoute {
+		return rt.AppRoute{Method: method, Path: Prefix + path, Name: name, LoginRequired: true, Serve: serve}
 	}
-	return maago.NewApp("admin",
+	return rt.NewApp("admin", nil,
 		route("GET", "{$}", "admin_index", s.index),
 		route("GET", "{app}/{model}/{$}", "admin_list", s.list),
 		route("GET", "{app}/{model}/delete/{$}", "admin_delete", s.delete), // the literals are more specific than {id}
@@ -144,7 +145,7 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) error {
 	if apps == nil {
 		return maago.Status(http.StatusForbidden, fmt.Errorf("admin: the user may view no model"))
 	}
-	return maago.Render(w, pages, "index.html", "", map[string]any{"Home": home(), "Apps": apps})
+	return rt.Render(w, pages, "index.html", "", map[string]any{"Home": home(), "Apps": apps})
 }
 
 // list is a page of a model's rows. Can comes first, so a user it refuses
@@ -156,23 +157,23 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	q, err := maago.ParseQuery(r)
+	q, err := rt.ParseQuery(r)
 	if err != nil {
 		return err
 	}
-	page, _, err := maago.Query(q, "page", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) }, false)
+	page, _, err := rt.Query(q, "page", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) }, false)
 	if err != nil {
 		return err
 	}
 	page = max(page, 1)
 	text := func(s string) (string, error) { return s, nil }
 	query := Query{Filters: map[string]string{}}
-	if query.Search, _, err = maago.Query(q, "q", text, false); err != nil {
+	if query.Search, _, err = rt.Query(q, "q", text, false); err != nil {
 		return err
 	}
 	query.Search = strings.TrimSpace(query.Search)
 	for _, f := range m.Filters {
-		if query.Filters[f.Key], _, err = maago.Query(q, f.Key, text, false); err != nil {
+		if query.Filters[f.Key], _, err = rt.Query(q, f.Key, text, false); err != nil {
 			return err
 		}
 	}
@@ -275,7 +276,7 @@ func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 	for _, name := range m.Search {
 		search = append(search, m.label(name))
 	}
-	return maago.Render(w, pages, "list.html", "", map[string]any{
+	return rt.Render(w, pages, "list.html", "", map[string]any{
 		"Home": home(), "App": m.App, "Name": m.Name, "Heads": s.heads[m], "Rows": views, "Add": addURL, "Delete": deleteURL,
 		"Search": strings.Join(search, ", "), "Q": query.Search, "Filters": filters, "Hidden": hidden, "Action": listURL(m),
 		"Box":   search != nil || slices.ContainsFunc(m.Filters, func(f Filter) bool { return f.Kind == "fk" }),
@@ -333,7 +334,7 @@ func (s *site) row(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	id, err := maago.Path(r, "id", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) })
+	id, err := rt.Path(r, "id", func(s string) (int64, error) { return strconv.ParseInt(s, 10, 64) })
 	if err != nil {
 		return err
 	}
@@ -353,7 +354,7 @@ func (s *site) row(w http.ResponseWriter, r *http.Request) error {
 // row when id is 0.
 func (s *site) form(w http.ResponseWriter, r *http.Request, m *Model, id int64, save bool) error {
 	ctx := r.Context()
-	vals, err := maago.FormValues(r)
+	vals, err := rt.FormValues(r)
 	if err != nil {
 		return err
 	}
@@ -407,7 +408,7 @@ func (s *site) form(w http.ResponseWriter, r *http.Request, m *Model, id int64, 
 	if conflict {
 		w = &conflicted{ResponseWriter: w}
 	}
-	return maago.Render(w, pages, "form.html", "", map[string]any{
+	return rt.Render(w, pages, "form.html", "", map[string]any{
 		"Home": home(), "App": m.App, "Name": m.Name, "List": listURL(m), "Title": title, "Inputs": inputs, "Save": save, "Delete": deleteURL,
 		"Version": version, "Conflict": conflict,
 	})
@@ -491,7 +492,7 @@ func (s *site) delete(w http.ResponseWriter, r *http.Request) error {
 		http.Redirect(w, r, listURL(m), http.StatusSeeOther)
 		return nil
 	}
-	return maago.Render(w, pages, "delete.html", "", map[string]any{
+	return rt.Render(w, pages, "delete.html", "", map[string]any{
 		"Home": home(), "App": m.App, "Name": m.Name, "List": listURL(m), "Rows": rows, "OK": ok,
 	})
 }
@@ -505,9 +506,9 @@ func deleteIDs(r *http.Request) ([]int64, error) {
 	var vals url.Values
 	var err error
 	if r.Method == http.MethodPost {
-		vals, err = maago.FormValues(r)
+		vals, err = rt.FormValues(r)
 	} else {
-		vals, err = maago.ParseQuery(r)
+		vals, err = rt.ParseQuery(r)
 	}
 	if err != nil {
 		return nil, err
@@ -550,7 +551,7 @@ func cell(v any) (string, error) {
 		}
 		return "no", nil
 	case time.Time:
-		return maago.DateFunc("2006-01-02 15:04", v)
+		return rt.DateFunc("2006-01-02 15:04", v)
 	case []byte:
 		return fmt.Sprintf("(%d bytes)", len(v)), nil
 	case *string:

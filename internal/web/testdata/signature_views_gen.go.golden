@@ -10,6 +10,7 @@ import (
 
 	maagouser "example.com/app/users"
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 //go:embed templates/*.html
@@ -34,7 +35,7 @@ var maagoRoutes = map[string]string{
 
 // maagoPages are the template sets of the pages: base.html, if there is
 // one, and the page.
-var maagoPages = maago.Pages(maagoTemplateFiles, template.FuncMap{"url": maago.URLFunc(maagoRoutes), "date": maago.DateFunc, "static": maago.StaticFunc},
+var maagoPages = rt.Pages(maagoTemplateFiles, template.FuncMap{"url": rt.URLFunc(maagoRoutes), "date": rt.DateFunc, "static": rt.StaticFunc},
 	"home_page.html",
 	"post_page.html",
 )
@@ -48,7 +49,7 @@ func serveMe(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoPages, "home_page.html", "", page)
+	return rt.Render(w, maagoPages, "home_page.html", "", page)
 }
 
 // serveMaybe serves route maybe with view Maybe.
@@ -63,7 +64,7 @@ func serveMaybe(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.JSON(w, page)
+	return rt.JSON(w, page)
 }
 
 // serveHere serves route here with view Here.
@@ -78,7 +79,7 @@ func serveHere(w http.ResponseWriter, r *http.Request) error {
 		http.Redirect(w, r, to, http.StatusSeeOther)
 		return nil
 	}
-	return maago.Render(w, maagoPages, "home_page.html", "", page)
+	return rt.Render(w, maagoPages, "home_page.html", "", page)
 }
 
 // serveSave serves route save with view Save.
@@ -87,7 +88,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) error {
 	u, _ := maago.UserFrom[maagouser.User](r.Context()) // the route requires login
 	// The view runs in a transaction, and its page is drawn before the
 	// commit: one that fails to draw rolls it back (D-150).
-	b := maago.NewBuffer()
+	b := rt.NewBuffer()
 	to := ""
 	txErr := maago.WithTx(r.Context(), maago.DBFrom(r.Context()), func(ctx context.Context, tx maago.Tx) error {
 		p, err := Save(ctx, u, tx, in)
@@ -99,7 +100,7 @@ func serveSave(w http.ResponseWriter, r *http.Request) error {
 			to = next
 			return nil
 		}
-		return maago.Render(b, maagoPages, "home_page.html", "", page)
+		return rt.Render(b, maagoPages, "home_page.html", "", page)
 	})
 	if txErr != nil {
 		return txErr
@@ -116,14 +117,14 @@ func serveAPISave(w http.ResponseWriter, r *http.Request) error {
 	var in struct{}
 	// The view runs in a transaction, and its page is drawn before the
 	// commit: one that fails to draw rolls it back (D-150).
-	b := maago.NewBuffer()
+	b := rt.NewBuffer()
 	txErr := maago.WithTx(r.Context(), maago.DBFrom(r.Context()), func(ctx context.Context, tx maago.Tx) error {
 		p, err := APISave(ctx, tx, in)
 		if err != nil {
 			return err
 		}
 		page := p
-		return maago.JSON(b, page)
+		return rt.JSON(b, page)
 	})
 	if txErr != nil {
 		return txErr
@@ -145,33 +146,33 @@ func serveHome(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoPages, "home_page.html", "", page)
+	return rt.Render(w, maagoPages, "home_page.html", "", page)
 }
 
 // servePostDetail serves route post_detail with view PostDetail.
 func servePostDetail(w http.ResponseWriter, r *http.Request) error {
-	q, err := maago.ParseQuery(r)
+	q, err := rt.ParseQuery(r)
 	if err != nil {
 		return err
 	}
 	var in PostDetailIn
-	if in.ID, err = maago.Path(r, "id", maago.ParseInt64); err != nil {
+	if in.ID, err = rt.Path(r, "id", rt.ParseInt64); err != nil {
 		return err
 	}
-	if in.Page, _, err = maago.Query(q, "page", maago.ParseInt32, true); err != nil {
+	if in.Page, _, err = rt.Query(q, "page", rt.ParseInt32, true); err != nil {
 		return err
 	}
-	if v, ok, err := maago.Query(q, "draft", maago.ParseBool, false); err != nil {
+	if v, ok, err := rt.Query(q, "draft", rt.ParseBool, false); err != nil {
 		return err
 	} else if ok {
 		in.Draft = &v
 	}
-	if v, ok, err := maago.Query(q, "q", maago.ParseString, false); err != nil {
+	if v, ok, err := rt.Query(q, "q", rt.ParseString, false); err != nil {
 		return err
 	} else if ok {
 		in.Q = &v
 	}
-	if in.Min, _, err = maago.Query(q, "min", maago.ParseFloat64, true); err != nil {
+	if in.Min, _, err = rt.Query(q, "min", rt.ParseFloat64, true); err != nil {
 		return err
 	}
 	p, err := PostDetail(r.Context(), in)
@@ -179,17 +180,17 @@ func servePostDetail(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoPages, "post_page.html", "", page)
+	return rt.Render(w, maagoPages, "post_page.html", "", page)
 }
 
 // serveTagPage serves route tag_page with view TagPage.
 func serveTagPage(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in TagIn
-	if in.Tag, err = maago.Path(r, "tag", maago.ParseString); err != nil {
+	if in.Tag, err = rt.Path(r, "tag", rt.ParseString); err != nil {
 		return err
 	}
-	if in.N, err = maago.Path(r, "n", maago.ParseInt32); err != nil {
+	if in.N, err = rt.Path(r, "n", rt.ParseInt32); err != nil {
 		return err
 	}
 	p, err := TagPage(r.Context(), in)
@@ -197,14 +198,14 @@ func serveTagPage(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoPages, "post_page.html", "", page)
+	return rt.Render(w, maagoPages, "post_page.html", "", page)
 }
 
 // servePostUpdate serves route post_update with view PostUpdate.
 func servePostUpdate(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in UpdateIn
-	if in.ID, err = maago.Path(r, "id", maago.ParseInt64); err != nil {
+	if in.ID, err = rt.Path(r, "id", rt.ParseInt64); err != nil {
 		return err
 	}
 	p, err := PostUpdate(r.Context(), in)
@@ -216,14 +217,14 @@ func servePostUpdate(w http.ResponseWriter, r *http.Request) error {
 		http.Redirect(w, r, to, http.StatusSeeOther)
 		return nil
 	}
-	return maago.Render(w, maagoPages, "post_page.html", "", page)
+	return rt.Render(w, maagoPages, "post_page.html", "", page)
 }
 
 // serveAPIPost serves route api_post with view APIPost.
 func serveAPIPost(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in UpdateIn
-	if in.ID, err = maago.Path(r, "id", maago.ParseInt64); err != nil {
+	if in.ID, err = rt.Path(r, "id", rt.ParseInt64); err != nil {
 		return err
 	}
 	p, err := APIPost(r.Context(), in)
@@ -231,7 +232,7 @@ func serveAPIPost(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.JSON(w, page)
+	return rt.JSON(w, page)
 }
 
 // serveFeed serves route feed with view Feed.
@@ -244,7 +245,7 @@ func serveFeed(w http.ResponseWriter, r *http.Request) error {
 func serveByPostID(w http.ResponseWriter, r *http.Request) error {
 	var err error
 	var in ByIn
-	if in.PostID, err = maago.Path(r, "post_id", maago.ParseInt64); err != nil {
+	if in.PostID, err = rt.Path(r, "post_id", rt.ParseInt64); err != nil {
 		return err
 	}
 	p, err := ByPostID(r.Context(), in)
@@ -252,5 +253,5 @@ func serveByPostID(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	page := p
-	return maago.Render(w, maagoPages, "post_page.html", "", page)
+	return rt.Render(w, maagoPages, "post_page.html", "", page)
 }

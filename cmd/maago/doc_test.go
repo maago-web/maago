@@ -292,3 +292,60 @@ func TestDocSee(t *testing.T) {
 		})
 	}
 }
+
+// corpus is every file under the roots, by path: a directory's files and
+// those of its subdirectories.
+func corpus(t *testing.T, roots ...string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	for _, root := range roots {
+		err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+			if err == nil && !d.IsDir() {
+				files[p] = readFile(t, p)
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return files
+}
+
+// What an app's code is: the copied auth app, the board's steps, the
+// examples of maago doc, the tutorial, the test site, and maago doc's text.
+var appCode = []string{"../../internal/scaffold/testdata", "../../examples/board", "docs", "../../docs/TUTORIAL-FUTURE.md",
+	"testdata/web/site", "../../internal/ref"}
+
+// Generated code calls package maago for what apps use too; what only
+// generated code calls is package rt's, out of go doc maago (D-152). And
+// an app never imports rt. ErrEmptySlice is what a generated query
+// returns: an app compares with it, though no example does.
+func TestGeneratedCallsAppAPI(t *testing.T) {
+	sel := regexp.MustCompile(`\bmaago\.([A-Z]\w*)`)
+	apps := map[string]bool{"ErrEmptySlice": true}
+	for p, src := range corpus(t, appCode...) {
+		for _, m := range sel.FindAllStringSubmatch(src, -1) {
+			apps[m[1]] = true
+		}
+		if strings.Contains(src, `"github.com/maago-web/maago/rt"`) {
+			t.Errorf("%s imports rt, which is for generated code only", p)
+		}
+	}
+	generated := corpus(t, "internal/gentest", "../../internal/web/testdata", "../../internal/mapper/testdata")
+	n := 0
+	for p, src := range generated {
+		if !strings.HasSuffix(p, "_gen.go") && !strings.HasSuffix(p, "_gen.go.golden") && !strings.Contains(p, "crud.") {
+			continue
+		}
+		n++
+		for _, m := range sel.FindAllStringSubmatch(src, -1) {
+			if !apps[m[1]] {
+				t.Errorf("%s calls maago.%s, which no app does: move it to rt", p, m[1])
+			}
+		}
+	}
+	if n < 20 {
+		t.Errorf("%d generated files read", n)
+	}
+}

@@ -37,7 +37,7 @@ var Admin = []admin.Model{
 		},
 {{- end}}
 		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
-			{{.RowsArgs}}vs, err := maago.Many(ctx, db, scan{{.Name}}, {{.ListSQL}}, {{.Args}}q.Limit, q.Offset)
+			{{.RowsArgs}}vs, err := rt.Many(ctx, db, scan{{.Name}}, {{.ListSQL}}, {{.Args}}q.Limit, q.Offset)
 			if err != nil {
 				return nil, err
 			}

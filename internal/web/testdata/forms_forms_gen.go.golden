@@ -3,19 +3,19 @@
 package board
 
 import (
-	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // Valid reports whether form BoardForm was sent and has no error: neither
 // its own nor one of its fields', which binding, Validate or the view set
 // (D-119).
 func (f BoardForm) Valid() bool {
-	return maago.FormValid(f.Form) && f.Name.Error == "" && f.Kind.Error == ""
+	return rt.FormValid(f.Form) && f.Name.Error == "" && f.Kind.Error == ""
 }
 
 // Valid reports whether form NoticeForm was sent and has no error: neither
 // its own nor one of its fields', which binding, Validate or the view set
 // (D-119).
 func (f NoticeForm) Valid() bool {
-	return maago.FormValid(f.Form) && f.Title.Error == "" && f.Days.Error == "" && f.Rate.Error == "" && f.Pinned.Error == "" && f.Start.Error == ""
+	return rt.FormValid(f.Form) && f.Title.Error == "" && f.Days.Error == "" && f.Rate.Error == "" && f.Pinned.Error == "" && f.Start.Error == ""
 }

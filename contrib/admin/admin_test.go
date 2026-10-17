@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // This package's tests make Handlers, which set the process's Prefix
@@ -69,7 +70,7 @@ func handlerOn(t *testing.T, db *sql.DB, cfg Config, prefix string, can map[stri
 			return action == View && (slices.Contains(can[u], "*") || slices.Contains(can[u], app+"."+model)), nil
 		}
 	}
-	api := maago.NewApp("api", maago.AppRoute{Method: "GET", Path: "/api/x", Name: "api_x", API: true, LoginRequired: true,
+	api := rt.NewApp("api", nil, rt.AppRoute{Method: "GET", Path: "/api/x", Name: "api_x", API: true, LoginRequired: true,
 		Serve: func(w http.ResponseWriter, r *http.Request) error { return nil }})
 	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App(cfg), api}, LoginURL: "/login", Prefix: prefix,
 		Auth: func(r *http.Request) (any, error) {
@@ -82,7 +83,7 @@ func handlerOn(t *testing.T, db *sql.DB, cfg Config, prefix string, can map[stri
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { // back to no Prefix
-		x := maago.NewApp("x", maago.AppRoute{Method: "GET", Path: "/x", Name: "x", Serve: func(http.ResponseWriter, *http.Request) error { return nil }})
+		x := rt.NewApp("x", nil, rt.AppRoute{Method: "GET", Path: "/x", Name: "x", Serve: func(http.ResponseWriter, *http.Request) error { return nil }})
 		if _, err := maago.Handler(maago.Config{DB: sql.OpenDB(noDriver{}), Apps: []maago.App{x}}); err != nil {
 			t.Error(err)
 		}

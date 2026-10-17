@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/internal/dialect"
 	"github.com/maago-web/maago/internal/mapper"
 	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/model/modeltest"
 	"github.com/maago-web/maago/internal/practicedb"
 	"github.com/maago-web/maago/internal/project"
+	"github.com/maago-web/maago/rt"
 )
 
 // exampleConn is one connection to a database of d holding the shared
@@ -115,7 +115,7 @@ func TestCRUDRuns(t *testing.T) {
 			post, author := cs[0], cs[1]
 			now := any(time.Now())
 			if d == project.SQLite {
-				now = maago.SQLiteTime(time.Now()) // D-105
+				now = rt.SQLiteTime(time.Now()) // D-105
 			}
 			args := func(st *mapper.Statement, values map[string]any) []any {
 				out := make([]any, len(st.Args))

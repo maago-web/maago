@@ -1,4 +1,4 @@
-package maago
+package rt
 
 import (
 	"bytes"
@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/maago-web/maago"
 )
 
 // The functions of this file are what the generated adapters call to read
@@ -25,7 +27,7 @@ import (
 func ParseQuery(r *http.Request) (url.Values, error) {
 	q, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
-		return nil, Status(http.StatusBadRequest, fmt.Errorf("query: %w", err))
+		return nil, maago.Status(http.StatusBadRequest, fmt.Errorf("query: %w", err))
 	}
 	return q, nil
 }
@@ -38,15 +40,15 @@ func Query[T any](q url.Values, key string, parse func(string) (T, error), requi
 	vs, ok := q[key]
 	switch {
 	case !ok && required:
-		return zero, false, Status(http.StatusBadRequest, fmt.Errorf("query %q is missing", key))
+		return zero, false, maago.Status(http.StatusBadRequest, fmt.Errorf("query %q is missing", key))
 	case !ok:
 		return zero, false, nil
 	case len(vs) > 1:
-		return zero, false, Status(http.StatusBadRequest, fmt.Errorf("query %q is given %d times", key, len(vs)))
+		return zero, false, maago.Status(http.StatusBadRequest, fmt.Errorf("query %q is given %d times", key, len(vs)))
 	}
 	v, err := parse(vs[0])
 	if err != nil {
-		return zero, false, Status(http.StatusBadRequest, fmt.Errorf("query %q: %w", key, err))
+		return zero, false, maago.Status(http.StatusBadRequest, fmt.Errorf("query %q: %w", key, err))
 	}
 	return v, true, nil
 }
@@ -57,7 +59,7 @@ func Path[T any](r *http.Request, name string, parse func(string) (T, error)) (T
 	v, err := parse(r.PathValue(name))
 	if err != nil {
 		var zero T
-		return zero, Status(http.StatusNotFound, fmt.Errorf("path %q: %w", name, err))
+		return zero, maago.Status(http.StatusNotFound, fmt.Errorf("path %q: %w", name, err))
 	}
 	return v, nil
 }
@@ -195,7 +197,7 @@ func URLFunc(routes map[string]string) func(name string, args ...any) (string, e
 		if n != len(args) {
 			return "", fmt.Errorf("route %s takes %d values, not %d", name, n, len(args))
 		}
-		return Prefix() + b.String(), nil // read now: Handler may come after the templates
+		return maago.Prefix() + b.String(), nil // read now: Handler may come after the templates
 	}
 }
 
