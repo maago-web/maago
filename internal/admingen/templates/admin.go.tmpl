@@ -1,11 +1,11 @@
 {{.Marker}}
 
-// The admin's view of the models (D-131). Its columns, its search and
-// what it hides come from the models' admin tags (D-132): change the
+// The admin's view of the models. Its columns, its search and
+// what it hides come from the models' admin tags: change the
 // tags, then run maago gen.
 {{- if .NoAdd}}
 //
-// Models with no adding in the admin (D-132):
+// Models with no adding in the admin:
 //
 {{- range .NoAdd}}
 //   - {{.}}

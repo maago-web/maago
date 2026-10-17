@@ -1,6 +1,6 @@
 package maago
 
-// Routes is an app's route table: var Routes = maago.Routes{…} (D-115).
+// Routes is an app's route table: var Routes = maago.Routes{…}.
 // maago gen reads the literal and checks it; the value does nothing at
 // run time. The code maago generates from it serves the requests.
 type Routes []Route
@@ -11,7 +11,7 @@ type Route struct{}
 
 // RouteOption is what a route may add after its view: API, NoTx,
 // Block("name"). Whether a route needs a sign-in, its view's user says:
-// u U requires one, u *U is nil for nobody (D-149).
+// u U requires one, u *U is nil for nobody.
 type RouteOption struct{ name, block string }
 
 var (
@@ -19,20 +19,20 @@ var (
 	API = RouteOption{name: "API"}
 	// NoTx lets a route that writes run its view without the request's
 	// transaction: the view takes db maago.DB, each write commits at once,
-	// and it may run a part in maago.WithTx (D-150). For a write that other
+	// and it may run a part in maago.WithTx. For a write that other
 	// requests must see before this one ends, such as an attempt a rate
 	// limit counts, or long work that must not hold the database.
 	NoTx = RouteOption{name: "NoTx"}
 )
 
 // Block makes the route render only the block name of its view's page:
-// a partial response, for HTMX (D-45). maago gen checks that the page's
+// a partial response, for HTMX. maago gen checks that the page's
 // template has it.
 func Block(name string) RouteOption { return RouteOption{"Block", name} }
 
 // GET is a route for GET (and HEAD) requests to path, named name, served
 // by view: a function of the app's package whose signature maago gen
-// checks (D-116), since views have more than one shape.
+// checks, since views have more than one shape.
 func GET(path, name string, view any, opts ...RouteOption) Route { return Route{} }
 
 // POST is GET for POST requests.

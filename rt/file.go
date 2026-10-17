@@ -29,7 +29,7 @@ func FileKinds() []string { return slices.Sorted(maps.Keys(fileKinds)) }
 // the rest goes to temporary files, which Handler removes after the route.
 const multipartMemory = 1 << 20
 
-// MultipartValues is FormValues for a form with a file field (D-139): the
+// MultipartValues is FormValues for a form with a file field: the
 // body must be multipart/form-data, since a file sent any other way is
 // lost; a 400 otherwise. Each of the form's keys may come once, as text or
 // as a file. The values it returns are the text ones; BindFile reads the

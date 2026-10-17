@@ -20,7 +20,7 @@ const CookieName = "session"
 var tokenLen = base64.RawURLEncoding.EncodedLen(32)
 
 // NewToken returns a new random token, for the cookie or a mail, and its
-// hash, for the database (D-128): a stolen database holds no token.
+// hash, for the database: a stolen database holds no token.
 func NewToken() (token, hash string) {
 	b := make([]byte, 32)
 	rand.Read(b)
@@ -37,7 +37,7 @@ func HashToken(token string) string {
 // SessionCookie is the cookie that carries token for maxAge, at path:
 // maago.Prefix(), or "/" without one. A negative maxAge removes it.
 // secure is false only for a site on http, in development: clients drop a
-// Secure cookie over http (D-128).
+// Secure cookie over http.
 func SessionCookie(token, path string, maxAge time.Duration, secure bool) *http.Cookie {
 	age := int(maxAge / time.Second)
 	if maxAge < 0 {
@@ -55,8 +55,8 @@ func SessionCookie(token, path string, maxAge time.Duration, secure bool) *http.
 }
 
 // FromSession makes a maago.Config.Auth of session, which returns the
-// user of a session's hash, and token, the user of an API token's hash
-// (D-129). A request with Authorization: Bearer is the token's, whatever
+// user of a session's hash, and token, the user of an API token's hash.
+// A request with Authorization: Bearer is the token's, whatever
 // cookie it brings: a frontend on another origin may send a stale one.
 // Without, it is the session cookie's. A nil token reads no header. A
 // request whose token or cookie is not well-formed, or whose hash find
@@ -102,7 +102,7 @@ func wellFormed(token string) bool {
 	return len(token) == tokenLen && err == nil
 }
 
-// SafeNext is next if it is a path of this site, else fallback (D-128):
+// SafeNext is next if it is a path of this site, else fallback:
 // it starts with one /, not // or /\, which browsers read as another
 // host, and holds no control character nor an encoded / or \.
 func SafeNext(next, fallback string) string {

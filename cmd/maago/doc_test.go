@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"maps"
 	"os"
 	osexec "os/exec"
 	"path/filepath"
@@ -332,20 +333,62 @@ func TestGeneratedCallsAppAPI(t *testing.T) {
 			t.Errorf("%s imports rt, which is for generated code only", p)
 		}
 	}
-	generated := corpus(t, "internal/gentest", "../../internal/web/testdata", "../../internal/mapper/testdata")
-	n := 0
-	for p, src := range generated {
-		if !strings.HasSuffix(p, "_gen.go") && !strings.HasSuffix(p, "_gen.go.golden") && !strings.Contains(p, "crud.") {
-			continue
-		}
-		n++
+	for p, src := range generatedCode(t) {
 		for _, m := range sel.FindAllStringSubmatch(src, -1) {
 			if !apps[m[1]] {
 				t.Errorf("%s calls maago.%s, which no app does: move it to rt", p, m[1])
 			}
 		}
 	}
-	if n < 20 {
-		t.Errorf("%d generated files read", n)
+}
+
+// generatedCode are the files maago generated that the tests keep: the
+// gentest packages and the generators' goldens.
+func generatedCode(t *testing.T) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	for p, src := range corpus(t, "internal/gentest", "../../internal/web/testdata", "../../internal/mapper/testdata") {
+		if strings.HasSuffix(p, "_gen.go") || strings.HasSuffix(p, "_gen.go.golden") || strings.Contains(p, "crud.") {
+			files[p] = src
+		}
+	}
+	if len(files) < 20 {
+		t.Fatalf("%d generated files read", len(files))
+	}
+	return files
+}
+
+// What a user reads says no (D-xx): the go doc of the public packages,
+// what maago copies or generates into a project (comments included), and
+// the user's documents. Each group is read as the user meets it (D-152).
+func TestNoDecisionsInUserText(t *testing.T) {
+	dnum := regexp.MustCompile(`\bD-\d`)
+	// What is left of a sentence a number was cut from: a comment line
+	// that starts with the mark, which go doc joins to the line before.
+	cut, joined := regexp.MustCompile(`^\s*//\s*[.,:;](\s|$)`), regexp.MustCompile(`\S [.,:;](\s|$)`)
+	for _, pkg := range []string{".", "./rt", "./contrib/admin", "./contrib/auth", "./maagotest"} {
+		cmd := osexec.Command("go", "doc", "-all", pkg)
+		cmd.Dir = "../.."
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("go doc -all %s: %v", pkg, err)
+		}
+		for l := range strings.Lines(string(out)) {
+			if dnum.MatchString(l) || joined.MatchString(l) {
+				t.Errorf("go doc -all %s: %s", pkg, strings.TrimSpace(l))
+			}
+		}
+	}
+	files := corpus(t, "../../internal/scaffold/testdata", "../../internal/web/templates", "../../internal/mapper/templates",
+		"../../internal/admingen/templates", "../../docs/TUTORIAL-FUTURE.md", "docs", "../../examples/board/steps")
+	// The board's steps only: its README, MAP and steps.sh are the
+	// design's record, in Korean.
+	maps.Copy(files, generatedCode(t))
+	for p, src := range files {
+		for i, l := range strings.Split(src, "\n") {
+			if dnum.MatchString(l) || cut.MatchString(l) {
+				t.Errorf("%s:%d: %s", p, i+1, strings.TrimSpace(l))
+			}
+		}
 	}
 }

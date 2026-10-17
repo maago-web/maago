@@ -18,14 +18,14 @@ import (
 	"github.com/maago-web/maago/internal/rtcore"
 )
 
-// Config is how main puts the apps together into one handler (D-114).
+// Config is how main puts the apps together into one handler.
 type Config struct {
 	DB   *sql.DB
 	Apps []App // each app's generated App value: board.App
 
 	// Origins are the other origins trusted like this one, such as
 	// "https://app.example.com": their requests pass the cross-origin
-	// check, and CORS lets their pages read the answers (D-47). Write each
+	// check, and CORS lets their pages read the answers. Write each
 	// as browsers send it in Origin: lower case, no default port.
 	Origins []string
 
@@ -41,17 +41,17 @@ type Config struct {
 	//	},
 	//
 	// What must see every request, such as timing, wraps the Handler as
-	// middleware (D-46).
+	// middleware.
 	OnError func(ctx context.Context, r *http.Request, err error)
 
 	// Messages are the errors forms show; an empty one keeps the English
-	// default (D-119).
+	// default.
 	Messages Messages
 
 	// TimeZone is where the times people enter and see are; nil is UTC.
 	TimeZone *time.Location
 
-	// Auth tells who sent r (D-121): a user, which views take as their u
+	// Auth tells who sent r: a user, which views take as their u
 	// (and func(w, r) views read with UserFrom), or nil for nobody. It runs once for each request, before
 	// the route. Its error answers as a view's does: a Status's code, else
 	// a 500. A nil pointer returned as the user is a user: return nil
@@ -62,7 +62,7 @@ type Config struct {
 	// database is in r's context: DBFrom(r.Context()).
 	Auth func(r *http.Request) (any, error)
 
-	// Prefix is the path the site is under, such as "/app", or "" (D-122).
+	// Prefix is the path the site is under, such as "/app", or "".
 	// The proxy in front takes it off before passing a request on, so routes
 	// stay as the table says; if it does not, main wraps the handler in
 	// http.StripPrefix(cfg.Prefix, h). It goes before the paths the
@@ -80,17 +80,17 @@ type Config struct {
 	// MaxBody is the most bytes the body of a request may hold, 0 for
 	// 10MB. A route that reads more answers 413, whatever the body: a
 	// form, JSON, or what a func(w, r) view reads, when the view returns
-	// the read's error before writing (D-139).
+	// the read's error before writing.
 	MaxBody int64
 
-	// MediaDir is the directory SaveMedia keeps files in (D-140), relative
+	// MediaDir is the directory SaveMedia keeps files in, relative
 	// to the working directory if not absolute. A project whose forms take
 	// files must set it, and it must exist: Handler does not make it.
 	MediaDir string
 }
 
 // App is an app's routes, as maago gen generates them into the app's App
-// value: board.App. contrib/admin makes the admin's (D-131).
+// value: board.App. contrib/admin makes the admin's.
 type App = rtcore.App
 
 // Handler serves the apps of cfg. It rejects what cfg gets wrong; the
@@ -326,8 +326,8 @@ func (h *handler) report(w *written, r *http.Request, route *rtcore.Route, code 
 	}
 }
 
-// fail writes the error response: an RFC 9457 problem for an API route
-// (D-44), plain text otherwise. Only a 4xx says why: a 500's error stays
+// fail writes the error response: an RFC 9457 problem for an API route,
+// plain text otherwise. Only a 4xx says why: a 500's error stays
 // inside, with OnError.
 func (h *handler) fail(w http.ResponseWriter, route *rtcore.Route, code int, err error) {
 	if route == nil || !route.API {
@@ -397,7 +397,7 @@ func Status(code int, err error) error { return rtcore.Status(code, err) }
 type cookiesKey struct{}
 
 // SetCookie sets c on the response of the request ctx belongs to, when the
-// response starts (D-125): a typed view signs in this way. A view that
+// response starts: a typed view signs in this way. A view that
 // returns an error sets none. It panics outside a request from Handler,
 // once the response has started, and on a cookie net/http would drop.
 func SetCookie(ctx context.Context, c *http.Cookie) {
@@ -417,7 +417,7 @@ func SetCookie(ctx context.Context, c *http.Cookie) {
 type remoteAddrKey struct{}
 
 // RemoteAddrFrom is the RemoteAddr of the request ctx belongs to, as the
-// server set it: a typed view limits attempts by it (D-128). No header is
+// server set it: a typed view limits attempts by it. No header is
 // read. Behind a proxy every request comes from the proxy, so main wraps
 // the Handler in middleware that sets r.RemoteAddr from the proxy's header,
 // such as X-Forwarded-For, only for a request from the proxy's own address:
@@ -436,7 +436,7 @@ type dbKey struct{}
 // WithDB returns ctx carrying db, as Handler gives each request: for
 // testing without HTTP the code that reads DBFrom, such as Config.Auth or
 // a func(w, r) view. A typed view takes the database as a parameter, so
-// its test passes it (D-149).
+// its test passes it.
 func WithDB(ctx context.Context, db *sql.DB) context.Context {
 	return context.WithValue(ctx, dbKey{}, db)
 }
@@ -452,7 +452,7 @@ func DBFrom(ctx context.Context) *sql.DB {
 }
 
 // Result is what a view that may redirect returns: Show(page) to render
-// the page, or SeeOther[Page](url) to send the browser elsewhere (D-116).
+// the page, or SeeOther[Page](url) to send the browser elsewhere.
 type Result[P any] struct {
 	page P
 	to   string
@@ -488,16 +488,16 @@ type userKey struct{}
 
 // WithUser returns ctx carrying user, as Handler gives each request
 // Config.Auth's answer: for testing without HTTP the code that reads
-// UserFrom. A typed view takes the user as a parameter (D-149).
+// UserFrom. A typed view takes the user as a parameter.
 func WithUser(ctx context.Context, user any) context.Context {
 	return context.WithValue(ctx, userKey{}, user)
 }
 
 // UserFrom is the user of the request, as Config.Auth told it, and
-// whether there is one (D-121). A user of another type than U is a
+// whether there is one. A user of another type than U is a
 // mismatch between Config.Auth and the view, and panics. A typed view
-// takes the user as a parameter instead, and maago gen refuses it there
-// (D-149). A func(w, r) view that needs a sign-in reads it here, and
+// takes the user as a parameter instead, and maago gen refuses it there.
+// A func(w, r) view that needs a sign-in reads it here, and
 // answers nobody itself: a 401 to an API client, a redirect to the login
 // page to a browser.
 func UserFrom[U any](ctx context.Context) (U, bool) {

@@ -30,7 +30,7 @@ import (
 // it is active: IsActive && VerifiedAt != nil.
 //
 // The admin saves a User through the rules of its model form only, not
-// through the views (D-135):
+// through the views:
 //   - The views store and look up the email in lowercase, with no spaces
 //     around it; the admin saves it as typed. Changed to Ann@example.com,
 //     the account cannot sign in, and two accounts can differ by case.

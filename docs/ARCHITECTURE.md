@@ -63,7 +63,9 @@ github.com/maago-web/maago
     ├── diag/            진단: 위치·메시지·고치는 법·읽을 곳(see), 정렬·중복 제거·출력  M0
     ├── ref/             참조의 표: `maago doc`의 주제와 검사기가 받는 닫힌 목록(태그 키·값, 머리 키,   M10
     │                      In 태그, 라우트 옵션). 검사기가 이 표를 읽는다. stdlib만, embed 없음 (D-152).
-    │                      주제의 예는 `cmd/maago/docs/`(CLI만 embed, `TestDocExamples`가 짓고 돌린다)
+    │                      주제의 예는 `cmd/maago/docs/`(CLI만 embed, `TestDocExamples`가 짓고 돌린다).
+    │                      주제마다 `API`(그 주제가 맡은 루트 export): 루트 `doc.go`는 `TestPackageDoc`이 주제의 요약·목록·이름으로
+    │                      쓰고(`-update`), 루트 export와 `API`의 합집합이 같지 않으면 실패한다(M10 11b)
     ├── pipeline/        단계 실행, 오류 수집, 메모리 생성물, 쓰기·최신성 비교    M0
     ├── golden/          골든 파일 테스트 도구 (테스트 전용)                    M0
     ├── project/         사용자 프로젝트 찾기: go.mod 루트, `./...` 파일 목록,      M1·M2

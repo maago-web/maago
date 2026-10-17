@@ -8,7 +8,7 @@ import (
 	"runtime/debug"
 )
 
-// Tx is the transaction a view that writes takes (D-150): it is a DB, so
+// Tx is the transaction a view that writes takes: it is a DB, so
 // the generated queries take it, but it cannot commit or roll back.
 // WithTx does that, for the generated adapter and for tests. On SQLite the
 // transaction holds the write lock for the whole view, so slow work (a
@@ -58,8 +58,8 @@ func (t Tx) QueryRowContext(ctx context.Context, query string, args ...any) *sql
 }
 
 // WithTx runs f in a transaction of db (the database a view with maago.NoTx
-// takes, or Config.DB) and commits it when f returns nil
-// (D-150). Any error f returns, a 422 included, rolls it back and comes
+// takes, or Config.DB) and commits it when f returns nil.
+// Any error f returns, a 422 included, rolls it back and comes
 // back as it is; a panic rolls it back and goes on. After the commit,
 // the work AfterCommit gave runs, in order. A view that takes Tx runs in
 // one; a test that calls such a view makes one with WithTx. WithTx inside
@@ -104,7 +104,7 @@ func WithTx(ctx context.Context, db DB, f func(ctx context.Context, tx Tx) error
 
 // AfterCommit gives f to the transaction of ctx, to run after it commits,
 // before the response is written: a mail that tells of a change that might
-// still roll back must wait for the commit (D-150). If the transaction
+// still roll back must wait for the commit. If the transaction
 // rolls back, f does not run. Outside a transaction f runs at once. Its
 // context is not canceled when the request ends, and its panic is logged.
 func AfterCommit(ctx context.Context, f func(ctx context.Context)) {

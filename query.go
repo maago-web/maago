@@ -12,7 +12,7 @@ var ErrManyRows = errors.New("maago: :one query returned more than one row; make
 
 // ErrConflict is what a generated Update gives when the row's version
 // (its auto=update field) is not the one the model holds: another
-// request changed it since it was read (D-150). It answers 409.
+// request changed it since it was read. It answers 409.
 var ErrConflict = rtcore.ErrConflict
 
 // ErrEmptySlice is what a generated query returns for an empty slice

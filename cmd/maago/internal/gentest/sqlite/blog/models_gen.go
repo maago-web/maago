@@ -2,7 +2,7 @@
 
 package blog
 
-// Fields that are not columns (D-18):
+// Fields that are not columns:
 //
 //   - Post.Kind: type Status is not supported
 //   - Post.Count: type int is not supported
@@ -20,7 +20,7 @@ import (
 	"github.com/maago-web/maago/rt"
 )
 
-// NewPostInput is what InsertPost takes (D-106): every column but
+// NewPostInput is what InsertPost takes: every column but
 // the ID and the auto times. A maago.Opt field left unset takes the
 // column's default; maago.Set gives any value, even the zero value.
 type NewPostInput struct {
@@ -95,7 +95,7 @@ func scanPost(rows *sql.Rows) (Post, error) {
 	return v, err
 }
 
-// NewAuthorInput is what InsertAuthor takes (D-106): every column but
+// NewAuthorInput is what InsertAuthor takes: every column but
 // the ID and the auto times. A maago.Opt field left unset takes the
 // column's default; maago.Set gives any value, even the zero value.
 type NewAuthorInput struct {

@@ -160,7 +160,7 @@ func Render(w http.ResponseWriter, pages map[string]*template.Template, page, bl
 
 // URLFunc is the url function of templates: {{url "post_detail" .ID}} is
 // the path of the route named post_detail. routes maps each route name of
-// the project to its pattern; Config.Prefix goes before it (D-122). maago
+// the project to its pattern; Config.Prefix goes before it. maago
 // gen has checked the names and the arguments; a wrong one is an error
 // here too.
 func URLFunc(routes map[string]string) func(name string, args ...any) (string, error) {
@@ -201,7 +201,7 @@ func URLFunc(routes map[string]string) func(name string, args ...any) (string, e
 	}
 }
 
-// JSON writes v as the JSON answer of an API route (D-44), or fails with
+// JSON writes v as the JSON answer of an API route, or fails with
 // nothing written.
 func JSON(w http.ResponseWriter, v any) error {
 	b, err := json.Marshal(v)

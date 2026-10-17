@@ -8,7 +8,7 @@ import (
 	"github.com/maago-web/maago/internal/rtcore"
 )
 
-// Form is embedded in every form struct (D-119): the errors of the form
+// Form is embedded in every form struct: the errors of the form
 // as a whole, and whether the request filled it in. A form's fields are
 // Field values; maago gen writes the code that reads them.
 type Form struct {
@@ -24,7 +24,7 @@ func (f *Form) AddError(msg string) { f.Errors = append(f.Errors, msg) }
 func (f Form) Bound() bool { return f.state.Bound }
 
 // Field is one field of a form: what was sent, what it means, and what is
-// wrong with it, with what a template needs to draw it (D-119).
+// wrong with it, with what a template needs to draw it.
 type Field[T any] struct {
 	Value T      // the value read; the zero value when not given or wrong
 	Raw   string // the text sent, to draw back into the input
@@ -90,7 +90,7 @@ func (m Messages) check() error {
 
 // Invalid is the error an API view returns for what it finds wrong with
 // a field, such as a title the database already has: a 422 whose errors
-// name the field (D-120). Join several with errors.Join.
+// name the field. Join several with errors.Join.
 func Invalid[T any](f *Field[T], msg string) error {
 	return rtcore.Invalid(rtcore.FieldError{Field: f.Name, Detail: msg})
 }

@@ -12,7 +12,7 @@ import (
 // Migrate applies the migrations of fsys that cfg's database has not
 // applied, as maago migrate does, with the same record and the same
 // checks: a file changed since it was applied, or an applied one with no
-// file, is an error and nothing is applied (D-153). fsys holds the
+// file, is an error and nothing is applied. fsys holds the
 // migrations directory, as //go:embed migrations gives it, so that the
 // binary migrates where the CLI is not. main calls it before OpenDB: it
 // makes a SQLite file that is not there. Each file applies in a

@@ -1,6 +1,6 @@
 # Tutorial (future): building a blog
 
-> The short tutorial of v0 (five minutes, D-69). It was first written as a picture of a framework that did not exist yet, and fitted to it as it was built.
+> The short tutorial of v0 (five minutes). It was first written as a picture of a framework that did not exist yet, and fitted to it as it was built.
 > `TestShortTutorial` in `cmd/maago` follows §2–5 as written, with this document's commands, files and output (M9 3).
 > What was written without a decision is collected in the [assumptions](#assumptions) at the end. When the document turns out wrong, the document is fixed.
 
@@ -120,7 +120,7 @@ Put `max` back and run it again: this time it says what to do next.
 ```
 auth/urls.go:5:5: app auth has routes, but no package uses auth.App
   fix: add auth.App to maago.Config.Apps in main, then run maago gen: go build works after gen
-  see: maago doc view
+  see: maago doc main
 ```
 
 `auth.App` goes into `main` in §5, and `maago gen` writes the generated files (`*_gen.go`) then. Do not
@@ -205,7 +205,6 @@ import (
 	"context"
 	"flag"
 	"log"
-	"net/http"
 	"os"
 
 	"github.com/maago-web/maago"
@@ -249,7 +248,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Fatal(http.ListenAndServe(":"+port, h))
+	log.Fatal(maago.Serve(ctx, ":"+port, h)) // stops on Ctrl-C, letting requests finish
 }
 ```
 
@@ -509,12 +508,3 @@ when a generated file was changed by hand or `maago gen` was forgotten. One comm
 - Wrong names in routes, views and templates were caught before a browser opened.
 - Every error said where it was and how to fix it.
 
----
-
-## Assumptions
-
-What this document wrote without a decision in [DECISIONS.md](DECISIONS.md).
-
-| Where | Assumption | Related |
-|---|---|---|
-| — | None left. The error texts of §7 are held to the letter by the board tutorial's `Maago-Expect` in 0020 (the texts of §3, §6 and §8 are real output too) | D-62, D-114 |

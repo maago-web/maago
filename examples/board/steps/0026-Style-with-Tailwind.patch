@@ -75,7 +75,7 @@ index c92fdca..82fb705 100644
  }
  
 +// The pages link the stylesheet by a name with its content's hash, which
-+// browsers keep for a year (D-137).
++// browsers keep for a year.
 +func TestStylesheet(t *testing.T) {
 +	h, _ := app(t)
 +	_, body := get(h, HomeURL())

@@ -106,7 +106,7 @@ func serveAPINoticeCreate(w http.ResponseWriter, r *http.Request) error {
 
 // bindBoardForm reads form BoardForm from the values the request sent, or
 // for a GET or HEAD, which sends none, only describes its fields, for
-// drawing it empty (D-119).
+// drawing it empty.
 func bindBoardForm(r *http.Request, vals url.Values, f *BoardForm) {
 	rt.BindString(r.Context(), vals, &f.Name, rt.Rule{Name: "name", Label: "이름", Max: 50})
 	rt.BindString(r.Context(), vals, &f.Kind, rt.Rule{Name: "kind", Label: "Kind", Choices: []string{"free", "notice"}, Optional: true})
@@ -118,7 +118,7 @@ func bindBoardForm(r *http.Request, vals url.Values, f *BoardForm) {
 
 // bindNoticeForm reads form NoticeForm from the values the request sent, or
 // for a GET or HEAD, which sends none, only describes its fields, for
-// drawing it empty (D-119).
+// drawing it empty.
 func bindNoticeForm(r *http.Request, vals url.Values, f *NoticeForm) {
 	rt.BindString(r.Context(), vals, &f.Title, rt.Rule{Name: "title", Label: "제목", Help: "짧게", Min: 2, Max: 200})
 	rt.BindInt32(r.Context(), vals, &f.Days, rt.Rule{Name: "days", Label: "Days", MinValue: "1", MaxValue: "30"})
@@ -134,7 +134,7 @@ func bindNoticeForm(r *http.Request, vals url.Values, f *NoticeForm) {
 	rt.FinishForm(&f.Form, vals != nil, ok())
 }
 
-// invalidNoticeForm is the 422 of form NoticeForm on an API route (D-120).
+// invalidNoticeForm is the 422 of form NoticeForm on an API route.
 func invalidNoticeForm(f *NoticeForm) error {
 	return rt.Unprocessable([]rt.FieldError{
 		{Field: f.Title.Name, Detail: f.Title.Error},

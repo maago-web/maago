@@ -9,7 +9,7 @@ import (
 	"github.com/maago-web/maago/rt"
 )
 
-// App is this app's routes, to put in maago.Config.Apps (D-114).
+// App is this app's routes, to put in maago.Config.Apps.
 var App = rt.NewApp("example.com/app/site", nil,
 	rt.AppRoute{Method: "GET", Path: "/{$}", Name: "home", Serve: serveHome},
 	rt.AppRoute{Method: "GET", Path: "/posts/{id}", Name: "post_detail", Serve: servePostDetail},

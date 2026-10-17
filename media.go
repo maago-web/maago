@@ -13,7 +13,7 @@ import (
 	"os"
 )
 
-// Media is a file SaveMedia kept in Config.MediaDir (D-140): its key,
+// Media is a file SaveMedia kept in Config.MediaDir: its key,
 // the name and type it came with, and its size. Keep the four in a
 // model's row, and give the value back to ServeMedia.
 type Media struct {
@@ -126,7 +126,7 @@ func DeleteMedia(ctx context.Context, key string) error {
 	return nil
 }
 
-// ServeMedia answers r with m's file, to download (D-140): never shown
+// ServeMedia answers r with m's file, to download: never shown
 // as a page of the site, so an HTML or SVG file someone sent does not
 // run there, while <img> still draws an image. It answers 404 itself
 // when there is no such file. A func(w, r) view calls it once it has

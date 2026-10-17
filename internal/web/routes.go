@@ -361,8 +361,8 @@ func Check(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 			errAt(app.Pos, "route table of "+app.Name+" is empty", "add a route, or remove the table")
 		}
 		if !app.Used {
-			errAt(app.Pos, "app "+app.Name+" has routes, but no package uses "+app.Name+".App",
-				"add "+app.Name+".App to maago.Config.Apps in main, then run maago gen: go build works after gen")
+			ds = append(ds, diag.See(ref.Main, []diag.Diagnostic{diag.New(fset.Position(app.Pos), "app "+app.Name+" has routes, but no package uses "+app.Name+".App",
+				"add "+app.Name+".App to maago.Config.Apps in main, then run maago gen: go build works after gen")})...)
 		}
 		for i := range app.Routes {
 			r := &app.Routes[i]

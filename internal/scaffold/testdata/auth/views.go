@@ -93,7 +93,7 @@ func LoginSubmit(ctx context.Context, db maago.DB, in LoginIn) (maago.Result[Log
 
 // limit records an attempt at action, "login" or "mail", for the email
 // from the request's IP, and refuses it with 429 when the email or the
-// IP has had too many in AttemptWindow (D-128). It records first and
+// IP has had too many in AttemptWindow. It records first and
 // counts after: of requests at once, each counts every row recorded
 // before, so no more than the limit get through. A refused attempt stays
 // recorded. It returns the attempt's ID, for a sign-in to take back.

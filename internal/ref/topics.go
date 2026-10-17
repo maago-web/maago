@@ -3,6 +3,60 @@ package ref
 // Topics are the topics of maago doc, in the order a project meets them.
 var Topics = []*Topic{
 	{
+		Name:  Main,
+		Title: "main.go",
+		Summary: `main.go puts the project together: it migrates the database, opens it, gives
+each app's App to maago.Handler with the project's settings, and serves the
+handler with maago.Serve.`,
+		Text: `A main:
+
+	//go:embed migrations
+	var migrations embed.FS // the migrations, in the binary
+
+	func main() {
+		ctx := context.Background()
+		if _, err := maago.Migrate(ctx, maago.DBConfig{}, migrations); err != nil {
+			log.Fatal(err)
+		}
+		db, err := maago.OpenDB(ctx, maago.DBConfig{})
+		if err != nil {
+			log.Fatal(err)
+		}
+		h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{blog.App}})
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Fatal(maago.Serve(ctx, ":8000", h))
+	}
+
+main imports the database driver, _ "modernc.org/sqlite" or
+_ "github.com/jackc/pgx/v5/stdlib": maago does not. maago.DBConfig{} is
+MAAGO_DATABASE_URL, from the environment or .env in the working directory:
+sqlite:app.db or postgres://….
+
+  - Migrate applies the migrations the database has not, as maago migrate
+    does, and refuses a changed or missing one. It comes before OpenDB, which
+    needs the SQLite file to exist. Two copies starting at once apply each
+    file once.
+  - Handler refuses a Config it cannot serve, such as: no DB, no Apps, an app twice,
+    routes that take the user without Config.Auth, a form with a file
+    without Config.MediaDir.
+  - Config: Apps (each app's generated App, and admin.App), Auth and
+    LoginURL (maago doc auth), Origins (other origins to trust, for
+    cross-origin POSTs and CORS), OnError (hears every 5xx), Messages (the
+    forms' errors; maago.DefaultMessages has the English ones), TimeZone
+    (where people's times are; nil is UTC), Prefix (the path the site is
+    under, such as /app), MaxBody (0 is 10MB), MediaDir.
+  - Serve stops on SIGINT or SIGTERM: no new connections, the running
+    requests finish within 30 seconds. TLS is a proxy's in front, or an
+    http.Server of main's.
+
+Settings of an app, such as a webhook's URL, are the app's own package
+variables, which main fills in before Handler. A test of the whole site
+calls the function that makes the handler, as main does.`,
+		API: []string{"Handler", "Config", "App", "DBConfig", "OpenDB", "Migrate", "Serve", "Messages", "DefaultMessages", "Prefix"},
+	},
+	{
 		Name:  Model,
 		Title: "Models",
 		Summary: `A model is a struct of an app's package that embeds maago.Model. Its fields are
@@ -48,6 +102,7 @@ auto=update field it writes only the row it read: a row changed since is
 maago.ErrConflict, a 409. Do not name your own functions or types after
 these. maago doc query has the queries beyond them.`,
 		Lists: []*List{FieldTypes, FieldTags, ModelTags},
+		API:   []string{"Model", "Opt", "Set", "Ptr", "ErrConflict"},
 	},
 	{
 		Name:  Query,
@@ -127,6 +182,7 @@ or choices: a nil or empty slice is none, and choices name their own none
 start with an uppercase letter; params and columns are lowercase
 snake_case.`,
 		Lists: []*List{QueryKeys, QueryKinds},
+		API:   []string{"DB", "ErrManyRows", "ErrEmptySlice"},
 	},
 	{
 		Name:  View,
@@ -187,6 +243,7 @@ maago.NoTx is not in the fix of the error about a writing view that takes
 maago.DB: its only use is a write that must stay when the view then fails,
 and that is a decision, not a repair.`,
 		Lists: []*List{Methods, RouteOptions, InTags},
+		API:   []string{"Routes", "Route", "RouteOption", "GET", "POST", "PUT", "PATCH", "DELETE", "API", "NoTx", "Block", "Result", "Show", "SeeOther", "Status", "Tx", "WithTx", "AfterCommit", "DBFrom", "WithDB"},
 	},
 	{
 		Name:  Form,
@@ -226,7 +283,16 @@ field read and passed its rules and Validate added no error:
 	}
 
 A maago.File field is read from a multipart form (enctype="multipart/form-data"),
-and needs maago.Config.MediaDir; maago.SaveMedia keeps the file.
+and needs maago.Config.MediaDir; maago.SaveMedia keeps the file. A field
+takes one file, from an HTML form: an API route takes none. Its kind is
+what the content's first bytes say, not its name; zip includes .docx and
+.xlsx. The File lives as long as the request.
+
+Media stays in Config.MediaDir, on this machine. A file no row points at
+stays: delete it with maago.DeleteMedia when you delete the row (the admin
+does not); one saved by a request that failed before writing its row stays
+too. No route serves the directory: a view checks who asks, then
+calls maago.ServeMedia, which sends a download.
 
 A field has Value, Raw (what was sent, to draw back), Error, and Name,
 Label, Help and Choices for the template. An empty value, one that does
@@ -246,6 +312,7 @@ field was read. A check that needs the database goes in the view: set the
 field's Error and maago.Show the page again; an API view returns
 maago.Invalid(&f.Title, "…") or maago.InvalidForm("…"), a 422.`,
 		Lists: []*List{FormTypes, FormTags},
+		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "File", "Media", "SaveMedia", "OpenMedia", "DeleteMedia", "ServeMedia", "WithMediaDir"},
 	},
 	{
 		Name:  Template,
@@ -276,8 +343,13 @@ function returns, it reports: compute it into a field of the page.
 
 Static files are an app's static/ directory: {{static "blog/site.css"}}
 gives its URL under /static/blog/, with the content's hash in the name so
-browsers may keep it. No route may be under /static/. maago tailwind writes
-static/tailwind.css from the app's tailwind.css.`,
+browsers may keep it, and they are embedded: a change shows after go
+build. They are not compressed: a proxy in front does that. No route may
+be under /static/. maago tailwind writes static/tailwind.css from the
+app's tailwind.css. It finds the classes written as they are, not one a
+template builds such as "bg-" + .Color. Run it again after changing
+classes: maago gen and check do not see a static/tailwind.css older than
+the templates.`,
 		Lists: []*List{TemplateFuncs},
 	},
 	{
@@ -322,6 +394,7 @@ The form fields are email and password.
 
 The security parts, such as password hashing, are in the library
 (github.com/maago-web/maago/contrib/auth): go get -u brings their fixes.`,
+		API: []string{"UserFrom", "WithUser", "SetCookie", "RemoteAddrFrom"},
 	},
 	{
 		Name:  Admin,

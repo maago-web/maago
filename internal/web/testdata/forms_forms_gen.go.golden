@@ -7,15 +7,13 @@ import (
 )
 
 // Valid reports whether form BoardForm was sent and has no error: neither
-// its own nor one of its fields', which binding, Validate or the view set
-// (D-119).
+// its own nor one of its fields', which binding, Validate or the view set.
 func (f BoardForm) Valid() bool {
 	return rt.FormValid(f.Form) && f.Name.Error == "" && f.Kind.Error == ""
 }
 
 // Valid reports whether form NoticeForm was sent and has no error: neither
-// its own nor one of its fields', which binding, Validate or the view set
-// (D-119).
+// its own nor one of its fields', which binding, Validate or the view set.
 func (f NoticeForm) Valid() bool {
 	return rt.FormValid(f.Form) && f.Title.Error == "" && f.Days.Error == "" && f.Rate.Error == "" && f.Pinned.Error == "" && f.Start.Error == ""
 }

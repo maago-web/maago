@@ -5,7 +5,7 @@ import (
 	"mime/multipart"
 )
 
-// File is a file a form's file field received (D-139). It lives as long
+// File is a file a form's file field received. It lives as long
 // as the request: keep it with SaveMedia, or Open it, in the view.
 type File struct {
 	Name string // the name it was sent under, for showing: never a path to write to

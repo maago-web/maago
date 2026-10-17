@@ -10,7 +10,7 @@ import (
 	"github.com/maago-web/maago/rt"
 )
 
-// NewNoteInput is what InsertNote takes (D-106): every column but
+// NewNoteInput is what InsertNote takes: every column but
 // the ID and the auto times.
 type NewNoteInput struct {
 	Body string

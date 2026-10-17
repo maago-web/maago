@@ -23,7 +23,7 @@ type Message struct {
 	Body    string
 }
 
-// Mail sends m (D-126). main sets it, to SMTP(…) or ConsoleMail; tests
+// Mail sends m. main sets it, to SMTP(…) or ConsoleMail; tests
 // use maagotest.Mailbox. Until then it fails: a mail is never dropped.
 var Mail = func(ctx context.Context, m Message) error {
 	return errors.New("auth: Mail is not set; main sets auth.Mail to auth.SMTP(addr, from, a) or auth.ConsoleMail")

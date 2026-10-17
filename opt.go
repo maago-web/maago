@@ -1,7 +1,7 @@
 package maago
 
 // Opt is a value that may be left unset: its zero value is unset. The
-// generated NewXInput types use it for fields with a default (D-106), so
+// generated NewXInput types use it for fields with a default, so
 // that a field left out takes its default and a zero value goes in only
 // when given with Set.
 type Opt[T any] struct {

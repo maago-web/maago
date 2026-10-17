@@ -12,7 +12,7 @@ import (
 	"github.com/maago-web/maago/rt"
 )
 
-// NewCustomerInput is what InsertCustomer takes (D-106): every column but
+// NewCustomerInput is what InsertCustomer takes: every column but
 // the ID and the auto times.
 type NewCustomerInput struct {
 	Name string
@@ -68,7 +68,7 @@ func scanCustomer(rows *sql.Rows) (Customer, error) {
 	return v, err
 }
 
-// NewOrderInput is what InsertOrder takes (D-106): every column but
+// NewOrderInput is what InsertOrder takes: every column but
 // the ID and the auto times. A maago.Opt field left unset takes the
 // column's default; maago.Set gives any value, even the zero value.
 type NewOrderInput struct {

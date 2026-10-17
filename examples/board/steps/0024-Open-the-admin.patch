@@ -22,7 +22,8 @@ superuser, and for other staff what their rows of permission
 But maago gen refuses:
 
     board/models.go:12:6: app board has models, but no package uses board.Admin
-      fix: add board.Admin to admin.Config.Models in main (D-131), then run maago gen: go build works after gen
+      fix: add board.Admin to admin.Config.Models in main, then run maago gen: go build works after gen
+      see: maago doc admin
 
 Models was given auth.Admin alone. An app with models left out would
 have its models vanish from the admin without a word; it is an error

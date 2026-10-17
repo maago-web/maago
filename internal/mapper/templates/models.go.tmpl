@@ -2,7 +2,7 @@
 
 package {{.Package}}
 {{if .Unsupported}}
-// Fields that are not columns (D-18):
+// Fields that are not columns:
 //
 {{range .Unsupported}}//   - {{.}}
 {{end}}{{end}}
@@ -10,7 +10,7 @@ import (
 {{range .Imports}}{{if .}}	"{{.}}"{{end}}
 {{end}})
 {{range .Models}}
-// New{{.Name}}Input is what Insert{{.Name}} takes (D-106): every column but
+// New{{.Name}}Input is what Insert{{.Name}} takes: every column but
 // the ID and the auto times.{{if .Defaults}} A maago.Opt field left unset takes the
 // column's default; maago.Set gives any value, even the zero value.{{end}}
 type New{{.Name}}Input struct {

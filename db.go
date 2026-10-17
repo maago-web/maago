@@ -27,13 +27,15 @@ type DB interface {
 var _, _, _ DB = (*sql.DB)(nil), (*sql.Tx)(nil), (*sql.Conn)(nil)
 
 // DBConfig tells OpenDB which database to open and how big its pool is.
-// A zero field takes the default of D-101. A negative one is passed on,
+// A zero field takes the default: on PostgreSQL 20 open and 5 idle
+// connections, a lifetime of 30 minutes and an idle time of 5; on SQLite
+// 4 open and 4 idle. A negative one is passed on,
 // and database/sql reads it as 0: no limit on open connections, no idle
 // connections kept, no lifetime or idle time.
 type DBConfig struct {
 	// URL is sqlite:FILE or postgres://…, as for the CLI. Empty means
 	// MAAGO_DATABASE_URL: the environment variable, else .env in the
-	// working directory (D-101). A relative SQLite file is from the
+	// working directory. A relative SQLite file is from the
 	// working directory, and must exist: maago migrate makes it.
 	URL string
 
@@ -43,7 +45,7 @@ type DBConfig struct {
 
 // OpenDB opens the application's database and checks that it answers.
 // main must import the driver: _ "modernc.org/sqlite" or
-// _ "github.com/jackc/pgx/v5/stdlib" (D-90). SQLite connections enforce
+// _ "github.com/jackc/pgx/v5/stdlib". SQLite connections enforce
 // foreign keys, wait up to 5 seconds for a lock, and use WAL.
 func OpenDB(ctx context.Context, cfg DBConfig) (*sql.DB, error) {
 	d, url, driver, err := database(cfg)
@@ -89,7 +91,7 @@ func OpenDB(ctx context.Context, cfg DBConfig) (*sql.DB, error) {
 }
 
 // database is the dialect, address and driver of cfg's database, by the
-// same rules and messages as the CLI (D-97): DBConfig.URL wins, and .env
+// same rules and messages as the CLI: DBConfig.URL wins, and .env
 // is not read then. The driver must be registered.
 func database(cfg DBConfig) (d project.Dialect, url, driver string, err error) {
 	var ds []diag.Diagnostic

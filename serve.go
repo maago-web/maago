@@ -18,7 +18,7 @@ import (
 const shutdownWait = 30 * time.Second
 
 // Serve serves h on addr until ctx ends or the process gets SIGINT or
-// SIGTERM (D-153). Then it stops taking connections and waits up to 30
+// SIGTERM. Then it stops taking connections and waits up to 30
 // seconds for the requests that are running, the work they gave
 // AfterCommit included; a second signal kills the process at once. It
 // returns nil after a stop in which every request finished. A request may

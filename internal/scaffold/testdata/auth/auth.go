@@ -73,7 +73,7 @@ func RequireStaff(u User) error {
 // superusers (TestAppName checks it).
 const appName = "auth"
 
-// Can is the admin's Config.Can (D-133): may the user of the request do
+// Can is the admin's Config.Can: may the user of the request do
 // action to the model of the app? Not a staff user: no, even a superuser.
 // A superuser: yes. Any other staff user: what a Permission row allows,
 // but never to add, change or delete a User or a Permission, which would
@@ -122,7 +122,7 @@ func CreateSuperuser(ctx context.Context, db maago.DB, email, password string) (
 func cookiePath() string { return cmp.Or(maago.Prefix(), "/") }
 
 // cookieSecure is whether the session cookie is Secure: unless SiteURL is
-// a right http one (D-128).
+// a right http one.
 func cookieSecure() bool {
 	site, err := siteURL()
 	return err != nil || !strings.HasPrefix(site, "http://")

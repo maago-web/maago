@@ -53,7 +53,7 @@ func Show(label string, v any) Input {
 }
 
 // Raw is v as its input draws it: a time to the microsecond in
-// Config.TimeZone, as the database keeps it (D-105), so that a field left
+// Config.TimeZone, as the database keeps it, so that a field left
 // alone is saved as it was; a bool as a checkbox sends it; a *bool as
 // its select's choice; nil as an empty input.
 func Raw(v any) string {
@@ -152,7 +152,7 @@ func CountRefs(ctx context.Context, db maago.DB, id int64, row string, refs []Re
 }
 
 // Like is the pattern of a search: text, trimmed, between %s with its
-// \, % and _ escaped by \, or nil for no search (D-134).
+// \, % and _ escaped by \, or nil for no search.
 func Like(text string) *string {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -199,7 +199,7 @@ func ID(v string) (*int64, error) {
 }
 
 // NoAdding is the error of the form of a new row of a model that has no
-// adding (D-132): the add page is not there.
+// adding: the add page is not there.
 func NoAdding(model string) error {
 	return maago.Status(http.StatusNotFound, fmt.Errorf("admin: %s has no adding", model))
 }
@@ -213,7 +213,7 @@ func Updated(n int64, err error) error {
 	return err
 }
 
-// Version is the version the form of a row carries, as _version (D-150):
+// Version is the version the form of a row carries, as _version:
 // read, the row's, to draw; to save, the one the form was opened with,
 // which a POST must send.
 func Version(vals url.Values, read time.Time) (time.Time, error) {

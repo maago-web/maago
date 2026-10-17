@@ -1,7 +1,7 @@
 // Package auth is the security half of the auth app that maago add copies
-// into a project (D-123): the parts that must be right, here so that go
-// get -u fixes them for every project. It knows no user type (D-51) and
-// uses the standard library only (D-09).
+// into a project: the parts that must be right, here so that go
+// get -u fixes them for every project. It knows no user type and
+// uses the standard library only.
 package auth
 
 import (
@@ -21,17 +21,17 @@ import (
 	"unicode/utf8"
 )
 
-// Iterations is the PBKDF2 rounds of a new hash (D-127). Tests and the
+// Iterations is the PBKDF2 rounds of a new hash. Tests and the
 // tutorial lower it before they serve anything; main leaves it alone. A
 // hash with other rounds is redone at its next sign-in. Hash and Check
 // panic when it is outside 1 to 10,000,000.
 var Iterations = 600_000
 
 // maxIterations bounds the rounds a stored hash may ask for: past it the
-// hash is broken, so that a hash cannot make every sign-in slow (D-127).
+// hash is broken, so that a hash cannot make every sign-in slow.
 const maxIterations = 10_000_000
 
-// maxPassword is the longest password in bytes, UTF-8 as given (D-127);
+// maxPassword is the longest password in bytes, UTF-8 as given;
 // maxEncoded the longest stored hash Check reads.
 const maxPassword, maxEncoded = 4096, 256
 
@@ -113,7 +113,7 @@ func rounds() int {
 }
 
 // PasswordRule checks a new password, with about the user's own words that
-// it must not be like (D-15): the email, and what a project adds.
+// it must not be like: the email, and what a project adds.
 type PasswordRule func(password string, about []string) error
 
 // ValidatePassword checks password against rules, and returns the errors

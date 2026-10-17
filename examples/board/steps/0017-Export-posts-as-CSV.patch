@@ -57,7 +57,7 @@ index 0000000..b3d93b8
 +
 +// ExportBoard sends a board's posts as a CSV file, a page of rows at a
 +// time, so a long board never sits whole in memory. A CSV is not a page,
-+// so this is an escape view (D-41): an http.HandlerFunc, which reads the
++// so this is an escape view: an http.HandlerFunc, which reads the
 +// path and writes the response itself.
 +func ExportBoard(w http.ResponseWriter, r *http.Request) {
 +	ctx, db := r.Context(), maago.DBFrom(r.Context())

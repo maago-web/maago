@@ -161,14 +161,17 @@ board/urls.go:7:12: route GET /x conflicts with a (board/urls.go:6): a request c
 # unused
 board/urls.go:5:5: app board has routes, but no package uses board.App
   fix: add board.App to maago.Config.Apps in main, then run maago gen: go build works after gen
+  see: maago doc main
 
 # used by a test only
 board/urls.go:5:5: app board has routes, but no package uses board.App
   fix: add board.App to maago.Config.Apps in main, then run maago gen: go build works after gen
+  see: maago doc main
 
 # another App used
 board/urls.go:5:5: app board has routes, but no package uses board.App
   fix: add board.App to maago.Config.Apps in main, then run maago gen: go build works after gen
+  see: maago doc main
 
 # app dot-imported
 main.go:3:8: app board is dot-imported

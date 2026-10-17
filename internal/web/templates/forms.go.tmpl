@@ -7,8 +7,7 @@ import (
 {{end}})
 {{range .Forms}}
 // Valid reports whether form {{.Name}} was sent and has no error: neither
-// its own nor one of its fields', which binding, Validate or the view set
-// (D-119).
+// its own nor one of its fields', which binding, Validate or the view set.
 func (f {{.Name}}) Valid() bool {
 	return rt.FormValid(f.Form){{range .Fields}} && f.{{.Name}}.Error == ""{{end}}
 }

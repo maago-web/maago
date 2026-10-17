@@ -25,7 +25,8 @@ makemigrations writes the six tables to 0003. But maago gen still
 refuses:
 
     auth/urls.go:5:5: app auth has routes, but no package uses auth.App
-      fix: add auth.App to maago.Config.Apps in main (D-114), then run maago gen: go build works after gen
+      fix: add auth.App to maago.Config.Apps in main, then run maago gen: go build works after gen
+      see: maago doc main
 
 main must use an app that has routes. The next commit does.
 

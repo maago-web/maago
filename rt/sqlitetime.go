@@ -6,12 +6,12 @@ import (
 	"time"
 )
 
-// sqliteLayout is how SQLite stores a time.Time (D-105): UTC, a space, six
+// sqliteLayout is how SQLite stores a time.Time: UTC, a space, six
 // digits of microseconds, no zone. Its text order is time order, and it
 // compares right with datetime('now').
 const sqliteLayout = "2006-01-02 15:04:05.000000"
 
-// SQLiteTime is t as SQLite stores it (D-105).
+// SQLiteTime is t as SQLite stores it.
 func SQLiteTime(t time.Time) string { return t.UTC().Format(sqliteLayout) }
 
 // SQLiteNullTime is t as SQLite stores it, or nil for NULL.

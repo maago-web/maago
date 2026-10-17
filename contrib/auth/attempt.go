@@ -6,7 +6,7 @@ import (
 )
 
 // ClientIP is who a request with remoteAddr comes from, for limiting
-// attempts (D-128): the IP without the port and zone, an IPv4 address in
+// attempts: the IP without the port and zone, an IPv4 address in
 // IPv6 as IPv4, and an IPv6 address as its /64, the block one subscriber
 // commonly gets, so that changing addresses inside it does not escape the
 // limit. A remoteAddr it cannot read is itself.

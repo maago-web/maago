@@ -16,7 +16,7 @@ type Inbox struct {
 }
 
 // Mailbox makes auth.Mail put mail in a new Inbox until t ends, instead
-// of sending it (D-126). It replaces a package variable, so a test that
+// of sending it. It replaces a package variable, so a test that
 // calls t.Parallel does not use it.
 func Mailbox(t testing.TB) *Inbox {
 	b := &Inbox{}

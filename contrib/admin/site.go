@@ -20,7 +20,7 @@ import (
 	"github.com/maago-web/maago/rt"
 )
 
-// What Can is asked to allow (D-133): the words of the Action of the
+// What Can is asked to allow: the words of the Action of the
 // copied auth's Permission rows.
 const (
 	View   = "view"
@@ -35,14 +35,14 @@ type Config struct {
 	Models [][]Model
 
 	// Can tells whether the user of ctx may do action to the model named
-	// model of the app named app (D-133): the copied auth's Can. ctx holds
+	// model of the app named app: the copied auth's Can. ctx holds
 	// the user (maago.UserFrom) and the database (maago.DBFrom). A model
 	// whose view it refuses is not in the index, and its pages are 403.
 	// Its error, such as the database's, answers 500.
 	Can func(ctx context.Context, app, model, action string) (bool, error)
 }
 
-// pageSize is the rows of a page of a list (D-134).
+// pageSize is the rows of a page of a list.
 const pageSize = 50
 
 //go:embed templates admin.css
@@ -51,7 +51,7 @@ var files embed.FS
 var pages = rt.Pages(files, template.FuncMap{"cell": cell, "css": css}, "index.html", "list.html", "form.html", "delete.html")
 
 // App is the admin's routes, under Prefix, for main's Config.Apps: each
-// requires login (D-121). It panics on a Config that cannot work, as main
+// requires login. It panics on a Config that cannot work, as main
 // makes it once at start.
 func App(cfg Config) maago.App {
 	if cfg.Can == nil {
@@ -112,7 +112,7 @@ type site struct {
 	heads  map[*Model][]string // the labels of each model's List
 }
 
-// home is the index's path, under maago.Config.Prefix (D-122).
+// home is the index's path, under maago.Config.Prefix.
 func home() string { return maago.Prefix() + Prefix }
 
 func listURL(m *Model) string { return home() + m.App + "/" + m.Name + "/" }
@@ -121,7 +121,7 @@ func rowURL(m *Model, id int64) string { return listURL(m) + strconv.FormatInt(i
 
 type link struct{ Name, URL string }
 
-// index lists the models the user may view, by app; none is 403 (D-131).
+// index lists the models the user may view, by app; none is 403.
 func (s *site) index(w http.ResponseWriter, r *http.Request) error {
 	type app struct {
 		Name   string
@@ -150,7 +150,7 @@ func (s *site) index(w http.ResponseWriter, r *http.Request) error {
 
 // list is a page of a model's rows. Can comes first, so a user it refuses
 // learns nothing of which models there are. A page past the last is
-// empty (D-134), and no rows are read for it.
+// empty, and no rows are read for it.
 func (s *site) list(w http.ResponseWriter, r *http.Request) error {
 	ctx := r.Context()
 	m, err := s.model(r, View)
@@ -428,7 +428,7 @@ func (w *conflicted) Write(p []byte) (int, error) {
 	return w.ResponseWriter.Write(p)
 }
 
-// delete deletes the rows of the ids, all of them or none (D-135): a GET
+// delete deletes the rows of the ids, all of them or none: a GET
 // shows each row, and what refers to it; a POST counts again, and
 // deletes them, in the transaction it counted in, only if nothing refers
 // to any and all are there, else shows the same page.
@@ -534,7 +534,7 @@ func deleteIDs(r *http.Request) ([]int64, error) {
 }
 
 // cell is a cell's text; html/template escapes it. The types are the
-// columns' (D-77), so another is a bug of maago.
+// columns', so another is a bug of maago.
 func cell(v any) (string, error) {
 	switch v := v.(type) {
 	case string:

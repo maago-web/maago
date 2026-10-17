@@ -11,7 +11,7 @@ import (
 var maagoStaticFiles embed.FS
 
 // maagoStatic are the files of static/, with the names the project's
-// templates ask for (D-136).
+// templates ask for.
 var maagoStatic = rt.Static({{printf "%q" .Package}}, maagoStaticFiles{{range .Used}}, {{printf "%q" .}}{{end}})
 {{end}}{{if .HTML}}
 //go:embed templates/*.html
@@ -83,7 +83,7 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 {{- end}}
 {{- if .Tx}}
 	// The view runs in a transaction, and its page is drawn before the
-	// commit: one that fails to draw rolls it back (D-150).
+	// commit: one that fails to draw rolls it back.
 	b := rt.NewBuffer()
 {{- if .Result}}
 	to := ""
@@ -144,7 +144,7 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 {{- range .Forms}}
 // bind{{.Name}} reads form {{.Name}} from the values the request sent, or
 // for a GET or HEAD, which sends none, only describes its fields, for
-// drawing it empty (D-119).
+// drawing it empty.
 func bind{{.Name}}(r *http.Request, vals url.Values, f *{{.Name}}) {
 {{- range .Fields}}
 	rt.{{.Bind}}({{.Arg}}, vals, &f.{{.Name}}, {{.Rule}})
@@ -161,7 +161,7 @@ func bind{{.Name}}(r *http.Request, vals url.Values, f *{{.Name}}) {
 }
 {{- if .API}}
 
-// invalid{{.Name}} is the 422 of form {{.Name}} on an API route (D-120).
+// invalid{{.Name}} is the 422 of form {{.Name}} on an API route.
 func invalid{{.Name}}(f *{{.Name}}) error {
 	return rt.Unprocessable([]rt.FieldError{
 {{- range .Fields}}

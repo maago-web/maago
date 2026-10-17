@@ -19,6 +19,7 @@ const (
 	Template = "template"
 	Auth     = "auth"
 	Admin    = "admin"
+	Main     = "main"
 )
 
 // Topic is one page of maago doc.
@@ -27,6 +28,7 @@ type Topic struct {
 	Summary     string // one paragraph
 	Text        string
 	Lists       []*List
+	API         []string // the names of package maago it explains, for its go doc
 }
 
 // List is a closed list: each Item is one name a checker accepts.

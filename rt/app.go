@@ -18,9 +18,9 @@ import (
 type AppRoute struct {
 	Method, Path, Name string
 	API                bool
-	LoginRequired      bool // a request without a user does not reach Serve (D-121)
-	User               bool // its view takes the user (D-149): Config.Auth is needed
-	Files              bool // it reads a form with a file: Config.MediaDir is needed (D-140)
+	LoginRequired      bool // a request without a user does not reach Serve
+	User               bool // its view takes the user: Config.Auth is needed
+	Files              bool // it reads a form with a file: Config.MediaDir is needed
 	Serve              func(w http.ResponseWriter, r *http.Request) error
 }
 
@@ -34,7 +34,7 @@ func NewApp(name string, static *StaticFiles, routes ...AppRoute) maago.App {
 	return rtcore.NewApp(name, static, rs...)
 }
 
-// StaticFiles are an app's static/ (D-136): each file under its own name
+// StaticFiles are an app's static/: each file under its own name
 // and a name with the hash of its content, which never changes, so
 // browsers keep it.
 type StaticFiles = rtcore.StaticFiles
@@ -42,17 +42,17 @@ type StaticFiles = rtcore.StaticFiles
 // Static reads static/ of fsys, the app's embedded files, for the generated
 // code of the app whose package is named app. names are the files the
 // project's templates ask for with {{static}}; maago gen has checked them,
-// and a missing one panics here, as the process starts (D-136).
+// and a missing one panics here, as the process starts.
 func Static(app string, fsys fs.FS, names ...string) *StaticFiles {
 	return rtcore.Static(app, fsys, names...)
 }
 
 // StaticFunc is the static function of templates: {{static "board/app.css"}}
 // is the path of the file app.css in static/ of app board under its hashed
-// name, after Config.Prefix (D-137).
+// name, after Config.Prefix.
 func StaticFunc(ref string) (string, error) { return rtcore.StaticFunc(ref) }
 
-// DateFunc is the date function of templates (D-122): {{date "2006-01-02
+// DateFunc is the date function of templates: {{date "2006-01-02
 // 15:04" .CreatedAt}}, or {{.CreatedAt | date "2006-01-02"}}, shows a
 // time.Time or *time.Time in Config.TimeZone of the last Handler made (UTC
 // before any); a nil or zero time shows nothing. maago gen checks that the layout is a string literal.

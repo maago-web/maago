@@ -1,0 +1,197 @@
+-- main.go --
+package main
+
+import (
+	"cmp"
+	"context"
+	"database/sql"
+	"embed"
+	"log"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/maago-web/maago"
+	_ "modernc.org/sqlite" // the database driver: main imports it, not maago
+
+	"example.com/app/notes"
+)
+
+// migrations are the project's migrations, in the binary: it migrates its
+// database as it starts, where there is no maago command.
+//
+//go:embed migrations
+var migrations embed.FS
+
+func main() {
+	ctx := context.Background()
+	// The database's address is MAAGO_DATABASE_URL, or .env in the working
+	// directory. Migrate first: what is applied already is skipped.
+	applied, err := maago.Migrate(ctx, maago.DBConfig{}, migrations)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, name := range applied {
+		log.Printf("applied %s", name)
+	}
+	db, err := maago.OpenDB(ctx, maago.DBConfig{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	h, err := handler(db)
+	if err != nil {
+		log.Fatal(err)
+	}
+	port := cmp.Or(os.Getenv("PORT"), "8000")
+	log.Printf("listening on http://localhost:%s/", port)
+	// Serve stops on SIGINT or SIGTERM and lets running requests finish.
+	if err := maago.Serve(ctx, ":"+port, h); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// handler puts the apps together, apart from main so that a test serves
+// the same site.
+func handler(db *sql.DB) (http.Handler, error) {
+	seoul, err := time.LoadLocation("Asia/Seoul")
+	if err != nil {
+		return nil, err
+	}
+	return maago.Handler(maago.Config{
+		DB:       db,
+		Apps:     []maago.App{notes.App}, // each app's generated App
+		TimeZone: seoul,                  // where the times people enter and see are
+		Messages: maago.Messages{Required: "Write something."},
+		OnError: func(ctx context.Context, r *http.Request, err error) {
+			log.Printf("%s %s: %v", r.Method, r.URL.Path, err) // every 5xx
+		},
+	})
+}
+-- main_test.go --
+package main
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/maago-web/maago"
+)
+
+func TestSite(t *testing.T) {
+	ctx := context.Background()
+	cfg := maago.DBConfig{URL: "sqlite:" + filepath.Join(t.TempDir(), "app.db")}
+	applied, err := maago.Migrate(ctx, cfg, migrations)
+	if err != nil || len(applied) == 0 {
+		t.Fatalf("migrate: %v %v", applied, err)
+	}
+	if again, err := maago.Migrate(ctx, cfg, migrations); err != nil || len(again) != 0 {
+		t.Fatalf("migrate again: %v %v", again, err)
+	}
+	db, err := maago.OpenDB(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := handler(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	if w := post("text="); w.Code != 200 || !strings.Contains(w.Body.String(), "Write something.") {
+		t.Errorf("empty: %d %s", w.Code, w.Body)
+	}
+	if w := post("text=hello"); w.Code != http.StatusSeeOther {
+		t.Errorf("hello: %d %s", w.Code, w.Body)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if !strings.Contains(w.Body.String(), "hello") || !strings.Contains(w.Body.String(), "KST") {
+		t.Errorf("list: %s", w.Body)
+	}
+}
+-- notes/models.go --
+package notes
+
+import (
+	"time"
+
+	"github.com/maago-web/maago"
+)
+
+type Note struct {
+	maago.Model
+
+	ID        int64
+	Text      string    `maago:"max=200"`
+	CreatedAt time.Time `maago:"auto=create"`
+}
+-- notes/forms.go --
+package notes
+
+import "github.com/maago-web/maago"
+
+type NoteForm struct {
+	maago.Form `maago:"model=Note"`
+	Text       maago.Field[string]
+}
+-- notes/urls.go --
+package notes
+
+import "github.com/maago-web/maago"
+
+var Routes = maago.Routes{
+	maago.GET("/{$}", "note_list", NoteList),
+	maago.POST("/{$}", "note_create", CreateNote),
+}
+-- notes/views.go --
+package notes
+
+import (
+	"context"
+
+	"github.com/maago-web/maago"
+)
+
+type NoteListIn struct {
+	Form NoteForm `maago:"form"`
+}
+
+type NoteListPage struct {
+	Notes []Note
+	Form  NoteForm
+}
+
+func NoteList(ctx context.Context, db maago.DB, in NoteListIn) (NoteListPage, error) {
+	notes, err := AllNotes(ctx, db)
+	return NoteListPage{Notes: notes, Form: in.Form}, err
+}
+
+func CreateNote(ctx context.Context, tx maago.Tx, in NoteListIn) (maago.Result[NoteListPage], error) {
+	if !in.Form.Valid() {
+		notes, err := AllNotes(ctx, tx)
+		return maago.Show(NoteListPage{Notes: notes, Form: in.Form}), err
+	}
+	if _, err := InsertNote(ctx, tx, NewNoteInput{Text: in.Form.Text.Value}); err != nil {
+		return maago.Result[NoteListPage]{}, err
+	}
+	return maago.SeeOther[NoteListPage](NoteListURL()), nil
+}
+-- notes/queries/all_notes.sql --
+-- name: AllNotes :many Note
+SELECT * FROM notes_note ORDER BY id DESC
+-- notes/templates/note_list_page.html --
+<!doctype html>
+<form method="post" action="{{url "note_create"}}">
+  {{with .Form.Text}}<input name="{{.Name}}" value="{{.Raw}}"> {{.Error}}{{end}}
+  <button>Add</button>
+</form>
+{{range .Notes}}<p>{{.Text}} {{date "15:04 MST" .CreatedAt}}</p>{{end}}

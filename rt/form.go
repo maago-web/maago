@@ -21,7 +21,7 @@ import (
 // FormValid reports whether f was sent and has no error: its fields read,
 // Validate passed, and no form error was added. Only generated code calls
 // it: maago gen gives each form a Valid that also counts the errors a view
-// sets on its fields (D-119).
+// sets on its fields.
 func FormValid(f maago.Form) bool {
 	s := rtcore.FormStateOf(&f)
 	return s.Bound && s.OK && len(f.Errors) == 0
@@ -47,7 +47,7 @@ type Rule struct {
 // which sends none: the form is drawn empty. A body that is not
 // application/x-www-form-urlencoded, or does not parse, or sends one of
 // the form's keys twice, is a 400; other keys are not the form's, and
-// ignored (D-116). The query is not read: it is the URL's, not the form's.
+// ignored. The query is not read: it is the URL's, not the form's.
 func FormValues(r *http.Request, keys ...string) (url.Values, error) {
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		return nil, nil
@@ -210,14 +210,14 @@ func NoRow[T any](ctx context.Context, f *maago.Field[T]) {
 	f.Error = rtcore.SettingsFrom(ctx).Msgs.NoRow
 }
 
-// JSONValues is the form an API route's request sent (D-120): one JSON
+// JSONValues is the form an API route's request sent: one JSON
 // object, read as the text of each value. A string is its text, a number
 // its digits as written, true and false themselves, null not given. A GET
 // or HEAD sends none: nil. The body must be application/json: one object
 // and nothing after it; a 400 otherwise. A body past Config.MaxBody is a
-// 413 (D-139). Of keys, the
+// 413. Of keys, the
 // form's, none may come twice or hold an array or object; other keys are
-// ignored (D-116).
+// ignored.
 func JSONValues(r *http.Request, keys ...string) (url.Values, error) {
 	if r.Method == http.MethodGet || r.Method == http.MethodHead {
 		return nil, nil
@@ -278,7 +278,7 @@ func JSONValues(r *http.Request, keys ...string) (url.Values, error) {
 	return vals, nil
 }
 
-// FieldError is one error of a 422 problem's errors member (D-120). Field
+// FieldError is one error of a 422 problem's errors member. Field
 // is the form key, "" for the form as a whole.
 type FieldError = rtcore.FieldError
 

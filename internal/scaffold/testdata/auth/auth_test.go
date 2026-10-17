@@ -130,7 +130,7 @@ func TestLogin(t *testing.T) {
 
 // TestAccess walks the route table as nobody: the pages for signing in
 // answer, and the ones of an account send to the login page, or refuse a
-// POST with 401. A change to a view's signature keeps this (D-149).
+// POST with 401. A change to a view's signature keeps this.
 func TestAccess(t *testing.T) {
 	h, db := site(t)
 	routes := []struct {
@@ -1049,7 +1049,7 @@ func TestSignupTakenFirst(t *testing.T) {
 }
 
 // limit refuses a transaction: its attempt would not count for other
-// requests until the commit, so a burst would pass (D-150).
+// requests until the commit, so a burst would pass.
 func TestLimitInTx(t *testing.T) {
 	_, db := site(t)
 	defer func() {
@@ -1333,7 +1333,7 @@ func TestAPITokenTriesPasswords(t *testing.T) {
 
 // Can, the admin's: staff only, a superuser for all, other staff what
 // their own rows allow, spelled as the admin spells it, and never to add,
-// change or delete a User or a Permission (D-133).
+// change or delete a User or a Permission.
 func TestCan(t *testing.T) {
 	_, db := site(t)
 	ctx := context.Background()
