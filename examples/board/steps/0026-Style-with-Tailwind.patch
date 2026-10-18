@@ -59,7 +59,7 @@ index a7f4dab..3df11d2 100644
  </body>
  </html>
 diff --git a/board/web_test.go b/board/web_test.go
-index c92fdca..82fb705 100644
+index c92fdca..fae06a9 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -8,6 +8,7 @@ import (

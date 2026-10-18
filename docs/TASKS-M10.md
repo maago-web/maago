@@ -290,6 +290,8 @@
    **하지 않는 것**: `Result.Page()` 숨기기(메서드는 갈고리 없이 못 옮긴다, 값이 작다), `Field`·`Form`·`Config`의 별칭, `rt`의 API 안정 약속(패키지 문서가 아니라고 말한다), doc.go에 주제의 Text 전부(사람의 결정), Example 여럿
    - 계획 리뷰: codex, fable(새 공개 경로와 API의 모양). 받음: 위에 이름을 붙인 것 모두. 갈린 것(Example, main 주제, go doc의 깊이)은 사람에게 물어 추천대로(2026-10-18). 받지 않음: 없음
 12. **첫 릴리스**(M9 2번, D-146·D-151): 사람이 저장소를 공개하고 `v0.1.0`을 태그. 확인 셋(`git ls-remote`, `GOPROXY=direct`, 기본 프록시), 빈 `GOPATH`·`GOWORK=off`에서 `go install github.com/maago-web/maago/cmd/maago@v0.1.0`, 게시판의 `go.mod`가 v0.1.0, TODO "첫 릴리스 전" 체크. 공개 뒤 고칠 것이 나오면 태그를 옮기지 않고 v0.1.1 → 확인: 그 설치와 `maago help`
+
+   - 기록(2026-10-19): 사람이 저장소를 공개했고(사람의 결정: 공개는 사람, 태그는 Claude), `v0.1.0`을 `d3308ed`(11b)에 달아 push. 확인: `git ls-remote --tags origin v0.1.0`, 빈 `GOPATH`·`GOMODCACHE`·`GOWORK=off`에서 `GOPROXY=direct`와 기본 프록시 둘 다 `go install github.com/maago-web/maago/cmd/maago@v0.1.0`과 `maago help`(바이너리의 `go version -m`이 `github.com/maago-web/maago v0.1.0`). 게시판은 `steps.sh unpack`·모든 커밋의 `go.mod`를 `v0.1.0`으로, `go.sum`에 그 두 줄(체크섬은 기본 프록시와 sum.golang.org가 확인한 것)·`pack`(0001·0013, 다른 패치는 11b에서 손으로 고친 뒤 낡은 `index` 해시만). 공개 판으로 걷기의 끝: `GOWORK=off`, 설치한 v0.1.0 `maago`로 PG에서 `migrate`·`gen`·`check`, `go mod tidy -diff`·`go mod verify`·`go vet`·`go test` 초록. 계획 리뷰 없음: 사람의 결정과 정해진 확인만인 작업
 13. **마지막 게이트**(M9 11번): `go install`부터 짧은 튜토리얼과 게시판(메시지만)을 서로 모르는 실행 둘씩, M9과 같은 프롬프트에서 `replace` 줄을 뺀 것. 게시판은 0001~0012에 더해 0020~0022(PG)와 0032~0033(초안·배포)까지 → 확인: 기록, `TestTutorialProject`, 게이트 기록의 함정이 다시 나오지 않음
 14. **v0 끝**(M9 8번): MILESTONES의 M10 체크, README, 다음은 v0.2(D-148의 뒤로 미룬 것)와 v1의 순서
 

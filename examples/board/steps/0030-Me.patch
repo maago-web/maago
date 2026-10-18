@@ -113,7 +113,7 @@ index 3d48202..a6133c9 100644
 +	return MePage{Email: u.Email, Posts: ps}, err
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index b22c4c7..f77d47b 100644
+index e4cb448..01b30ea 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -629,3 +629,70 @@ func TestDeleteWithoutComments(t *testing.T) {

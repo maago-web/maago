@@ -33,7 +33,7 @@ panic(err) is a 500 as in any view, and Config.OnError hears it.
 
 diff --git a/board/export.go b/board/export.go
 new file mode 100644
-index 0000000..b3d93b8
+index 0000000..123e8df
 --- /dev/null
 +++ b/board/export.go
 @@ -0,0 +1,79 @@

@@ -83,7 +83,7 @@ index 50a62e9..4ffb32a 100644
  			t.Errorf("a draft's file to %s: %d, want %d", who, code, c.code)
  		}
 diff --git a/board/export.go b/board/export.go
-index b3d93b8..75ad6b1 100644
+index 123e8df..45314a8 100644
 --- a/board/export.go
 +++ b/board/export.go
 @@ -38,8 +38,9 @@ func ExportBoard(w http.ResponseWriter, r *http.Request) {
@@ -389,7 +389,7 @@ index 12ae34c..0f860e9 100644
  // from before there were accounts has no author: staff change it.
  func mayChange(u auth.User, p Post) error {
 diff --git a/board/web_test.go b/board/web_test.go
-index 3bba273..412c11e 100644
+index b5b2e6c..3c4bdcb 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -3,14 +3,17 @@ package board

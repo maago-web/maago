@@ -221,7 +221,7 @@ index a6133c9..12ae34c 100644
 +	return p, nil
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index f77d47b..3bba273 100644
+index 01b30ea..b5b2e6c 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -9,6 +9,7 @@ import (

@@ -467,7 +467,7 @@ index 4b213ac..3d48202 100644
 +	return nil
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 82fb705..b22c4c7 100644
+index fae06a9..e4cb448 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -28,17 +28,17 @@ func init() {

@@ -2,7 +2,7 @@
 
 ## 첫 릴리스 전
 
-- [ ] 게시판 튜토리얼(M8)도 `replace` 대신 태그한 버전을 쓴다.
+- [x] 게시판 튜토리얼(M8)도 `replace` 대신 태그한 버전을 쓴다: 0001·0013의 `go.mod`가 `v0.1.0`과 그 `go.sum` 두 줄(M10 12번). 걷기의 `go.work` `replace`는 이 저장소의 지금 코드를 보려고 남는다
 - [x] `cmd/maago/go.mod`의 `replace`를 뺀다: 모듈 하나가 되어 `cmd/maago/go.mod`가 없다(M10 1번, D-151)
 
 ## M2
@@ -32,7 +32,7 @@
 ## M3
 
 - [x] 앱의 `go test`는 패키지 디렉터리에서 돌아 루트의 `.env`를 보지 못한다(`maago.OpenDB`는 작업 디렉터리의 `.env`, D-101). 게시판 튜토리얼은 절대 경로 환경 변수로 돌린다. 서비스 시험 방법(U-07, M4)의 입력 → M4 10번: `maagotest.DB(t)`가 루트의 `.env`를 찾는다(D-113)
-- [ ] 게시판 튜토리얼 모듈은 `github.com/maago-web/maago`를 `v0.0.0-…`로 require하고 걷기가 `go.work`로 이 저장소를 가리킨다. 릴리스 전에 태그한 판으로(첫 릴리스 전 항목과 함께)
+- [x] 게시판 튜토리얼 모듈은 `github.com/maago-web/maago`를 `v0.0.0-…`로 require하고 걷기가 `go.work`로 이 저장소를 가리킨다. 릴리스 전에 태그한 판으로(첫 릴리스 전 항목과 함께)
 - [ ] 모델 결과 타입 오류의 fix가 예로 드는 이름(`":many PostSummary"`)이 그 앱에 이미 다른 모양으로 있을 수 있다(게시판 튜토리얼 6단계). 앱에 없는 이름을 예로 들지
 - [ ] 빌드 제약(`//go:build ignore` 등)이 붙은 `.go` 파일: 매퍼의 `declared`(이름 충돌)와 `PackageName`이 보통 파일처럼 읽는다. 도구 파일이 다른 package 절을 가지면 그것을 쓸 수 있다. `go/build`의 제약 판정으로 거를지(M3 9번 fable 6)
 
