@@ -13,8 +13,10 @@ nothing:
 
     board/templates/home_page.html:4:20: unknown route name "board_detial"
       fix: did you mean "board_detail"? routes are declared in the apps' var Routes
+      see: maago doc template
     board/templates/post_page.html:3:13: PostPage.Post has no field or method "Titel"
       fix: did you mean "Title"?
+      see: maago doc template
 
 Both show before a browser opens, with no need to fix one and run
 again.

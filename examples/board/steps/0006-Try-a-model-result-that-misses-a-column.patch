@@ -11,7 +11,8 @@ exactly. With one missing, Scan has nowhere to put it, so maago gen
 writes nothing and says:
 
     board/queries/recent_posts.sql:4:1: result columns do not match model Post: missing "body"
-      fix: select every column of Post, or declare a new result type name (e.g. ":many PostSummary")
+      fix: select every column of Post, like SELECT * or SELECT p.*, or declare a new result type name (e.g. ":many PostSummary")
+      see: maago doc query
 
 Maago-Expect: board/queries/recent_posts.sql:4:1: result columns do not match model Post: missing "body"
 

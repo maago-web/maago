@@ -206,7 +206,7 @@ D-69(5분 흐름)에는 필요 없지만 v0에 넣는다. M4가 커지지 않게
 - [x] 원본 89개 커밋이 모두 대응표에 있고(대응하지 않는 것은 이유와 함께), 대응한 것은 튜토리얼의 커밋으로 있다
 - [x] 커밋을 하나씩 걷는 스크립트로 첫 커밋부터 마지막까지 `maago check`와 테스트가 통과한다(PostgreSQL로 바꾼 뒤는 PG에서)
 - [x] 일부러 틀리는 커밋마다 기대한 오류 메시지가 나온다
-- [ ] 에이전트가 튜토리얼을 처음부터 따라 하는 확인은 M9 게이트의 셋째 항목과 함께 한다(짧은 튜토리얼과 이 튜토리얼 둘 다, [TASKS-M9.md](TASKS-M9.md) 7번)
+- [x] 에이전트가 튜토리얼을 처음부터 따라 하는 확인은 M9 게이트의 셋째 항목과 함께 한다(짧은 튜토리얼과 이 튜토리얼 둘 다, [TASKS-M9.md](TASKS-M9.md) 7번): M9은 0001~0012, M10 13번이 공개한 v0.1.0으로 0001~0033 전부(서로 모르는 실행 둘, [gate-logs](gate-logs/))
 
 ### M9. v0 완료 게이트
 
@@ -224,10 +224,26 @@ D-69(5분 흐름)에는 필요 없지만 v0에 넣는다. M4가 커지지 않게
 작업 목록은 [TASKS-M10.md](TASKS-M10.md).
 
 완료 조건
-- [ ] 게이트의 에이전트가 짚은 함정(D-148의 목록)이 각각 시험으로 막혀 있다
-- [ ] 태그·쿼리 파일·뷰·폼의 문법을 `maago doc`과 `go doc`에서 읽을 수 있고, 문서의 예는 시험이 돌린다(D-152)
-- [ ] 뷰의 서명이 사용자와 DB를 말하고, 쓰기 뷰는 요청 트랜잭션 안에서 돈다. 게시판 튜토리얼이 그 꼴로 처음부터 끝까지 걷는다(D-149, D-150)
-- [ ] 저장소가 공개되고 v0.1.0이 태그되어, 빈 디렉터리에서 `go install …/cmd/maago@v0.1.0`부터 에이전트 게이트를 다시 지난다(D-146, D-151)
+- [x] 게이트의 에이전트가 짚은 함정(D-148의 목록)이 각각 시험으로 막혀 있다: `Valid`가 필드 오류를 센다 `TestForm`(testdata의 site)·`TestFormValidUnread`, localhost의 `Secure` `TestCookieSecure`·`TestShortTutorial`, `choices` 구분자 `TestCheckErrors`, 모델 폼의 포인터 `TestModelFormPointerOptional`, `:one` 스칼라 `TestScalarResult`·gentest, ⚠를 stderr에 `TestMigrationCommands`, 성공한 명령의 한 줄 `TestGenCheck`·`TestMigrationCommands`·`TestShortTutorial`, `go list` 오류 전문 `TestGoListFails`, 모델 결과의 `SELECT *` `TestModelResult`
+- [x] 태그·쿼리 파일·뷰·폼의 문법을 `maago doc`과 `go doc`에서 읽을 수 있고, 문서의 예는 시험이 돌린다(D-152): `TestDocExamples`(주제 여덟, 두 방언), `TestDocKeysAreRead`·`TestDocExamplesUseEveryKey`, `TestPackageDoc`, `ExampleHandler`, `TestNoDecisionsInUserText`
+- [x] 뷰의 서명이 사용자와 DB를 말하고, 쓰기 뷰는 요청 트랜잭션 안에서 돈다. 게시판 튜토리얼이 그 꼴로 처음부터 끝까지 걷는다(D-149, D-150): `TestViewSignature`·`TestViewErrors`, `TestWithTx`·`TestTx`, `TestBoardTutorial`
+- [x] 저장소가 공개되고 v0.1.0이 태그되어, 빈 디렉터리에서 `go install …/cmd/maago@v0.1.0`부터 에이전트 게이트를 다시 지난다(D-146, D-151): 2026-10-19, 짧은 둘(약 200초, `TestTutorialProject`)과 게시판 0001~0033 둘([TASKS-M10.md](TASKS-M10.md) 13번)
+
+## v0.2
+
+D-148이 뒤로 미룬 것과 M10 13번 게이트가 넘긴 것([TODO.md](TODO.md)의 M10). 순서는 안전부터(사람의 결정, 2026-10-19):
+연구의 판정 "쉽다, 안전하지 않다"의 뒤쪽을 먼저 푼다.
+
+### M11. 안전: 읽기 정책과 권한
+
+작업 목록은 TASKS-M11.md(아직 없다: 그 초안이 다음 작업). 완료 조건은 초안에서 정한다.
+
+- 읽기 정책: 생성기가 강제하는 행 범위(설계 합의부터, D-148)
+- 권한 시험 표
+- unique 위반 → 필드 오류
+
+그다음(순서는 M11 끝에 정한다): 게이트가 넘긴 것(한 페이지의 폼 둘, auth 시험 도우미), D-148의 나머지(decimal·UUID·JSON, outbox,
+외부 미디어 저장소, 타입 있는 탈출구 뷰, 단계를 넘어 계속하는 검사)
 
 ---
 

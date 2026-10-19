@@ -12,6 +12,7 @@ checks that the app's static/ has it. It stops before a browser gets a
 
     board/templates/base.html:4:39: static "board/style.css": no file board/static/style.css
       fix: add it to board/static, or name one of its files
+      see: maago doc template
 
 The next commit puts it back.
 
