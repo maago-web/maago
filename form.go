@@ -10,7 +10,8 @@ import (
 
 // Form is embedded in every form struct: the errors of the form
 // as a whole, and whether the request filled it in. A form's fields are
-// Field values; maago gen writes the code that reads them.
+// Field values; maago gen writes the code that reads them, and the
+// form's Valid method.
 type Form struct {
 	Errors []string // the form's own errors, beside its fields'
 	state  rtcore.FormState

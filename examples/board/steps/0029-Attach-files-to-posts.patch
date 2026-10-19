@@ -30,8 +30,9 @@ Attach files to posts, as the original's uploads (fastapi-storages) did.
   does the database: maago.UserFrom[auth.User](ctx)
 
 The file's name is a random key maago makes. A name sent with ../ in it
-writes nothing outside the media directory (the name sent never becomes
-a path); it stays in the row, for the download.
+writes nothing outside the media directory: the name sent never becomes
+a path. The row keeps it for the download, without its directories (Go's
+multipart drops them).
 
 Nothing goes on a hidden post either (404).
 

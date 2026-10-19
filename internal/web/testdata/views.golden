@@ -24,7 +24,7 @@ site/more.go:12:37: view A takes its values out of order
 
 # login twice
 site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it
-  fix: remove it
+  fix: remove it: taking u users.User already requires login
 
 # login with a user that may be missing
 site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it
@@ -151,7 +151,7 @@ site/more.go:12:32: view A takes the database as *maago.DB, not maago.DB
 
 # login on one route of a view that requires it
 site/urls.go:11:57: there is no maago.LoginRequired: the view's user says it
-  fix: remove it
+  fix: remove it: taking u users.User already requires login
 
 # login on a view without the user
 site/urls.go:11:26: there is no maago.LoginRequired: the view's user says it

@@ -1,8 +1,6 @@
 # Tutorial (future): building a blog
 
-> The short tutorial of v0 (five minutes). It was first written as a picture of a framework that did not exist yet, and fitted to it as it was built.
-> `TestShortTutorial` in `cmd/maago` follows §2–5 as written, with this document's commands, files and output (M9 3).
-> What was written without a decision is collected in the [assumptions](#assumptions) at the end. When the document turns out wrong, the document is fixed.
+> The short tutorial of v0 (five minutes). `TestShortTutorial` in `cmd/maago` follows §2–5 as written, with this document's commands, files and output.
 
 ---
 
@@ -248,7 +246,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Fatal(maago.Serve(ctx, ":"+port, h)) // stops on Ctrl-C, letting requests finish
+	log.Printf("listening on http://localhost:%s/", port)
+	// Serve stops on Ctrl-C and lets running requests finish.
+	if err := maago.Serve(ctx, ":"+port, h); err != nil {
+		log.Fatal(err)
+	}
 }
 ```
 
@@ -265,7 +267,7 @@ go run .
 Put a password in `'…'` (8 characters or more; common passwords and ones like the email are refused). `maago gen` prints how many files it made (`generated 8 files`), and `-createsuperuser` prints `created superuser me@example.com (id 1)`. The admin account comes from the shell's environment, with no prompt. The password is not a flag because `ps` and the shell's history
 would keep it.
 
-Sign in at <http://localhost:8000/admin/>, and you can list, write, change and delete posts.
+Sign in at <http://localhost:8000/admin/>, and you can list, write, change and delete posts. `maago doc admin` has its URLs and form fields, and `maago doc auth` the sign-in (a POST to `/login` with `email` and `password`) and how a POST from another site is refused.
 
 > The admin does not hide a field because it is named `password`. To hide one, say so with the tag
 > `admin=hidden`. Maago does not guess from names.

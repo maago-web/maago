@@ -93,7 +93,7 @@ func loginOptions(fset *token.FileSet, app *App) []diag.Diagnostic {
 		case v.escape:
 			fix = "remove it; a func(w, r) view reads maago.UserFrom itself and answers 401 or 303"
 		case v.user && !v.userPtr:
-			fix = "remove it"
+			fix = "remove it: taking u " + v.userExpr + " already requires login"
 		case v.user && slices.ContainsFunc(app.Routes, func(o Route) bool { return o.View == r.View && !hasOption(o.Options, "LoginRequired") }):
 			fix = "remove it, and split the view: a view for route " + r.Name + " takes u " + strings.TrimPrefix(v.userExpr, "*") + ", which requires login; the other keeps u " + v.userExpr
 		case v.user:

@@ -26,7 +26,9 @@ handler with maago.Serve.`,
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Fatal(maago.Serve(ctx, ":8000", h))
+		if err := maago.Serve(ctx, ":8000", h); err != nil {
+			log.Fatal(err)
+		}
 	}
 
 main imports the database driver, _ "modernc.org/sqlite" or
@@ -151,6 +153,7 @@ The five rules (a diagnostic's "rule N" is one of these):
     and pass a bool.
  4. Inside WHERE { } and SET { }, the leading AND or OR and the trailing
     comma are tidied, and an empty WHERE drops; an empty SET is an error.
+    They belong to the statement, not to a subquery or EXISTS ( … ).
  5. maago gen prepares every combination. Errors: an empty WHERE in a
     statement other than SELECT, a missing param used where no condition
     says it is given, result columns other than the declared ones.
@@ -424,7 +427,7 @@ The URLs, under /admin/:
 	/admin/<app>/<model>/            the list: ?q= searches, ?<field>=<value> filters, ?page=
 	/admin/<app>/<model>/add/        a new row
 	/admin/<app>/<model>/<id>/       a row, to change
-	/admin/<app>/<model>/delete/     ?id=1&id=2: asks, and a POST deletes
+	/admin/<app>/<model>/delete/     a GET with ?id=1&id=2 asks; a POST with the ids in its body deletes
 
 <app> is the package's name and <model> the model's name, as written
 (/admin/blog/Post/). A form field's and a filter's key is the field's name

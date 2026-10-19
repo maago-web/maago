@@ -293,6 +293,22 @@
 
    - 기록(2026-10-19): 사람이 저장소를 공개했고(사람의 결정: 공개는 사람, 태그는 Claude), `v0.1.0`을 `d3308ed`(11b)에 달아 push. 확인: `git ls-remote --tags origin v0.1.0`, 빈 `GOPATH`·`GOMODCACHE`·`GOWORK=off`에서 `GOPROXY=direct`와 기본 프록시 둘 다 `go install github.com/maago-web/maago/cmd/maago@v0.1.0`과 `maago help`(바이너리의 `go version -m`이 `github.com/maago-web/maago v0.1.0`). 게시판은 `steps.sh unpack`·모든 커밋의 `go.mod`를 `v0.1.0`으로, `go.sum`에 그 두 줄(체크섬은 기본 프록시와 sum.golang.org가 확인한 것)·`pack`(0001·0013, 다른 패치는 11b에서 손으로 고친 뒤 낡은 `index` 해시만). 공개 판으로 걷기의 끝: `GOWORK=off`, 설치한 v0.1.0 `maago`로 PG에서 `migrate`·`gen`·`check`, `go mod tidy -diff`·`go mod verify`·`go vet`·`go test` 초록. 계획 리뷰 없음: 사람의 결정과 정해진 확인만인 작업
 13. **마지막 게이트**(M9 11번): `go install`부터 짧은 튜토리얼과 게시판(메시지만)을 서로 모르는 실행 둘씩, M9과 같은 프롬프트에서 `replace` 줄을 뺀 것. 게시판은 0001~0012에 더해 0020~0022(PG)와 0032~0033(초안·배포)까지 → 확인: 기록, `TestTutorialProject`, 게이트 기록의 함정이 다시 나오지 않음
+
+   방법(2026-10-19, 사람의 결정: 넷 그대로). 계획 리뷰 없음(M9 6·7번의 방법 그대로)
+   - **게시판은 0001~0033 전부**: 단계의 글은 앞을 딛고 선다(0022는 0015·0016·0019를, 0032는 0017·0018·0029~0031을, 0033은 0019·0026·0029를 부른다). 계획의 묶음만 주면 사이를 에이전트가 지어내야 하고, 그러면 튜토리얼을 재지 못한다. 그래서 계획의 상위 집합. 0013부터 PG(실행마다 데이터베이스 `gateb1`·`gateb2`), 0033의 `docker build`·`run`은 이 기계에 docker가 없어 `go build`한 바이너리를 같은 환경으로 띄우는 것으로
+   - 짧은 튜토리얼은 §1(`go install …@latest`)~§5. 디렉터리에는 `TUTORIAL.md`(TUTORIAL-FUTURE의 사본)만, `GOBIN=<dir>/bin`. 게시판은 단계 글(`git mailinfo`의 본문, 트레일러 포함)만, `go install …@v0.1.0`부터
+   - 프롬프트는 M9의 것에서 `replace` 줄을 빼고: 튜토리얼이 영어, 참조는 `go doc`과 `maago doc`, 모듈 캐시의 maago 소스도 읽지 않는다(공개 뒤 읽을 수 있다), `GATE-LOG.md`는 단계마다 덧붙인다
+   - 시작 전에 고친 것: TUTORIAL-FUTURE 머리말의 `[assumptions](#assumptions)`(11b에서 지운 절)와 `(M9 3)`(M9 짧은 기록 (4)의 같은 종류)
+   - 끝 확인은 내가: `go version -m`이 v0.1.0, `go.mod`에 `replace` 없음, 짧은 것은 `TestTutorialProject`, 게시판은 `maago check`·`go vet`·`go test ./...`·서버가 `/app/`에 답함. M9 기록의 함정(짧은 9, 게시판 9)을 새 기록에 대어 표로
+
+   결과(2026-10-19, 기록은 [gate-logs/m10-short-1.md](gate-logs/m10-short-1.md)·[m10-short-2.md](gate-logs/m10-short-2.md)·[m10-board-1.md](gate-logs/m10-board-1.md)·[m10-board-2.md](gate-logs/m10-board-2.md))
+   - **넷 다 끝까지**, 사람 없이. 넷 모두 `go version -m`이 v0.1.0, `go.mod`에 `replace` 없음
+   - 짧은 둘: 약 200초(300초 이하). 뜻밖의 실패 0(튜토리얼의 일부러 낸 둘만, 글자 그대로). `TestTutorialProject` 둘 다 통과
+   - 게시판 둘: 0033까지 약 28분·30분(PG, 0033은 docker 대신 바이너리: 빈 스키마에 마이그레이션, `BOARD_SITE_URL` 없을 때의 글자 그대로, `-createsuperuser`, `/app/` 200, SIGTERM). `Maago-Expect` 여섯 모두 글자 그대로(줄을 맞춰 넣은 뒤, 아래). 계획에 없던 Maago 진단 8 중 7·8 중 7을 메시지만으로 고침. 내가 두 프로젝트에서 `maago check`·`go vet`·`go test ./...`를 다시 돌려 초록
+   - M9의 함정, 짧은 것: (1) localhost의 `Secure` 쿠키 **없어짐** (2) admin URL·필드·출처 검사 **다시**(둘 다 HTML을 읽음: `maago doc admin`·`auth`에 있지만 §5가 가리키지 않았다 → §5에 한 줄) (3) 말 없는 `gen`·`-createsuperuser` **없어짐** (4) 결정 번호 **없어짐**(머리말의 `(M9 3)`은 시작 전에 고침) (5) FK 숫자 상자·(7) 틀린 비밀번호의 200 언급 없음 (6) `go mod tidy` 가볍게 다시(해 없음) (8) §3의 오류를 둔 채 나아감 가볍게 다시 (9) admin 시각의 시간대 **없어짐**(`maago doc admin`)
+   - M9의 함정, 게시판: (1) 모델 태그 (2) 쿼리 문법 **없어짐**(`maago doc`, 짐작한 태그 0) (3) 뷰·폼의 약속 **대개 없어짐**, 남은 것은 폼 둘인 페이지(TODO)와 `go doc maago.Form`에 `Valid`가 없음(고침) (4) `Field.Error`를 써도 `Valid`가 참 **다시 나오지 않음** (5) `choices` 글 (7) 이름 바꾸기 ⚠ **없어짐**(짧은 둘이 출력에서 `--rename`을 봄) (6)·(8)·(9) 언급 없음
+   - 고친 것(이 작업): `log.Fatal(maago.Serve(…))`는 정상 종료에 `<nil>`과 exit 1(짧은 둘): TUTORIAL과 `maago doc`의 예 다섯·main 주제 글을 `if err := …`로, TUTORIAL에 듣기 줄(둘 다 서버가 떴는지 몰랐다). §5가 `maago doc admin`·`auth`를 가리킴. admin 삭제 URL의 글(POST는 본문의 id, 1번이 맨 400을 받음). 쿼리 규칙 4: `WHERE { }`는 부분 쿼리·`EXISTS ( … )` 안에 두지 않는다(1번). 이미 `u auth.User`인 뷰의 `LoginRequired` fix가 "remove it"만 → 왜 필요 없는지(둘 다). `Form`의 문서에 `Valid`. 0029의 "../가 행에 남는다"는 틀림(Go의 multipart가 디렉터리를 뗀다, 둘 다)
+   - 넘긴 것(TODO M10): 폼 둘인 페이지, auth 시험 도우미, `InsertX`·`GetX` 시각의 위치(1번 보고, 미확인), `Maago-Expect` 줄:열이 보이지 않는 파일 모양에 기댐, admin의 거절된 삭제·맨 400, 주제 없는 `maago doc`의 exit 1
 14. **v0 끝**(M9 8번): MILESTONES의 M10 체크, README, 다음은 v0.2(D-148의 뒤로 미룬 것)와 v1의 순서
 
 ## 초안 리뷰 (2026-10-15, codex와 Opus가 fable 대신)

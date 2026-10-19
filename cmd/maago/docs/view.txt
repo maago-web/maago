@@ -24,7 +24,9 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Fatal(maago.Serve(ctx, ":8000", h))
+	if err := maago.Serve(ctx, ":8000", h); err != nil {
+		log.Fatal(err)
+	}
 }
 -- blog/models.go --
 package blog
