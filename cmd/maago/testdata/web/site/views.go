@@ -240,3 +240,40 @@ func Greet(ctx context.Context, u *Account, in struct{}) (SecretPage, error) {
 	}
 	return SecretPage{u.Name}, nil
 }
+
+// TagForm is a model form of every field of Tag.
+type TagForm struct {
+	maago.Form `maago:"model=Tag"`
+	Name       maago.Field[string]
+	Kind       maago.Field[string]
+	Code       maago.Field[string]
+}
+
+type TagIn struct {
+	Form TagForm `maago:"form"`
+}
+
+type TagPage struct {
+	Form  TagForm
+	First string // the first tag's name, read after a refused insert
+}
+
+// TagSave inserts a tag. A value a unique constraint refuses is the
+// form's, by Fail; the transaction goes on to read (D-154).
+func TagSave(ctx context.Context, tx maago.Tx, in TagIn) (maago.Result[TagPage], error) {
+	f := in.Form
+	if f.Valid() {
+		_, err := InsertTag(ctx, tx, NewTagInput{Name: f.Name.Value, Kind: f.Kind.Value, Code: f.Code.Value})
+		if err == nil {
+			return maago.SeeOther[TagPage](TagSaveURL()), nil
+		}
+		if !f.Fail(err) {
+			return maago.Result[TagPage]{}, err
+		}
+	}
+	first, err := GetTag(ctx, tx, 1)
+	if err != nil {
+		return maago.Result[TagPage]{}, err
+	}
+	return maago.Show(TagPage{f, first.Name}), nil
+}

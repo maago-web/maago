@@ -107,10 +107,18 @@ board/urls.go:41:21: Validate of form NoticeForm has a value receiver: the error
 
 # a Valid method
 board/urls.go:43:21: form NoticeForm declares Valid, which maago gen writes for it
-  fix: remove it, or rename it: the generated Valid counts the form's errors and its fields'
+  fix: remove it, or rename it: the generated Valid counts the form's errors and its fields', and Fail shows a unique constraint's error
 
 # a field named Valid
 board/urls.go:37:2: form field Valid takes the name of the form's method Valid
+  fix: rename the field
+
+# a Fail method
+board/urls.go:43:22: form NoticeForm declares Fail, which maago gen writes for it
+  fix: remove it, or rename it: the generated Valid counts the form's errors and its fields', and Fail shows a unique constraint's error
+
+# a field named Fail
+board/urls.go:37:2: form field Fail takes the name of the form's method Fail
   fix: rename the field
 
 # a form as the In

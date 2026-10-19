@@ -94,7 +94,7 @@ func WithTx(ctx context.Context, db DB, f func(ctx context.Context, tx Tx) error
 	}
 	if err := tx.Commit(); err != nil {
 		if st.failed {
-			return fmt.Errorf("maago: commit: %w; a query failed earlier in this transaction, and PostgreSQL rolled it back: check with a query before writing (a title taken, say), or return that query's error from the view", err)
+			return fmt.Errorf("maago: commit: %w; a query failed earlier in this transaction, and PostgreSQL rolled it back: a generated Insert or Update leaves the transaction going on when it fails, but a query of yours does not: return its error from the view", err)
 		}
 		return err
 	}

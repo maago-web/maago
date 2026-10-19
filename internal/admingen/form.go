@@ -138,6 +138,8 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 			bind, rule := web.ModelRule(mf, optional(f))
 			w("rt.%s(ctx, vals, &f.%s, %s)", bind, f.Name, rule)
 		}
+		w("var form maago.Form // the form's own errors")
+		w("rt.FinishForm(ctx, &form, vals != nil, true)")
 		w("if vals == nil && id != 0 {")
 		for _, f := range fields {
 			w("f.%s.Raw = admin.Raw(o.%s)", f.Name, f.Name)
@@ -164,23 +166,26 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 			w("}")
 		}
 	}
-	w("var in []admin.Input")
-	for _, f := range m.Fields {
-		label := f.Label
-		if label == "" {
-			label = f.Name
-		}
-		switch {
-		case f.Admin == "hidden":
-		case editable(f):
-			w("in = append(in, admin.In(&f.%s, %t, %q))", f.Name, !optional(f) && f.Type != model.Bool, models[f.FK])
-		default:
-			w("if id != 0 {")
-			w("in = append(in, admin.Show(%q, o.%s))", label, f.Name)
-			w("}")
+	inputs := func() { // after the save, which may set an error
+		w("var in []admin.Input")
+		for _, f := range m.Fields {
+			label := f.Label
+			if label == "" {
+				label = f.Name
+			}
+			switch {
+			case f.Admin == "hidden":
+			case editable(f):
+				w("in = append(in, admin.In(&f.%s, %t, %q))", f.Name, !optional(f) && f.Type != model.Bool, models[f.FK])
+			default:
+				w("if id != 0 {")
+				w("in = append(in, admin.Show(%q, o.%s))", label, f.Name)
+				w("}")
+			}
 		}
 	}
 	if fields == nil {
+		inputs()
 		if add { // nothing to fill in: the defaults, the auto times and the new ID
 			w("if vals != nil && id == 0 {")
 			w("_, err := Insert%s(ctx, db, New%sInput{})", m.Name, m.Name)
@@ -191,16 +196,20 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 		w("}")
 		return strings.TrimSuffix(b.String(), "\n")
 	}
-	var ok []string
+	var ok, fails []string
 	for _, f := range fields {
 		ok = append(ok, "f."+f.Name+".Error == \"\"")
+		fails = append(fails, strconv.Quote(f.Name)+": &f."+f.Name+".Error")
 	}
-	w("if vals == nil || !(%s) {", strings.Join(ok, " && "))
-	w("return %s}, nil", form)
-	w("}")
+	keys := "nil"
+	if len(m.Uniques) > 0 {
+		keys = "unique" + m.Name
+	}
+	w("var err error")
+	w("if vals != nil && %s {", strings.Join(ok, " && "))
+	w("if id == 0 {")
 	if add {
-		w("if id == 0 {")
-		w("_, err := Insert%s(ctx, db, New%sInput{", m.Name, m.Name)
+		w("_, err = Insert%s(ctx, db, New%sInput{", m.Name, m.Name)
 		for _, f := range fields {
 			v := value(f)
 			if f.Default != nil {
@@ -209,13 +218,10 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 			w("%s: %s,", f.Name, v)
 		}
 		w("})")
-		w("return admin.Form{Inputs: in, Saved: err == nil}, err")
-		w("}")
 	} else {
-		w("if id == 0 {")
 		w("return admin.Form{}, admin.NoAdding(%q)", m.Name)
-		w("}")
 	}
+	w("} else {")
 	var args []string
 	for _, f := range updateArgs {
 		v := "now"
@@ -233,11 +239,22 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 	if version != nil {
 		args = append(args, sqlArg(d, "ver", version))
 	}
-	w("err := admin.Updated(rt.Exec(ctx, db, %s, %s))", mapper.GoString(update), strings.Join(args, ", "))
+	w("err = rt.Write(ctx, db, %s, func() error {", keys)
+	w("return admin.Updated(rt.Exec(ctx, db, %s, %s))", mapper.GoString(update), strings.Join(args, ", "))
+	w("})")
 	if version != nil {
 		w("err = admin.Changed(ctx, db, %s, id, err)", mapper.GoString(rowSQL(m, d)))
 	}
-	w("return %s, Saved: err == nil}, err", form)
+	w("}")
+	w("if err == nil {")
+	w("return admin.Form{Saved: true}, nil")
+	w("}")
+	w("if rt.Fail(&form, err, map[string]*string{%s}) { // drawn again, with the error", strings.Join(fails, ", "))
+	w("err = nil")
+	w("}")
+	w("}")
+	inputs()
+	w("return admin.Form{Inputs: in, Errors: form.Errors%s}, err", strings.TrimPrefix(form, "admin.Form{Inputs: in"))
 	w("}")
 	return strings.TrimSuffix(b.String(), "\n")
 }

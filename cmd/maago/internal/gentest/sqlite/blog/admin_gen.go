@@ -112,6 +112,8 @@ var Admin = []admin.Model{
 			rt.BindFloat64(ctx, vals, &f.Score, rt.Rule{Name: "score", Label: "Score", Optional: true})
 			rt.BindBool(ctx, vals, &f.Public, rt.Rule{Name: "public", Label: "Public"})
 			rt.BindTime(ctx, vals, &f.PublishedAt, rt.Rule{Name: "published_at", Label: "PublishedAt", Optional: true})
+			var form maago.Form // the form's own errors
+			rt.FinishForm(ctx, &form, vals != nil, true)
 			if vals == nil && id != 0 {
 				f.AuthorID.Raw = admin.Raw(o.AuthorID)
 				f.Title.Raw = admin.Raw(o.Title)
@@ -135,6 +137,22 @@ var Admin = []admin.Model{
 					rt.NoRow(ctx, &f.AuthorID)
 				}
 			}
+			var err error
+			if vals != nil && f.AuthorID.Error == "" && f.Title.Error == "" && f.Status.Error == "" && f.Views.Error == "" && f.Likes.Error == "" && f.Score.Error == "" && f.Public.Error == "" && f.PublishedAt.Error == "" {
+				if id == 0 {
+					return admin.Form{}, admin.NoAdding("Post")
+				} else {
+					err = rt.Write(ctx, db, uniquePost, func() error {
+						return admin.Updated(rt.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = ?1, "title" = ?2, "status" = ?3, "views" = ?4, "likes" = ?5, "score" = ?6, "public" = ?7, "published_at" = ?8 WHERE "id" = ?9`, f.AuthorID.Value, f.Title.Value, f.Status.Value, f.Views.Value, f.Likes.Value, admin.Ptr(f.Score), f.Public.Value, rt.SQLiteNullTime(admin.Ptr(f.PublishedAt)), id))
+					})
+				}
+				if err == nil {
+					return admin.Form{Saved: true}, nil
+				}
+				if rt.Fail(&form, err, map[string]*string{"AuthorID": &f.AuthorID.Error, "Title": &f.Title.Error, "Status": &f.Status.Error, "Views": &f.Views.Error, "Likes": &f.Likes.Error, "Score": &f.Score.Error, "Public": &f.Public.Error, "PublishedAt": &f.PublishedAt.Error}) { // drawn again, with the error
+					err = nil
+				}
+			}
 			var in []admin.Input
 			if id != 0 {
 				in = append(in, admin.Show("번호", o.ID))
@@ -153,14 +171,7 @@ var Admin = []admin.Model{
 				in = append(in, admin.Show("Body", o.Body))
 			}
 			in = append(in, admin.In(&f.PublishedAt, false, ""))
-			if vals == nil || !(f.AuthorID.Error == "" && f.Title.Error == "" && f.Status.Error == "" && f.Views.Error == "" && f.Likes.Error == "" && f.Score.Error == "" && f.Public.Error == "" && f.PublishedAt.Error == "") {
-				return admin.Form{Inputs: in}, nil
-			}
-			if id == 0 {
-				return admin.Form{}, admin.NoAdding("Post")
-			}
-			err := admin.Updated(rt.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = ?1, "title" = ?2, "status" = ?3, "views" = ?4, "likes" = ?5, "score" = ?6, "public" = ?7, "published_at" = ?8 WHERE "id" = ?9`, f.AuthorID.Value, f.Title.Value, f.Status.Value, f.Views.Value, f.Likes.Value, admin.Ptr(f.Score), f.Public.Value, rt.SQLiteNullTime(admin.Ptr(f.PublishedAt)), id))
-			return admin.Form{Inputs: in, Saved: err == nil}, err
+			return admin.Form{Inputs: in, Errors: form.Errors}, err
 		},
 		Delete: DeletePost,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
@@ -235,6 +246,8 @@ var Admin = []admin.Model{
 			rt.BindInt64(ctx, vals, &f.ReviewerID, rt.Rule{Name: "reviewer_id", Label: "ReviewerID", Optional: true})
 			rt.BindInt32(ctx, vals, &f.Order, rt.Rule{Name: "order", Label: "Order"})
 			rt.BindBool(ctx, vals, &f.Admin, rt.Rule{Name: "admin", Label: "Admin"})
+			var form maago.Form // the form's own errors
+			rt.FinishForm(ctx, &form, vals != nil, true)
 			if vals == nil && id != 0 {
 				f.Name.Raw = admin.Raw(o.Name)
 				f.ParentID.Raw = admin.Raw(o.ParentID)
@@ -267,6 +280,24 @@ var Admin = []admin.Model{
 					rt.NoRow(ctx, &f.ReviewerID)
 				}
 			}
+			var err error
+			if vals != nil && f.Name.Error == "" && f.ParentID.Error == "" && f.EditorID.Error == "" && f.ReviewerID.Error == "" && f.Order.Error == "" && f.Admin.Error == "" {
+				if id == 0 {
+					return admin.Form{}, admin.NoAdding("Author")
+				} else {
+					now := time.Now().Truncate(time.Microsecond)
+					err = rt.Write(ctx, db, uniqueAuthor, func() error {
+						return admin.Updated(rt.Exec(ctx, db, `UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "order" = ?5, "admin" = ?6, "updated_at" = ?7 WHERE "id" = ?8 AND "updated_at" = ?9`, f.Name.Value, admin.Ptr(f.ParentID), f.EditorID.Value, admin.Ptr(f.ReviewerID), f.Order.Value, f.Admin.Value, rt.SQLiteTime(now), id, rt.SQLiteTime(ver)))
+					})
+					err = admin.Changed(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?1`, id, err)
+				}
+				if err == nil {
+					return admin.Form{Saved: true}, nil
+				}
+				if rt.Fail(&form, err, map[string]*string{"Name": &f.Name.Error, "ParentID": &f.ParentID.Error, "EditorID": &f.EditorID.Error, "ReviewerID": &f.ReviewerID.Error, "Order": &f.Order.Error, "Admin": &f.Admin.Error}) { // drawn again, with the error
+					err = nil
+				}
+			}
 			var in []admin.Input
 			if id != 0 {
 				in = append(in, admin.Show("ID", o.ID))
@@ -283,16 +314,7 @@ var Admin = []admin.Model{
 			if id != 0 {
 				in = append(in, admin.Show("UpdatedAt", o.UpdatedAt))
 			}
-			if vals == nil || !(f.Name.Error == "" && f.ParentID.Error == "" && f.EditorID.Error == "" && f.ReviewerID.Error == "" && f.Order.Error == "" && f.Admin.Error == "") {
-				return admin.Form{Inputs: in, Version: ver}, nil
-			}
-			if id == 0 {
-				return admin.Form{}, admin.NoAdding("Author")
-			}
-			now := time.Now().Truncate(time.Microsecond)
-			err := admin.Updated(rt.Exec(ctx, db, `UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "order" = ?5, "admin" = ?6, "updated_at" = ?7 WHERE "id" = ?8 AND "updated_at" = ?9`, f.Name.Value, admin.Ptr(f.ParentID), f.EditorID.Value, admin.Ptr(f.ReviewerID), f.Order.Value, f.Admin.Value, rt.SQLiteTime(now), id, rt.SQLiteTime(ver)))
-			err = admin.Changed(ctx, db, `SELECT 1 FROM "people" WHERE "id" = ?1`, id, err)
-			return admin.Form{Inputs: in, Version: ver, Saved: err == nil}, err
+			return admin.Form{Inputs: in, Errors: form.Errors, Version: ver}, err
 		},
 		Delete: DeleteAuthor,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {

@@ -20,6 +20,13 @@ import (
 	"github.com/maago-web/maago/rt"
 )
 
+// uniquePost are Post's unique constraints, which tell the
+// maago.UniqueError of a write one refuses.
+var uniquePost = []rt.UniqueKey{
+	{Fields: []string{"Slug"}, Key: "blog_post.slug"},
+	{Fields: []string{"AuthorID", "Slug"}, Key: "blog_post.author_id, blog_post.slug"},
+}
+
 // NewPostInput is what InsertPost takes: every column but
 // the ID and the auto times. A maago.Opt field left unset takes the
 // column's default; maago.Set gives any value, even the zero value.
@@ -57,7 +64,10 @@ func InsertPost(ctx context.Context, db maago.DB, in NewPostInput) (Post, error)
 		Body:        in.Body,
 		PublishedAt: in.PublishedAt,
 	}
-	if err := db.QueryRowContext(ctx, `INSERT INTO "blog_post" ("author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING "id"`, o.AuthorID, o.Title, o.Slug, o.Status, o.Views, o.Likes, o.Score, o.Public, o.Body, rt.SQLiteNullTime(o.PublishedAt)).Scan(&o.ID); err != nil {
+	err := rt.Write(ctx, db, uniquePost, func() error {
+		return db.QueryRowContext(ctx, `INSERT INTO "blog_post" ("author_id", "title", "slug", "status", "views", "likes", "score", "public", "body", "published_at") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) RETURNING "id"`, o.AuthorID, o.Title, o.Slug, o.Status, o.Views, o.Likes, o.Score, o.Public, o.Body, rt.SQLiteNullTime(o.PublishedAt)).Scan(&o.ID)
+	})
+	if err != nil {
 		return Post{}, err
 	}
 	return o, nil
@@ -67,7 +77,11 @@ func InsertPost(ctx context.Context, db maago.DB, in NewPostInput) (Post, error)
 // so pass what GetPost returned, changed: sql.ErrNoRows if there is no
 // such row.
 func UpdatePost(ctx context.Context, db maago.DB, o *Post) error {
-	n, err := rt.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = ?1, "title" = ?2, "slug" = ?3, "status" = ?4, "views" = ?5, "likes" = ?6, "score" = ?7, "public" = ?8, "body" = ?9, "published_at" = ?10 WHERE "id" = ?11`, o.AuthorID, o.Title, o.Slug, o.Status, o.Views, o.Likes, o.Score, o.Public, o.Body, rt.SQLiteNullTime(o.PublishedAt), o.ID)
+	var n int64
+	err := rt.Write(ctx, db, uniquePost, func() (err error) {
+		n, err = rt.Exec(ctx, db, `UPDATE "blog_post" SET "author_id" = ?1, "title" = ?2, "slug" = ?3, "status" = ?4, "views" = ?5, "likes" = ?6, "score" = ?7, "public" = ?8, "body" = ?9, "published_at" = ?10 WHERE "id" = ?11`, o.AuthorID, o.Title, o.Slug, o.Status, o.Views, o.Likes, o.Score, o.Public, o.Body, rt.SQLiteNullTime(o.PublishedAt), o.ID)
+		return err
+	})
 	if err != nil {
 		return err
 	}
@@ -93,6 +107,13 @@ func scanPost(rows *sql.Rows) (Post, error) {
 	var v Post
 	err := rows.Scan(&v.ID, &v.AuthorID, &v.Title, &v.Slug, &v.Status, &v.Views, &v.Likes, &v.Score, &v.Public, &v.Body, rt.ScanNullSQLiteTime(&v.PublishedAt))
 	return v, err
+}
+
+// uniqueAuthor are Author's unique constraints, which tell the
+// maago.UniqueError of a write one refuses.
+var uniqueAuthor = []rt.UniqueKey{
+	{Fields: []string{"EditorID"}, Key: "people.editor_id"},
+	{Fields: []string{"Code"}, Key: "people.code"},
 }
 
 // NewAuthorInput is what InsertAuthor takes: every column but
@@ -129,7 +150,10 @@ func InsertAuthor(ctx context.Context, db maago.DB, in NewAuthorInput) (Author, 
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
-	if err := db.QueryRowContext(ctx, `INSERT INTO "people" ("name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING "id"`, o.Name, o.ParentID, o.EditorID, o.ReviewerID, o.Code, o.Order, o.Admin, rt.SQLiteTime(o.CreatedAt), rt.SQLiteTime(o.UpdatedAt)).Scan(&o.ID); err != nil {
+	err := rt.Write(ctx, db, uniqueAuthor, func() error {
+		return db.QueryRowContext(ctx, `INSERT INTO "people" ("name", "parent_id", "editor_id", "reviewer_id", "code", "order", "admin", "created_at", "updated_at") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING "id"`, o.Name, o.ParentID, o.EditorID, o.ReviewerID, o.Code, o.Order, o.Admin, rt.SQLiteTime(o.CreatedAt), rt.SQLiteTime(o.UpdatedAt)).Scan(&o.ID)
+	})
+	if err != nil {
 		return Author{}, err
 	}
 	return o, nil
@@ -143,7 +167,11 @@ func InsertAuthor(ctx context.Context, db maago.DB, in NewAuthorInput) (Author, 
 // Once the row is written, o has its new auto times.
 func UpdateAuthor(ctx context.Context, db maago.DB, o *Author) error {
 	now := time.Now().Truncate(time.Microsecond)
-	n, err := rt.Exec(ctx, db, `UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "code" = ?5, "order" = ?6, "admin" = ?7, "updated_at" = ?8 WHERE "id" = ?9 AND "updated_at" = ?10`, o.Name, o.ParentID, o.EditorID, o.ReviewerID, o.Code, o.Order, o.Admin, rt.SQLiteTime(now), o.ID, rt.SQLiteTime(o.UpdatedAt))
+	var n int64
+	err := rt.Write(ctx, db, uniqueAuthor, func() (err error) {
+		n, err = rt.Exec(ctx, db, `UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "code" = ?5, "order" = ?6, "admin" = ?7, "updated_at" = ?8 WHERE "id" = ?9 AND "updated_at" = ?10`, o.Name, o.ParentID, o.EditorID, o.ReviewerID, o.Code, o.Order, o.Admin, rt.SQLiteTime(now), o.ID, rt.SQLiteTime(o.UpdatedAt))
+		return err
+	})
 	if err != nil {
 		return err
 	}

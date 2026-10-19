@@ -1400,3 +1400,43 @@ func TestAppName(t *testing.T) {
 		t.Errorf("appName is %q, but the package is %v (%v): rename appName with the package", appName, f.Name, err)
 	}
 }
+
+// A signup that loses the race to another of its email, which the read
+// before the insert did not see, answers as for an account that is
+// there: it tells nothing, and makes no second account.
+func TestSignupRace(t *testing.T) {
+	db := maagotest.DB(t)
+	box := maagotest.Mailbox(t)
+	// The view is called with its form and the context of a request, which
+	// Config.Auth sees, so that its database can be racing.
+	var r *http.Request
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, LoginURL: "/login",
+		Auth: func(req *http.Request) (any, error) { r = req; return nil, nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	do(h, "GET", "/signup", "", "")
+	var f SignupForm
+	bindSignupForm(r, url.Values{"email": {"ann@example.com"}, "password": {password}}, &f)
+	res, err := SignupSubmit(r.Context(), racing{db, t}, SignupIn{Form: f})
+	if page, _ := res.Page(); err != nil || !page.Sent {
+		t.Fatalf("%+v %v", page, err)
+	}
+	if n := count(t, db, "SELECT count(*) FROM auth_user"); n != 1 || len(box.Messages()) != 0 {
+		t.Errorf("%d users, sent %v", n, box.Messages())
+	}
+}
+
+// racing is db, where another request signs ann@example.com up just
+// before the view's insert of a user.
+type racing struct {
+	*sql.DB
+	t *testing.T
+}
+
+func (r racing) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
+	if strings.HasPrefix(query, `INSERT INTO "auth_user"`) {
+		newUser(r.t, r.DB, "ann@example.com", nil)
+	}
+	return r.DB.QueryRowContext(ctx, query, args...)
+}

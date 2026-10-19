@@ -131,6 +131,8 @@ func TestFormErrors(t *testing.T) {
 		{"Validate on the value", "func (f *NoticeForm) Validate() {}", "func (f NoticeForm) Validate() {}", []string{`board/urls.go:41:21: Validate of form NoticeForm has a value receiver`}},
 		{"a Valid method", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() {}\n\nfunc (f NoticeForm) Valid() bool { return true }", []string{`board/urls.go:43:21: form NoticeForm declares Valid, which maago gen writes for it`}},
 		{"a field named Valid", "Pinned maago.Field[bool]", "Valid  maago.Field[bool]", []string{`board/urls.go:37:2: form field Valid takes the name of the form's method Valid`}},
+		{"a Fail method", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() {}\n\nfunc (f *NoticeForm) Fail(err error) bool { return false }", []string{`board/urls.go:43:22: form NoticeForm declares Fail, which maago gen writes for it`}},
+		{"a field named Fail", "Pinned maago.Field[bool]", "Fail   maago.Field[bool]", []string{`board/urls.go:37:2: form field Fail takes the name of the form's method Fail`}},
 		{"a form as the In", "in BoardIn) (BoardPage, error) { return BoardPage{in.Form}, nil }", "f *BoardForm) (BoardPage, error) { return BoardPage{*f}, nil }", []string{`board/urls.go:49:38: view BoardNew takes form BoardForm as its In`}},
 		{"a form value as the In", "in BoardIn) (BoardPage, error) { return BoardPage{in.Form}, nil }", "f BoardForm) (BoardPage, error) { return BoardPage{f}, nil }", []string{`board/urls.go:49:38: view BoardNew takes form BoardForm as its In`}},
 		{"two forms at once", "`maago:\"min=2,", "`maago:\"mim=2,", nil}, // with the next edit too: see below

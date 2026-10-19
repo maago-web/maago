@@ -313,9 +313,26 @@ A check across fields is a method:
 It has a pointer receiver, takes and returns nothing, and runs after every
 field was read. A check that needs the database goes in the view: set the
 field's Error and maago.Show the page again; an API view returns
-maago.Invalid(&f.Title, "…") or maago.InvalidForm("…"), a 422.`,
+maago.Invalid(&f.Title, "…") or maago.InvalidForm("…"), a 422.
+
+A value taken already needs no read before the write: a unique
+constraint refuses it, and the form's Fail, which maago gen writes, shows
+the error:
+
+	_, err := InsertPost(ctx, tx, NewPostInput{Title: f.Title.Value})
+	if f.Fail(err) {
+		return maago.Show(PostFormPage{f}), nil
+	}
+
+Fail takes the *maago.UniqueError of a generated Insert or Update and
+puts Config.Messages.Taken on the one field of the form the constraint is
+over (the form's field of the model field's name), else on the form; the
+transaction goes on. Any other error, nil too, it leaves: false. A model
+with one unique constraint has every refusal on it, even a unique index
+a migration made by hand. An API view has no page to draw: it takes the
+error with errors.As and returns maago.Invalid or maago.InvalidForm.`,
 		Lists: []*List{FormTypes, FormTags},
-		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "File", "Media", "SaveMedia", "OpenMedia", "DeleteMedia", "ServeMedia", "WithMediaDir"},
+		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "UniqueError", "File", "Media", "SaveMedia", "OpenMedia", "DeleteMedia", "ServeMedia", "WithMediaDir"},
 	},
 	{
 		Name:  Template,

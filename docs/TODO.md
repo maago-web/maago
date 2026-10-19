@@ -57,6 +57,10 @@
 - [ ] admin: 거절된 삭제(참조가 있는 행)가 200, 잘못된 POST가 글 없는 400. 이유가 보이는 응답으로
 - [ ] `maago doc`을 주제 없이 부르면 목록을 보이고 exit 1. `go doc contrib/admin`은 main이 import하기 전에는 패키지를 찾지 못한다
 
+## M11
+
+- [ ] API 뷰의 unique 위반: `f.Fail(err)`는 칸에 문구를 쓰지만 API 뷰는 그것을 422로 돌려줄 길이 없다(생성된 `invalidX`는 생성 코드만 부른다, D-120). 지금 쓸 길은 `var ue *maago.UniqueError; errors.As(err, &ue)` 뒤 `maago.Invalid(&f.Title, "…")`나 `maago.InvalidForm("…")`(M11 1번 fable)
+
 ## 언젠가
 
 - [ ] 마이그레이션 롤백(down 마이그레이션)

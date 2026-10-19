@@ -410,7 +410,7 @@ func (s *site) form(w http.ResponseWriter, r *http.Request, m *Model, id int64, 
 	}
 	return rt.Render(w, pages, "form.html", "", map[string]any{
 		"Home": home(), "App": m.App, "Name": m.Name, "List": listURL(m), "Title": title, "Inputs": inputs, "Save": save, "Delete": deleteURL,
-		"Version": version, "Conflict": conflict,
+		"Version": version, "Conflict": conflict, "Errors": f.Errors,
 	})
 }
 

@@ -485,3 +485,33 @@ func TestPrefix(t *testing.T) {
 		t.Errorf("no prefixed static link in %s", body)
 	}
 }
+
+// A value a unique constraint refuses, with no read before, is the
+// form's 200 (D-154): the field's error when the constraint is over the
+// one field, the form's when over two of the form; the view then reads in
+// its transaction. Config.Messages.Taken words it.
+func TestFormTaken(t *testing.T) {
+	_, db, _ := handler(t)
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{App}, Auth: Auth, MediaDir: t.TempDir(), LoginURL: "/login", Messages: maago.Messages{Taken: "이미 있습니다."}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		name, body string
+		code       int
+		has        string
+	}{
+		{"saved", "name=a&kind=k&code=1", 303, ""},
+		{"the name", "name=a&kind=k&code=2", 200, `<input name="name" value="a"><p class="error">이미 있습니다.</p>`},
+		{"the kind and code", "name=b&kind=k&code=1", 200, `<p class="form-error">이미 있습니다.</p>`},
+		{"another", "name=b&kind=k&code=2", 303, ""},
+	} {
+		r := httptest.NewRequest("POST", TagSaveURL(), strings.NewReader(c.body))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if body := w.Body.String(); w.Code != c.code || !strings.Contains(body, c.has) || c.code == 200 && (!strings.Contains(body, "first: a") || strings.Count(body, "이미 있습니다.") != 1) {
+			t.Errorf("%s: %d\n%s", c.name, w.Code, body)
+		}
+	}
+}

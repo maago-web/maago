@@ -13,7 +13,7 @@ import (
 // other.
 type Messages struct {
 	Required, NotNumber, TooSmall, TooLarge, TooShort, TooLong string
-	NotChoice, BadBool, BadTime, NoRow, NotKind                string
+	NotChoice, BadBool, BadTime, NoRow, NotKind, Taken         string
 }
 
 // Default are the settings of a context with none: maago.DefaultMessages
@@ -34,7 +34,7 @@ func NewSettings(m, d Messages, tz *time.Location) *Settings {
 	m.Required, m.NotNumber, m.TooSmall = cmp.Or(m.Required, d.Required), cmp.Or(m.NotNumber, d.NotNumber), cmp.Or(m.TooSmall, d.TooSmall)
 	m.TooLarge, m.TooShort, m.TooLong = cmp.Or(m.TooLarge, d.TooLarge), cmp.Or(m.TooShort, d.TooShort), cmp.Or(m.TooLong, d.TooLong)
 	m.NotChoice, m.BadBool, m.BadTime = cmp.Or(m.NotChoice, d.NotChoice), cmp.Or(m.BadBool, d.BadBool), cmp.Or(m.BadTime, d.BadTime)
-	m.NoRow, m.NotKind = cmp.Or(m.NoRow, d.NoRow), cmp.Or(m.NotKind, d.NotKind)
+	m.NoRow, m.NotKind, m.Taken = cmp.Or(m.NoRow, d.NoRow), cmp.Or(m.NotKind, d.NotKind), cmp.Or(m.Taken, d.Taken)
 	return &Settings{m, cmp.Or(tz, time.UTC)}
 }
 
@@ -53,7 +53,10 @@ func SettingsFrom(ctx context.Context) *Settings {
 }
 
 // FormState is what binding found of a maago.Form, which holds it.
-type FormState struct{ Bound, OK bool }
+type FormState struct {
+	Bound, OK bool
+	Settings  *Settings // of the request that bound it; nil: Default
+}
 
 // FormStateOf is the state inside the *maago.Form form; maago sets it as
 // it starts, since rtcore cannot name maago's types.

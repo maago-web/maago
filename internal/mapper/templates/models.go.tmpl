@@ -10,6 +10,13 @@ import (
 {{range .Imports}}{{if .}}	"{{.}}"{{end}}
 {{end}})
 {{range .Models}}
+{{- if .Uniques}}
+// unique{{.Name}} are {{.Name}}'s unique constraints, which tell the
+// maago.UniqueError of a write one refuses.
+var unique{{.Name}} = []rt.UniqueKey{
+{{range .Uniques}}	{Fields: []string{ {{- .Fields -}} }, Key: {{.Key}}},
+{{end}}}
+{{end}}
 // New{{.Name}}Input is what Insert{{.Name}} takes: every column but
 // the ID and the auto times.{{if .Defaults}} A maago.Opt field left unset takes the
 // column's default; maago.Set gives any value, even the zero value.{{end}}
@@ -30,7 +37,10 @@ func Insert{{.Name}}(ctx context.Context, db maago.DB, in New{{.Name}}Input) ({{
 {{end}}	o := {{.Name}}{
 {{range .Build}}		{{.}},
 {{end}}	}
-	if err := db.QueryRowContext(ctx, {{.Insert}}{{range .InsertArgs}}, {{.}}{{end}}).Scan(&o.ID); err != nil {
+	err := rt.Write(ctx, db, {{.Keys}}, func() error {
+		return db.QueryRowContext(ctx, {{.Insert}}{{range .InsertArgs}}, {{.}}{{end}}).Scan(&o.ID)
+	})
+	if err != nil {
 		return {{.Name}}{}, err
 	}
 	return o, nil
@@ -44,7 +54,11 @@ func Insert{{.Name}}(ctx context.Context, db maago.DB, in New{{.Name}}Input) ({{
 // Once the row is written, o has its new auto times.{{end}}
 func Update{{.Name}}(ctx context.Context, db maago.DB, o *{{.Name}}) error {
 {{if .UpdateNow}}	now := time.Now().Truncate(time.Microsecond)
-{{end}}	n, err := rt.Exec(ctx, db, {{.Update}}{{range .UpdateArgs}}, {{.}}{{end}})
+{{end}}	var n int64
+	err := rt.Write(ctx, db, {{.Keys}}, func() (err error) {
+		n, err = rt.Exec(ctx, db, {{.Update}}{{range .UpdateArgs}}, {{.}}{{end}})
+		return err
+	})
 	if err != nil {
 		return err
 	}

@@ -87,10 +87,16 @@ type modelView struct {
 	Version             string   // the field Update compares, "" for none
 	Exists              string   // the SQL that tells a missing row from a changed one
 	InsertOnly          []string // the auto=create fields, which Update leaves
+	Uniques             []uniqueView
+	Keys                string // what Write takes: uniqueName, or nil
 	Scan                string
 }
 
 type inputField struct{ Name, Type, Default string }
+
+// uniqueView is a unique constraint as rt.UniqueKey: Fields its Go
+// names, quoted and joined, Key a Go string literal.
+type uniqueView struct{ Fields, Key string }
 
 func (g *gen) model(c CRUD) modelView {
 	m := c.Model
@@ -124,6 +130,24 @@ func (g *gen) model(c CRUD) modelView {
 		}
 	}
 	v.Scan = strings.Join(dests, ", ")
+	v.Keys = "nil"
+	for _, cols := range m.Uniques {
+		var names, quals []string
+		for _, c := range cols {
+			for _, f := range m.Fields {
+				if f.Column == c {
+					names = append(names, strconv.Quote(f.Name))
+				}
+			}
+			quals = append(quals, m.Table+"."+c)
+		}
+		key := dialect.UniqueName(m.Table, cols) // PostgreSQL names the constraint
+		if g.d == project.SQLite {
+			key = strings.Join(quals, ", ") // SQLite lists its columns
+		}
+		v.Uniques = append(v.Uniques, uniqueView{strings.Join(names, ", "), strconv.Quote(key)})
+		v.Keys = "unique" + m.Name
+	}
 	for _, a := range c.Insert.Args {
 		v.InsertArgs = append(v.InsertArgs, g.arg("o."+a, fields[a].Type, fields[a].Pointer))
 	}

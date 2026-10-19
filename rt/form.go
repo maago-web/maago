@@ -27,9 +27,10 @@ func FormValid(f maago.Form) bool {
 	return s.Bound && s.OK && len(f.Errors) == 0
 }
 
-// FinishForm records what binding found. Only generated code calls it.
-func FinishForm(f *maago.Form, bound, fieldsOK bool) {
-	*rtcore.FormStateOf(f) = rtcore.FormState{Bound: bound, OK: fieldsOK}
+// FinishForm records what binding found, and the settings of ctx, for
+// the messages of Fail. Only generated code calls it.
+func FinishForm(ctx context.Context, f *maago.Form, bound, fieldsOK bool) {
+	*rtcore.FormStateOf(f) = rtcore.FormState{Bound: bound, OK: fieldsOK, Settings: rtcore.SettingsFrom(ctx)}
 }
 
 // Rule is what maago gen read from a field's tags (or its model's), for

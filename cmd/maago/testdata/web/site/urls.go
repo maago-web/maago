@@ -24,4 +24,5 @@ var Routes = maago.Routes{
 	maago.GET("/upload", "upload", Upload),
 	maago.POST("/upload", "upload_save", Upload),
 	maago.GET("/media/{key}", "media", MediaDownload),
+	maago.POST("/tags", "tag_save", TagSave),
 }

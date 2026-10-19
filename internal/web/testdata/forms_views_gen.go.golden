@@ -113,7 +113,7 @@ func bindBoardForm(r *http.Request, vals url.Values, f *BoardForm) {
 	ok := func() bool {
 		return f.Name.Error == "" && f.Kind.Error == ""
 	}
-	rt.FinishForm(&f.Form, vals != nil, ok())
+	rt.FinishForm(r.Context(), &f.Form, vals != nil, ok())
 }
 
 // bindNoticeForm reads form NoticeForm from the values the request sent, or
@@ -131,7 +131,7 @@ func bindNoticeForm(r *http.Request, vals url.Values, f *NoticeForm) {
 	if vals != nil && ok() {
 		f.Validate()
 	}
-	rt.FinishForm(&f.Form, vals != nil, ok())
+	rt.FinishForm(r.Context(), &f.Form, vals != nil, ok())
 }
 
 // invalidNoticeForm is the 422 of form NoticeForm on an API route.

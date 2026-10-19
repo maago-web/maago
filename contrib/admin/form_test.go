@@ -287,3 +287,24 @@ func TestFormConflict(t *testing.T) {
 		t.Errorf("a conflict: %d\n%s", w.Code, body)
 	}
 }
+
+// The form's own errors, such as a unique constraint over fields
+// together, are drawn with the inputs as given, a 200 (D-154).
+func TestFormErrors(t *testing.T) {
+	m := plain("blog", "Post")
+	m.Edit = true
+	m.Form = func(ctx context.Context, _ maago.DB, id int64, vals url.Values) (Form, error) {
+		var title maago.Field[string]
+		rt.BindString(ctx, vals, &title, rt.Rule{Name: "title", Label: "Title"})
+		f := Form{Inputs: []Input{In(&title, true, "")}}
+		if vals != nil {
+			f.Errors = []string{"These are <taken>."}
+		}
+		return f, nil
+	}
+	h := handler(t, Config{Models: [][]Model{{m}}, Can: func(context.Context, string, string, string) (bool, error) { return true, nil }}, "", nil)
+	w := send(h, "root", "/admin/blog/Post/7/", url.Values{"title": {"mine"}})
+	if body := w.Body.String(); w.Code != 200 || !strings.Contains(body, `<p class="error">These are &lt;taken&gt;.</p>`) || !strings.Contains(body, `value="mine"`) {
+		t.Errorf("%d\n%s", w.Code, body)
+	}
+}

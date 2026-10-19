@@ -79,9 +79,11 @@ func Forms(fset *token.FileSet, apps []*App, models func(dir string) *model.App)
 			ds = append(ds, fds...)
 			if f != nil {
 				app.forms[f.name] = f
-				if pos, ok := app.valid[f.name]; ok {
-					ds = append(ds, diag.New(fset.Position(pos), "form "+f.name+" declares Valid, which maago gen writes for it",
-						"remove it, or rename it: the generated Valid counts the form's errors and its fields'"))
+				for _, m := range []string{"Valid", "Fail"} {
+					if pos, ok := app.valid[f.name+"."+m]; ok {
+						ds = append(ds, diag.New(fset.Position(pos), "form "+f.name+" declares "+m+", which maago gen writes for it",
+							"remove it, or rename it: the generated Valid counts the form's errors and its fields', and Fail shows a unique constraint's error"))
+					}
 				}
 			}
 		}
@@ -190,8 +192,8 @@ func readForm(fset *token.FileSet, ts *ast.TypeSpec, names []string, models *mod
 				errAt(name.Pos(), "form field "+name.Name+" is not exported", "export it: templates draw the form's fields")
 				continue
 			}
-			if name.Name == "Valid" {
-				errAt(name.Pos(), "form field Valid takes the name of the form's method Valid", "rename the field")
+			if name.Name == "Valid" || name.Name == "Fail" {
+				errAt(name.Pos(), "form field "+name.Name+" takes the name of the form's method "+name.Name, "rename the field")
 				continue
 			}
 			ff := formField{name: name.Name, typ: typ, label: name.Name}

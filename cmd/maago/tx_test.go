@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/rt"
 )
 
 // txDB is a database of each dialect with an empty table, and the
@@ -163,5 +164,93 @@ func TestWithTxSQLiteConcurrent(t *testing.T) {
 	wg.Wait()
 	if errors.Join(errs...) != nil || count(t, db, table) != 2 {
 		t.Errorf("%v, %d rows", errs, count(t, db, table))
+	}
+}
+
+// A write a unique constraint refuses, in a transaction that waited for
+// another to commit the same value, leaves its transaction to read, write
+// and commit: rt.Write's savepoint, without which PostgreSQL refuses every
+// later statement (D-154). B most often waits, on SQLite to begin and on
+// PostgreSQL at its insert; it gets the same answer if A was first.
+func TestWriteRace(t *testing.T) {
+	for _, d := range []string{"sqlite", "postgres"} {
+		t.Run(d, func(t *testing.T) {
+			db, table := txDB(t, d)
+			if d == "sqlite" {
+				if _, err := db.Exec("CREATE UNIQUE INDEX t_x_key ON t (x)"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			keys := []rt.UniqueKey{{Fields: []string{"X"}, Key: table + "_x_key"}}
+			insert := func(ctx context.Context, db maago.DB, x int) error {
+				return rt.Write(ctx, db, keys, func() error {
+					_, err := db.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s (x) VALUES (%d)", table, x))
+					return err
+				})
+			}
+			a, err := db.BeginTx(ctx(t), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := a.Exec(fmt.Sprintf("INSERT INTO %s (x) VALUES (1)", table)); err != nil {
+				t.Fatal(err)
+			}
+			b := make(chan error)
+			go func() {
+				b <- maago.WithTx(ctx(t), db, func(ctx context.Context, tx maago.Tx) error {
+					var u *maago.UniqueError
+					if err := insert(ctx, tx, 1); !errors.As(err, &u) || len(u.Fields) != 1 || u.Fields[0] != "X" {
+						return fmt.Errorf("the taken value: %v", err)
+					}
+					var n int
+					if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&n); err != nil || n != 1 {
+						return fmt.Errorf("read after: %d %v", n, err)
+					}
+					return insert(ctx, tx, 2)
+				})
+			}()
+			time.Sleep(50 * time.Millisecond) // B starts, and waits for A
+			if err := a.Commit(); err != nil {
+				t.Fatal(err)
+			}
+			if err := <-b; err != nil || count(t, db, table) != 2 {
+				t.Errorf("%v, %d rows", err, count(t, db, table))
+			}
+		})
+	}
+}
+
+// A refused write whose savepoint cannot be rolled back to, the request
+// gone, is no UniqueError: a form must not take it and draw a page of a
+// transaction that is lost.
+func TestWriteSavepointLost(t *testing.T) {
+	for _, d := range []string{"sqlite", "postgres"} {
+		t.Run(d, func(t *testing.T) {
+			db, table := txDB(t, d)
+			if d == "sqlite" {
+				if _, err := db.Exec("CREATE UNIQUE INDEX t_x_key ON t (x)"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := db.Exec(fmt.Sprintf("INSERT INTO %s (x) VALUES (1)", table)); err != nil {
+				t.Fatal(err)
+			}
+			err := maago.WithTx(ctx(t), db, func(c context.Context, tx maago.Tx) error {
+				c, cancel := context.WithCancel(c)
+				err := rt.Write(c, tx, nil, func() error {
+					_, err := tx.ExecContext(c, fmt.Sprintf("INSERT INTO %s (x) VALUES (1)", table))
+					cancel() // the client went away
+					return err
+				})
+				var u *maago.UniqueError
+				if err == nil || errors.As(err, &u) || !strings.Contains(err.Error(), "ending the savepoint of a failed write") {
+					t.Errorf("%v", err)
+				}
+				return err
+			})
+			if err == nil {
+				t.Error("committed")
+			}
+		})
 	}
 }

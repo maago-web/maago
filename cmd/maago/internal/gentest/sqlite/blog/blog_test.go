@@ -2,6 +2,7 @@ package blog
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -159,6 +160,56 @@ func sent(f admin.Form) url.Values {
 	return vals
 }
 
+// A row a unique constraint refuses is a maago.UniqueError of that
+// constraint's fields, which the database names: Author has two of one
+// field each (Post's two overlap: a slug taken breaks both, and which the
+// database names is its own order). In a transaction the refused write
+// leaves the rest to go on and commit (D-154).
+func TestUnique(t *testing.T) {
+	ctx, db := gentest.Open(t, "internal/testdata/example")
+	// Each its own editor, before a refused insert takes an ID of
+	// PostgreSQL's sequence.
+	a, err := InsertAuthor(ctx, db, NewAuthorInput{Name: "kim", EditorID: 1, Code: "c1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := InsertAuthor(ctx, db, NewAuthorInput{Name: "lee", EditorID: 2, Code: "c2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	refused := func(what string, err error, field string) {
+		t.Helper()
+		var u *maago.UniqueError
+		if !errors.As(err, &u) || !slices.Equal(u.Fields, []string{field}) {
+			t.Errorf("%s: %v", what, err)
+		}
+	}
+	_, err = InsertAuthor(ctx, db, NewAuthorInput{Name: "park", EditorID: 1, Code: "c3"})
+	refused("insert, the editor", err, "EditorID")
+	_, err = InsertAuthor(ctx, db, NewAuthorInput{Name: "park", EditorID: 3, Code: "c1"})
+	refused("insert, the code", err, "Code")
+	b.Code = a.Code
+	refused("update, the code", UpdateAuthor(ctx, db, &b), "Code")
+	b.Code = "c2"
+
+	err = maago.WithTx(ctx, db, func(ctx context.Context, tx maago.Tx) error {
+		_, err := InsertAuthor(ctx, tx, NewAuthorInput{Name: "park", EditorID: 1, Code: "c3"})
+		refused("in a transaction", err, "EditorID")
+		got, err := GetAuthor(ctx, tx, b.ID)
+		if err != nil {
+			return err
+		}
+		got.Name = "park"
+		return UpdateAuthor(ctx, tx, &got)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := GetAuthor(ctx, db, b.ID); err != nil || got.Name != "park" {
+		t.Errorf("after the transaction: %+v %v", got, err)
+	}
+}
+
 // The admin's forms of the shared example (D-132): a form sent back
 // untouched keeps every value, a time to the microsecond; a change writes
 // only the fields the form changes, whatever else the request sends; an
@@ -224,6 +275,22 @@ func TestAdminForm(t *testing.T) {
 		if in.Name == "code" || in.Label == "Code" {
 			t.Errorf("the hidden Code is in the form: %+v", in)
 		}
+	}
+
+	// A value another row has is its field's error, the form drawn again.
+	b, err := InsertAuthor(ctx, db, NewAuthorInput{Name: "park", EditorID: 2, Code: "c2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bf, err := author.Form(ctx, db, b.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	vals = sent(bf)
+	vals.Set("editor_id", strconv.FormatInt(a.EditorID, 10))
+	if f, err := author.Form(ctx, db, b.ID, vals); err != nil || f.Saved || input(t, f, "editor_id").Error != "This value is already taken." ||
+		input(t, f, "editor_id").Raw != vals.Get("editor_id") || input(t, f, "name").Raw != "park" || f.Errors != nil {
+		t.Errorf("a taken editor: %v %+v", err, f)
 	}
 
 	if _, err := post.Form(ctx, db, p.ID+100, nil); !errors.Is(err, sql.ErrNoRows) {

@@ -12,8 +12,24 @@ func (f BoardForm) Valid() bool {
 	return rt.FormValid(f.Form) && f.Name.Error == "" && f.Kind.Error == ""
 }
 
+// Fail shows err on form BoardForm when it is a *maago.UniqueError, the
+// error of a generated Insert or Update a unique constraint refused: on
+// the one field of the form the constraint is over, else as the form's
+// error; it reports whether it did, so the view draws the form again.
+func (f *BoardForm) Fail(err error) bool {
+	return rt.Fail(&f.Form, err, map[string]*string{"Name": &f.Name.Error, "Kind": &f.Kind.Error})
+}
+
 // Valid reports whether form NoticeForm was sent and has no error: neither
 // its own nor one of its fields', which binding, Validate or the view set.
 func (f NoticeForm) Valid() bool {
 	return rt.FormValid(f.Form) && f.Title.Error == "" && f.Days.Error == "" && f.Rate.Error == "" && f.Pinned.Error == "" && f.Start.Error == ""
+}
+
+// Fail shows err on form NoticeForm when it is a *maago.UniqueError, the
+// error of a generated Insert or Update a unique constraint refused: on
+// the one field of the form the constraint is over, else as the form's
+// error; it reports whether it did, so the view draws the form again.
+func (f *NoticeForm) Fail(err error) bool {
+	return rt.Fail(&f.Form, err, map[string]*string{"Title": &f.Title.Error, "Days": &f.Days.Error, "Rate": &f.Rate.Error, "Pinned": &f.Pinned.Error, "Start": &f.Start.Error})
 }

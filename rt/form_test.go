@@ -178,7 +178,7 @@ func TestFormValid(t *testing.T) {
 	if FormValid(f) || f.Bound() {
 		t.Error("an unbound form is not valid")
 	}
-	FinishForm(&f, true, true)
+	FinishForm(context.Background(), &f, true, true)
 	if !FormValid(f) {
 		t.Error("bound, fields fine: valid")
 	}
@@ -186,7 +186,7 @@ func TestFormValid(t *testing.T) {
 	if FormValid(f) || len(f.Errors) != 1 {
 		t.Error("a form error makes it invalid")
 	}
-	FinishForm(&f, true, false)
+	FinishForm(context.Background(), &f, true, false)
 	f.Errors = nil
 	if FormValid(f) {
 		t.Error("a field error makes it invalid")

@@ -157,7 +157,7 @@ func bind{{.Name}}(r *http.Request, vals url.Values, f *{{.Name}}) {
 		f.Validate()
 	}
 {{- end}}
-	rt.FinishForm(&f.Form, vals != nil, ok())
+	rt.FinishForm(r.Context(), &f.Form, vals != nil, ok())
 }
 {{- if .API}}
 

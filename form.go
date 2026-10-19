@@ -53,6 +53,7 @@ type Messages struct {
 	BadTime   string // the text is not a date and time
 	NoRow     string // the number is of no row: an fk field in the admin
 	NotKind   string // the file is not of a kind the field accepts
+	Taken     string // a unique constraint refused the value: another row has it
 }
 
 // DefaultMessages are the messages a project has not replaced.
@@ -68,6 +69,7 @@ var DefaultMessages = Messages{
 	BadTime:   "Enter a date and time.",
 	NoRow:     "Select a row that exists.",
 	NotKind:   "This kind of file is not allowed.",
+	Taken:     "This value is already taken.",
 }
 
 // check reports a message whose verbs do not fit what fills it, which
@@ -78,7 +80,7 @@ func (m Messages) check() error {
 		args      []any
 	}{
 		{"Required", m.Required, nil}, {"NotNumber", m.NotNumber, nil}, {"NotChoice", m.NotChoice, nil},
-		{"BadBool", m.BadBool, nil}, {"BadTime", m.BadTime, nil}, {"NoRow", m.NoRow, nil}, {"NotKind", m.NotKind, nil},
+		{"BadBool", m.BadBool, nil}, {"BadTime", m.BadTime, nil}, {"NoRow", m.NoRow, nil}, {"NotKind", m.NotKind, nil}, {"Taken", m.Taken, nil},
 		{"TooSmall", m.TooSmall, []any{"1"}}, {"TooLarge", m.TooLarge, []any{"1"}},
 		{"TooShort", m.TooShort, []any{1}}, {"TooLong", m.TooLong, []any{1}},
 	} {

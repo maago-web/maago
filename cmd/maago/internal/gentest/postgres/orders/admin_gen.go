@@ -52,25 +52,35 @@ var Admin = []admin.Model{
 				Name maago.Field[string]
 			}
 			rt.BindString(ctx, vals, &f.Name, rt.Rule{Name: "name", Label: "Name", Max: 100})
+			var form maago.Form // the form's own errors
+			rt.FinishForm(ctx, &form, vals != nil, true)
 			if vals == nil && id != 0 {
 				f.Name.Raw = admin.Raw(o.Name)
+			}
+			var err error
+			if vals != nil && f.Name.Error == "" {
+				if id == 0 {
+					_, err = InsertCustomer(ctx, db, NewCustomerInput{
+						Name: f.Name.Value,
+					})
+				} else {
+					err = rt.Write(ctx, db, nil, func() error {
+						return admin.Updated(rt.Exec(ctx, db, `UPDATE "customers" SET "name" = $1 WHERE "id" = $2`, f.Name.Value, id))
+					})
+				}
+				if err == nil {
+					return admin.Form{Saved: true}, nil
+				}
+				if rt.Fail(&form, err, map[string]*string{"Name": &f.Name.Error}) { // drawn again, with the error
+					err = nil
+				}
 			}
 			var in []admin.Input
 			if id != 0 {
 				in = append(in, admin.Show("ID", o.ID))
 			}
 			in = append(in, admin.In(&f.Name, true, ""))
-			if vals == nil || !(f.Name.Error == "") {
-				return admin.Form{Inputs: in}, nil
-			}
-			if id == 0 {
-				_, err := InsertCustomer(ctx, db, NewCustomerInput{
-					Name: f.Name.Value,
-				})
-				return admin.Form{Inputs: in, Saved: err == nil}, err
-			}
-			err := admin.Updated(rt.Exec(ctx, db, `UPDATE "customers" SET "name" = $1 WHERE "id" = $2`, f.Name.Value, id))
-			return admin.Form{Inputs: in, Saved: err == nil}, err
+			return admin.Form{Inputs: in, Errors: form.Errors}, err
 		},
 		Delete: DeleteCustomer,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
@@ -133,6 +143,8 @@ var Admin = []admin.Model{
 			rt.BindInt64(ctx, vals, &f.Amount, rt.Rule{Name: "amount", Label: "Amount"})
 			rt.BindInt32(ctx, vals, &f.Priority, rt.Rule{Name: "priority", Label: "Priority", Optional: true})
 			rt.BindTime(ctx, vals, &f.CreatedAt, rt.Rule{Name: "created_at", Label: "CreatedAt"})
+			var form maago.Form // the form's own errors
+			rt.FinishForm(ctx, &form, vals != nil, true)
 			if vals == nil && id != 0 {
 				f.CustomerID.Raw = admin.Raw(o.CustomerID)
 				f.Status.Raw = admin.Raw(o.Status)
@@ -150,6 +162,30 @@ var Admin = []admin.Model{
 					rt.NoRow(ctx, &f.CustomerID)
 				}
 			}
+			var err error
+			if vals != nil && f.CustomerID.Error == "" && f.Status.Error == "" && f.Amount.Error == "" && f.Priority.Error == "" && f.CreatedAt.Error == "" {
+				if id == 0 {
+					_, err = InsertOrder(ctx, db, NewOrderInput{
+						CustomerID: admin.Ptr(f.CustomerID),
+						Status:     maago.Set(f.Status.Value),
+						Amount:     f.Amount.Value,
+						Priority:   maago.Set(admin.Ptr(f.Priority)),
+						CreatedAt:  f.CreatedAt.Value,
+					})
+				} else {
+					now := time.Now().Truncate(time.Microsecond)
+					err = rt.Write(ctx, db, nil, func() error {
+						return admin.Updated(rt.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = $1, "status" = $2, "amount" = $3, "priority" = $4, "created_at" = $5, "updated_at" = $6 WHERE "id" = $7 AND "updated_at" = $8`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), f.CreatedAt.Value, now, id, ver))
+					})
+					err = admin.Changed(ctx, db, `SELECT 1 FROM "orders" WHERE "id" = $1`, id, err)
+				}
+				if err == nil {
+					return admin.Form{Saved: true}, nil
+				}
+				if rt.Fail(&form, err, map[string]*string{"CustomerID": &f.CustomerID.Error, "Status": &f.Status.Error, "Amount": &f.Amount.Error, "Priority": &f.Priority.Error, "CreatedAt": &f.CreatedAt.Error}) { // drawn again, with the error
+					err = nil
+				}
+			}
 			var in []admin.Input
 			if id != 0 {
 				in = append(in, admin.Show("ID", o.ID))
@@ -162,23 +198,7 @@ var Admin = []admin.Model{
 			if id != 0 {
 				in = append(in, admin.Show("UpdatedAt", o.UpdatedAt))
 			}
-			if vals == nil || !(f.CustomerID.Error == "" && f.Status.Error == "" && f.Amount.Error == "" && f.Priority.Error == "" && f.CreatedAt.Error == "") {
-				return admin.Form{Inputs: in, Version: ver}, nil
-			}
-			if id == 0 {
-				_, err := InsertOrder(ctx, db, NewOrderInput{
-					CustomerID: admin.Ptr(f.CustomerID),
-					Status:     maago.Set(f.Status.Value),
-					Amount:     f.Amount.Value,
-					Priority:   maago.Set(admin.Ptr(f.Priority)),
-					CreatedAt:  f.CreatedAt.Value,
-				})
-				return admin.Form{Inputs: in, Saved: err == nil}, err
-			}
-			now := time.Now().Truncate(time.Microsecond)
-			err := admin.Updated(rt.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = $1, "status" = $2, "amount" = $3, "priority" = $4, "created_at" = $5, "updated_at" = $6 WHERE "id" = $7 AND "updated_at" = $8`, admin.Ptr(f.CustomerID), f.Status.Value, f.Amount.Value, admin.Ptr(f.Priority), f.CreatedAt.Value, now, id, ver))
-			err = admin.Changed(ctx, db, `SELECT 1 FROM "orders" WHERE "id" = $1`, id, err)
-			return admin.Form{Inputs: in, Version: ver, Saved: err == nil}, err
+			return admin.Form{Inputs: in, Errors: form.Errors, Version: ver}, err
 		},
 		Delete: DeleteOrder,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {

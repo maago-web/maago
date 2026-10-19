@@ -11,7 +11,9 @@
 //     not edited. A row changed by someone else since the form was drawn is
 //     a 409 when the model has an auto=update field, else the later save
 //     wins.
-//   - What the database refuses, such as a unique value twice or a
+//   - A value another row has where a unique constraint forbids it is
+//     an error of its field, or of the form when the constraint is over
+//     fields together; what else the database refuses, such as a
 //     referenced row deleted meanwhile, is a 500, not a form error.
 //   - A row that rows refer to is not deleted, even when those rows are of
 //     a hidden model; nor is a chosen row that another chosen row
@@ -73,6 +75,7 @@ type Ref struct {
 // Form is a model's form, read or to draw.
 type Form struct {
 	Inputs  []Input
+	Errors  []string  // the form's own, such as a unique constraint over fields together
 	Saved   bool      // the form was valid, and its row written
 	Version time.Time // the row's version the form carries, if its model has one
 }

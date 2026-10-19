@@ -204,6 +204,12 @@ func SignupSubmit(ctx context.Context, db maago.DB, in SignupIn) (maago.Result[S
 		return maago.Result[SignupPage]{}, err
 	}
 	u, err := InsertUser(ctx, db, NewUserInput{Email: email, PasswordHash: hash})
+	if errors.As(err, new(*maago.UniqueError)) {
+		// Signed up meanwhile, by another request: the same as the account
+		// read above, which got its mail. Not the form's Fail: that would
+		// tell that the account exists.
+		return maago.Show(SignupPage{Sent: true}), nil
+	}
 	if err != nil {
 		return maago.Result[SignupPage]{}, err
 	}

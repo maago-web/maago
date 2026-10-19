@@ -1,0 +1,7 @@
+{{define "content"}}<form method="post">
+{{range .Form.Errors}}<p class="form-error">{{.}}</p>{{end}}
+{{with .Form.Name}}<input name="{{.Name}}" value="{{.Raw}}">{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+{{with .Form.Kind}}<input name="{{.Name}}" value="{{.Raw}}">{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+{{with .Form.Code}}<input name="{{.Name}}" value="{{.Raw}}">{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+</form>
+<p>first: {{.First}}</p>{{end}}

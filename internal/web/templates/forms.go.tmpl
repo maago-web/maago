@@ -11,4 +11,12 @@ import (
 func (f {{.Name}}) Valid() bool {
 	return rt.FormValid(f.Form){{range .Fields}} && f.{{.Name}}.Error == ""{{end}}
 }
+
+// Fail shows err on form {{.Name}} when it is a *maago.UniqueError, the
+// error of a generated Insert or Update a unique constraint refused: on
+// the one field of the form the constraint is over, else as the form's
+// error; it reports whether it did, so the view draws the form again.
+func (f *{{.Name}}) Fail(err error) bool {
+	return rt.Fail(&f.Form, err, map[string]*string{ {{- range $i, $f := .Fields}}{{if $i}}, {{end}}"{{$f.Name}}": &f.{{$f.Name}}.Error{{end -}} })
+}
 {{end}}

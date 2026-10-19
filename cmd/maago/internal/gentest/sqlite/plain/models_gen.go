@@ -28,7 +28,10 @@ func InsertNote(ctx context.Context, db maago.DB, in NewNoteInput) (Note, error)
 	o := Note{
 		Body: in.Body,
 	}
-	if err := db.QueryRowContext(ctx, `INSERT INTO "notes" ("body") VALUES (?1) RETURNING "id"`, o.Body).Scan(&o.ID); err != nil {
+	err := rt.Write(ctx, db, nil, func() error {
+		return db.QueryRowContext(ctx, `INSERT INTO "notes" ("body") VALUES (?1) RETURNING "id"`, o.Body).Scan(&o.ID)
+	})
+	if err != nil {
 		return Note{}, err
 	}
 	return o, nil
@@ -38,7 +41,11 @@ func InsertNote(ctx context.Context, db maago.DB, in NewNoteInput) (Note, error)
 // so pass what GetNote returned, changed: sql.ErrNoRows if there is no
 // such row.
 func UpdateNote(ctx context.Context, db maago.DB, o *Note) error {
-	n, err := rt.Exec(ctx, db, `UPDATE "notes" SET "body" = ?1 WHERE "id" = ?2`, o.Body, o.ID)
+	var n int64
+	err := rt.Write(ctx, db, nil, func() (err error) {
+		n, err = rt.Exec(ctx, db, `UPDATE "notes" SET "body" = ?1 WHERE "id" = ?2`, o.Body, o.ID)
+		return err
+	})
 	if err != nil {
 		return err
 	}
