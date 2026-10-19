@@ -5,7 +5,7 @@
 
 M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·M4(HTTP)·M5(인증)·M6(admin)·M7(정적 파일과 업로드)·M8(튜토리얼 검증: 게시판)·M9(v0 게이트)·M10(연구 반영과 첫 릴리스, v0.1.0)이 끝났다. 다음은 v0.2, 안전부터(M11). 문서부터 읽는다.
 
-**다음 작업: TASKS-M11 초안**([MILESTONES.md](docs/MILESTONES.md)의 M11: 읽기 정책, 권한 시험 표, unique 위반 → 필드 오류. D-148, [TODO.md](docs/TODO.md)의 M10).
+**다음 작업: [TASKS-M11](docs/TASKS-M11.md) 1번**([MILESTONES.md](docs/MILESTONES.md)의 M11: unique 위반 → 필드 오류, 권한 표, 읽기 정책. 결정 D-154~D-156).
 
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙
@@ -14,7 +14,7 @@ M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·
 - [MILESTONES.md](docs/MILESTONES.md) — 만드는 순서
 - [WORKFLOW.md](docs/WORKFLOW.md) — 구현 루프
 - [RESEARCH-AGENT-FIT.md](docs/RESEARCH-AGENT-FIT.md) — 에이전트에게 정말 편하고 안전한가(M9 연구)
-- 진행 중인 마일스톤의 작업 목록: TASKS-M11.md(초안이 다음 작업) (지난 것: [M0](docs/TASKS-M0.md), [M1](docs/TASKS-M1.md), [M2](docs/TASKS-M2.md), [M3](docs/TASKS-M3.md), [M4](docs/TASKS-M4.md), [M5](docs/TASKS-M5.md), [M6](docs/TASKS-M6.md), [M7](docs/TASKS-M7.md), [M8](docs/TASKS-M8.md), [M9](docs/TASKS-M9.md), [M10](docs/TASKS-M10.md))
+- [TASKS-M11.md](docs/TASKS-M11.md) — 진행 중인 마일스톤의 작업 목록 (지난 것: [M0](docs/TASKS-M0.md), [M1](docs/TASKS-M1.md), [M2](docs/TASKS-M2.md), [M3](docs/TASKS-M3.md), [M4](docs/TASKS-M4.md), [M5](docs/TASKS-M5.md), [M6](docs/TASKS-M6.md), [M7](docs/TASKS-M7.md), [M8](docs/TASKS-M8.md), [M9](docs/TASKS-M9.md), [M10](docs/TASKS-M10.md))
 - [examples/board](examples/board/README.md) — 게시판 튜토리얼(M8)의 단계들
 - [TODO.md](docs/TODO.md) — 남은 일
 
