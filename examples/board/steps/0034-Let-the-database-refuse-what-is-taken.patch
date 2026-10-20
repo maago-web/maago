@@ -21,10 +21,10 @@ refuses the second as a 500. Now the write itself is the question.
       }
 
   maago gen gives every form Fail(err). When err is the model's unique
-  refusing the row, it writes the message on the field of that
-  constraint, keeps the transaction going, and is true; otherwise it is
-  false and err is the view's to return. Board.Name is that field for a
-  board. Post's unique=(BoardID,Title) has only Title on the form, so
+  refusing the row, it writes the message on the one field of that
+  constraint the form has (on the form itself if it has none or more
+  than one) and is true; otherwise it is false and err is the view's to
+  return. Board.Name is that field for a board. Post's unique=(BoardID,Title) has only Title on the form, so
   the message goes on Title
 - savePost does the same after InsertPost, and APICreatePost stays as
   it is: it turns what savePost wrote on f.Title.Error into a 422
@@ -38,8 +38,9 @@ refuses the second as a 500. Now the write itself is the question.
   write inside a savepoint, so on PostgreSQL a refused row does not
   abort the request's transaction: the page still reads, and commits
 - Two notices pinned at once have no constraint to refuse them, so
-  PinnedOverlap stays a question asked first. It is now asked before the
-  write: a post whose title and pin both clash shows the pin's error
+  PinnedOverlap stays a question asked first, before the write, so now
+  before the title too: a post whose title and pin both clash shows the
+  pin's error
 - The message is the framework's, as "This field is required." is:
   "This value is already taken." Config.Messages.Taken changes it. The
   messages the board wrote itself (Validate's, the pin's, the
