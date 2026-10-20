@@ -174,7 +174,7 @@ index 0f860e9..f8b8839 100644
  		return maago.Result[PostEditPage]{}, err
  	}
 diff --git a/board/web_test.go b/board/web_test.go
-index 3c4bdcb..fe1cd67 100644
+index a1268d1..936dfe9 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -1,6 +1,7 @@
@@ -185,7 +185,7 @@ index 3c4bdcb..fe1cd67 100644
  	"database/sql"
  	"encoding/csv"
  	"encoding/json"
-@@ -142,7 +143,7 @@ func TestWrite(t *testing.T) {
+@@ -147,7 +148,7 @@ func TestWrite(t *testing.T) {
  	if code != 303 || loc != BoardDetailURL(1) {
  		t.Fatalf("save: %d %q", code, loc)
  	}
@@ -194,7 +194,7 @@ index 3c4bdcb..fe1cd67 100644
  		t.Errorf("taken name: %d %s", code, body)
  	}
  
-@@ -154,7 +155,7 @@ func TestWrite(t *testing.T) {
+@@ -159,7 +160,7 @@ func TestWrite(t *testing.T) {
  	if code, body := get(h, loc); code != 200 || !strings.Contains(body, "첫 글") {
  		t.Errorf("after the post: %d %s", code, body)
  	}
@@ -203,7 +203,7 @@ index 3c4bdcb..fe1cd67 100644
  		t.Errorf("taken title: %d %s", code, body)
  	}
  	if code, _, body := post(h, PostCreateURL(1), url.Values{"title": {strings.Repeat("가", 201)}, "body": {"x"}}); code != 200 || !strings.Contains(body, "Enter at most 200 characters.") {
-@@ -176,6 +177,40 @@ func TestWrite(t *testing.T) {
+@@ -181,6 +182,40 @@ func TestWrite(t *testing.T) {
  	}
  }
  
@@ -244,7 +244,7 @@ index 3c4bdcb..fe1cd67 100644
  func TestPinAndSchedule(t *testing.T) {
  	h, db := app(t)
  	h, _ = signedIn(t, h, db, "ann@example.com")
-@@ -375,7 +410,7 @@ func TestAPI(t *testing.T) {
+@@ -380,7 +415,7 @@ func TestAPI(t *testing.T) {
  		has          string
  	}{
  		{front, `{"title": "API 글", "body": "본문"}`, 200, `"Title":"API 글"`},
@@ -253,7 +253,7 @@ index 3c4bdcb..fe1cd67 100644
  		{front, `{"title": "", "body": "본문"}`, 422, `{"field":"title","detail":"This field is required."}`},
  		{front, `{"title": "빈 본문"`, 400, `"status":400`},
  		{front, ``, 400, `"status":400`},
-@@ -807,7 +842,7 @@ func TestEdit(t *testing.T) {
+@@ -746,7 +781,7 @@ func TestEdit(t *testing.T) {
  		if code != c.code {
  			t.Errorf("%s %s %q: %d, want %d\n%s", c.who, c.path, c.title, code, c.code, body)
  		}

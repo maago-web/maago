@@ -59,7 +59,7 @@ index a7f4dab..3df11d2 100644
  </body>
  </html>
 diff --git a/board/web_test.go b/board/web_test.go
-index c92fdca..fae06a9 100644
+index 8d3213a..fefdd57 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -8,6 +8,7 @@ import (
@@ -70,7 +70,7 @@ index c92fdca..fae06a9 100644
  	"strings"
  	"testing"
  	"time"
-@@ -437,6 +438,23 @@ func TestExport(t *testing.T) {
+@@ -442,6 +443,23 @@ func TestExport(t *testing.T) {
  	}
  }
  
@@ -94,7 +94,7 @@ index c92fdca..fae06a9 100644
  func TestUnderApp(t *testing.T) {
  	// The prefix is the process's, the last Handler's: make it first.
  	db := maagotest.DB(t)
-@@ -458,7 +476,8 @@ func TestUnderApp(t *testing.T) {
+@@ -463,7 +481,8 @@ func TestUnderApp(t *testing.T) {
  	if code, loc, _ := post(srv, BoardCreateURL(), url.Values{"name": {"자유"}}); code != 303 || loc != "/app/boards/1" {
  		t.Fatalf("save: %d %q", code, loc)
  	}

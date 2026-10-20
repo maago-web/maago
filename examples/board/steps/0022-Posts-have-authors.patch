@@ -42,9 +42,22 @@ staff publish, archive and delete.
   publish, archive and delete. Neither the author nor staff: a 403. An
   old post with no author is staff's. -createsuperuser makes staff
 
-The test writes with a signed-in browser (signedIn), and sees what
-nobody, another user, the author and staff get from publish, archive
-and delete, and that the forms send nobody to the sign-in page.
+The table is where nobody and the others part. Its roles grow to four:
+nobody, bob (another user), ann (the author) and staff, signed in with
+auth.SignIn as auth.CreateSuperuser made it. Its diff is the step:
+
+- The forms' GETs, board_new and post_new: nobody 303 (to sign in), the
+  others 200. Every write: nobody 401. api_post_create too: the table's
+  requests carry the session cookie, which the API takes as a page
+  does, so no API token is needed to test it
+- A write anybody signed in may do has a row for each of bob, ann and
+  staff, each with a board or post of its own
+- Publish, archive and delete: bob 403, ann 303 on her post. Staff's
+  303 is on a post from before there were accounts, which ann may not
+  touch (403): the post with no author is staff's
+
+TestAuthors keeps what the table cannot say: a new post's author is the
+user who wrote it.
 
 diff --git a/board/models.go b/board/models.go
 index 95de516..c5c5402 100644
@@ -59,6 +72,121 @@ index 95de516..c5c5402 100644
  }
  
  type Comment struct {
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index ef13aa2..225599b 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -20,8 +20,18 @@ import (
+ func TestPermissions(t *testing.T) {
+ 	h, db := app(t)
+ 	ctx := t.Context()
+-	asAnn, _ := signedIn(t, h, db, "ann@example.com")
+-	roles := []maagotest.Role{{Name: "nobody", Handler: h}, {Name: "ann", Handler: asAnn}}
++	asBob, _ := signedIn(t, h, db, "bob@example.com")
++	asAnn, ann := signedIn(t, h, db, "ann@example.com")
++	boss, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password)
++	if err != nil {
++		t.Fatal(err)
++	}
++	session, err := auth.SignIn(ctx, db, boss)
++	if err != nil {
++		t.Fatal(err)
++	}
++	// bob is another user than the author, ann; staff may do anything.
++	roles := []maagotest.Role{{Name: "nobody", Handler: h}, {Name: "bob", Handler: asBob}, {Name: "ann", Handler: asAnn}, {Name: "staff", Handler: maagotest.As(h, session)}}
+ 	// want is each role's status, in the order of roles; skip is a role
+ 	// the row does not ask as.
+ 	want := func(codes ...int) map[string]int {
+@@ -37,21 +47,23 @@ func TestPermissions(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	// post is a new post on b, with a title of its own, in status.
++	// post is a new post of ann's on b, with a title of its own, in
++	// status; old is one from before there were accounts, with no
++	// author.
+ 	n := 0
+-	post := func(status string) Post {
++	post := func(status string, author *int64) Post {
+ 		t.Helper()
+ 		n++
+-		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: fmt.Sprintf("글 %d", n), Body: "본문", Status: maago.Set(status)})
++		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, AuthorID: author, Title: fmt.Sprintf("글 %d", n), Body: "본문", Status: maago.Set(status)})
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+ 		return p
+ 	}
+-	out := post("published")
+-	drafts := []Post{post("draft"), post("draft")}
+-	published := []Post{post("published"), post("published")}
+-	deleted := []Post{post("published"), post("published")}
++	out := post("published", &ann.ID)
++	draft, oldDraft := post("draft", &ann.ID), post("draft", nil)
++	published, oldPublished := post("published", &ann.ID), post("published", nil)
++	toDelete, oldToDelete := post("published", &ann.ID), post("published", nil)
+ 	form := func(kv ...string) string {
+ 		v := url.Values{}
+ 		for i := 0; i < len(kv); i += 2 {
+@@ -60,29 +72,36 @@ func TestPermissions(t *testing.T) {
+ 		return v.Encode()
+ 	}
+ 
++	// A sign-in first: a GET without one goes to the sign-in page, a POST
++	// is a 401. The API takes the session's cookie too.
+ 	maagotest.Permissions(t, []maago.App{App}, roles,
+-		maagotest.Row{Route: "home", URL: HomeURL(), Want: want(200, 200)},
+-		maagotest.Row{Route: "board_new", URL: BoardNewURL(), Want: want(200, 200)},
+-		maagotest.Row{Route: "board_detail", URL: BoardDetailURL(b.ID), Want: want(200, 200)},
+-		maagotest.Row{Route: "board_rows", URL: BoardRowsURL(b.ID), Want: want(200, 200)},
+-		maagotest.Row{Route: "board_export", URL: BoardExportURL(fmt.Sprint(b.ID)), Want: want(200, 200)},
+-		maagotest.Row{Route: "post_new", URL: PostNewURL(b.ID), Want: want(200, 200)},
+-		maagotest.Row{Route: "post_detail", URL: PostDetailURL(out.ID), Want: want(200, 200)},
+-		maagotest.Row{Route: "api_posts", URL: APIPostsURL(b.ID), Want: want(200, 200)},
+-		// The writes.
+-		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "nobody의 게시판"), Want: want(303, skip)},
+-		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "ann의 게시판"), Want: want(skip, 303)},
+-		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "nobody의 글", "body", "본문"), Want: want(303, skip)},
+-		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "ann의 글", "body", "본문"), Want: want(skip, 303)},
+-		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "nobody의 API 글", "body": "본문"}`, Want: want(200, skip)},
+-		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "ann의 API 글", "body": "본문"}`, Want: want(skip, 200)},
+-		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(out.ID), Body: form("text", "댓글"), Want: want(303, 303)},
+-		maagotest.Row{Route: "post_publish", URL: PostPublishURL(drafts[0].ID), Want: want(303, skip)},
+-		maagotest.Row{Route: "post_publish", URL: PostPublishURL(drafts[1].ID), Want: want(skip, 303)},
+-		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(published[0].ID), Want: want(303, skip)},
+-		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(published[1].ID), Want: want(skip, 303)},
+-		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(deleted[0].ID), Want: want(303, skip)},
+-		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(deleted[1].ID), Want: want(skip, 303)},
++		maagotest.Row{Route: "home", URL: HomeURL(), Want: want(200, 200, 200, 200)},
++		maagotest.Row{Route: "board_new", URL: BoardNewURL(), Want: want(303, 200, 200, 200)},
++		maagotest.Row{Route: "board_detail", URL: BoardDetailURL(b.ID), Want: want(200, 200, 200, 200)},
++		maagotest.Row{Route: "board_rows", URL: BoardRowsURL(b.ID), Want: want(200, 200, 200, 200)},
++		maagotest.Row{Route: "board_export", URL: BoardExportURL(fmt.Sprint(b.ID)), Want: want(200, 200, 200, 200)},
++		maagotest.Row{Route: "post_new", URL: PostNewURL(b.ID), Want: want(303, 200, 200, 200)},
++		maagotest.Row{Route: "post_detail", URL: PostDetailURL(out.ID), Want: want(200, 200, 200, 200)},
++		maagotest.Row{Route: "api_posts", URL: APIPostsURL(b.ID), Want: want(200, 200, 200, 200)},
++		// The writes: anybody signed in.
++		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "bob의 게시판"), Want: want(401, 303, skip, skip)},
++		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "ann의 게시판"), Want: want(skip, skip, 303, skip)},
++		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "staff의 게시판"), Want: want(skip, skip, skip, 303)},
++		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "bob의 글", "body", "본문"), Want: want(401, 303, skip, skip)},
++		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "ann의 글", "body", "본문"), Want: want(skip, skip, 303, skip)},
++		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "staff의 글", "body", "본문"), Want: want(skip, skip, skip, 303)},
++		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "bob의 API 글", "body": "본문"}`, Want: want(401, 200, skip, skip)},
++		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "ann의 API 글", "body": "본문"}`, Want: want(skip, skip, 200, skip)},
++		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "staff의 API 글", "body": "본문"}`, Want: want(skip, skip, skip, 200)},
++		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(out.ID), Body: form("text", "댓글"), Want: want(401, 303, 303, 303)},
++		// Publish, archive, delete: the author or staff. A post with no
++		// author is staff's.
++		maagotest.Row{Route: "post_publish", URL: PostPublishURL(draft.ID), Want: want(401, 403, 303, skip)},
++		maagotest.Row{Route: "post_publish", URL: PostPublishURL(oldDraft.ID), Want: want(401, 403, 403, 303)},
++		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(published.ID), Want: want(401, 403, 303, skip)},
++		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(oldPublished.ID), Want: want(401, 403, 403, 303)},
++		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toDelete.ID), Want: want(401, 403, 303, skip)},
++		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(oldToDelete.ID), Want: want(401, 403, 403, 303)},
+ 	)
+ }
+ 
 diff --git a/board/queries/recent_posts.sql b/board/queries/recent_posts.sql
 index 145e89d..bff141b 100644
 --- a/board/queries/recent_posts.sql
@@ -228,7 +356,7 @@ index b3d6f36..880ba58 100644
 +	return maago.Status(http.StatusForbidden, errors.New("only its author or staff may change a post"))
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 639657f..b73d99d 100644
+index 639657f..dadc194 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -122,7 +122,8 @@ func TestPages(t *testing.T) {
@@ -324,36 +452,13 @@ index 639657f..b73d99d 100644
  	srv := http.StripPrefix("/app", h) // as main serves it
  
  	if code, loc, _ := post(srv, BoardCreateURL(), url.Values{"name": {"자유"}}); code != 303 || loc != "/app/boards/1" {
-@@ -472,6 +491,22 @@ func login(t *testing.T, h http.Handler, email string) *http.Cookie {
- 	return w.Result().Cookies()[0]
- }
- 
-+// signedIn is h for a browser signed in as a new user with email: every
-+// request carries its session.
-+func signedIn(t *testing.T, h http.Handler, db *sql.DB, email string) (http.Handler, auth.User) {
-+	t.Helper()
-+	u := newUser(t, db, email)
-+	return as(h, login(t, h, email)), u
-+}
-+
-+// as is h for a browser with the session cookie s.
-+func as(h http.Handler, s *http.Cookie) http.Handler {
-+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-+		r.AddCookie(s)
-+		h.ServeHTTP(w, r)
-+	})
-+}
-+
- // Signed in, the home page says who; the header links to sign in and out.
- func TestSignIn(t *testing.T) {
- 	h, db := app(t)
-@@ -484,3 +519,64 @@ func TestSignIn(t *testing.T) {
+@@ -484,3 +503,21 @@ func TestSignIn(t *testing.T) {
  		t.Errorf("after: %s", body)
  	}
  }
 +
-+// Writing needs a sign-in; publishing, archiving and deleting a post need
-+// its author or staff.
++// A new post's author is the user who writes it. Who may write, and
++// publish, archive or delete whose post, is TestPermissions'.
 +func TestAuthors(t *testing.T) {
 +	h, db := app(t)
 +	ctx := t.Context()
@@ -361,55 +466,12 @@ index 639657f..b73d99d 100644
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	for _, path := range []string{BoardNewURL(), PostNewURL(b.ID)} {
-+		if code, _ := get(h, path); code != 303 {
-+			t.Errorf("GET %s without a sign-in: %d", path, code)
-+		}
-+	}
-+	for _, path := range []string{BoardCreateURL(), PostCreateURL(b.ID), CommentCreateURL(1), PostPublishURL(1)} {
-+		if code, _, _ := post(h, path, url.Values{"title": {"t"}}); code != 401 {
-+			t.Errorf("POST %s without a sign-in: %d", path, code)
-+		}
-+	}
-+
 +	asAnn, ann := signedIn(t, h, db, "ann@example.com")
-+	asBob, _ := signedIn(t, h, db, "bob@example.com")
-+	boss, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password)
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	asBoss := as(h, login(t, h, boss.Email))
 +	if code, loc, _ := post(asAnn, PostCreateURL(b.ID), url.Values{"title": {"앤의 글"}, "body": {"본문"}}); code != 303 || loc != PostDetailURL(1) {
 +		t.Fatalf("ann writes: %d %q", code, loc)
 +	}
 +	if p, err := GetPost(ctx, db, 1); err != nil || p.AuthorID == nil || *p.AuthorID != ann.ID {
 +		t.Fatalf("the author: %v %v", p.AuthorID, err)
-+	}
-+	old, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "계정 전의 글", Body: "본문"})
-+	if err != nil {
-+		t.Fatal(err)
-+	}
-+	for _, c := range []struct {
-+		who  string
-+		h    http.Handler
-+		path string
-+		code int
-+	}{
-+		{"bob", asBob, PostPublishURL(1), 403},
-+		{"bob", asBob, PostArchiveURL(1), 403},
-+		{"bob", asBob, PostDeleteURL(1), 403},
-+		{"ann", asAnn, PostPublishURL(old.ID), 403}, // no author: staff only
-+		{"ann", asAnn, PostDeleteURL(old.ID), 403},
-+		{"ann", asAnn, PostPublishURL(1), 303},
-+		{"ann", asAnn, PostArchiveURL(1), 303},
-+		{"ann", asAnn, PostDeleteURL(1), 303},
-+		{"boss", asBoss, PostPublishURL(old.ID), 303},
-+		{"boss", asBoss, PostArchiveURL(old.ID), 303},
-+		{"boss", asBoss, PostDeleteURL(old.ID), 303},
-+	} {
-+		if code, _, body := post(c.h, c.path, nil); code != c.code {
-+			t.Errorf("%s POST %s: %d, want %d\n%s", c.who, c.path, code, c.code, body)
-+		}
 +	}
 +}
 diff --git a/migrations/0004_post_author.sql b/migrations/0004_post_author.sql

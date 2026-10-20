@@ -33,6 +33,23 @@ so it does not.
 The test sees ann's draft, published and scheduled posts, and not her
 hidden one or bob's, on the page and in the JSON.
 
+The table's rows for me and api_me: nobody is sent to sign in, or gets
+a 401 from the API; everybody signed in gets their own.
+
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index 3f58856..f58904d 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -135,6 +135,9 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "attachment_add", URL: AttachmentAddURL(out.ID), Body: file.String(), ContentType: mw.FormDataContentType(), Want: want(401, 403, 303, 303)},
+ 		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[0].ID)), Want: want(200, 200, 200, 200)},
+ 		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[1].ID)), Want: want(403, 403, 200, 200)},
++		// Me: whoever is signed in, as their own page.
++		maagotest.Row{Route: "me", URL: MeURL(), Want: want(303, 200, 200, 200)},
++		maagotest.Row{Route: "api_me", URL: APIMeURL(), Want: want(401, 200, 200, 200)},
+ 		// The admin: staff only. Its URLs are the admin's own, by app and model.
+ 		maagotest.Row{Route: "admin_index", URL: "/admin/", Want: want(303, 403, 403, 200)},
+ 		maagotest.Row{Route: "admin_list", URL: "/admin/board/Post/", Want: want(303, 403, 403, 200)},
 diff --git a/board/queries/my_posts.sql b/board/queries/my_posts.sql
 new file mode 100644
 index 0000000..72e7313
@@ -113,10 +130,10 @@ index 3d48202..a6133c9 100644
 +	return MePage{Email: u.Email, Posts: ps}, err
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index e4cb448..01b30ea 100644
+index ba63fce..68337df 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -629,3 +629,70 @@ func TestDeleteWithoutComments(t *testing.T) {
+@@ -575,3 +575,70 @@ func TestDeleteWithoutComments(t *testing.T) {
  		t.Errorf("the post is still there: %v", err)
  	}
  }

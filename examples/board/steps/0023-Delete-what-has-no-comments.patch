@@ -18,10 +18,36 @@ DeletePost, and one with comments is hidden as before.
   taken: maago generates it for Post. Name views clear of the generated
   GetX, InsertX, UpdateX and DeleteX
 
+The table gets a row for post_delete on a post with a comment: the
+same statuses, as hiding is still deleting to whoever asks.
+
 With this the board has accounts: sign-up and verification, sign-in,
 authors, only the author publishing, archiving and deleting, and API
 tokens.
 
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index 225599b..8f08f39 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -64,6 +64,10 @@ func TestPermissions(t *testing.T) {
+ 	draft, oldDraft := post("draft", &ann.ID), post("draft", nil)
+ 	published, oldPublished := post("published", &ann.ID), post("published", nil)
+ 	toDelete, oldToDelete := post("published", &ann.ID), post("published", nil)
++	toHide := post("published", &ann.ID) // it has a comment, so deleting hides it
++	if _, err := InsertComment(ctx, db, NewCommentInput{PostID: toHide.ID, Text: "댓글"}); err != nil {
++		t.Fatal(err)
++	}
+ 	form := func(kv ...string) string {
+ 		v := url.Values{}
+ 		for i := 0; i < len(kv); i += 2 {
+@@ -102,6 +106,7 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(oldPublished.ID), Want: want(401, 403, 403, 303)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toDelete.ID), Want: want(401, 403, 303, skip)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(oldToDelete.ID), Want: want(401, 403, 403, 303)},
++		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toHide.ID), Want: want(401, 403, 303, skip)},
+ 	)
+ }
+ 
 diff --git a/board/urls.go b/board/urls.go
 index 641e9aa..809df22 100644
 --- a/board/urls.go
@@ -76,11 +102,11 @@ index 880ba58..4b213ac 100644
  	}
  	return maago.SeeOther[PostPage](BoardDetailURL(p.BoardID)), nil
 diff --git a/board/web_test.go b/board/web_test.go
-index b73d99d..c88ae6e 100644
+index dadc194..06d091d 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -580,3 +580,24 @@ func TestAuthors(t *testing.T) {
- 		}
+@@ -521,3 +521,24 @@ func TestAuthors(t *testing.T) {
+ 		t.Fatalf("the author: %v %v", p.AuthorID, err)
  	}
  }
 +

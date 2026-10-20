@@ -53,11 +53,17 @@ New posts still start as drafts. So two things change with it:
       func APIPublish(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (Post, error)
 
 The tests that read lists make their posts published, or publish them,
-first. A new test, TestDrafts, sees what nobody, bob, ann and staff get
-from drafts' and scheduled posts' pages, comments and files; that only
-published posts show to anybody on the lists, the search, the API and
-the CSV; and that the webhook is quiet on writing and archiving, and
-hears of publishing, by the time the response is back.
+first. With this step's views, the table went red twice: the new
+route api_post_publish had no row, and a draft's file, which bob got a
+403 for in 0029, is now a 404. That diff is the step: to anybody but
+its author and staff, a draft is not there. The table gets rows for a
+draft's and a scheduled post's page and files, the draft's comments,
+and api_post_publish's, as post_publish's.
+
+A new test, TestDrafts, sees that only published posts show to anybody
+on the lists, the search, the API and the CSV; that its author may
+comment on her draft; and that the webhook is quiet on writing and
+archiving, and hears of publishing, by the time the response is back.
 
 diff --git a/board/attach_test.go b/board/attach_test.go
 index 50a62e9..4ffb32a 100644
@@ -110,6 +116,72 @@ index 79c39ec..8cc46f5 100644
  // environment. With no URL, nothing is announced.
  var Webhook Hook
  
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index b85f8e1..25fe0b7 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -9,6 +9,7 @@ import (
+ 	"net/url"
+ 	"strconv"
+ 	"testing"
++	"time"
+ 
+ 	"github.com/maago-web/maago"
+ 	"github.com/maago-web/maago/maagotest"
+@@ -65,6 +66,7 @@ func TestPermissions(t *testing.T) {
+ 	}
+ 	out := post("published", &ann.ID)
+ 	draft, oldDraft := post("draft", &ann.ID), post("draft", nil)
++	apiDraft, oldAPIDraft := post("draft", &ann.ID), post("draft", nil)
+ 	published, oldPublished := post("published", &ann.ID), post("published", nil)
+ 	toDelete, oldToDelete := post("published", &ann.ID), post("published", nil)
+ 	toAdminDelete := post("published", &ann.ID)
+@@ -78,10 +80,19 @@ func TestPermissions(t *testing.T) {
+ 	change := func(p Post) string {
+ 		return PostChangeURL(p.ID) + "?version=" + strconv.FormatInt(p.UpdatedAt.UnixMicro(), 10)
+ 	}
+-	// A file of each, uploaded as ann: the published post's and a
+-	// draft's (one no row publishes).
++	// A draft and a post to publish later are not out: only their author
++	// and staff see them, and to anyone else they are not there (404).
++	// No row publishes these.
++	later := time.Now().Add(time.Hour)
++	unseen := post("draft", &ann.ID)
++	scheduled, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "예약 글", Body: "본문", Status: maago.Set("published"), PublishAt: &later})
++	if err != nil {
++		t.Fatal(err)
++	}
++	// A file of each, uploaded as ann: the published post's, the
++	// draft's and the scheduled post's.
+ 	var files []Attachment
+-	for _, p := range []Post{out, post("draft", &ann.ID)} {
++	for _, p := range []Post{out, unseen, scheduled} {
+ 		if w := upload(asAnn, p.ID, "a.txt", []byte("파일")); w.Code != 303 {
+ 			t.Fatalf("upload: %d %s", w.Code, w.Body)
+ 		}
+@@ -132,6 +143,8 @@ func TestPermissions(t *testing.T) {
+ 		// author is staff's.
+ 		maagotest.Row{Route: "post_publish", URL: PostPublishURL(draft.ID), Want: want(401, 403, 303, skip)},
+ 		maagotest.Row{Route: "post_publish", URL: PostPublishURL(oldDraft.ID), Want: want(401, 403, 403, 303)},
++		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(apiDraft.ID), Want: want(401, 403, 200, skip)},
++		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(oldAPIDraft.ID), Want: want(401, 403, 403, 200)},
+ 		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(published.ID), Want: want(401, 403, 303, skip)},
+ 		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(oldPublished.ID), Want: want(401, 403, 403, 303)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toDelete.ID), Want: want(401, 403, 303, skip)},
+@@ -145,7 +158,12 @@ func TestPermissions(t *testing.T) {
+ 		// downloads them, a draft's only its author and staff.
+ 		maagotest.Row{Route: "attachment_add", URL: AttachmentAddURL(out.ID), Body: file.String(), ContentType: mw.FormDataContentType(), Want: want(401, 403, 303, 303)},
+ 		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[0].ID)), Want: want(200, 200, 200, 200)},
+-		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[1].ID)), Want: want(403, 403, 200, 200)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[1].ID)), Want: want(404, 404, 200, 200)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[2].ID)), Want: want(404, 404, 200, 200)},
++		// What is not out.
++		maagotest.Row{Route: "post_detail", URL: PostDetailURL(unseen.ID), Want: want(404, 404, 200, 200)},
++		maagotest.Row{Route: "post_detail", URL: PostDetailURL(scheduled.ID), Want: want(404, 404, 200, 200)},
++		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(unseen.ID), Body: form("text", "초안의 댓글"), Want: want(401, 404, 303, 303)},
+ 		// Me: whoever is signed in, as their own page.
+ 		maagotest.Row{Route: "me", URL: MeURL(), Want: want(303, 200, 200, 200)},
+ 		maagotest.Row{Route: "api_me", URL: APIMeURL(), Want: want(401, 200, 200, 200)},
 diff --git a/board/queries/export_rows.sql b/board/queries/export_rows.sql
 index 5d91e17..e5a49ee 100644
 --- a/board/queries/export_rows.sql
@@ -389,7 +461,7 @@ index 12ae34c..0f860e9 100644
  // from before there were accounts has no author: staff change it.
  func mayChange(u auth.User, p Post) error {
 diff --git a/board/web_test.go b/board/web_test.go
-index b5b2e6c..3c4bdcb 100644
+index 89dfdee..a1268d1 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -3,14 +3,17 @@ package board
@@ -410,7 +482,7 @@ index b5b2e6c..3c4bdcb 100644
  	"testing"
  	"time"
  
-@@ -90,7 +93,7 @@ func TestPages(t *testing.T) {
+@@ -95,7 +98,7 @@ func TestPages(t *testing.T) {
  	}
  	var first Post
  	for i := 1; i <= 12; i++ {
@@ -419,7 +491,7 @@ index b5b2e6c..3c4bdcb 100644
  		if err != nil {
  			t.Fatal(err)
  		}
-@@ -221,6 +224,16 @@ func TestPinAndSchedule(t *testing.T) {
+@@ -226,6 +229,16 @@ func TestPinAndSchedule(t *testing.T) {
  			t.Fatalf("%s: %d %s", w[0], code, body)
  		}
  	}
@@ -436,7 +508,7 @@ index b5b2e6c..3c4bdcb 100644
  
  	// The notice on top though older; tomorrow's post not yet.
  	_, body := get(h, BoardDetailURL(b.ID))
-@@ -380,8 +393,19 @@ func TestAPI(t *testing.T) {
+@@ -385,8 +398,19 @@ func TestAPI(t *testing.T) {
  	if w := call("POST", APIPostCreateURL(b.ID), front, `{"title": "토큰 없이", "body": "본문"}`); w.Code != 401 || w.Header().Get("WWW-Authenticate") != "Bearer" {
  		t.Errorf("without a token: %d %v", w.Code, w.Header())
  	}
@@ -458,7 +530,7 @@ index b5b2e6c..3c4bdcb 100644
  	}
  
  	w = call("GET", APIPostsURL(b.ID), front, "")
-@@ -401,7 +425,7 @@ func TestExport(t *testing.T) {
+@@ -406,7 +430,7 @@ func TestExport(t *testing.T) {
  		t.Fatal(err)
  	}
  	for _, title := range []string{"하나", `"따옴표", 쉼표`, "셋", "=1+2", "숨김"} {
@@ -467,7 +539,7 @@ index b5b2e6c..3c4bdcb 100644
  		if err != nil {
  			t.Fatal(err)
  		}
-@@ -809,3 +833,132 @@ func TestEdit(t *testing.T) {
+@@ -748,3 +772,94 @@ func TestEdit(t *testing.T) {
  		t.Errorf("the times changed: %v %v %v", got.PinnedFrom, got.PinnedUntil, got.PublishAt)
  	}
  }
@@ -483,12 +555,11 @@ index b5b2e6c..3c4bdcb 100644
 +		t.Fatal(err)
 +	}
 +	asAnn, ann := signedIn(t, h, db, "ann@example.com")
-+	asBob, _ := signedIn(t, h, db, "bob@example.com")
 +	boss, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password)
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	asBoss := as(h, login(t, h, boss.Email))
++	asBoss := maagotest.As(h, login(t, h, boss.Email))
 +	later := time.Now().Add(time.Hour)
 +	var draft, scheduled Post
 +	for _, p := range []struct {
@@ -507,57 +578,20 @@ index b5b2e6c..3c4bdcb 100644
 +			*p.to = got
 +		}
 +	}
-+	var files []Attachment
-+	for _, p := range []Post{draft, scheduled} {
-+		if w := upload(asAnn, p.ID, "a.txt", []byte("나오지 않은 글의 파일")); w.Code != 303 {
-+			t.Fatalf("upload: %d %s", w.Code, w.Body)
-+		}
-+		as, err := PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID})
-+		if err != nil || len(as) != 1 {
-+			t.Fatalf("%v %v", as, err)
-+		}
-+		files = append(files, as[0])
++	// Who may see a draft, its files and its comments is TestPermissions'.
++	// Its author may comment on it.
++	if code, _, _ := post(asAnn, CommentCreateURL(draft.ID), url.Values{"text": {"앤의 댓글"}}); code != 303 {
++		t.Errorf("ann comments on her draft: %d", code)
++	}
++	if cs, err := PostComments(ctx, db, PostCommentsParams{PostID: draft.ID}); err != nil || len(cs) != 1 {
++		t.Errorf("the draft's comments: %v %v", cs, err)
 +	}
 +
 +	type who struct {
 +		name string
 +		h    http.Handler
 +	}
-+	nobody, bob, annH, staff := who{"nobody", h}, who{"bob", asBob}, who{"ann", asAnn}, who{"staff", asBoss}
-+	for _, c := range []struct {
-+		who
-+		method, path string
-+		code         int
-+	}{
-+		{nobody, "GET", PostDetailURL(draft.ID), 404},
-+		{bob, "GET", PostDetailURL(draft.ID), 404},
-+		{bob, "GET", PostDetailURL(scheduled.ID), 404},
-+		{annH, "GET", PostDetailURL(draft.ID), 200},
-+		{annH, "GET", PostDetailURL(scheduled.ID), 200},
-+		{staff, "GET", PostDetailURL(scheduled.ID), 200},
-+		{nobody, "GET", AttachmentURL(fmt.Sprint(files[0].ID)), 404},
-+		{bob, "GET", AttachmentURL(fmt.Sprint(files[0].ID)), 404},
-+		{staff, "GET", AttachmentURL(fmt.Sprint(files[0].ID)), 200},
-+		{bob, "GET", AttachmentURL(fmt.Sprint(files[1].ID)), 404},
-+		{annH, "GET", AttachmentURL(fmt.Sprint(files[1].ID)), 200},
-+		{nobody, "POST", CommentCreateURL(draft.ID), 401},
-+		{bob, "POST", CommentCreateURL(draft.ID), 404},
-+		{annH, "POST", CommentCreateURL(draft.ID), 303},
-+	} {
-+		var code int
-+		if c.method == "GET" {
-+			code, _ = get(c.h, c.path)
-+		} else {
-+			code, _, _ = post(c.h, c.path, url.Values{"text": {c.name + "의 댓글"}})
-+		}
-+		if code != c.code {
-+			t.Errorf("%s %s %s: %d, want %d", c.name, c.method, c.path, code, c.code)
-+		}
-+	}
-+	if cs, err := PostComments(ctx, db, PostCommentsParams{PostID: draft.ID}); err != nil || len(cs) != 1 {
-+		t.Errorf("the draft's comments: %v %v", cs, err)
-+	}
-+
++	nobody, annH, staff := who{"nobody", h}, who{"ann", asAnn}, who{"staff", asBoss}
 +	// out reports whether body has the published post and neither other.
 +	out := func(body string) bool {
 +		return strings.Contains(body, "앤의 게시 글") && !strings.Contains(body, "초안") && !strings.Contains(body, "예약")

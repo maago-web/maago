@@ -49,6 +49,14 @@ goes. When the commit fails after it, the file stays with no row
 pointing at it, as do files whose rows the admin deleted: clearing them
 is beyond this tutorial.
 
+The table gets the two routes. attachment_add's row sends a file: its
+Body is a multipart form, and its ContentType the writer's
+FormDataContentType(), which names the boundary. attachment has a row
+for a published post's file (everybody 200) and one for a draft's
+(nobody and bob 403). That draft is one no other row publishes: rows
+run in order, and the draft the publish row publishes is not a draft by
+then.
+
 media/.gitignore keeps the directory in the repository: Handler stops
 rather than make a MediaDir that is not there.
 
@@ -252,6 +260,60 @@ index 5f00642..d6143a3 100644
  // next is where a post of each status may go: draft, then published, then
  // archived, one way.
  var next = map[string]string{"draft": "published", "published": "archived"}
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index ce608a9..3f58856 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -1,8 +1,10 @@
+ package board
+ 
+ import (
++	"bytes"
+ 	"database/sql"
+ 	"fmt"
++	"mime/multipart"
+ 	"net/http"
+ 	"net/url"
+ 	"testing"
+@@ -69,6 +71,26 @@ func TestPermissions(t *testing.T) {
+ 	if _, err := InsertComment(ctx, db, NewCommentInput{PostID: toHide.ID, Text: "댓글"}); err != nil {
+ 		t.Fatal(err)
+ 	}
++	// A file of each, uploaded as ann: the published post's and a
++	// draft's (one no row publishes).
++	var files []Attachment
++	for _, p := range []Post{out, post("draft", &ann.ID)} {
++		if w := upload(asAnn, p.ID, "a.txt", []byte("파일")); w.Code != 303 {
++			t.Fatalf("upload: %d %s", w.Code, w.Body)
++		}
++		as, err := PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID})
++		if err != nil || len(as) != 1 {
++			t.Fatalf("%v %v", as, err)
++		}
++		files = append(files, as[0])
++	}
++	// A form with a file, as attachment_add takes it: multipart, its
++	// Content-Type naming the boundary.
++	var file bytes.Buffer
++	mw := multipart.NewWriter(&file)
++	part, _ := mw.CreateFormFile("file", "b.txt")
++	part.Write([]byte("또 하나"))
++	mw.Close()
+ 	form := func(kv ...string) string {
+ 		v := url.Values{}
+ 		for i := 0; i < len(kv); i += 2 {
+@@ -108,6 +130,11 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toDelete.ID), Want: want(401, 403, 303, skip)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(oldToDelete.ID), Want: want(401, 403, 403, 303)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toHide.ID), Want: want(401, 403, 303, skip)},
++		// Files: the author and staff attach them; whoever may see the post
++		// downloads them, a draft's only its author and staff.
++		maagotest.Row{Route: "attachment_add", URL: AttachmentAddURL(out.ID), Body: file.String(), ContentType: mw.FormDataContentType(), Want: want(401, 403, 303, 303)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[0].ID)), Want: want(200, 200, 200, 200)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[1].ID)), Want: want(403, 403, 200, 200)},
+ 		// The admin: staff only. Its URLs are the admin's own, by app and model.
+ 		maagotest.Row{Route: "admin_index", URL: "/admin/", Want: want(303, 403, 403, 200)},
+ 		maagotest.Row{Route: "admin_list", URL: "/admin/board/Post/", Want: want(303, 403, 403, 200)},
 diff --git a/board/queries/post_attachments.sql b/board/queries/post_attachments.sql
 new file mode 100644
 index 0000000..b591a56
@@ -468,23 +530,23 @@ index 4b213ac..3d48202 100644
 +	return nil
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index fae06a9..e4cb448 100644
+index fefdd57..ba63fce 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -28,17 +28,17 @@ func init() {
+@@ -28,9 +28,9 @@ func init() {
  // front is the origin main trusts, a frontend of its own.
  const front = "http://localhost:5173"
  
 -// config is main's, on db.
 -func config(db *sql.DB) maago.Config {
+-	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp()}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login"}
 +// config is main's, on db, with a media directory of the test's.
 +func config(t *testing.T, db *sql.DB) maago.Config {
- 	adminApp := admin.App(admin.Config{Models: [][]admin.Model{Admin, auth.Admin}, Can: auth.Can})
--	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login"}
-+	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login", MediaDir: t.TempDir()}
++	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp()}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login", MediaDir: t.TempDir()}
  }
  
- // app serves the board on a new database, as main does.
+ // adminApp is main's admin: config serves it, and TestPermissions has its
+@@ -43,7 +43,7 @@ func adminApp() maago.App {
  func app(t *testing.T) (http.Handler, *sql.DB) {
  	t.Helper()
  	db := maagotest.DB(t)
@@ -493,7 +555,7 @@ index fae06a9..e4cb448 100644
  	if err != nil {
  		t.Fatal(err)
  	}
-@@ -458,7 +458,7 @@ func TestStylesheet(t *testing.T) {
+@@ -463,7 +463,7 @@ func TestStylesheet(t *testing.T) {
  func TestUnderApp(t *testing.T) {
  	// The prefix is the process's, the last Handler's: make it first.
  	db := maagotest.DB(t)
@@ -502,7 +564,7 @@ index fae06a9..e4cb448 100644
  	cfg.Prefix, cfg.LoginURL = "/app", "/app/login"
  	h, err := maago.Handler(cfg)
  	if err != nil {
-@@ -466,7 +466,7 @@ func TestUnderApp(t *testing.T) {
+@@ -471,7 +471,7 @@ func TestUnderApp(t *testing.T) {
  	}
  	// Back to no prefix for the tests after.
  	t.Cleanup(func() {

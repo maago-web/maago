@@ -51,10 +51,12 @@ Change a post: its author and staff, its title and body.
   the other columns stay
 - A link to edit on the post page
 
-The test sees who gets what, in the shape of TestAuthors; that the
-post's own title and the same title on another board pass and another
-post's title on this board does not; that a form opened before a save
-saves nothing; and that the pin and schedule times stay.
+The table gets post_edit and post_change: as publishing, its author
+or staff. post_change's URL carries the version, and a change moves
+it, so ann and staff each change a post of their own. TestEdit sees
+that the post's own title and the same title on another board pass and
+another post's title on this board does not; that a form opened before
+a save saves nothing; and that the pin and schedule times stay.
 
 diff --git a/board/forms.go b/board/forms.go
 index 3ae5782..611c0bc 100644
@@ -72,6 +74,42 @@ index 3ae5782..611c0bc 100644
 +	Title      maago.Field[string]
 +	Body       maago.Field[string]
 +}
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index f58904d..b85f8e1 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -7,6 +7,7 @@ import (
+ 	"mime/multipart"
+ 	"net/http"
+ 	"net/url"
++	"strconv"
+ 	"testing"
+ 
+ 	"github.com/maago-web/maago"
+@@ -71,6 +72,12 @@ func TestPermissions(t *testing.T) {
+ 	if _, err := InsertComment(ctx, db, NewCommentInput{PostID: toHide.ID, Text: "댓글"}); err != nil {
+ 		t.Fatal(err)
+ 	}
++	// Two posts of ann's to change, one for ann and one for staff: a
++	// change moves the post's version, which the form's URL carries.
++	changes := []Post{post("published", &ann.ID), post("published", &ann.ID)}
++	change := func(p Post) string {
++		return PostChangeURL(p.ID) + "?version=" + strconv.FormatInt(p.UpdatedAt.UnixMicro(), 10)
++	}
+ 	// A file of each, uploaded as ann: the published post's and a
+ 	// draft's (one no row publishes).
+ 	var files []Attachment
+@@ -130,6 +137,10 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toDelete.ID), Want: want(401, 403, 303, skip)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(oldToDelete.ID), Want: want(401, 403, 403, 303)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toHide.ID), Want: want(401, 403, 303, skip)},
++		// Changing a post: its author or staff, as publishing.
++		maagotest.Row{Route: "post_edit", URL: PostEditURL(out.ID), Want: want(303, 403, 200, 200)},
++		maagotest.Row{Route: "post_change", URL: change(changes[0]), Body: form("title", "앤이 고친 제목", "body", "본문"), Want: want(401, 403, 303, skip)},
++		maagotest.Row{Route: "post_change", URL: change(changes[1]), Body: form("title", "staff가 고친 제목", "body", "본문"), Want: want(skip, skip, skip, 303)},
+ 		// Files: the author and staff attach them; whoever may see the post
+ 		// downloads them, a draft's only its author and staff.
+ 		maagotest.Row{Route: "attachment_add", URL: AttachmentAddURL(out.ID), Body: file.String(), ContentType: mw.FormDataContentType(), Want: want(401, 403, 303, 303)},
 diff --git a/board/queries/post_title_taken.sql b/board/queries/post_title_taken.sql
 index d28b47e..e17b664 100644
 --- a/board/queries/post_title_taken.sql
@@ -221,7 +259,7 @@ index a6133c9..12ae34c 100644
 +	return p, nil
 +}
 diff --git a/board/web_test.go b/board/web_test.go
-index 01b30ea..b5b2e6c 100644
+index 68337df..89dfdee 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -9,6 +9,7 @@ import (
@@ -232,7 +270,7 @@ index 01b30ea..b5b2e6c 100644
  	"strings"
  	"testing"
  	"time"
-@@ -696,3 +697,115 @@ func TestMe(t *testing.T) {
+@@ -642,3 +643,108 @@ func TestMe(t *testing.T) {
  		t.Errorf("/api/me without a token: %d %v", w.Code, w.Header())
  	}
  }
@@ -251,12 +289,11 @@ index 01b30ea..b5b2e6c 100644
 +		t.Fatal(err)
 +	}
 +	asAnn, ann := signedIn(t, h, db, "ann@example.com")
-+	asBob, _ := signedIn(t, h, db, "bob@example.com")
 +	boss, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password)
 +	if err != nil {
 +		t.Fatal(err)
 +	}
-+	asBoss := as(h, login(t, h, boss.Email))
++	asBoss := maagotest.As(h, login(t, h, boss.Email))
 +	from, until, at := time.Now().Add(time.Hour), time.Now().Add(2*time.Hour), time.Now().Add(3*time.Hour)
 +	p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 글", Body: "본문", PinnedFrom: &from, PinnedUntil: &until, PublishAt: &at})
 +	if err != nil {
@@ -293,9 +330,6 @@ index 01b30ea..b5b2e6c 100644
 +	if code, body := get(asAnn, PostEditURL(p.ID)); code != 200 || !strings.Contains(body, `value="앤의 글"`) || !strings.Contains(body, ">본문</textarea>") {
 +		t.Errorf("the form: %d %s", code, body)
 +	}
-+	if code, _ := get(h, PostEditURL(p.ID)); code != 303 {
-+		t.Errorf("the form without a sign-in: %d", code)
-+	}
 +	for _, c := range []struct {
 +		who   string
 +		h     http.Handler
@@ -303,9 +337,6 @@ index 01b30ea..b5b2e6c 100644
 +		title string
 +		code  int
 +	}{
-+		{"nobody", h, PostChangeURL(p.ID), "새 제목", 401},
-+		{"bob", asBob, PostEditURL(p.ID), "", 403},
-+		{"bob", asBob, PostChangeURL(p.ID), "밥의 제목", 403},
 +		{"ann", asAnn, hidden, "", 404},
 +		{"ann", asAnn, PostChangeURL(p.ID), "있는 제목", 200}, // taken on this board
 +		{"ann", asAnn, PostChangeURL(p.ID), "앤의 글", 303},  // its own title

@@ -51,6 +51,134 @@ The test hashes fast (authlib.Iterations), adds a verified user, POSTs
 to /login, and sees the home page with the cookie it got. auth/'s own
 tests already walk sign-up and verification.
 
+A view that takes the user means people differ in what they may do, so
+maago gen now asks for a table of it:
+
+    board/urls.go:7:5: app board has routes whose views take the user, but no test calls maagotest.Permissions
+      fix: write board/permissions_test.go calling maagotest.Permissions(t, []maago.App{App, …}, roles, rows...), a row for each route
+      see: maago doc view
+
+board/permissions_test.go has it. Its roles are who asks: nobody (the
+handler as it is) and ann, signed in. signedIn starts her session with
+auth.SignIn, as signing in does but without the password, and
+maagotest.As puts the cookie on every request. Each row is a route by
+name, a URL from its URL function, a body for a POST, and the status
+for each role. Permissions sends them all, and fails for every route
+that has no row: a route added later without its row fails go test.
+
+- Today the two columns read the same: nobody may do what ann may. The
+  next step is where they part, and this file's diff shows it
+- A row that writes changes what the next role sees: a post published
+  is not a draft to publish again. So each role that succeeds writes
+  its own board or post, and the other role is maagotest.Skip on that
+  row. Rows run in order, and in each row the roles in the order given
+
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+new file mode 100644
+index 0000000..ef13aa2
+--- /dev/null
++++ b/board/permissions_test.go
+@@ -0,0 +1,100 @@
++package board
++
++import (
++	"database/sql"
++	"fmt"
++	"net/http"
++	"net/url"
++	"testing"
++
++	"github.com/maago-web/maago"
++	"github.com/maago-web/maago/maagotest"
++
++	"example.com/board/auth"
++)
++
++// Who may ask each page: a row for each route, a status for each role.
++// A route added without its row fails here. A row that writes changes
++// what the next role sees, so each role that succeeds writes its own
++// post or board, and the others Skip that row.
++func TestPermissions(t *testing.T) {
++	h, db := app(t)
++	ctx := t.Context()
++	asAnn, _ := signedIn(t, h, db, "ann@example.com")
++	roles := []maagotest.Role{{Name: "nobody", Handler: h}, {Name: "ann", Handler: asAnn}}
++	// want is each role's status, in the order of roles; skip is a role
++	// the row does not ask as.
++	want := func(codes ...int) map[string]int {
++		m := map[string]int{}
++		for i, c := range codes {
++			m[roles[i].Name] = c
++		}
++		return m
++	}
++	const skip = maagotest.Skip
++
++	b, err := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	// post is a new post on b, with a title of its own, in status.
++	n := 0
++	post := func(status string) Post {
++		t.Helper()
++		n++
++		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: fmt.Sprintf("글 %d", n), Body: "본문", Status: maago.Set(status)})
++		if err != nil {
++			t.Fatal(err)
++		}
++		return p
++	}
++	out := post("published")
++	drafts := []Post{post("draft"), post("draft")}
++	published := []Post{post("published"), post("published")}
++	deleted := []Post{post("published"), post("published")}
++	form := func(kv ...string) string {
++		v := url.Values{}
++		for i := 0; i < len(kv); i += 2 {
++			v.Set(kv[i], kv[i+1])
++		}
++		return v.Encode()
++	}
++
++	maagotest.Permissions(t, []maago.App{App}, roles,
++		maagotest.Row{Route: "home", URL: HomeURL(), Want: want(200, 200)},
++		maagotest.Row{Route: "board_new", URL: BoardNewURL(), Want: want(200, 200)},
++		maagotest.Row{Route: "board_detail", URL: BoardDetailURL(b.ID), Want: want(200, 200)},
++		maagotest.Row{Route: "board_rows", URL: BoardRowsURL(b.ID), Want: want(200, 200)},
++		maagotest.Row{Route: "board_export", URL: BoardExportURL(fmt.Sprint(b.ID)), Want: want(200, 200)},
++		maagotest.Row{Route: "post_new", URL: PostNewURL(b.ID), Want: want(200, 200)},
++		maagotest.Row{Route: "post_detail", URL: PostDetailURL(out.ID), Want: want(200, 200)},
++		maagotest.Row{Route: "api_posts", URL: APIPostsURL(b.ID), Want: want(200, 200)},
++		// The writes.
++		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "nobody의 게시판"), Want: want(303, skip)},
++		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "ann의 게시판"), Want: want(skip, 303)},
++		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "nobody의 글", "body", "본문"), Want: want(303, skip)},
++		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "ann의 글", "body", "본문"), Want: want(skip, 303)},
++		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "nobody의 API 글", "body": "본문"}`, Want: want(200, skip)},
++		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "ann의 API 글", "body": "본문"}`, Want: want(skip, 200)},
++		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(out.ID), Body: form("text", "댓글"), Want: want(303, 303)},
++		maagotest.Row{Route: "post_publish", URL: PostPublishURL(drafts[0].ID), Want: want(303, skip)},
++		maagotest.Row{Route: "post_publish", URL: PostPublishURL(drafts[1].ID), Want: want(skip, 303)},
++		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(published[0].ID), Want: want(303, skip)},
++		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(published[1].ID), Want: want(skip, 303)},
++		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(deleted[0].ID), Want: want(303, skip)},
++		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(deleted[1].ID), Want: want(skip, 303)},
++	)
++}
++
++// signedIn is h for a browser signed in as a new user with email: every
++// request carries a session of the user, which auth.SignIn starts as
++// signing in does, without the password.
++func signedIn(t *testing.T, h http.Handler, db *sql.DB, email string) (http.Handler, auth.User) {
++	t.Helper()
++	u := newUser(t, db, email)
++	session, err := auth.SignIn(t.Context(), db, u)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return maagotest.As(h, session), u
++}
 diff --git a/board/templates/base.html b/board/templates/base.html
 index 4c3c113..a7f4dab 100644
 --- a/board/templates/base.html

@@ -53,12 +53,21 @@ editor's auth rows of permission), the list's columns, a list with the
 search and filters at once, a search in the body, a late save from a
 form opened first, and the two cases of deleting.
 
+The admin's routes are made when main calls admin.App, so maago gen
+does not see them, and no URL function makes their paths. The tests
+make the admin once, in adminApp, which config serves, and
+TestPermissions gives Permissions both apps: []maago.App{App,
+adminApp()}. Its eight routes get rows, with the admin's own URLs:
+nobody is sent to sign in (303, 401 for a POST), bob and ann are 403,
+staff gets the pages and saves. A table that leaves the admin's App out
+does not see its routes: nothing else will say so.
+
 diff --git a/board/admin_test.go b/board/admin_test.go
 new file mode 100644
-index 0000000..2033f56
+index 0000000..72dbed7
 --- /dev/null
 +++ b/board/admin_test.go
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,154 @@
 +package board
 +
 +import (
@@ -70,6 +79,7 @@ index 0000000..2033f56
 +	"time"
 +
 +	"github.com/maago-web/maago"
++	"github.com/maago-web/maago/maagotest"
 +
 +	"example.com/board/auth"
 +)
@@ -92,7 +102,7 @@ index 0000000..2033f56
 +	if _, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password); err != nil {
 +		t.Fatal(err)
 +	}
-+	asBoss := as(h, login(t, h, "boss@example.com"))
++	asBoss := maagotest.As(h, login(t, h, "boss@example.com"))
 +	asEd, ed := signedIn(t, h, db, "ed@example.com")
 +	staff := url.Values{"email": {ed.Email}, "is_active": {"on"}, "is_staff": {"on"}, "verified_at": {"2026-01-01T00:00:00"}}
 +	if code, _, body := post(asBoss, fmt.Sprintf("/admin/auth/User/%d/", ed.ID), staff); code != 303 {
@@ -242,8 +252,45 @@ index c5c5402..5f00642 100644
  
  	ID        int64
  	PostID    int64 `maago:"fk=Post"`
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index 8f08f39..ce608a9 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -64,6 +64,7 @@ func TestPermissions(t *testing.T) {
+ 	draft, oldDraft := post("draft", &ann.ID), post("draft", nil)
+ 	published, oldPublished := post("published", &ann.ID), post("published", nil)
+ 	toDelete, oldToDelete := post("published", &ann.ID), post("published", nil)
++	toAdminDelete := post("published", &ann.ID)
+ 	toHide := post("published", &ann.ID) // it has a comment, so deleting hides it
+ 	if _, err := InsertComment(ctx, db, NewCommentInput{PostID: toHide.ID, Text: "댓글"}); err != nil {
+ 		t.Fatal(err)
+@@ -78,7 +79,7 @@ func TestPermissions(t *testing.T) {
+ 
+ 	// A sign-in first: a GET without one goes to the sign-in page, a POST
+ 	// is a 401. The API takes the session's cookie too.
+-	maagotest.Permissions(t, []maago.App{App}, roles,
++	maagotest.Permissions(t, []maago.App{App, adminApp()}, roles,
+ 		maagotest.Row{Route: "home", URL: HomeURL(), Want: want(200, 200, 200, 200)},
+ 		maagotest.Row{Route: "board_new", URL: BoardNewURL(), Want: want(303, 200, 200, 200)},
+ 		maagotest.Row{Route: "board_detail", URL: BoardDetailURL(b.ID), Want: want(200, 200, 200, 200)},
+@@ -107,6 +108,15 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toDelete.ID), Want: want(401, 403, 303, skip)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(oldToDelete.ID), Want: want(401, 403, 403, 303)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toHide.ID), Want: want(401, 403, 303, skip)},
++		// The admin: staff only. Its URLs are the admin's own, by app and model.
++		maagotest.Row{Route: "admin_index", URL: "/admin/", Want: want(303, 403, 403, 200)},
++		maagotest.Row{Route: "admin_list", URL: "/admin/board/Post/", Want: want(303, 403, 403, 200)},
++		maagotest.Row{Route: "admin_row", URL: fmt.Sprintf("/admin/board/Post/%d/", out.ID), Want: want(303, 403, 403, 200)},
++		maagotest.Row{Route: "admin_row_submit", URL: fmt.Sprintf("/admin/board/Board/%d/", b.ID), Body: form("name", "자유"), Want: want(401, 403, 403, 303)},
++		maagotest.Row{Route: "admin_add", URL: "/admin/board/Board/add/", Want: want(303, 403, 403, 200)},
++		maagotest.Row{Route: "admin_add_submit", URL: "/admin/board/Board/add/", Body: form("name", "admin의 게시판"), Want: want(401, 403, 403, 303)},
++		maagotest.Row{Route: "admin_delete", URL: fmt.Sprintf("/admin/board/Post/delete/?id=%d", toAdminDelete.ID), Want: want(303, 403, 403, 200)},
++		maagotest.Row{Route: "admin_delete_submit", URL: "/admin/board/Post/delete/", Body: form("id", fmt.Sprint(toAdminDelete.ID)), Want: want(401, 403, 403, 303)},
+ 	)
+ }
+ 
 diff --git a/board/web_test.go b/board/web_test.go
-index c88ae6e..c92fdca 100644
+index 06d091d..8d3213a 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -13,6 +13,7 @@ import (
@@ -254,17 +301,22 @@ index c88ae6e..c92fdca 100644
  	authlib "github.com/maago-web/maago/contrib/auth"
  	"github.com/maago-web/maago/maagotest"
  
-@@ -28,7 +29,8 @@ const front = "http://localhost:5173"
+@@ -28,7 +29,13 @@ const front = "http://localhost:5173"
  
  // config is main's, on db.
  func config(db *sql.DB) maago.Config {
 -	return maago.Config{DB: db, Apps: []maago.App{App, auth.App}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login"}
-+	adminApp := admin.App(admin.Config{Models: [][]admin.Model{Admin, auth.Admin}, Can: auth.Can})
-+	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login"}
++	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp()}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login"}
++}
++
++// adminApp is main's admin: config serves it, and TestPermissions has its
++// routes.
++func adminApp() maago.App {
++	return admin.App(admin.Config{Models: [][]admin.Model{Admin, auth.Admin}, Can: auth.Can})
  }
  
  // app serves the board on a new database, as main does.
-@@ -462,6 +464,13 @@ func TestUnderApp(t *testing.T) {
+@@ -462,6 +469,13 @@ func TestUnderApp(t *testing.T) {
  	if code, _ := get(srv, "/boards/1"); code != 404 {
  		t.Errorf("without /app: %d", code)
  	}
