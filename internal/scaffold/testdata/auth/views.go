@@ -80,14 +80,14 @@ func LoginSubmit(ctx context.Context, db maago.DB, in LoginIn) (maago.Result[Log
 	if _, err := DeleteExpiredSessions(ctx, db, DeleteExpiredSessionsParams{Now: time.Now()}); err != nil {
 		return maago.Result[LoginPage]{}, err
 	}
-	token, err := newSession(ctx, db, u.ID)
+	session, err := newSession(ctx, db, u.ID)
 	if err != nil {
 		return maago.Result[LoginPage]{}, err
 	}
 	if err := DeleteAttempt(ctx, db, attempt); err != nil { // a sign-in is no attempt to count
 		return maago.Result[LoginPage]{}, err
 	}
-	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge, cookieSecure()))
+	maago.SetCookie(ctx, session)
 	return maago.SeeOther[LoginPage](authlib.SafeNext(next, maago.Prefix()+"/")), nil
 }
 
@@ -120,13 +120,15 @@ func limit(ctx context.Context, db maago.DB, action, email string) (int64, error
 	return a.ID, nil
 }
 
-// newSession stores a new session of the user and returns its token for
-// the cookie: a new token, never the one the request brought, so that a
-// cookie planted before sign-in does not become a session.
-func newSession(ctx context.Context, db maago.DB, userID int64) (string, error) {
+// newSession stores a new session of the user and returns its cookie:
+// a new token, never the one the request brought, so that a cookie
+// planted before sign-in does not become a session.
+func newSession(ctx context.Context, db maago.DB, userID int64) (*http.Cookie, error) {
 	token, hash := authlib.NewToken()
-	_, err := InsertSession(ctx, db, NewSessionInput{UserID: userID, Hash: hash, ExpiresAt: time.Now().Add(SessionAge)})
-	return token, err
+	if _, err := InsertSession(ctx, db, NewSessionInput{UserID: userID, Hash: hash, ExpiresAt: time.Now().Add(SessionAge)}); err != nil {
+		return nil, err
+	}
+	return authlib.SessionCookie(token, cookiePath(), SessionAge, cookieSecure()), nil
 }
 
 // Logout signs the user out on every device: a view does not read the
@@ -295,7 +297,7 @@ func VerifySubmit(ctx context.Context, db maago.DB, in VerifyIn) (maago.Result[V
 		page.Form.Password.Error = "Incorrect password."
 		return maago.Show(page), nil
 	}
-	var token string
+	var session *http.Cookie
 	// db is the transaction in here, so the outer one cannot be used.
 	err = maago.WithTx(ctx, db, func(ctx context.Context, db maago.Tx) error {
 		now := time.Now()
@@ -318,7 +320,7 @@ func VerifySubmit(ctx context.Context, db maago.DB, in VerifyIn) (maago.Result[V
 		if _, err := DeleteUserTokens(ctx, db, DeleteUserTokensParams{UserID: u.ID, Purpose: "verify"}); err != nil {
 			return err
 		}
-		if token, err = newSession(ctx, db, u.ID); err != nil {
+		if session, err = newSession(ctx, db, u.ID); err != nil {
 			return err
 		}
 		return DeleteAttempt(ctx, db, attempt)
@@ -329,7 +331,7 @@ func VerifySubmit(ctx context.Context, db maago.DB, in VerifyIn) (maago.Result[V
 	if err != nil {
 		return maago.Result[VerifyPage]{}, err
 	}
-	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge, cookieSecure()))
+	maago.SetCookie(ctx, session)
 	return maago.SeeOther[VerifyPage](maago.Prefix() + "/"), nil
 }
 
@@ -417,7 +419,7 @@ func PasswordChangeSubmit(ctx context.Context, u User, db maago.DB, in PasswordC
 	if err != nil {
 		return maago.Result[PasswordChangePage]{}, err
 	}
-	var token string
+	var session *http.Cookie
 	err = maago.WithTx(ctx, db, func(ctx context.Context, db maago.Tx) error {
 		if _, err := SetPassword(ctx, db, SetPasswordParams{ID: u.ID, Hash: hash}); err != nil {
 			return err
@@ -426,7 +428,7 @@ func PasswordChangeSubmit(ctx context.Context, u User, db maago.DB, in PasswordC
 			return err
 		}
 		var err error
-		if token, err = newSession(ctx, db, u.ID); err != nil {
+		if session, err = newSession(ctx, db, u.ID); err != nil {
 			return err
 		}
 		return DeleteAttempt(ctx, db, attempt)
@@ -434,7 +436,7 @@ func PasswordChangeSubmit(ctx context.Context, u User, db maago.DB, in PasswordC
 	if err != nil {
 		return maago.Result[PasswordChangePage]{}, err
 	}
-	maago.SetCookie(ctx, authlib.SessionCookie(token, cookiePath(), SessionAge, cookieSecure()))
+	maago.SetCookie(ctx, session)
 	return maago.Show(PasswordChangePage{Changed: true}), nil
 }
 

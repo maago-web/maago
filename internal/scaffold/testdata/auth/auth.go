@@ -118,6 +118,20 @@ func CreateSuperuser(ctx context.Context, db maago.DB, email, password string) (
 	return InsertUser(ctx, db, NewUserInput{Email: email, PasswordHash: hash, IsStaff: maago.Set(true), IsSuperuser: maago.Set(true), VerifiedAt: &now})
 }
 
+// SignIn starts a session of u, as signing in does, and returns its
+// cookie: for a test that asks pages as u, with maagotest.As(h, cookie).
+// An account that may not sign in, closed or not verified, is an error:
+// its session would be nobody's. A verified account for a test:
+//
+//	now := time.Now()
+//	u, err := auth.InsertUser(ctx, db, auth.NewUserInput{Email: "ann@example.com", VerifiedAt: &now})
+func SignIn(ctx context.Context, db maago.DB, u User) (*http.Cookie, error) {
+	if !u.IsActive || u.VerifiedAt == nil {
+		return nil, fmt.Errorf("auth: %s may not sign in: the account is closed or not verified", u.Email)
+	}
+	return newSession(ctx, db, u.ID)
+}
+
 // cookiePath is where the session cookie goes: the whole site.
 func cookiePath() string { return cmp.Or(maago.Prefix(), "/") }
 
