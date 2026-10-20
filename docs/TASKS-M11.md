@@ -68,7 +68,21 @@
      - 되감기 실패(`TestWriteSavepointLost`, 두 방언: 요청이 끊겨 `ROLLBACK TO`가 실패하면 UniqueError가 아니고 커밋하지 않는다. 검사를 빼면 실패함을 확인)
      - 회귀가 잡히는지: savepoint를 빼면 PG의 B가 커밋에서 실패, 판정 글을 바꾸면 Author 시험이 실패
      - `gofmt -l .`, `go mod tidy -diff && go vet ./... && go test ./...`(PG 포함)
-2. **게시판 0034: unique**: 먼저 읽는 검사(`BoardNameTaken`·`PostTitleTaken`, 0031의 `skip_id`)를 지우고 `Fail` 하나로 → 확인: `TestBoardTutorial`, 같은 제목의 시험이 결정적
+2. **게시판 0034: unique**: 먼저 읽는 검사(`BoardNameTaken`·`PostTitleTaken`, 0031의 `skip_id`)를 지우고 `Fail` 하나로 → 확인: `TestBoardTutorial`, 같은 이름·제목의 시험이 Taken 문구
+
+   **계획**
+   - 새 단계 `0034-Let-the-database-refuse-what-is-taken.patch`(`steps.sh unpack`, 커밋 하나 더, `pack`). 0013부터 PG라 이 단계는 PG에서만 걷는다
+   - 지운다: `board_name_taken.sql`, `post_title_taken.sql`(`skip_id?`와 함께)
+   - `CreateBoard`: `InsertBoard` 뒤 `if f.Fail(err) { return maago.Show(…) }`. `savePost`: 고정 기간 겹침(제약이 없어 읽기로 남는다) 뒤 `InsertPost`, `if f.Fail(err)`이면 false. `Board.Name`은 unique 하나라 `Name` 칸, `Post`의 `(BoardID,Title)`은 폼에 `Title`만 있어 `Title` 칸. `ChangePost`: `UpdatePost`의 switch에 `case f.Fail(err):`(`ErrConflict` 다음). `APICreatePost`는 그대로: `savePost`가 쓴 `f.Title.Error`를 `maago.Invalid`로
+   - 주석: `CreateBoard`의 "A taken name needs the database, so the view checks it", `savePost`·`ChangePost`의 "unique … as a 500"을 새 길로
+   - 문구: 손으로 쓴 "이미 있는 이름입니다."·"이 게시판에 같은 제목의 글이 있습니다."가 기본 `Messages.Taken`("This value is already taken.")이 된다. 틀의 다른 문구(필수·길이)도 영어 기본이고 시험이 이미 그 글을 본다. 손으로 쓴 `Validate`·고정 겹침·충돌 문구는 한국어로 남는다. 시험 넷(`TestWrite` 둘, `TestAPI`의 422, `TestEdit`)이 Taken 글을 본다
+   - 시험은 순차 시험 그대로: 새 코드에서 B의 결과는 차례와 무관하다(A가 먼저 커밋했으면 바로, B가 잠금을 기다렸으면 깨어나며 제약이 거절 → `Fail`). 그래서 같은 이름·제목의 순차 시험이 곧 이 길의 시험이고, PG에서 savepoint가 빠지면 `Show`의 커밋이 실패해 500이다. 잠금 대기 경로는 틀의 `TestWriteRace`(두 방언)가 본다
+   - `TestBoardTutorialCatches`에 한 줄: 0034의 `savePost`에서 `f.Fail(err)`를 `false`로 → `go test:`. `f.Fail(err)`는 패치에 셋이고 `Replace`는 첫째(CreateBoard)를 바꾸므로 `old`는 savePost에만 있는 줄(`if f.Fail(err) {`와 `return Post{}, false, nil`)
+   - `MAP.md`: 0034 행(M11), 원본 34·42·46의 단계 칸은 바꾸지 않고 "0011·0034"·"0031·0034"처럼 둘 다(57행의 "0024·0025" 꼴)
+   - 커밋 글: 0011이 적은 먼저 읽기의 경쟁(둘이 동시에 읽고 둘 다 쓴다 → 500)을 받아 이제 제약이 거절하고 `Fail`이 그 칸에, 트랜잭션이 이어진다(savepoint). 0011의 질문과 0031의 `skip_id`가 간다고 이름으로 지목하고(앞 단계 글은 고치지 않는다, 0027→0028 꼴), `skip_id`가 필요 없는 까닭: 제 제목을 그대로 두는 UPDATE는 같은 행이라 제약이 울리지 않는다. 고정 기간은 제약이 없어 읽기로 남고, 그래서 제목과 기간이 둘 다 겹치면 겹침이 먼저 보인다(받아들임). 틀의 문구는 영어 기본, 바꾸려면 `Config.Messages.Taken`
+   - 걷기는 `go.work`로 로컬 모듈을 본다(`go.mod`는 v0.1.0, `Fail` 없음). 9번이 v0.2.0으로 올리고 10번 게이트가 `@v0.2.0`을 설치한다
+   - 하지 않음: 고정 기간 겹침을 PG의 exclusion 제약으로(모델 태그에 없다), 문구를 한국어로 바꾸기(`main.go`와 `web_test.go`의 `config` 두 곳), `pg_stat_activity`로 B의 잠금 대기를 본 뒤 A를 커밋하는 경쟁 시험(순차 시험과 다른 것을 보이지 못하고, 게이트 에이전트에게 PG 내부를 가르친다)
+   - 계획 리뷰(fable, codex는 결과 없이 멈춤) 반영: 경쟁 시험 빼기(사람의 결정), Catches의 `old`, 문구의 정확한 범위, 낡은 주석, 0011·0031 지목과 `skip_id`, 검사 순서, MAP의 두 단계 칸, v0.2.0 한 줄
 3. **권한 표**(Q5): `maagotest.Permissions`, 역할마다 로그인한 핸들러를 만드는 도우미(TODO M10의 auth 시험 도우미), 행 없는 라우트(admin 포함)의 실패, 생성기의 "라우트 있는 앱에 표가 없다" 진단, auth 복사본의 표(20 라우트) → 확인: 라우트를 더하고 행을 잊으면 `go test` 실패, 틀린 기대가 실패, 표 없는 앱이 `maago gen` 오류
 4. **게시판 0035: 권한 표**: 22 라우트와 admin, `TestDrafts`·`TestAuthors`의 겹치는 행을 표로 → 확인: `TestBoardTutorial`
 5. **표를 읽는 쿼리 훑기**: FROM·JOIN(부분 쿼리·CTE·쉼표 조인·UNION의 각 SELECT)의 표 이름과 별칭. 정책 표와 같은 이름의 CTE(가림), SELECT 목록 안의 부분 쿼리. 읽는 표를 모를 모양은 정책 모델이 있을 때만 오류 → 확인: 게시판·auth·gentest 모든 쿼리의 골든, 숨긴 표(EXISTS·CTE·SELECT 목록 안)를 찾는다

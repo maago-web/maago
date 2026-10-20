@@ -1,0 +1,209 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: jaypark <jaypark@gmail.com>
+Date: Tue, 20 Oct 2026 16:08:51 +0900
+Subject: [PATCH] Let the database refuse what is taken
+
+A board's name and a post's title on its board are taken once. Until
+now the views asked first, and 0011 said what that leaves open: two
+requests at once both ask, both find it free, and the unique constraint
+refuses the second as a 500. Now the write itself is the question.
+
+- board_name_taken.sql and post_title_taken.sql go, and with them
+  0011's questions and 0031's skip_id?. The views write, and hand the
+  error to the form:
+
+      b, err := InsertBoard(ctx, tx, NewBoardInput{Name: f.Name.Value})
+      if f.Fail(err) {
+          return maago.Show(BoardFormPage{f}), nil
+      }
+      if err != nil {
+          return maago.Result[BoardFormPage]{}, err
+      }
+
+  maago gen gives every form Fail(err). When err is the model's unique
+  refusing the row, it writes the message on the field of that
+  constraint, keeps the transaction going, and is true; otherwise it is
+  false and err is the view's to return. Board.Name is that field for a
+  board. Post's unique=(BoardID,Title) has only Title on the form, so
+  the message goes on Title
+- savePost does the same after InsertPost, and APICreatePost stays as
+  it is: it turns what savePost wrote on f.Title.Error into a 422
+- ChangePost gets a case after maago.ErrConflict:
+
+      case f.Fail(err): // the title is taken on this board
+
+  skip_id is not needed: an UPDATE that keeps the post's own title
+  writes the same row, and the constraint does not ring
+- The transaction goes on after Fail. The generated InsertX and UpdateX
+  write inside a savepoint, so on PostgreSQL a refused row does not
+  abort the request's transaction: the page still reads, and commits
+- Two notices pinned at once have no constraint to refuse them, so
+  PinnedOverlap stays a question asked first. It is now asked before the
+  write: a post whose title and pin both clash shows the pin's error
+- The message is the framework's, as "This field is required." is:
+  "This value is already taken." Config.Messages.Taken changes it. The
+  messages the board wrote itself (Validate's, the pin's, the
+  conflict's) stay as they are
+
+The tests see the new message where they saw the old ones: the same
+board name, the same title on a board, through the API, and on edit.
+
+diff --git a/board/queries/board_name_taken.sql b/board/queries/board_name_taken.sql
+deleted file mode 100644
+index e2f58cf..0000000
+--- a/board/queries/board_name_taken.sql
++++ /dev/null
+@@ -1,7 +0,0 @@
+--- name: BoardNameTaken :one Count
+--- How many boards have the name: 0 or 1.
+--- param: name string
+--- column: n int64
+-SELECT count(*) AS n
+-FROM board_board
+-WHERE name = :name
+diff --git a/board/queries/post_title_taken.sql b/board/queries/post_title_taken.sql
+deleted file mode 100644
+index e17b664..0000000
+--- a/board/queries/post_title_taken.sql
++++ /dev/null
+@@ -1,11 +0,0 @@
+--- name: PostTitleTaken :one Count
+--- How many posts of the board have the title: 0 or 1. With skip_id, the
+--- post being changed does not count.
+--- param: board_id int64
+--- param: title    string
+--- param: skip_id? int64
+--- column: n int64
+-SELECT count(*) AS n
+-FROM board_post
+-WHERE board_id = :board_id AND title = :title
+-  {skip_id} AND id <> :skip_id
+diff --git a/board/views.go b/board/views.go
+index 0f860e9..f8b8839 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -245,21 +245,16 @@ func NewBoard(ctx context.Context, u auth.User, in NewBoardIn) (BoardFormPage, e
+ }
+ 
+ // CreateBoard saves the form, or draws it again with what is wrong. A
+-// taken name needs the database, so the view checks it, not the form.
++// taken name is refused by the database, and Fail says so on the form.
+ func CreateBoard(ctx context.Context, u auth.User, tx maago.Tx, in NewBoardIn) (maago.Result[BoardFormPage], error) {
+ 	f := in.Form
+ 	if !f.Valid() {
+ 		return maago.Show(BoardFormPage{f}), nil
+ 	}
+-	taken, err := BoardNameTaken(ctx, tx, BoardNameTakenParams{Name: f.Name.Value})
+-	if err != nil {
+-		return maago.Result[BoardFormPage]{}, err
+-	}
+-	if taken.N > 0 {
+-		f.Name.Error = "이미 있는 이름입니다."
++	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: f.Name.Value})
++	if f.Fail(err) {
+ 		return maago.Show(BoardFormPage{f}), nil
+ 	}
+-	b, err := InsertBoard(ctx, tx, NewBoardInput{Name: f.Name.Value})
+ 	if err != nil {
+ 		return maago.Result[BoardFormPage]{}, err
+ 	}
+@@ -302,20 +297,12 @@ func CreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (ma
+ 	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
+ }
+ 
+-// savePost saves the post of a valid form f on board boardID, after what
+-// only the database can check: the same title twice on one board would
+-// break the model's unique=(BoardID,Title) as a 500, and two notices may
+-// not be pinned at once. When one fails, it says so on f, as Validate
+-// would, and reports false.
++// savePost saves the post of a valid form f on board boardID, unless
++// only the database can tell it may not be: two notices may not be pinned
++// at once, and the model's unique=(BoardID,Title) refuses the same title
++// twice on one board. When one fails, it says so on f, as Validate would,
++// and reports false.
+ func savePost(ctx context.Context, tx maago.Tx, u auth.User, boardID int64, f *PostForm) (Post, bool, error) {
+-	taken, err := PostTitleTaken(ctx, tx, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
+-	if err != nil {
+-		return Post{}, false, err
+-	}
+-	if taken.N > 0 {
+-		f.Title.Error = "이 게시판에 같은 제목의 글이 있습니다."
+-		return Post{}, false, nil
+-	}
+ 	if f.PinnedFrom.Given {
+ 		n, err := PinnedOverlap(ctx, tx, PinnedOverlapParams{BoardID: boardID, From: f.PinnedFrom.Value, Until: f.PinnedUntil.Value})
+ 		if err != nil {
+@@ -330,6 +317,9 @@ func savePost(ctx context.Context, tx maago.Tx, u auth.User, boardID int64, f *P
+ 		BoardID: boardID, AuthorID: &u.ID, Title: f.Title.Value, Body: f.Body.Value,
+ 		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
+ 	})
++	if f.Fail(err) {
++		return Post{}, false, nil
++	}
+ 	if err != nil {
+ 		return Post{}, false, err
+ 	}
+@@ -532,14 +522,6 @@ func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn)
+ 	if !f.Valid() {
+ 		return maago.Show(PostEditPage{p, f, in.Version}), nil
+ 	}
+-	taken, err := PostTitleTaken(ctx, tx, PostTitleTakenParams{BoardID: p.BoardID, Title: f.Title.Value, SkipID: &p.ID})
+-	if err != nil {
+-		return maago.Result[PostEditPage]{}, err
+-	}
+-	if taken.N > 0 {
+-		f.Title.Error = "이 게시판에 같은 제목의 글이 있습니다."
+-		return maago.Show(PostEditPage{p, f, in.Version}), nil
+-	}
+ 	changed := p
+ 	changed.Title, changed.Body = f.Title.Value, f.Body.Value
+ 	changed.UpdatedAt = time.UnixMicro(in.Version) // UpdatePost writes only over this version
+@@ -547,6 +529,8 @@ func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn)
+ 	case errors.Is(err, maago.ErrConflict):
+ 		f.AddError("그새 다른 사람이 이 글을 고쳤습니다. 다시 열어 고치세요.")
+ 		return maago.Show(PostEditPage{p, f, in.Version}), nil
++	case f.Fail(err): // the title is taken on this board
++		return maago.Show(PostEditPage{p, f, in.Version}), nil
+ 	case err != nil:
+ 		return maago.Result[PostEditPage]{}, err
+ 	}
+diff --git a/board/web_test.go b/board/web_test.go
+index 3c4bdcb..4e1bb2e 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -142,7 +142,7 @@ func TestWrite(t *testing.T) {
+ 	if code != 303 || loc != BoardDetailURL(1) {
+ 		t.Fatalf("save: %d %q", code, loc)
+ 	}
+-	if code, _, body := post(h, BoardCreateURL(), url.Values{"name": {"자유"}}); code != 200 || !strings.Contains(body, "이미 있는 이름입니다.") || !strings.Contains(body, `value="자유"`) {
++	if code, _, body := post(h, BoardCreateURL(), url.Values{"name": {"자유"}}); code != 200 || !strings.Contains(body, "This value is already taken.") || !strings.Contains(body, `value="자유"`) {
+ 		t.Errorf("taken name: %d %s", code, body)
+ 	}
+ 
+@@ -154,7 +154,7 @@ func TestWrite(t *testing.T) {
+ 	if code, body := get(h, loc); code != 200 || !strings.Contains(body, "첫 글") {
+ 		t.Errorf("after the post: %d %s", code, body)
+ 	}
+-	if code, _, body := post(h, PostCreateURL(1), write); code != 200 || !strings.Contains(body, "같은 제목의 글이 있습니다") {
++	if code, _, body := post(h, PostCreateURL(1), write); code != 200 || !strings.Contains(body, "This value is already taken.") {
+ 		t.Errorf("taken title: %d %s", code, body)
+ 	}
+ 	if code, _, body := post(h, PostCreateURL(1), url.Values{"title": {strings.Repeat("가", 201)}, "body": {"x"}}); code != 200 || !strings.Contains(body, "Enter at most 200 characters.") {
+@@ -375,7 +375,7 @@ func TestAPI(t *testing.T) {
+ 		has          string
+ 	}{
+ 		{front, `{"title": "API 글", "body": "본문"}`, 200, `"Title":"API 글"`},
+-		{front, `{"title": "API 글", "body": "본문"}`, 422, `"errors":[{"field":"title","detail":"이 게시판에 같은 제목의 글이 있습니다."}]`},
++		{front, `{"title": "API 글", "body": "본문"}`, 422, `"errors":[{"field":"title","detail":"This value is already taken."}]`},
+ 		{front, `{"title": "", "body": "본문"}`, 422, `{"field":"title","detail":"This field is required."}`},
+ 		{front, `{"title": "빈 본문"`, 400, `"status":400`},
+ 		{front, ``, 400, `"status":400`},
+@@ -807,7 +807,7 @@ func TestEdit(t *testing.T) {
+ 		if code != c.code {
+ 			t.Errorf("%s %s %q: %d, want %d\n%s", c.who, c.path, c.title, code, c.code, body)
+ 		}
+-		if c.code == 200 && !strings.Contains(body, "이 게시판에 같은 제목의 글이 있습니다.") {
++		if c.code == 200 && !strings.Contains(body, "This value is already taken.") {
+ 			t.Errorf("%s %q: no error on the title\n%s", c.who, c.title, body)
+ 		}
+ 	}

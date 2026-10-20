@@ -92,6 +92,8 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"no graceful stop", "0033-Ship-it.patch", `+	if err := maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h)); err != nil {`, `+	if err := http.ListenAndServe(":"+port, http.StripPrefix("/app", h)); err != nil {`, "serve: "},
 		// The binary reads PORT, and serves on it (D-142).
 		{"another port", "0033-Ship-it.patch", `+	port := cmp.Or(os.Getenv("PORT"), "8000")`, `+	port := cmp.Or(os.Getenv("ADDR"), "8000")`, "serve: "},
+		// A taken title is the form's error, not a 500 (D-154).
+		{"a taken title as a 500", "0034-Let-the-database-refuse-what-is-taken.patch", "+\tif f.Fail(err) {\n+\t\treturn Post{}, false, nil", "+\tif false {\n+\t\treturn Post{}, false, nil", "go test: "},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
