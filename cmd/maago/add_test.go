@@ -163,6 +163,51 @@ func Staff(ctx context.Context, u auth.User, in struct{}) (StaffPage, error) {
 	return StaffPage{u.Email}, nil
 }
 `,
+	"permissions_test.go": `package site
+
+import (
+	"testing"
+	"time"
+
+	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/maagotest"
+
+	"example.com/app/auth"
+)
+
+// Who gets the site's routes: the staff page is staff's.
+func TestPermissions(t *testing.T) {
+	db := maagotest.DB(t)
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, App}, Auth: auth.Current, LoginURL: "/login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	ann, err := auth.InsertUser(t.Context(), db, auth.NewUserInput{Email: "ann@example.com", VerifiedAt: &now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	boss, err := auth.InsertUser(t.Context(), db, auth.NewUserInput{Email: "boss@example.com", VerifiedAt: &now, IsStaff: maago.Set(true)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := []maagotest.Role{{Name: "nobody", Handler: h}}
+	for _, u := range []auth.User{ann, boss} {
+		session, err := auth.SignIn(t.Context(), db, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		roles = append(roles, maagotest.Role{Name: u.Email, Handler: maagotest.As(h, session)})
+	}
+	want := func(nobody, ann, staff int) map[string]int {
+		return map[string]int{"nobody": nobody, "ann@example.com": ann, "boss@example.com": staff}
+	}
+	maagotest.Permissions(t, []maago.App{App}, roles,
+		maagotest.Row{Route: "staff", URL: StaffURL(), Want: want(303, 403, 200)},
+		maagotest.Row{Route: "api_me", URL: APIMeURL(), Want: want(401, 200, 200)},
+	)
+}
+`,
 	"admin_test.go": `package site
 
 import (

@@ -122,6 +122,8 @@ func TestPermissionsFails(t *testing.T) {
 			(*rs)[2].Want = map[string]int{"nobody": Skip, "ann": Skip}
 		},
 			[]string{"api_item_create POST /api/items: every role is Skip; a row sends at least one"}},
+		{"no apps", func(apps *[]maago.App, _ *[]Role, rs *[]Row) { *apps, *rs = nil, nil },
+			[]string{"maagotest.Permissions: apps have no routes; give the App values the handler serves, such as board.App"}},
 		{"no roles", func(_ *[]maago.App, roles *[]Role, _ *[]Row) { *roles = nil },
 			[]string{"maagotest.Permissions: no roles; give one for nobody and one for each kind of user"}},
 		{"a role twice", func(_ *[]maago.App, roles *[]Role, _ *[]Row) { *roles = append(*roles, (*roles)[1]) },

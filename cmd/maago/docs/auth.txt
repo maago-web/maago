@@ -101,6 +101,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/maagotest"
@@ -157,4 +158,40 @@ func TestSignIn(t *testing.T) {
 	if w := do(r, cookies...); w.Code != 403 {
 		t.Errorf("cross-origin POST /logout: %d", w.Code)
 	}
+}
+
+// Who gets each route. A test signs a user in with auth.SignIn, without
+// the password; maagotest.As puts the session on every request.
+func TestPermissions(t *testing.T) {
+	db := maagotest.DB(t)
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, App}, Auth: auth.Current, LoginURL: "/login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	ann, err := auth.InsertUser(t.Context(), db, auth.NewUserInput{Email: "ann@example.com", VerifiedAt: &now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	boss, err := auth.CreateSuperuser(t.Context(), db, "boss@example.com", "a long passphrase")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roles []maagotest.Role
+	for _, u := range []auth.User{ann, boss} {
+		session, err := auth.SignIn(t.Context(), db, u)
+		if err != nil {
+			t.Fatal(err)
+		}
+		roles = append(roles, maagotest.Role{Name: u.Email, Handler: maagotest.As(h, session)})
+	}
+	roles = append([]maagotest.Role{{Name: "nobody", Handler: h}}, roles...)
+	want := func(nobody, ann, staff int) map[string]int {
+		return map[string]int{"nobody": nobody, "ann@example.com": ann, "boss@example.com": staff}
+	}
+	maagotest.Permissions(t, []maago.App{App}, roles,
+		maagotest.Row{Route: "me", URL: MeURL(), Want: want(303, 200, 200)},
+		maagotest.Row{Route: "api_me", URL: APIMeURL(), Want: want(401, 200, 200)},
+		maagotest.Row{Route: "staff", URL: StaffURL(), Want: want(303, 403, 200)},
+	)
 }

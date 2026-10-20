@@ -98,6 +98,10 @@ func Permissions(t testing.TB, apps []maago.App, roles []Role, rows ...Row) {
 			mux.HandleFunc(pattern, func(http.ResponseWriter, *http.Request) { hit = r.Name })
 		}
 	}
+	if len(routes) == 0 {
+		t.Errorf("maagotest.Permissions: apps have no routes; give the App values the handler serves, such as board.App")
+		return
+	}
 	asked := map[string]bool{}
 	for _, row := range rows {
 		r, ok := routes[row.Route]

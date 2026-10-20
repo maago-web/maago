@@ -136,6 +136,8 @@
      - Catches: 마지막 패치의 `maagotest.Permissions(` 호출을 지우면 `maago gen:`(fable)
    - 하지 않음: admin의 정적 검사(위), `TestAccess`류 정리
    - 계획 리뷰(codex·fable) 반영: 0025, 0021부터의 쓰는 행 규칙, Catches의 행 하나 라우트와 gen 쪽 줄, 앱 없는 표, build 자리, 별칭·dot·생성 파일·바깥 패키지, admin 검사 빼기, `config` 도우미, rebase 차례, 단계 글(진단부터, 메서드별 상태, 세션 쿠키의 API, 0032의 404), `newUser`의 모순, MAP 35행, TestDrafts의 댓글 수, 7번 글
+   - 구현에서: 걸린 fixture는 계획의 `web/site` 말고 셋 더(`maago doc view`·`auth`의 예, `add_test.go`의 `staffApp`): 각자 표. `view` 주제의 예에 `TestPermissions`를 더해 진단의 `see: maago doc view`가 표를 보인다(8번이 주제 글을). 쓰는 행의 함정 둘을 겪음: 파일 행의 초안을 앞 행이 게시, Catches의 바꿈이 hunk의 줄 수를 바꾸면 패치가 깨진다(한 줄을 한 줄로)
+   - 구현 리뷰: ponytail(직접), codex(코드만 읽은 리뷰, 샌드박스: 0025의 `admin_delete`가 앞 행이 지운 글을 물어 우연히 200 → 손대지 않은 fixture로. 받지 않음: 별칭을 지역 변수로 가린 `mt.Permissions`(go/types가 필요하고 일부러가 아니면 생기지 않는다)), fable(같은 0025, see 줄이 아무것도 말하지 않는다 → view 주제의 예, `as`와 `maagotest.As`의 겹침 → `as`를 지움, 파싱 안 되는 시험 파일은 그 fix로, 0032 글의 댓글 행)
    - → 확인: (a) 단계마다 걷기 초록·`TestBoardTutorial`(PG)·Catches의 행 줄, (b) 생성기 시험·fixture·Catches의 gen 줄·`Permissions`의 앱 없는 표 시험, `gofmt -l .`, `go mod tidy -diff && go vet ./... && go test ./...`(PG)
 5. **표를 읽는 쿼리 훑기**: FROM·JOIN(부분 쿼리·CTE·쉼표 조인·UNION의 각 SELECT)의 표 이름과 별칭. 정책 표와 같은 이름의 CTE(가림), SELECT 목록 안의 부분 쿼리. 읽는 표를 모를 모양은 정책 모델이 있을 때만 오류 → 확인: 게시판·auth·gentest 모든 쿼리의 골든, 숨긴 표(EXISTS·CTE·SELECT 목록 안)를 찾는다
 6. **읽기 정책**(Q2·Q3·Q4): `policies.sql`, 선언·사용의 쌍, 별칭 검사, 펼치기 → 조합 → prepare, 정책 매개변수, 정책 모델의 `GetX`와 정책 없는 길, admin은 정책 없는 길 → 확인: 정책을 빠뜨린 쿼리(EXISTS 안 포함)·까닭 없는 `none`·모르는 `:viewer_x`·다른 모델의 별칭이 생성 오류, 아무도·남·작성자·staff가 같은 쿼리에서 다른 행, nil 사용자, 조건 줄과 `WHERE { }` 안의 정책 골든, 두 방언

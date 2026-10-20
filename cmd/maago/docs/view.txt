@@ -191,9 +191,11 @@ UPDATE blog_post SET views = views + 1 WHERE id = :id
 package blog
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/maago-web/maago"
 	"github.com/maago-web/maago/maagotest"
@@ -235,4 +237,40 @@ func TestViews(t *testing.T) {
 		}
 	}
 	_ = http.StatusOK
+}
+
+// Who gets each route: a row for each, a status for each role, or
+// maago gen refuses the app, whose views take the user. A route added
+// without its row fails here. A row that writes gets a fixture for each
+// role that succeeds; maagotest.Skip leaves a role out of that row.
+func TestPermissions(t *testing.T) {
+	db := maagotest.DB(t)
+	h, err := maago.Handler(maago.Config{DB: db, Apps: []maago.App{auth.App, App}, Auth: auth.Current, LoginURL: "/login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	ann, err := auth.InsertUser(t.Context(), db, auth.NewUserInput{Email: "ann@example.com", VerifiedAt: &now})
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := auth.SignIn(t.Context(), db, ann) // a session, as signing in starts
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := InsertPost(t.Context(), db, NewPostInput{AuthorID: ann.ID, Title: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := func(nobody, ann int) map[string]int { return map[string]int{"nobody": nobody, "ann": ann} }
+	maagotest.Permissions(t, []maago.App{App}, []maagotest.Role{{Name: "nobody", Handler: h}, {Name: "ann", Handler: maagotest.As(h, session)}},
+		maagotest.Row{Route: "post_list", URL: PostListURL(), Want: want(200, 200)},
+		maagotest.Row{Route: "post_rows", URL: PostRowsURL(), Want: want(200, 200)},
+		maagotest.Row{Route: "post_detail", URL: PostDetailURL(p.ID), Want: want(200, 200)},
+		maagotest.Row{Route: "post_new", URL: PostNewURL(), Want: want(303, 200)},
+		maagotest.Row{Route: "post_create", URL: PostCreateURL(), Body: "title=second", Want: want(401, 303)},
+		maagotest.Row{Route: "post_view", URL: PostViewURL(p.ID), Want: want(303, 303)},
+		maagotest.Row{Route: "post_text", URL: PostTextURL(fmt.Sprint(p.ID)), Want: want(200, 200)},
+		maagotest.Row{Route: "api_posts", URL: APIPostsURL(), Want: want(200, 200)},
+	)
 }

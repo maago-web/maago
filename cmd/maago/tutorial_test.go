@@ -92,6 +92,13 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"no graceful stop", "0033-Ship-it.patch", `+	if err := maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h)); err != nil {`, `+	if err := http.ListenAndServe(":"+port, http.StripPrefix("/app", h)); err != nil {`, "serve: "},
 		// The binary reads PORT, and serves on it (D-142).
 		{"another port", "0033-Ship-it.patch", `+	port := cmp.Or(os.Getenv("PORT"), "8000")`, `+	port := cmp.Or(os.Getenv("ADDR"), "8000")`, "serve: "},
+		// A route without its row in the permission table fails the app's
+		// tests (D-156). api_me has one row; a route with more keeps the
+		// others.
+		{"a route without its row", "0030-Me.patch", "+\t\tmaagotest.Row{Route: \"api_me\", URL: APIMeURL(), Want: want(401, 200, 200, 200)},", "+\t\t// api_me's row, forgotten", "go test: "},
+		// A project whose views take the user has a permission table:
+		// without the call, maago gen refuses it (D-156).
+		{"no permission table", "0021-Sign-in.patch", "+\tmaagotest.Permissions(t, []maago.App{App}, roles,", "+\t_ = maagotest.Permissions; permissions(t, []maago.App{App}, roles,", "maago gen:\n"},
 		// A taken title is the form's error, not a 500 (D-154).
 		{"a taken title as a 500", "0034-Let-the-database-refuse-what-is-taken.patch", "+\tif f.Fail(err) {\n+\t\treturn Post{}, false, nil", "+\tif false {\n+\t\treturn Post{}, false, nil", "go test: "},
 	} {

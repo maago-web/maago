@@ -229,3 +229,25 @@ func TestVersionCheck(t *testing.T) {
 		t.Errorf("got:\n%s", out)
 	}
 }
+
+// An app whose view takes the user needs a permission table in its tests
+// (D-156): maago gen says so at its route table, and writes nothing.
+func TestPermissionsTable(t *testing.T) {
+	root := example(t)
+	write(t, filepath.Join(root, "blog", "urls.go"), "package blog\n\nimport (\n\t\"context\"\n\n\t\"github.com/maago-web/maago\"\n)\n\nvar Routes = maago.Routes{\n\tmaago.GET(\"/me\", \"me\", Me, maago.API),\n}\n\ntype User struct{ Email string }\n\nfunc Me(ctx context.Context, u *User, in struct{}) (*User, error) { return u, nil }\n")
+	write(t, filepath.Join(root, "main.go"), "package main\n\nimport \"example.com/app/blog\"\n\nvar _ = blog.App\n")
+	before := snapshot(t, root)
+
+	_, ds := Gen(root)
+
+	want := `blog/urls.go:9:5: app blog has routes whose views take the user, but no test calls maagotest.Permissions
+  fix: write blog/permissions_test.go calling maagotest.Permissions(t, []maago.App{App, …}, roles, rows...), a row for each route
+  see: maago doc view
+`
+	if out := text(ds); out != want {
+		t.Errorf("got:\n%s", out)
+	}
+	if after := snapshot(t, root); !maps.Equal(before, after) {
+		t.Errorf("gen wrote files despite an error")
+	}
+}
