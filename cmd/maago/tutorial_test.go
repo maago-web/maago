@@ -106,7 +106,13 @@ func TestBoardTutorialCatches(t *testing.T) {
 				t.Fatalf("%s has no %q", c.patch, c.old)
 			}
 			writeFile(t, p, strings.Replace(src, c.old, c.new, 1))
-			if _, err := walk(t, dir); err == nil || !strings.HasPrefix(err.Error(), c.patch+": "+c.by) {
+			// What goes wrong in the shipped binary is the last step's (walk).
+			at := c.patch
+			if strings.HasPrefix(c.by, "serve: ") || strings.HasPrefix(c.by, "board ") {
+				patches, _ := filepath.Glob(filepath.Join(dir, "*.patch"))
+				at = filepath.Base(patches[len(patches)-1])
+			}
+			if _, err := walk(t, dir); err == nil || !strings.HasPrefix(err.Error(), at+": "+c.by) {
 				t.Errorf("walk: %v", err)
 			}
 		})

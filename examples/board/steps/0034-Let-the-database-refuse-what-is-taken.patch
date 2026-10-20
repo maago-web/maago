@@ -48,6 +48,11 @@ refuses the second as a 500. Now the write itself is the question.
 
 The tests see the new message where they saw the old ones: the same
 board name, the same title on a board, through the API, and on edit.
+TestWriteRace sends two at once: a transaction writes a name and holds
+on, a request writes the same name (waiting at the unique index if it
+gets there first), and the first commits. The request gets its form back with the message
+and goes on to commit its page, the race 0011 left open now refused by
+the database.
 
 diff --git a/board/queries/board_name_taken.sql b/board/queries/board_name_taken.sql
 deleted file mode 100644
@@ -169,10 +174,18 @@ index 0f860e9..f8b8839 100644
  		return maago.Result[PostEditPage]{}, err
  	}
 diff --git a/board/web_test.go b/board/web_test.go
-index 3c4bdcb..4e1bb2e 100644
+index 3c4bdcb..fe1cd67 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
-@@ -142,7 +142,7 @@ func TestWrite(t *testing.T) {
+@@ -1,6 +1,7 @@
+ package board
+ 
+ import (
++	"context"
+ 	"database/sql"
+ 	"encoding/csv"
+ 	"encoding/json"
+@@ -142,7 +143,7 @@ func TestWrite(t *testing.T) {
  	if code != 303 || loc != BoardDetailURL(1) {
  		t.Fatalf("save: %d %q", code, loc)
  	}
@@ -181,7 +194,7 @@ index 3c4bdcb..4e1bb2e 100644
  		t.Errorf("taken name: %d %s", code, body)
  	}
  
-@@ -154,7 +154,7 @@ func TestWrite(t *testing.T) {
+@@ -154,7 +155,7 @@ func TestWrite(t *testing.T) {
  	if code, body := get(h, loc); code != 200 || !strings.Contains(body, "첫 글") {
  		t.Errorf("after the post: %d %s", code, body)
  	}
@@ -190,7 +203,48 @@ index 3c4bdcb..4e1bb2e 100644
  		t.Errorf("taken title: %d %s", code, body)
  	}
  	if code, _, body := post(h, PostCreateURL(1), url.Values{"title": {strings.Repeat("가", 201)}, "body": {"x"}}); code != 200 || !strings.Contains(body, "Enter at most 200 characters.") {
-@@ -375,7 +375,7 @@ func TestAPI(t *testing.T) {
+@@ -176,6 +177,40 @@ func TestWrite(t *testing.T) {
+ 	}
+ }
+ 
++// Two requests at once with one name: the database lets the first have
++// it, and the other gets its form back with the message, not a 500. A
++// writes the name and holds its transaction open; B, the request, writes
++// the same name, which the unique index makes wait for A. A commits
++// without waiting for B: B is refused whether it got to its write before
++// or after, and its transaction goes on to show the page.
++func TestWriteRace(t *testing.T) {
++	h, db := app(t)
++	h, _ = signedIn(t, h, db, "ann@example.com")
++	var code int
++	var body string
++	done := make(chan struct{})
++	err := maago.WithTx(t.Context(), db, func(ctx context.Context, tx maago.Tx) error {
++		if _, err := InsertBoard(ctx, tx, NewBoardInput{Name: "자유"}); err != nil {
++			return err
++		}
++		go func() {
++			defer close(done)
++			code, _, body = post(h, BoardCreateURL(), url.Values{"name": {"자유"}})
++		}()
++		return nil
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	<-done
++	if code != 200 || !strings.Contains(body, "This value is already taken.") {
++		t.Errorf("B: %d %s", code, body)
++	}
++	if bs, err := BoardList(t.Context(), db); err != nil || len(bs) != 1 {
++		t.Errorf("boards: %v %v", bs, err)
++	}
++}
++
+ func TestPinAndSchedule(t *testing.T) {
+ 	h, db := app(t)
+ 	h, _ = signedIn(t, h, db, "ann@example.com")
+@@ -375,7 +410,7 @@ func TestAPI(t *testing.T) {
  		has          string
  	}{
  		{front, `{"title": "API 글", "body": "본문"}`, 200, `"Title":"API 글"`},
@@ -199,7 +253,7 @@ index 3c4bdcb..4e1bb2e 100644
  		{front, `{"title": "", "body": "본문"}`, 422, `{"field":"title","detail":"This field is required."}`},
  		{front, `{"title": "빈 본문"`, 400, `"status":400`},
  		{front, ``, 400, `"status":400`},
-@@ -807,7 +807,7 @@ func TestEdit(t *testing.T) {
+@@ -807,7 +842,7 @@ func TestEdit(t *testing.T) {
  		if code != c.code {
  			t.Errorf("%s %s %q: %d, want %d\n%s", c.who, c.path, c.title, code, c.code, body)
  		}
