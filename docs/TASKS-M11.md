@@ -109,10 +109,37 @@
      - auth 복사본: `cmd/maago`의 auth 시험(복사해 돌리는 것)이 새 표를 두 방언에서. 라우트 하나의 행을 지우면 실패함을 확인. `SignIn`의 확인 안 된 계정 오류
      - 회귀: 빠짐없음·라우트 맞추기 검사를 각각 빼면 위 시험이 실패
      - `gofmt -l .`, `go mod tidy -diff && go vet ./... && go test ./...`(PG 포함)
-4. **게시판에 권한 표를 엮고 생성기 진단**(사람의 결정 2026-10-20): 0021(사용자가 처음 오는 단계)부터 `TestPermissions`(`auth.SignIn`·`maagotest.As`, 그래서 `newUser`에 비밀번호 해시가 필요 없다), 라우트를 더하거나 권한이 바뀌는 단계(0022·0023·0024 admin의 앱·0029·0030·0031·0032)가 행을 더하고 고친다, 단계 글(0021·0022의 `signedIn`·`Iterations`, 0024의 admin 행)도(M10 9a의 길, `steps.sh unpack`·rebase·`pack`). `TestDrafts`·`TestAuthors`의 겹치는 행은 표로. 그 뒤 생성기: 사용자를 받는 뷰가 있는 앱의 시험(`_test.go`, 바깥 시험 패키지 포함)에 `maagotest.Permissions` 호출이 없으면 `var Routes`에 오류, main이 admin을 쓰면 어느 시험의 호출이 `admin.App`을 앱 목록에 넣는지도(fable). 걸리는 fixture(`cmd/maago/testdata/web/site`의 `Account` 뷰 등)에 표나 기대 진단 → 확인: `TestBoardTutorial`(PG 포함), 표 없는 사용자 앱·admin 없는 표가 `maago gen` 오류·사용자 없는 앱은 그대로, Catches에 "행 하나 지우기 → `go test:`"
+4. **게시판에 권한 표를 엮고 생성기 진단**(사람의 결정 2026-10-20): 0021(사용자가 처음 오는 단계)부터 `TestPermissions`(`auth.SignIn`·`maagotest.As`), 라우트를 더하거나 권한이 바뀌는 단계(0022·0023·0025 admin·0029·0030·0031·0032)가 행을 더하고 고친다, 단계 글도(M10 9a의 길). `TestDrafts`·`TestAuthors`의 겹치는 행은 표로. 그 뒤 생성기: 사용자를 받는 뷰가 있는 앱의 시험에 `maagotest.Permissions` 호출이 없으면 오류. 걸리는 fixture에 표 → 확인: `TestBoardTutorial`(PG), 표 없는 사용자 앱이 `maago gen` 오류·사용자 없는 앱은 그대로, Catches 둘
+
+   **계획**
+   - 두 커밋, 둘 다 걷기가 초록인 채: (a) 게시판에 표를 엮는다(생성기는 아직 보지 않는다), (b) 생성기 진단과 fixture. (b)가 먼저면 0021부터 걷기가 깨진다(걷기는 단계마다 gen·check·test)
+   - **(a) 게시판**(`steps.sh unpack`, 단계마다 rebase로 고치고 걷고 `pack`. 충돌은 `board/web_test.go`의 0022·0031·0032에 몰려 있어 그 차례로, 하나씩 걸은 뒤 다음, codex)
+     - **쓰는 행의 규칙은 0021부터**(fable): 0021에서는 아무도 아님과 ann이 다 쓸 수 있고 쓰기가 다음 역할이 볼 것을 바꾼다(같은 글 게시는 둘째가 409, 같은 이름의 게시판은 둘째가 Taken). 그래서 성공하는 역할마다 fixture를 따로 두고 나머지는 Skip. 0022는 누가 성공하는지만 좁힌다. 0031의 `post_change`는 `?version=`을 지니므로 고치는 역할마다 fixture
+     - **0021**: 새 파일 `board/permissions_test.go`의 `TestPermissions`, 역할 `nobody`·`ann`, 앱 `[]maago.App{App}`, 라우트 15개. 단계 글의 차례는 읽는 이가 만나는 차례(fable): `Home`이 `u *auth.User`를 받자 `maago gen`이 표를 요구한다(진단과 fix를 인용, (b)가 생긴 뒤 기준. Expect 단계는 아니다) → 표. 행·역할·`Skip`·차례·쓰는 행의 규칙, `SignIn`·`As`. 0021에서 두 열이 같고 0022의 이 파일 diff가 둘이 갈리는 곳이라고 말한다
+     - **0022**(작성자): 역할 `bob`·`staff`(`CreateSuperuser`+`SignIn`), 상태를 고친다. 단계 글에 메서드별로: GET 폼은 로그인으로 303, POST는 401, API는 401과 `WWW-Authenticate`. API 행은 세션 쿠키로 간다(Origin 없는 요청, Bearer 역할이 필요 없다, M10 게이트가 토큰 도우미를 찾았다). `TestAuthors`에서 상태만 보는 행은 표로
+     - **0023**: `post_delete`의 행 둘(댓글 있는 글은 숨기기, 없는 글은 지우기: fixture가 다르다)
+     - **0025**(admin, fable: 0024는 `Maago-Expect` 단계라 `go test`가 돌지 않고 시험의 `config`가 admin을 얻는 것도 0025): 앱 목록에 admin의 App. `config`가 만든 것과 같은 값을 쓰도록 `config`를 `admin.App`의 값도 돌려주는 도우미로(같은 설정을 다시 만들지 않는다, codex). admin 8 라우트의 행
+     - **0029**(파일): `attachment_add`(게시판의 `upload`가 만드는 multipart 몸통과 ContentType), `attachment`
+     - **0030**: `me`·`api_me`
+     - **0031**: `post_edit`·`post_change`, `TestEdit`의 겹치는 상태 행
+     - **0032**(초안): 초안 fixture와 그 행. `TestDrafts`의 `{who, method, path, code}` 표는 이 표로, 목록에 초안이 없는지(`out`)·웹훅·초안의 댓글 수(그 수는 `comment_create` 행에 기대므로 댓글 POST 하나를 `TestDrafts`에 남긴다, fable)는 그대로. 단계 글: 파일 행이 0029의 403에서 404로 바뀌는 diff가 D-147의 모양
+     - 0033·0034는 패치 충돌만
+     - 단계 글: 0021·0022의 `signedIn`·`login`을 `SignIn`·`As`로(`signedIn`은 `SignIn`으로 짓는다. `newUser`는 해시를 그대로: `TestSignIn`이 로그인 자체를 본다). `MAP.md` 35행의 `login` 도우미 글도
+     - Catches(fable·codex): 행이 하나뿐인 라우트(`api_me`)의 행을 지우면 `go test:`(라우트에 행이 여럿이면 하나를 지워도 초록이다), 표를 쓴 뒤 그 줄로 정확히 하나만 맞는 `old`. 기존 `mayChange`·`maySee` 행은 그대로
+   - **(b) 생성기 진단**: `internal/web`의 `Check`·`Views` 안이 아니라 `build.Gen`이 부르는 따로 된 함수(admin의 "no package uses board.Admin" 검사 자리, fable: `internal/web`의 사용자 뷰 fixture 14개는 시험 파일 없이 만들어진다, codex·fable)
+     - 사용자를 받는 뷰가 있는 앱의 디렉터리에서 `_test.go`(바깥 시험 패키지 포함, maago가 생성한 파일 빼고)를 파싱해 `github.com/maago-web/maago/maagotest`의 import(어느 별칭이든)를 그 이름으로 부르는 `Permissions` 호출을 찾는다. 도우미 함수 안이어도 된다. dot import는 받지 않는다(호출이 그 패키지 것인지 알 수 없다: 별칭을 쓰라는 fix)
+     - 진단: `var Routes`에 `app board has routes whose views take the user, but no test calls maagotest.Permissions`, fix `write board/permissions_test.go calling maagotest.Permissions(t, []maago.App{App, …}, roles, rows...), a row for each route`, see `go doc github.com/maago-web/maago/maagotest Permissions`(8번이 `maago doc` 주제로)
+     - **admin이 앱 목록에 있는지의 정적 검사는 하지 않는다**(codex·fable): `admin.App`은 런타임 값이고 그 값이 표에 가는지는 생성기가 어디서도 하지 않는 데이터 흐름이다. 남는 빈틈(표가 admin을 빼면 그 라우트는 보이지 않는다)은 D-156에 한 줄, 런타임으로 막는 길(마지막 Handler가 서빙한 앱 중 apps에 없는 것)은 TODO
+     - **`Permissions`의 앱 없는 표**(fable, 3번의 남은 것): 앱들에 라우트가 하나도 없으면 오류. 아니면 `Permissions(t, nil, roles)`가 진단을 채운다
+     - 걸리는 fixture: `cmd/maago/testdata/web/site`(`Secret`·`Mine`·`Greet`, 22 라우트, 헤더로 사용자): 시험이 이미 HTTP를 돌므로 표를 더한다. 짧은 튜토리얼은 사용자 뷰가 없다(확인함)
+     - 시험(`internal/build`의 fixture 프로젝트): 사용자 앱에 표 없음 → 오류, 별칭 import·바깥 시험 패키지·도우미 안의 호출 → 없음, dot import → 오류, 같은 이름의 다른 패키지 `Permissions` → 오류, 생성 파일 안의 호출 → 오류, 사용자 없는 앱 → 없음
+     - Catches: 마지막 패치의 `maagotest.Permissions(` 호출을 지우면 `maago gen:`(fable)
+   - 하지 않음: admin의 정적 검사(위), `TestAccess`류 정리
+   - 계획 리뷰(codex·fable) 반영: 0025, 0021부터의 쓰는 행 규칙, Catches의 행 하나 라우트와 gen 쪽 줄, 앱 없는 표, build 자리, 별칭·dot·생성 파일·바깥 패키지, admin 검사 빼기, `config` 도우미, rebase 차례, 단계 글(진단부터, 메서드별 상태, 세션 쿠키의 API, 0032의 404), `newUser`의 모순, MAP 35행, TestDrafts의 댓글 수, 7번 글
+   - → 확인: (a) 단계마다 걷기 초록·`TestBoardTutorial`(PG)·Catches의 행 줄, (b) 생성기 시험·fixture·Catches의 gen 줄·`Permissions`의 앱 없는 표 시험, `gofmt -l .`, `go mod tidy -diff && go vet ./... && go test ./...`(PG)
 5. **표를 읽는 쿼리 훑기**: FROM·JOIN(부분 쿼리·CTE·쉼표 조인·UNION의 각 SELECT)의 표 이름과 별칭. 정책 표와 같은 이름의 CTE(가림), SELECT 목록 안의 부분 쿼리. 읽는 표를 모를 모양은 정책 모델이 있을 때만 오류 → 확인: 게시판·auth·gentest 모든 쿼리의 골든, 숨긴 표(EXISTS·CTE·SELECT 목록 안)를 찾는다
 6. **읽기 정책**(Q2·Q3·Q4): `policies.sql`, 선언·사용의 쌍, 별칭 검사, 펼치기 → 조합 → prepare, 정책 매개변수, 정책 모델의 `GetX`와 정책 없는 길, admin은 정책 없는 길 → 확인: 정책을 빠뜨린 쿼리(EXISTS 안 포함)·까닭 없는 `none`·모르는 `:viewer_x`·다른 모델의 별칭이 생성 오류, 아무도·남·작성자·staff가 같은 쿼리에서 다른 행, nil 사용자, 조건 줄과 `WHERE { }` 안의 정책 골든, 두 방언
-7. **게시판 0035~0036: 정책**: 0035는 정책을 빠뜨린 쿼리(`Maago-Expect`), 0036은 `out`·`visible` 두 정책으로 `maySee`와 쿼리 넷의 조건을 접는다(`MyPosts` 포함). `RecentPosts`가 `none`의 본보기 → 확인: `TestBoardTutorial`, `TestDrafts`가 그대로 초록, 0021부터의 표가 바뀐 상태를 행으로 보인다(남의 초안에 bob의 `post_publish`·`post_edit`·`post_change`·`post_delete`가 403 → 404, fable), Catches의 "아무나 초안 보기"가 `go test`가 아니라 생성 시점에 잡힌다
+7. **게시판 0035~0036: 정책**: 0035는 정책을 빠뜨린 쿼리(`Maago-Expect`), 0036은 `out`·`visible` 두 정책으로 `maySee`와 쿼리 넷의 조건을 접는다(`MyPosts` 포함). `RecentPosts`가 `none`의 본보기 → 확인: `TestBoardTutorial`, `TestPermissions`의 네 행(남의 초안에 bob의 `post_publish`·`post_edit`·`post_change`·`post_delete`)이 403 → 404로 바뀌고 0036 글이 그 넷을 이름으로, `TestDrafts`에 남은 out·웹훅은 그대로, Catches의 "아무나 초안 보기"가 `go test`가 아니라 생성 시점에 잡힌다
 8. **문서**: `maago doc`의 query(정책, 규칙)·form(`Fail`)·권한 표(maagotest 또는 view 주제), MISSION의 범위 문장(D-147), PHILOSOPHY 3, D-24·D-119·D-147 고침 → 확인: `TestDocExamples`(새 예), `TestPackageDoc`, `TestNoDecisionsInUserText`
 9. **v0.2.0**: 태그, 게시판의 `go.mod`를 v0.2.0으로(0001·0013, 12번의 길) → 확인: 빈 GOPATH에서 `go install …@v0.2.0`, 공개 판으로 걷기의 끝
 10. **에이전트 게이트**: `go install …@v0.2.0`부터, 0033의 끝에서 시작해 새 단계(0034~0036) 글만 보고 서로 모르는 실행 둘. 0033의 끝에 표가 이미 있으므로(4번) 게이트는 표를 처음부터가 아니라 정책이 바꾼 행으로 쓴다 → 확인: 기록, 셋을 메시지와 `maago doc`만으로 씀
