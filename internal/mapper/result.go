@@ -364,7 +364,7 @@ func (j joins) nullable(c practicedb.Column) bool {
 func (q *Query) joins() (joins, []diag.Diagnostic) {
 	j := joins{null: map[string]bool{}}
 	toks := q.toks
-	ctes := map[string]bool{}
+	cs := ctes(toks)
 	word := func(i int) string {
 		if i >= 0 && i < len(toks) && toks[i].Kind == dialect.Word {
 			return strings.ToUpper(toks[i].Text)
@@ -377,30 +377,6 @@ func (q *Query) joins() (joins, []diag.Diagnostic) {
 	}
 	for i := range toks {
 		switch word(i) {
-		case "WITH":
-			for k := i + 1; k < len(toks); {
-				if word(k) == "RECURSIVE" {
-					k++
-				}
-				if k >= len(toks) || toks[k].Kind != dialect.Word && toks[k].Kind != dialect.Quoted {
-					break
-				}
-				ctes[strings.ToLower(dialect.Name(toks[k]))] = true
-				k++
-				if k < len(toks) && is(toks[k], "(") { // column names
-					k = dialect.Closing(toks, k) + 1
-				}
-				for k < len(toks) && !is(toks[k], "(") { // AS [NOT] MATERIALIZED
-					k++
-				}
-				if k < len(toks) {
-					k = dialect.Closing(toks, k) + 1
-				}
-				if k >= len(toks) || !is(toks[k], ",") {
-					break
-				}
-				k++
-			}
 		case "UNION", "INTERSECT", "EXCEPT":
 			j.noSource = true
 		case "NATURAL":
@@ -437,7 +413,7 @@ func (q *Query) joins() (joins, []diag.Diagnostic) {
 					k += 2
 				}
 				name := strings.ToLower(dialect.Name(toks[k]))
-				if ctes[name] {
+				if slices.ContainsFunc(cs, func(c cte) bool { return strings.ToLower(c.name) == name && c.from <= k && k <= c.to }) {
 					return fail(k, "a LEFT JOIN of the CTE "+dialect.Name(toks[k])+", whose columns come from other tables")
 				}
 				j.null[name] = true

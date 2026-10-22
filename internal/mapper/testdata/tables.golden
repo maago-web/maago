@@ -1,0 +1,37 @@
+examples/board/board/queries/board_list.sql:4:6 board_board
+examples/board/board/queries/export_rows.sql:10:30 board_comment c
+examples/board/board/queries/export_rows.sql:11:6 board_post p
+examples/board/board/queries/my_posts.sql:6:6 board_post p
+examples/board/board/queries/my_posts.sql:7:6 board_board b
+examples/board/board/queries/pinned_overlap.sql:9:6 board_post
+examples/board/board/queries/post_attachments.sql:5:6 board_attachment
+examples/board/board/queries/post_comments.sql:5:6 board_comment
+examples/board/board/queries/post_detail.sql:5:6 board_post p
+examples/board/board/queries/post_detail.sql:6:6 board_board b
+examples/board/board/queries/post_list.sql:10:30 board_comment c
+examples/board/board/queries/post_list.sql:11:6 board_post p
+examples/board/board/queries/recent_posts.sql:6:6 board_post
+examples/board/board/queries/search_posts.sql:9:30 board_comment c
+examples/board/board/queries/search_posts.sql:10:6 board_post p
+scaffold/testdata/auth/queries/api_token_user.sql:4:17 auth_user u
+scaffold/testdata/auth/queries/api_token_user.sql:5:6 auth_api_token t
+scaffold/testdata/auth/queries/count_attempts.sql:11:6 auth_attempt
+scaffold/testdata/auth/queries/count_permissions.sql:8:27 auth_permission
+scaffold/testdata/auth/queries/session_user.sql:5:17 auth_user u
+scaffold/testdata/auth/queries/session_user.sql:6:6 auth_session s
+scaffold/testdata/auth/queries/token_user.sql:6:17 auth_user u
+scaffold/testdata/auth/queries/token_user.sql:7:6 auth_token t
+scaffold/testdata/auth/queries/user_api_tokens.sql:3:15 auth_api_token
+scaffold/testdata/auth/queries/user_by_email.sql:3:15 auth_user
+testdata/orders/queries/customer_orders.sql:5:6 customers c
+testdata/orders/queries/customer_orders.sql:5:28 orders o
+testdata/orders/queries/customer_orders_strict.sql:5:6 customers c
+testdata/orders/queries/customer_orders_strict.sql:5:28 orders o
+testdata/orders/queries/order_amounts.sql:2:20 orders
+testdata/orders/queries/order_by_amount.sql:5:6 orders
+testdata/orders/queries/order_created.sql:3:24 orders
+testdata/orders/queries/order_exists.sql:4:30 orders
+testdata/orders/queries/orders_matching.sql:8:24 orders
+testdata/orders/queries/search_orders.sql:7:44 orders
+testdata/plain/queries/notes.sql:4:22 notes
+cmd/maago/testdata/web/site/queries/title_taken.sql:5:30 site_post
