@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Fri, 23 Oct 2026 03:53:43 +0900
+Subject: [PATCH] Write who may read a post
+
+A mistake on purpose. Who may read a post is written four times: the
+lists (post_list, search_posts, export_rows) each copy "not hidden, not a
+draft, out by now", and Go's maySee lets a draft's author and staff see
+it. post_detail copies only the hidden half: it trusts postPage to call
+maySee first, which is how a draft got out before.
+
+Now the rule is written once, in board/policies.sql, beside queries/:
+
+    -- name: out Post p
+    -- The posts anybody sees in a list: not hidden, not a draft, and out by
+    -- now. Not even the author lists a draft; Me shows it.
+    -- param: now time.Time
+    NOT p.hidden AND p.status <> 'draft' AND (p.publish_at IS NULL OR p.publish_at <= :now)
+
+    -- name: visible Post p
+    -- get: GetPost
+    -- The posts the user may read: those out, and those not out yet, a draft
+    -- or one to publish later, to its author and staff. A hidden post to
+    -- nobody. The user is nil for nobody, and then :viewer_ columns are NULL.
+    -- param: now time.Time
+    NOT p.hidden AND (p.status <> 'draft' AND (p.publish_at IS NULL OR p.publish_at <= :now)
+      OR p.author_id = :viewer_id OR :viewer_is_staff)
+
+Each block starts with -- name: name Model alias. :viewer_id and
+:viewer_is_staff are columns of the user the views take, auth.User:
+:viewer_<column>. -- get: GetPost says GetPost reads under visible.
+
+A query that reads board_post says which policy it reads it under, in
+its header, and uses it where it reads the table, as an AND term of the
+WHERE:
+
+    -- policy: out p
+    ...
+    FROM board_post p
+    WHERE p.board_id = :board_id AND out(p)
+
+The lists take out, my_posts takes visible. A query that may read every
+row says so, and why: recent_posts, for the tests, and pinned_overlap,
+which counts the pinned notices, drafts too:
+
+    -- policy: none board_post a count of the notices pinned at once, drafts too, which shows no post
+
+(board_post has no alias there, so the table's name is the alias.)
+
+post_detail is left as it was, and maago gen stops at it, before any of
+it runs:
+
+    board/queries/post_detail.sql:5:6: query reads board_post p without a policy (rule 6)
+      fix: declare -- policy: out p and write out(p) in the WHERE of the SELECT that reads it (policies of Post: out, visible); or -- policy: none p why, if it may read every row
+      see: maago doc query
+
+The fix names the model's first policy; a post's page is visible, not
+out. The next commit uses it, and the views pass the user.
+
+Maago-Expect: board/queries/post_detail.sql:5:6: query reads board_post p without a policy (rule 6)
+
+diff --git a/board/policies.sql b/board/policies.sql
+new file mode 100644
+index 0000000..2c1ebfb
+--- /dev/null
++++ b/board/policies.sql
+@@ -0,0 +1,14 @@
++-- name: out Post p
++-- The posts anybody sees in a list: not hidden, not a draft, and out by
++-- now. Not even the author lists a draft; Me shows it.
++-- param: now time.Time
++NOT p.hidden AND p.status <> 'draft' AND (p.publish_at IS NULL OR p.publish_at <= :now)
++
++-- name: visible Post p
++-- get: GetPost
++-- The posts the user may read: those out, and those not out yet, a draft
++-- or one to publish later, to its author and staff. A hidden post to
++-- nobody. The user is nil for nobody, and then :viewer_ columns are NULL.
++-- param: now time.Time
++NOT p.hidden AND (p.status <> 'draft' AND (p.publish_at IS NULL OR p.publish_at <= :now)
++  OR p.author_id = :viewer_id OR :viewer_is_staff)
+diff --git a/board/queries/export_rows.sql b/board/queries/export_rows.sql
+index e5a49ee..ee84a9d 100644
+--- a/board/queries/export_rows.sql
++++ b/board/queries/export_rows.sql
+@@ -2,15 +2,14 @@
+ -- The posts of a board out by now, by id, the limit of them past id after:
+ -- a page of the CSV.
+ -- param: board_id int64
+--- param: now      time.Time
+ -- param: after    int64
+ -- param: limit    int64
+ -- column: comments int64
++-- policy: out p
+ SELECT p.id, p.title, p.status, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+-WHERE p.board_id = :board_id AND NOT p.hidden AND p.status <> 'draft'
+-  AND (p.publish_at IS NULL OR p.publish_at <= :now)
++WHERE p.board_id = :board_id AND out(p)
+   AND p.id > :after
+ ORDER BY p.id
+ LIMIT :limit
+diff --git a/board/queries/my_posts.sql b/board/queries/my_posts.sql
+index 72e7313..400a8c1 100644
+--- a/board/queries/my_posts.sql
++++ b/board/queries/my_posts.sql
+@@ -1,9 +1,10 @@
+ -- name: MyPosts :many MyPost
+--- The posts an author wrote, drafts and scheduled ones with them, but not
+--- the hidden: the newest first.
++-- The posts an author wrote that the user may read, drafts and scheduled
++-- ones with them, but not the hidden: the newest first.
+ -- param: author_id int64
++-- policy: visible p
+ SELECT p.id, p.title, p.status, p.created_at, b.name AS board_name
+ FROM board_post p
+ JOIN board_board b ON b.id = p.board_id
+-WHERE p.author_id = :author_id AND NOT p.hidden
++WHERE p.author_id = :author_id AND visible(p)
+ ORDER BY p.created_at DESC, p.id DESC
+diff --git a/board/queries/pinned_overlap.sql b/board/queries/pinned_overlap.sql
+index 5b8f7b7..4d93c73 100644
+--- a/board/queries/pinned_overlap.sql
++++ b/board/queries/pinned_overlap.sql
+@@ -5,6 +5,7 @@
+ -- param: from     time.Time
+ -- param: until    time.Time
+ -- column: n int64
++-- policy: none board_post a count of the notices pinned at once, drafts too, which shows no post
+ SELECT count(*) AS n
+ FROM board_post
+ WHERE board_id = :board_id AND NOT hidden
+diff --git a/board/queries/post_list.sql b/board/queries/post_list.sql
+index 96e2b35..3dbbe41 100644
+--- a/board/queries/post_list.sql
++++ b/board/queries/post_list.sql
+@@ -6,12 +6,11 @@
+ -- param: limit    int64
+ -- param: offset   int64
+ -- column: comments int64
++-- policy: out p
+ SELECT p.id, p.title, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+-WHERE p.board_id = :board_id
+-  AND NOT p.hidden AND p.status <> 'draft'
+-  AND (p.publish_at IS NULL OR p.publish_at <= :now)
++WHERE p.board_id = :board_id AND out(p)
+ ORDER BY CASE WHEN p.pinned_from <= :now AND p.pinned_until > :now THEN 0 ELSE 1 END,
+          p.created_at DESC, p.id DESC
+ LIMIT :limit OFFSET :offset
+diff --git a/board/queries/recent_posts.sql b/board/queries/recent_posts.sql
+index bff141b..04e0327 100644
+--- a/board/queries/recent_posts.sql
++++ b/board/queries/recent_posts.sql
+@@ -1,6 +1,7 @@
+ -- name: RecentPosts :many Post
+ -- The newest posts of every board that are not hidden.
+ -- param: limit int64
++-- policy: none board_post the tests read the newest posts, drafts too
+ SELECT id, board_id, title, status, views, created_at, updated_at, body,
+        pinned_from, pinned_until, publish_at, hidden, author_id
+ FROM board_post
+diff --git a/board/queries/search_posts.sql b/board/queries/search_posts.sql
+index 645a592..f994f75 100644
+--- a/board/queries/search_posts.sql
++++ b/board/queries/search_posts.sql
+@@ -1,16 +1,14 @@
+ -- name: SearchPosts :many PostSummary
+ -- The posts of a board out by now whose title has q; all of them without q.
+ -- param: board_id int64
+--- param: now      time.Time
+ -- param: q?       string
+ -- param: limit    int64
+ -- column: comments int64
++-- policy: out p
+ SELECT p.id, p.title, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+-WHERE p.board_id = :board_id
+-  AND NOT p.hidden AND p.status <> 'draft'
+-  AND (p.publish_at IS NULL OR p.publish_at <= :now)
++WHERE p.board_id = :board_id AND out(p)
+   {q} AND p.title LIKE '%' || :q || '%'
+ ORDER BY p.created_at DESC, p.id DESC
+ LIMIT :limit

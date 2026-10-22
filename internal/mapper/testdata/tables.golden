@@ -1,16 +1,16 @@
 examples/board/board/queries/board_list.sql:4:6 board_board
 examples/board/board/queries/export_rows.sql:10:30 board_comment c
 examples/board/board/queries/export_rows.sql:11:6 board_post p
-examples/board/board/queries/my_posts.sql:6:6 board_post p
-examples/board/board/queries/my_posts.sql:7:6 board_board b
-examples/board/board/queries/pinned_overlap.sql:9:6 board_post
+examples/board/board/queries/my_posts.sql:7:6 board_post p
+examples/board/board/queries/my_posts.sql:8:6 board_board b
+examples/board/board/queries/pinned_overlap.sql:10:6 board_post
 examples/board/board/queries/post_attachments.sql:5:6 board_attachment
 examples/board/board/queries/post_comments.sql:5:6 board_comment
-examples/board/board/queries/post_detail.sql:5:6 board_post p
-examples/board/board/queries/post_detail.sql:6:6 board_board b
-examples/board/board/queries/post_list.sql:10:30 board_comment c
-examples/board/board/queries/post_list.sql:11:6 board_post p
-examples/board/board/queries/recent_posts.sql:6:6 board_post
+examples/board/board/queries/post_detail.sql:6:6 board_post p
+examples/board/board/queries/post_detail.sql:7:6 board_board b
+examples/board/board/queries/post_list.sql:11:30 board_comment c
+examples/board/board/queries/post_list.sql:12:6 board_post p
+examples/board/board/queries/recent_posts.sql:7:6 board_post
 examples/board/board/queries/search_posts.sql:9:30 board_comment c
 examples/board/board/queries/search_posts.sql:10:6 board_post p
 scaffold/testdata/auth/queries/api_token_user.sql:4:17 auth_user u

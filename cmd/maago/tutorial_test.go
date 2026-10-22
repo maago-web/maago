@@ -101,6 +101,9 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"no permission table", "0021-Sign-in.patch", "+\tmaagotest.Permissions(t, []maago.App{App}, roles,", "+\t_ = maagotest.Permissions; permissions(t, []maago.App{App}, roles,", "maago gen:\n"},
 		// A taken title is the form's error, not a 500 (D-154).
 		{"a taken title as a 500", "0034-Let-the-database-refuse-what-is-taken.patch", "+\tif f.Fail(err) {\n+\t\treturn Post{}, false, nil", "+\tif false {\n+\t\treturn Post{}, false, nil", "go test: "},
+		// A query that reads the posts without their policy stops maago gen,
+		// before a draft gets out (D-155).
+		{"a draft to anybody, at gen", "0036-Read-posts-under-the-policies.patch", "+-- policy: visible p\n", "+-- the policy, forgotten\n", "maago gen:\nboard/queries/post_detail.sql:6:6: query reads board_post p without a policy (rule 6)"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()

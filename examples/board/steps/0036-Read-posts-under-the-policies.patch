@@ -1,0 +1,476 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Fri, 23 Oct 2026 03:55:35 +0900
+Subject: [PATCH] Read posts under the policies
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+post_detail reads under visible too:
+
+    -- policy: visible p
+    ...
+    WHERE p.id = :id AND visible(p)
+
+and maago gen goes through. Every query that uses a policy now takes the
+user, as the views do, between ctx and the database; nil is nobody:
+
+    func PostList(ctx context.Context, u *auth.User, db maago.DB, p PostListParams) ([]PostSummary, error)
+
+So ShowBoard and APIPosts take u *auth.User: a pointer, so anybody may
+still ask. ExportBoard, a func(w, r), reads it from the request, as
+DownloadAttachment does. The policies' :now joins each query's Params.
+
+GetPost applies visible, as -- get: GetPost says, and takes the user and
+the policy's now after the id:
+
+    func GetPost(ctx context.Context, u *auth.User, db maago.DB, id int64, now time.Time) (Post, error)
+
+A post u may not read is sql.ErrNoRows to it: not found, a 404. So
+maySee goes, and so do the Hidden checks of Attach and editable: postPage
+reads PostDetail alone, and DownloadAttachment is a 404 when GetPost is.
+A hidden post is nobody's now, its author's and staff's neither: they no
+longer publish, archive or delete it either.
+mayChange stays: who may write is the views' to say, not a policy's.
+
+What reads every post calls GetPostIgnoringPolicies(ctx, db, id): the
+admin, and the tests that read back what they wrote.
+
+The permission table shows what changed. A draft that bob, or ann, may
+not change was a 403 to them, a page saying it is there; now it is not
+there at all. Four rows, the drafts', where the 403s become 404s:
+
+    post_publish     POST /posts/{draft}/publish        bob: 403 → 404
+    post_publish     POST /posts/{old draft}/publish    bob, ann: 403 → 404
+    api_post_publish POST /api/posts/{draft}/publish     bob: 403 → 404
+    api_post_publish POST /api/posts/{old draft}/publish bob, ann: 403 → 404
+
+The other rows keep their statuses: a published or archived post out
+by its time is anybody's to read, and a 403 to change for whoever may not; a post to
+publish later is its author's and staff's until then; a draft's files
+and comments are its author's and staff's; the CSV and the lists show
+what is out.
+
+diff --git a/board/admin_test.go b/board/admin_test.go
+index 72dbed7..69e3048 100644
+--- a/board/admin_test.go
++++ b/board/admin_test.go
+@@ -122,14 +122,14 @@ func TestAdmin(t *testing.T) {
+ 	}
+ 	// Opened again, it saves. The admin saves by the model's rules alone:
+ 	// Next, the views' order of the statuses, is not asked.
+-	now, err := GetPost(ctx, db, p.ID)
++	now, err := GetPostIgnoringPolicies(ctx, db, p.ID)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	if code, _, body := post(asBoss, fmt.Sprintf("/admin/board/Post/%d/", p.ID), edit("봄 소식!", "draft", now.UpdatedAt)); code != 303 {
+ 		t.Errorf("boss makes a published post a draft: %d\n%s", code, body)
+ 	}
+-	if got, err := GetPost(ctx, db, p.ID); err != nil || got.Title != "봄 소식!" || got.Status != "draft" {
++	if got, err := GetPostIgnoringPolicies(ctx, db, p.ID); err != nil || got.Title != "봄 소식!" || got.Status != "draft" {
+ 		t.Errorf("after the changes: %+v %v", got, err)
+ 	}
+ 
+@@ -141,14 +141,14 @@ func TestAdmin(t *testing.T) {
+ 	if code, _, body := post(asBoss, "/admin/board/Post/delete/", url.Values{"id": {fmt.Sprint(p.ID)}}); code != 200 || !strings.Contains(body, "1 row of board.Comment (PostID) refers to it") {
+ 		t.Errorf("deleting a post with comments: %d\n%s", code, body)
+ 	}
+-	if _, err := GetPost(ctx, db, p.ID); err != nil {
++	if _, err := GetPostIgnoringPolicies(ctx, db, p.ID); err != nil {
+ 		t.Errorf("the post with comments: %v", err)
+ 	}
+ 	summer := posts["여름 소식"]
+ 	if code, _, body := post(asBoss, "/admin/board/Post/delete/", url.Values{"id": {fmt.Sprint(summer.ID)}}); code != 303 {
+ 		t.Errorf("deleting a post without comments: %d\n%s", code, body)
+ 	}
+-	if _, err := GetPost(ctx, db, summer.ID); err != sql.ErrNoRows {
++	if _, err := GetPostIgnoringPolicies(ctx, db, summer.ID); err != sql.ErrNoRows {
+ 		t.Errorf("the post without comments: %v", err)
+ 	}
+ }
+diff --git a/board/board_test.go b/board/board_test.go
+index f78411d..d847ae2 100644
+--- a/board/board_test.go
++++ b/board/board_test.go
+@@ -26,7 +26,7 @@ func TestPostCRUD(t *testing.T) {
+ 		t.Errorf("status %q, views %d: want the defaults", p.Status, p.Views)
+ 	}
+ 
+-	got, err := GetPost(ctx, db, p.ID)
++	got, err := GetPostIgnoringPolicies(ctx, db, p.ID)
+ 	if err != nil || got.Title != "첫 글" || !got.CreatedAt.Equal(p.CreatedAt) {
+ 		t.Fatalf("got %+v, %v", got, err)
+ 	}
+@@ -34,14 +34,14 @@ func TestPostCRUD(t *testing.T) {
+ 	if err := UpdatePost(ctx, db, &got); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if again, _ := GetPost(ctx, db, p.ID); again.Status != "published" || again.Views != 3 {
++	if again, _ := GetPostIgnoringPolicies(ctx, db, p.ID); again.Status != "published" || again.Views != 3 {
+ 		t.Errorf("status %q, views %d after the update", again.Status, again.Views)
+ 	}
+ 
+ 	if err := DeletePost(ctx, db, p.ID); err != nil {
+ 		t.Fatal(err)
+ 	}
+-	if _, err := GetPost(ctx, db, p.ID); !errors.Is(err, sql.ErrNoRows) {
++	if _, err := GetPostIgnoringPolicies(ctx, db, p.ID); !errors.Is(err, sql.ErrNoRows) {
+ 		t.Errorf("after delete: %v", err)
+ 	}
+ 	if err := DeletePost(ctx, db, p.ID); !errors.Is(err, sql.ErrNoRows) {
+diff --git a/board/export.go b/board/export.go
+index 45314a8..752f46f 100644
+--- a/board/export.go
++++ b/board/export.go
+@@ -11,6 +11,8 @@ import (
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
++
++	"example.com/board/auth"
+ )
+ 
+ // exportPage is how many rows ExportBoard reads at a time.
+@@ -39,8 +41,14 @@ func ExportBoard(w http.ResponseWriter, r *http.Request) {
+ 	cw.Write([]string{"id", "title", "status", "created_at", "comments"})
+ 	var after int64
+ 	now := time.Now() // one moment for every page
++	// An escape view takes no parameters: it reads the user, as the
++	// database, from the request. The CSV is what is out, for anybody.
++	var u *auth.User
++	if user, ok := maago.UserFrom[auth.User](ctx); ok {
++		u = &user
++	}
+ 	for {
+-		rows, err := ExportRows(ctx, db, ExportRowsParams{BoardID: id, Now: now, After: after, Limit: exportPage})
++		rows, err := ExportRows(ctx, u, db, ExportRowsParams{BoardID: id, Now: now, After: after, Limit: exportPage})
+ 		if err != nil && after == 0 {
+ 			panic(err) // the csv.Writer still holds the first line: as above
+ 		}
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index 25fe0b7..81f1b8a 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -140,11 +140,12 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "staff의 API 글", "body": "본문"}`, Want: want(skip, skip, skip, 200)},
+ 		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(out.ID), Body: form("text", "댓글"), Want: want(401, 303, 303, 303)},
+ 		// Publish, archive, delete: the author or staff. A post with no
+-		// author is staff's.
+-		maagotest.Row{Route: "post_publish", URL: PostPublishURL(draft.ID), Want: want(401, 403, 303, skip)},
+-		maagotest.Row{Route: "post_publish", URL: PostPublishURL(oldDraft.ID), Want: want(401, 403, 403, 303)},
+-		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(apiDraft.ID), Want: want(401, 403, 200, skip)},
+-		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(oldAPIDraft.ID), Want: want(401, 403, 403, 200)},
++		// author is staff's. A draft is not there to anyone else (404):
++		// GetPost reads it under policy visible.
++		maagotest.Row{Route: "post_publish", URL: PostPublishURL(draft.ID), Want: want(401, 404, 303, skip)},
++		maagotest.Row{Route: "post_publish", URL: PostPublishURL(oldDraft.ID), Want: want(401, 404, 404, 303)},
++		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(apiDraft.ID), Want: want(401, 404, 200, skip)},
++		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(oldAPIDraft.ID), Want: want(401, 404, 404, 200)},
+ 		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(published.ID), Want: want(401, 403, 303, skip)},
+ 		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(oldPublished.ID), Want: want(401, 403, 403, 303)},
+ 		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toDelete.ID), Want: want(401, 403, 303, skip)},
+diff --git a/board/queries/post_detail.sql b/board/queries/post_detail.sql
+index 78cc96b..bfac711 100644
+--- a/board/queries/post_detail.sql
++++ b/board/queries/post_detail.sql
+@@ -1,7 +1,8 @@
+ -- name: PostDetail :one PostWithBoard
+--- One post with the name of its board; none if it is hidden.
++-- One post with the name of its board, if the user may read it.
+ -- param: id int64
++-- policy: visible p
+ SELECT p.id, p.title, p.body, p.status, p.views, p.created_at, b.name AS board_name
+ FROM board_post p
+ JOIN board_board b ON b.id = p.board_id
+-WHERE p.id = :id AND NOT p.hidden
++WHERE p.id = :id AND visible(p)
+diff --git a/board/queries_test.go b/board/queries_test.go
+index d134276..dd95ca0 100644
+--- a/board/queries_test.go
++++ b/board/queries_test.go
+@@ -52,7 +52,7 @@ func TestPostQueries(t *testing.T) {
+ 		offset int64
+ 		want   string
+ 	}{{0, "[글 5 글 4]"}, {2, "[글 3 글 2]"}, {4, "[글 1]"}, {6, "[]"}} {
+-		ps, err := PostList(ctx, db, PostListParams{BoardID: b.ID, Limit: 2, Offset: c.offset})
++		ps, err := PostList(ctx, nil, db, PostListParams{BoardID: b.ID, Limit: 2, Offset: c.offset})
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -69,7 +69,7 @@ func TestPostQueries(t *testing.T) {
+ 		q    *string
+ 		want string
+ 	}{{maago.Ptr("3"), "[글 3]"}, {maago.Ptr("없음"), "[]"}, {nil, "[글 5 글 4 글 3 글 2 글 1]"}} {
+-		ps, err := SearchPosts(ctx, db, SearchPostsParams{BoardID: b.ID, Q: c.q, Limit: 10})
++		ps, err := SearchPosts(ctx, nil, db, SearchPostsParams{BoardID: b.ID, Q: c.q, Limit: 10})
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -78,11 +78,11 @@ func TestPostQueries(t *testing.T) {
+ 		}
+ 	}
+ 
+-	page, err := PostDetail(ctx, db, PostDetailParams{ID: ids[0]})
++	page, err := PostDetail(ctx, nil, db, PostDetailParams{ID: ids[0]})
+ 	if err != nil || page.Title != "글 1" || page.BoardName != "목록" || page.Status != "published" {
+ 		t.Errorf("got %+v, %v", page, err)
+ 	}
+-	if _, err := PostDetail(ctx, db, PostDetailParams{ID: -1}); !errors.Is(err, sql.ErrNoRows) {
++	if _, err := PostDetail(ctx, nil, db, PostDetailParams{ID: -1}); !errors.Is(err, sql.ErrNoRows) {
+ 		t.Errorf("a post that does not exist: %v", err)
+ 	}
+ }
+diff --git a/board/views.go b/board/views.go
+index f8b8839..9a7efc5 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -43,8 +43,8 @@ type BoardPage struct {
+ }
+ 
+ // ShowBoard shows a board's posts, a page at a time, or those whose title
+-// has q.
+-func ShowBoard(ctx context.Context, db maago.DB, in BoardIn) (BoardPage, error) {
++// has q: those out, for anybody. u is nil for nobody.
++func ShowBoard(ctx context.Context, u *auth.User, db maago.DB, in BoardIn) (BoardPage, error) {
+ 	b, err := GetBoard(ctx, db, in.ID)
+ 	if err != nil {
+ 		return BoardPage{}, err // sql.ErrNoRows: a 404
+@@ -55,11 +55,11 @@ func ShowBoard(ctx context.Context, db maago.DB, in BoardIn) (BoardPage, error)
+ 	}
+ 	if in.Q != nil {
+ 		p.Q = *in.Q
+-		p.Posts, err = SearchPosts(ctx, db, SearchPostsParams{BoardID: b.ID, Now: time.Now(), Q: in.Q, Limit: pageSize})
++		p.Posts, err = SearchPosts(ctx, u, db, SearchPostsParams{BoardID: b.ID, Now: time.Now(), Q: in.Q, Limit: pageSize})
+ 		return p, err
+ 	}
+ 	// One more than a page tells whether a next page is there.
+-	p.Posts, err = PostList(ctx, db, PostListParams{BoardID: b.ID, Now: time.Now(), Limit: pageSize + 1, Offset: (p.Page - 1) * pageSize})
++	p.Posts, err = PostList(ctx, u, db, PostListParams{BoardID: b.ID, Now: time.Now(), Limit: pageSize + 1, Offset: (p.Page - 1) * pageSize})
+ 	if len(p.Posts) > pageSize {
+ 		p.Posts, p.Next = p.Posts[:pageSize], p.Page+1
+ 	}
+@@ -87,7 +87,7 @@ type PostPage struct {
+ }
+ 
+ // ShowPost shows one post and its comments, and the form for one more,
+-// to whoever may see it (maySee): u is nil for nobody.
++// to whoever may read it (policy visible): u is nil for nobody.
+ func ShowPost(ctx context.Context, u *auth.User, db maago.DB, in ShowPostIn) (PostPage, error) {
+ 	return postPage(ctx, db, u, in.ID, in.Form)
+ }
+@@ -110,16 +110,10 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
+ }
+ 
+ // postPage is the page of post id, with its comments and attachments,
+-// and the comment form f, if u may see it (maySee).
++// and the comment form f, if u may read it (policy visible): a post u may
++// not read is not found.
+ func postPage(ctx context.Context, db maago.DB, u *auth.User, id int64, f CommentForm) (PostPage, error) {
+-	post, err := GetPost(ctx, db, id)
+-	if err != nil {
+-		return PostPage{}, err
+-	}
+-	if err := maySee(u, post); err != nil {
+-		return PostPage{}, err
+-	}
+-	p, err := PostDetail(ctx, db, PostDetailParams{ID: id})
++	p, err := PostDetail(ctx, u, db, PostDetailParams{ID: id, Now: time.Now()})
+ 	if err != nil {
+ 		return PostPage{}, err
+ 	}
+@@ -142,12 +136,9 @@ type AttachIn struct {
+ // write lock of SQLite meanwhile. A row that fails takes its file with it;
+ // a commit that fails leaves the file behind, with no row.
+ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.Result[PostPage], error) {
+-	post, err := GetPost(ctx, tx, in.ID)
+-	switch {
+-	case err != nil:
++	post, err := GetPost(ctx, &u, tx, in.ID, time.Now())
++	if err != nil {
+ 		return maago.Result[PostPage]{}, err
+-	case post.Hidden:
+-		return maago.Result[PostPage]{}, sql.ErrNoRows
+ 	}
+ 	if err := mayChange(u, post); err != nil {
+ 		return maago.Result[PostPage]{}, err
+@@ -168,8 +159,8 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
+ 	return maago.Show(page), err
+ }
+ 
+-// DownloadAttachment sends an attachment down, to whoever may see its
+-// post (maySee). The view checks it: no route serves the media directory
++// DownloadAttachment sends an attachment down, to whoever may read its
++// post (policy visible). The view checks it: no route serves the media directory
+ // as it is.
+ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+ 	ctx := r.Context()
+@@ -179,19 +170,15 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+ 		http.NotFound(w, r)
+ 		return
+ 	}
++	// An escape view takes no parameters: it reads the user, as the
++	// database, from the request.
++	var u *auth.User
++	if user, ok := maago.UserFrom[auth.User](ctx); ok {
++		u = &user
++	}
+ 	a, err := GetAttachment(ctx, db, id)
+-	var post Post
+ 	if err == nil {
+-		post, err = GetPost(ctx, db, a.PostID)
+-	}
+-	if err == nil {
+-		// An escape view takes no parameters: it reads the user, as the
+-		// database, from the request.
+-		var u *auth.User
+-		if user, ok := maago.UserFrom[auth.User](ctx); ok {
+-			u = &user
+-		}
+-		err = maySee(u, post)
++		_, err = GetPost(ctx, u, db, a.PostID, time.Now())
+ 	}
+ 	switch {
+ 	case errors.Is(err, sql.ErrNoRows):
+@@ -208,7 +195,7 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+ // comment never points at a post that is gone (the foreign key would
+ // refuse it).
+ func RemovePost(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
+-	p, err := GetPost(ctx, tx, in.ID)
++	p, err := GetPost(ctx, &u, tx, in.ID, time.Now())
+ 	if err != nil {
+ 		return maago.Result[PostPage]{}, err
+ 	}
+@@ -349,7 +336,7 @@ func move(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string) (m
+ // hears of it once the transaction has committed, and never of a post
+ // rolled back.
+ func moveTo(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string) (Post, error) {
+-	p, err := GetPost(ctx, tx, id)
++	p, err := GetPost(ctx, &u, tx, id, time.Now())
+ 	if err != nil {
+ 		return Post{}, err
+ 	}
+@@ -379,11 +366,11 @@ type APIPostsIn struct {
+ 
+ // APIPosts is the first page of a board as JSON, for a frontend of its
+ // own: the same query as the board's page.
+-func APIPosts(ctx context.Context, db maago.DB, in APIPostsIn) ([]PostSummary, error) {
++func APIPosts(ctx context.Context, u *auth.User, db maago.DB, in APIPostsIn) ([]PostSummary, error) {
+ 	if _, err := GetBoard(ctx, db, in.BoardID); err != nil {
+ 		return nil, err
+ 	}
+-	return PostList(ctx, db, PostListParams{BoardID: in.BoardID, Now: time.Now(), Limit: pageSize})
++	return PostList(ctx, u, db, PostListParams{BoardID: in.BoardID, Now: time.Now(), Limit: pageSize})
+ }
+ 
+ // APICreatePost writes a post from a JSON object, with the same form as
+@@ -412,22 +399,6 @@ func APIPublish(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (Post,
+ 	return moveTo(ctx, tx, u, in.ID, "published")
+ }
+ 
+-// maySee hides, as not found, a post that is not out from whoever may not
+-// change it: a draft, or one to publish later. A hidden post is not found
+-// at all. Not found, not forbidden: a post not out does not say it is
+-// there. u is nil for nobody.
+-func maySee(u *auth.User, p Post) error {
+-	switch {
+-	case p.Hidden:
+-		return sql.ErrNoRows
+-	case p.Status == "draft" || p.PublishAt != nil && p.PublishAt.After(time.Now()):
+-		if u == nil || mayChange(*u, p) != nil {
+-			return sql.ErrNoRows
+-		}
+-	}
+-	return nil
+-}
+-
+ // mayChange refuses with 403 whoever neither wrote p nor is staff. A post
+ // from before there were accounts has no author: staff change it.
+ func mayChange(u auth.User, p Post) error {
+@@ -475,7 +446,7 @@ type MePage struct {
+ // routes; MePage, not auth.User, is what goes out, so the password's hash
+ // never does.
+ func Me(ctx context.Context, u auth.User, db maago.DB, in struct{}) (MePage, error) {
+-	ps, err := MyPosts(ctx, db, MyPostsParams{AuthorID: u.ID})
++	ps, err := MyPosts(ctx, &u, db, MyPostsParams{AuthorID: u.ID, Now: time.Now()})
+ 	return MePage{Email: u.Email, Posts: ps}, err
+ }
+ 
+@@ -537,15 +508,12 @@ func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn)
+ 	return maago.SeeOther[PostEditPage](PostDetailURL(p.ID)), nil
+ }
+ 
+-// editable is post id, for its author or staff to change. A hidden post
+-// is not found.
++// editable is post id, for its author or staff to change. A post u may
++// not read, such as a hidden one, is not found.
+ func editable(ctx context.Context, db maago.DB, u auth.User, id int64) (Post, error) {
+-	p, err := GetPost(ctx, db, id)
+-	switch {
+-	case err != nil:
++	p, err := GetPost(ctx, &u, db, id, time.Now())
++	if err != nil {
+ 		return Post{}, err
+-	case p.Hidden:
+-		return Post{}, sql.ErrNoRows
+ 	}
+ 	if err := mayChange(u, p); err != nil {
+ 		return Post{}, err
+diff --git a/board/web_test.go b/board/web_test.go
+index 936dfe9..63d8973 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -312,7 +312,7 @@ func TestPublishAndArchive(t *testing.T) {
+ 			t.Errorf("POST %s: %d, want %d:\n%s", c.path, code, c.code, body)
+ 		}
+ 	}
+-	got, err := GetPost(ctx, db, p.ID)
++	got, err := GetPostIgnoringPolicies(ctx, db, p.ID)
+ 	if err != nil || got.Status != "archived" {
+ 		t.Fatalf("%q %v", got.Status, err)
+ 	}
+@@ -610,7 +610,7 @@ func TestAuthors(t *testing.T) {
+ 	if code, loc, _ := post(asAnn, PostCreateURL(b.ID), url.Values{"title": {"앤의 글"}, "body": {"본문"}}); code != 303 || loc != PostDetailURL(1) {
+ 		t.Fatalf("ann writes: %d %q", code, loc)
+ 	}
+-	if p, err := GetPost(ctx, db, 1); err != nil || p.AuthorID == nil || *p.AuthorID != ann.ID {
++	if p, err := GetPostIgnoringPolicies(ctx, db, 1); err != nil || p.AuthorID == nil || *p.AuthorID != ann.ID {
+ 		t.Fatalf("the author: %v %v", p.AuthorID, err)
+ 	}
+ }
+@@ -631,7 +631,7 @@ func TestDeleteWithoutComments(t *testing.T) {
+ 	if code, loc, _ := post(h, PostDeleteURL(p.ID), nil); code != 303 || loc != BoardDetailURL(b.ID) {
+ 		t.Fatalf("delete: %d %q", code, loc)
+ 	}
+-	if _, err := GetPost(ctx, db, p.ID); err != sql.ErrNoRows {
++	if _, err := GetPostIgnoringPolicies(ctx, db, p.ID); err != sql.ErrNoRows {
+ 		t.Errorf("the post is still there: %v", err)
+ 	}
+ }
+@@ -742,7 +742,7 @@ func TestEdit(t *testing.T) {
+ 	hidden := PostEditURL(h2.ID)
+ 	// version is the query of the form's action: the post's version now.
+ 	version := func(id int64) string {
+-		p, err := GetPost(ctx, db, id)
++		p, err := GetPostIgnoringPolicies(ctx, db, id)
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -750,7 +750,7 @@ func TestEdit(t *testing.T) {
+ 	}
+ 	// As the database keeps it: to the microsecond, where Go's clock may
+ 	// say more.
+-	before, err := GetPost(ctx, db, p.ID)
++	before, err := GetPostIgnoringPolicies(ctx, db, p.ID)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -796,7 +796,7 @@ func TestEdit(t *testing.T) {
+ 		t.Errorf("no version: %d", code)
+ 	}
+ 
+-	got, err := GetPost(ctx, db, p.ID)
++	got, err := GetPostIgnoringPolicies(ctx, db, p.ID)
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}

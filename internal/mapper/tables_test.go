@@ -96,7 +96,7 @@ func TestTablesOfQueries(t *testing.T) {
 	patches, _ := filepath.Glob("../../examples/board/steps/*.patch")
 	for _, p := range patches {
 		abs, _ := filepath.Abs(p)
-		if out, err := exec.Command("git", "-C", board, "apply", "--include=*/queries/*.sql", abs).CombinedOutput(); err != nil {
+		if out, err := exec.Command("git", "-C", board, "apply", "--include=*/queries/*.sql", "--include=*/policies.sql", abs).CombinedOutput(); err != nil {
 			t.Fatalf("git apply %s: %v\n%s", p, err, out)
 		}
 	}
@@ -110,10 +110,15 @@ func TestTablesOfQueries(t *testing.T) {
 			t.Fatal(err)
 		}
 		files, ds := project.QueryFiles(root)
+		pfiles, pds := project.PolicyFiles(root)
+		if ds = append(ds, pds...); ds != nil {
+			t.Fatal(text(ds))
+		}
+		pols, ds := ReadPolicies(root, pfiles)
 		if ds != nil {
 			t.Fatal(text(ds))
 		}
-		apps, ds := Read(root, files, nil)
+		apps, ds := Read(root, files, pols)
 		if ds != nil {
 			t.Fatalf("%s: %s", root, text(ds))
 		}

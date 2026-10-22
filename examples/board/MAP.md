@@ -113,3 +113,5 @@ Maago 칸의 머리 말: "복사한 auth가 준다"는 0020의 `maago add auth`�
 | 0032 | 초안과 예약 글은 작성자·staff만(D-142) | M8 |
 | 0033 | 내보내기: 바이너리 하나(시작할 때 `maago.Migrate`, `maago.Serve`), 환경 변수, Dockerfile(D-142·D-153, 원본에는 배포 커밋이 없다) | M8 |
 | 0034 | 고치기: 먼저 읽는 검사(`BoardNameTaken`·`PostTitleTaken`) 대신 unique 제약이 거절하고 폼의 `Fail`이 그 칸에(D-154, 원본 34·42·46) | M11 |
+| 0035 | 일부러 틀린다: 읽기 정책 `out`·`visible`(`policies.sql`)을 쓰고 `post_detail`을 빠뜨린다, 생성 시점에 멈춘다(`Maago-Expect`, D-155) | M11 |
+| 0036 | 0035를 고친다: 정책을 쓰는 쿼리와 `GetPost`가 사용자를 받고 `maySee`가 간다, 남의 초안은 403이 아니라 404(D-155·D-147) | M11 |
