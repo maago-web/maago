@@ -47,7 +47,7 @@ github.com/maago-web/maago
 │                          (pipeline.Format). 앱 코드는 rt를 import하지 않는다(TestGeneratedCallsAppAPI)
 ├── internal/rtcore/    루트와 rt가 함께 보는 상태: 마지막 Handler의 Prefix·TimeZone·static, 폼 설정과 ctx 키, 422 오류,
 │                          StaticFiles, App(루트의 App은 별칭)·Route. 루트 타입의 숨은 필드는 갈고리 둘(FormStateOf, NewFile)로만
-├── maagotest/          시험 전용 도우미: DB (M4, D-113), Mailbox (M5, D-126). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
+├── maagotest/          시험 전용 도우미: DB (M4, D-113), Mailbox (M5, D-126), Permissions·As (M11, D-156). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
 ├── contrib/
 │   ├── auth/            인증의 보안 부품(stdlib만, M5): Hash·Check(D-127), ValidatePassword·MinLength·NotCommon·NotSimilar(D-15), NewToken·HashToken·
 │   │                      SessionCookie·FromSession(D-128, D-129)·SafeNext·ClientIP(D-128), Mail·Message·SMTP·ConsoleMail(D-126). 앱 층은 `maago add auth`가
@@ -80,10 +80,12 @@ github.com/maago-web/maago
     ├── migrate/         파일 읽기·문장 검사(allow-drop), 비교, 진단, 초안 이름,    M2
     │                      적용·기록(`maago_migrations`)
     ├── mapper/          SQL 매퍼: 머리·본문 해석, 조합, prepare, 결과 타입, PK CRUD,   M3
-    │                      생성(templates/), 이름 충돌 (D-20~D-24, D-107~D-112)
+    │                      생성(templates/), 이름 충돌 (D-20~D-24, D-107~D-112).
+    │                      읽기 정책(policies.sql): 펼치기, 표를 읽는 자리마다의 검사, GetX (D-155, M11)
     ├── gotypes/         사용자 프로젝트의 타입 검사: go/types, export data, 메모리 생성물  M4
     │                      (D-117)
-    ├── web/             라우트 표 읽기, 뷰 어댑터·폼 생성, 템플릿 검사          M4
+    ├── web/             라우트 표 읽기, 뷰 어댑터·폼 생성, 템플릿 검사,         M4
+    │                      권한 표 호출 검사 (D-156, M11)
     ├── scaffold/        `maago add`가 프로젝트에 복사하는 contrib 앱의 앱 층       M5
     │                      (embed한 testdata/<앱>/, D-123)
     └── admingen/        admin 코드 생성                                    M6

@@ -102,7 +102,9 @@ without a default as they are and those with one as maago.Opt (maago.Set(v)
 gives one). UpdatePost writes every column but auto=create ones; with an
 auto=update field it writes only the row it read: a row changed since is
 maago.ErrConflict, a 409. Do not name your own functions or types after
-these. maago doc query has the queries beyond them.`,
+these. maago doc query has the queries beyond them, and the read policies:
+the GetX of a model with them takes the user and the policy's params,
+and GetXIgnoringPolicies reads any row.`,
 		Lists: []*List{FieldTypes, FieldTags, ModelTags},
 		API:   []string{"Model", "Opt", "Set", "Ptr", "ErrConflict"},
 	},
@@ -162,6 +164,44 @@ The six rules (a diagnostic's "rule N" is one of these):
     alias in the header and name(alias) as an AND term of that SELECT's
     WHERE, or -- policy: none alias why. The tables a table function reads
     are not seen.
+
+Read policies are written once, in policies.sql beside the app's queries/
+(its header lines are in the list below). Each is one condition, without
+{conditions}, on the rows of a model:
+
+	-- name: visible Post p
+	-- get: GetPost
+	-- The posts the user may read: those published by now, and their own.
+	-- param: now time.Time
+	p.status = 'published' AND (p.published_at IS NULL OR p.published_at <= :now)
+	  OR p.author_id = :viewer_id
+
+:viewer_<column> is a column of the user the views take (u *auth.User);
+for nobody, a nil user, each is NULL, which WHERE drops. A query reads
+the table under it where it reads it: -- policy: visible p in the header,
+visible(p) an AND term of the WHERE of the SELECT that reads p (or of
+the ON of the JOIN that brings p in, but not a RIGHT or FULL one), never
+on a {condition} line. A table without an alias is its own alias. The
+policy's params join the query's Params; the query may declare one too,
+of the same type. A query of another app may not read the table. With a
+policy in the project, a FROM maago gen cannot read, such as a join in
+parentheses, is an error.
+
+A query that uses a policy takes the user, as the views do:
+
+	func SearchPosts(ctx context.Context, u *auth.User, db maago.DB, p SearchPostsParams) ([]PostSummary, error)
+
+The GetX that -- get: names applies its policy, its params after the id
+in the order declared, and GetXIgnoringPolicies reads any row, for the
+admin and the tests that read back what they wrote:
+
+	func GetPost(ctx context.Context, u *auth.User, db maago.DB, id int64, now time.Time) (Post, error)
+	func GetPostIgnoringPolicies(ctx context.Context, db maago.DB, id int64) (Post, error)
+
+A row the policy hides is sql.ErrNoRows to that user: a 404, not a 403.
+Writes are no policy's: UpdatePost and DeletePost write any row, so the
+view checks who may write. maago gen refuses a policy that neither a
+query nor -- get: uses, and policies without a view that takes the user.
 
 The result after the kind is one of three:
 
@@ -246,6 +286,16 @@ the user itself, maago.DBFrom(r.Context()) and maago.UserFrom[U](r.Context()),
 and answers a missing sign-in itself. A typed view that calls either is an
 error; maago gen sees the calls in the view's own body, not in the
 functions it calls.
+
+An app whose views take the user has a permission table in its tests,
+or maago gen refuses it: maagotest.Permissions(t, apps, roles, rows...),
+a row for each route and a status for each role in each row
+(maagotest.Skip leaves a role out of a row). A role signed in is
+maagotest.As(h, session), the session the copied auth's
+auth.SignIn(ctx, db, u) starts. The admin's routes are in the table
+only if its App is in apps; a row's URL is its route's own, from the
+URL function. go doc github.com/maago-web/maago/maagotest has Row's Body
+and ContentType.
 
 maago.NoTx is not in the fix of the error about a writing view that takes
 maago.DB: its only use is a write that must stay when the view then fails,
@@ -457,6 +507,7 @@ in snake_case (author_id); an fk takes the row's number, and a time is
 2006-01-02T15:04:05 in Config.TimeZone. A
 row saved meanwhile by someone else is a 409 when the model has an
 auto=update field. The admin saves through the model form's rules only: the
-work of the app's views does not happen.`,
+work of the app's views does not happen. It reads every row, read
+policies or not: its form reads a row with GetXIgnoringPolicies.`,
 	},
 }

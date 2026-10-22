@@ -142,6 +142,9 @@ func Show(ctx context.Context, u *auth.User, tx maago.Tx, id int64) ([]PostSumma
 	if _, err := GetPost(ctx, u, tx, id, now); err != nil {
 		return nil, err
 	}
+	if _, err := GetPostIgnoringPolicies(ctx, tx, id); err != nil {
+		return nil, err
+	}
 	return SearchPosts(ctx, u, tx, SearchPostsParams{Q: maago.Ptr("hello"), Status: "any", IDs: []int64{1, 2}, Now: now})
 }
 -- blog/blog_test.go --
