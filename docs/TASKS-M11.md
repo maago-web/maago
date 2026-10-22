@@ -220,6 +220,19 @@
    - 구현 리뷰: ponytail(직접, 지울 것 없음), codex(코드만 읽은 리뷰, 샌드박스: 미래 `publish_at`의 보관 글은 보이지 않는다 → 전의 `maySee`도 그랬다, 0036 글을 "out by its time"으로. 받지 않음: `PostDetailParams`의 `Now` 없는 시험 호출이 컴파일되지 않는다(Go의 struct 리터럴은 빠진 필드를 0으로 채운다, 시험이 돈다)), fable(0036 `post_detail`의 군더더기 `-- param: now` 탓에 Catches가 규칙 6이 아니라 "parameter now is not used"로 통과 → 줄을 지우고 Catches의 `by`를 규칙 6의 진단 줄까지로, 0035 글의 "copies only the hidden half", 숨긴 글은 작성자·staff도 게시·보관·지우지 못한다는 반 줄을 0036 글에)
    - → 확인: 단계마다 걷기 초록·`TestBoardTutorial`(PG)·Catches의 새 줄, 0035의 Expect 한 줄, `TestPermissions`의 diff가 그 넷, `gofmt -l .`, `go mod tidy -diff && go vet ./... && go test ./...`(PG)
 8. **문서**: `maago doc`의 query(정책, 규칙)·form(`Fail`)·권한 표(maagotest 또는 view 주제), MISSION의 범위 문장(D-147), PHILOSOPHY 3, D-24·D-119·D-147 고침 → 확인: `TestDocExamples`(새 예), `TestPackageDoc`, `TestNoDecisionsInUserText`
+
+   **계획**
+   - 이미 된 것(앞 작업): form 주제의 `Fail`(1번), D-119의 대가·기각 고침(1번), query 주제의 규칙 목록 여섯째와 "six"·`PolicyKeys` 목록·예의 정책과 권한 표(6번), D-155 고침(6번). 여기서는 다시 쓰지 않는다
+   - **query 주제의 글**(`internal/ref/topics.go`, 규칙 목록 뒤): "Read policies" 단락. 게이트(10번)가 `maago doc query`만 보고 쓴다고 보고, 6·7번이 정한 것을 빠짐없이 짧게
+     - `policies.sql`은 앱의 `queries/` 옆, 블록 `-- name: 이름 모델 별칭`·`-- param:`(필수 한 타입)·`-- get: GetX`(정책 있는 모델마다 하나), 조건 한 조각, `:viewer_<열>`은 뷰가 받는 사용자 모델의 열(사용자 없음은 NULL: WHERE가 버린다), 예는 게시판의 `visible`
+     - 쿼리: `-- policy: 이름 별칭`과 그 표를 읽는 SELECT의 WHERE에 AND 항 `이름(별칭)`(또는 그 별칭을 들여온 JOIN의 ON, RIGHT·FULL은 아님), 별칭 없는 표는 표 이름, `{조건}` 줄에는 쓰지 않는다, `-- policy: none 별칭 까닭`, 다른 앱의 쿼리는 그 표를 읽지 못한다, 정책 param은 쿼리의 Params에 합쳐지고 같은 이름·타입으로 다시 선언해도 하나
+     - 생성되는 것: 정책을 쓰는 함수는 `(ctx, u *User, db, p)`, `GetX(ctx, u, db, id[, 정책 param…])`(선언 차례), `GetXIgnoringPolicies(ctx, db, id)`(admin·모두 읽는 시험), 쓰기는 정책 밖, 정책이 있으면 모르는 FROM 모양(괄호 친 조인, `TABLE t`)이 오류
+   - **view 주제의 글**: 권한 표 단락. `maagotest.Permissions(t, apps, roles, rows...)`, `Role`·`Row`·`maagotest.Skip`·`maagotest.As`, 로그인한 역할은 복사된 auth의 `auth.SignIn`, 라우트마다 행·행마다 모든 역할, 쓰는 행은 성공하는 역할마다 fixture, 사용자를 받는 뷰가 있는 앱은 `maago gen`이 그 호출을 요구한다, admin의 앱은 목록에 넣어야 보인다. 예는 이미 있는 view 주제 예의 `TestPermissions`(4번)
+   - **설계 문서**: MISSION의 둘째 문장(기계가 이제 막는 빠짐 둘: 정책을 빠뜨린 쿼리는 생성 시점, 행 없는 라우트는 `go test`. 권한·동시성·보존의 맞음은 여전히 시험), PHILOSOPHY 3의 "다섯"을 "여섯"으로(M11에서 하나 늘었고 그 까닭 한 줄), D-24 "아래 규칙 6개"와 고침 줄(Q4, M11 6번), D-147에 M11에서 넓힌 것과 MISSION 고침, DECISIONS의 "이력"에 2026-10-23 줄(D-154~D-156의 고침), ARCHITECTURE의 mapper 줄에 정책(policy.go·policycheck.go)
+   - 하지 않음: 예를 더 늘리기(query의 예가 이미 정책·none·GetX를 쓴다), 영어 단계 글 고치기(7번), TUTORIAL-FUTURE
+   - 계획 리뷰는 fable 하나: 문서 작업(WORKFLOW 3)
+   - 계획 리뷰(fable) 반영: 정책이 가린 행은 그 사용자에게 `sql.ErrNoRows`(404, 403이 아니다)를 query 글에, model 주제의 `GetX` 서명 옆에 정책 모델의 반 줄, policies.sql 단락은 `PolicyKeys` 목록과 규칙 6이 말하지 않는 것만(`queries/` 옆, `{조건}` 없음, `:viewer_<열>`과 nil의 NULL, param 합치기), view 단락은 예의 주석이 말하지 않는 것만(`maagotest.As`와 `auth.SignIn`, admin의 App은 목록에 넣어야 보인다, URL은 그 라우트의 것, `Row`의 자세한 것은 `go doc maagotest`), ARCHITECTURE는 mapper 줄에 "읽기 정책(policies.sql), D-155"와 web 줄에 "권한 표 호출 검사, D-156"(파일 이름이 아니라 그 줄의 꼴), DECISIONS 이력은 작업마다 한 줄(1·3·4·6번과 8번), query 예의 `Show`에 `GetPostIgnoringPolicies` 호출(이름이 바뀌면 `TestDocExamples`가 실패), 진단 둘("used by no query", "no view takes the user")과 admin의 `GetXIgnoringPolicies`에 한 마디. `maagotest.Skip`은 예에 자연스러운 행이 없어 손으로 본다. 주제 글의 D-번호는 `TestNoDecisionsInStrings`가 본다
+   - → 확인: `TestDocExamples`·`TestDocKeysAreRead`·`TestDocExamplesUseEveryKey`, `TestPackageDoc`(-update 뒤 diff를 읽는다), `TestNoDecisionsInUserText`, 글에 쓴 이름이 코드와 같은지(`GetXIgnoringPolicies`, `maagotest.Skip`, `auth.SignIn`, 진단 글), `gofmt -l .`, `go mod tidy -diff && go vet ./... && go test ./...`(PG)
 9. **v0.2.0**: 태그, 게시판의 `go.mod`를 v0.2.0으로(0001·0013, 12번의 길) → 확인: 빈 GOPATH에서 `go install …@v0.2.0`, 공개 판으로 걷기의 끝
 10. **에이전트 게이트**: `go install …@v0.2.0`부터, 0033의 끝에서 시작해 새 단계(0034~0036) 글만 보고 서로 모르는 실행 둘. 0033의 끝에 표가 이미 있으므로(4번) 게이트는 표를 처음부터가 아니라 정책이 바꾼 행으로 쓴다 → 확인: 기록, 셋을 메시지와 `maago doc`만으로 씀
 11. **M11 끝**: MILESTONES의 M11 체크, README, 다음 마일스톤의 순서
