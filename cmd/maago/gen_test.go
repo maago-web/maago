@@ -25,6 +25,7 @@ var gentests = []struct{ name, root, dir string }{
 	{"orders", "../../internal/testdata/orders", "."},
 	{"blog", "../../internal/testdata/example", "blog"},
 	{"plain", "../../internal/testdata/plain", "."},
+	{"policy", "../../internal/testdata/policy", "."},
 }
 
 // The generated files of each fixture app are the files of its gentest
@@ -38,7 +39,8 @@ func TestGenerated(t *testing.T) {
 				out := path.Join("internal/gentest", string(d), g.name)
 				apps, fset := modeltest.Example(t, g.root)
 				app := apps[slices.IndexFunc(apps, func(a *model.App) bool { return a.Dir == g.dir })]
-				qs := checkedQueries(t, d, g.root, g.dir, fset, apps)
+				qs, pols := checkedQueries(t, d, g.root, g.dir, fset, apps)
+				user := mapper.User{Type: "User"} // the fixtures' user is the app's
 				var queries []*mapper.Query
 				for _, c := range qs {
 					queries = append(queries, c.Query)
@@ -46,10 +48,10 @@ func TestGenerated(t *testing.T) {
 				if ds := mapper.Names(fset, g.root, g.dir, app, queries, nil); ds != nil {
 					t.Fatalf("names:\n%s", text(ds))
 				}
-				golden.Check(t, out+"/models_gen.go", mapper.ModelsFile(d, app))
-				golden.Check(t, out+"/admin_gen.go", admingen.File(d, app, apps))
+				golden.Check(t, out+"/models_gen.go", mapper.ModelsFile(d, app, pols, user))
+				golden.Check(t, out+"/admin_gen.go", admingen.File(d, app, apps, mapper.Guarded(app, pols)))
 				if qs != nil {
-					golden.Check(t, out+"/queries_gen.go", mapper.QueriesFile(d, app.Name, qs))
+					golden.Check(t, out+"/queries_gen.go", mapper.QueriesFile(d, app.Name, qs, user))
 				} else if _, err := os.Stat(out + "/queries_gen.go"); err == nil {
 					t.Errorf("%s/queries_gen.go is left, but the app has no queries", out)
 				}
@@ -69,20 +71,39 @@ func TestGenerated(t *testing.T) {
 
 // checkedQueries runs the checks of the queries of the app at dir, as a
 // run of maago check does, on a practice database with the models'
-// tables. It is nil for an app without queries.
-func checkedQueries(t *testing.T, d project.Dialect, root, dir string, fset *token.FileSet, apps []*model.App) []mapper.Checked {
+// tables, and returns them with the app's policies, whose user is the
+// app's User. The queries are nil for an app without queries.
+func checkedQueries(t *testing.T, d project.Dialect, root, dir string, fset *token.FileSet, apps []*model.App) ([]mapper.Checked, []*mapper.Policy) {
 	t.Helper()
 	files, ds := project.QueryFiles(root)
-	if ds != nil {
+	pfiles, pds := project.PolicyFiles(root)
+	if ds = append(ds, pds...); ds != nil {
 		t.Fatal(text(ds))
 	}
-	qapps, ds := mapper.Read(root, files)
+	pols, ds := mapper.ReadPolicies(root, pfiles)
+	if ds != nil {
+		t.Fatalf("policies:\n%s", text(ds))
+	}
+	qapps, ds := mapper.Read(root, files, pols)
 	if ds != nil {
 		t.Fatalf("read:\n%s", text(ds))
 	}
+	var viewer mapper.Viewer
+	for _, a := range apps {
+		for _, m := range a.Models {
+			if m.Name == "User" && a.Dir == dir {
+				viewer = mapper.Viewer{Expr: "User", Model: m}
+			}
+		}
+	}
+	if pols != nil {
+		if ds := mapper.CheckPolicies(apps, pols, qapps, viewer); ds != nil {
+			t.Fatalf("policies:\n%s", text(ds))
+		}
+	}
 	i := slices.IndexFunc(qapps, func(a *mapper.App) bool { return a.Dir == dir })
 	if i < 0 {
-		return nil
+		return nil, pols[dir]
 	}
 	url, ddl := "", sqlite.DDL
 	if d == project.Postgres {
@@ -119,5 +140,11 @@ func checkedQueries(t *testing.T, d project.Dialect, root, dir string, fset *tok
 	for i := range checked {
 		checked[i].Result = results[i]
 	}
-	return checked
+	for _, p := range pols[dir] {
+		q, v := p.Probe()
+		if _, ds, _ := mapper.Describe(ctx(t), db, q, nil, []mapper.Variant{v}); ds != nil {
+			t.Fatalf("%s:\n%s", p.File, text(ds))
+		}
+	}
+	return checked, pols[dir]
 }

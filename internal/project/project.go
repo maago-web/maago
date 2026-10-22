@@ -60,6 +60,14 @@ func QueryFiles(root string) ([]string, []diag.Diagnostic) {
 	})
 }
 
+// PolicyFiles returns the apps' read policies: each policies.sql beside
+// queries/, not in it (D-155). It looks where GoFiles looks.
+func PolicyFiles(root string) ([]string, []diag.Diagnostic) {
+	return walk(root, func(p string) bool {
+		return path.Base(p) == "policies.sql" && path.Base(path.Dir(p)) != "queries"
+	})
+}
+
 // TailwindInputs returns the apps' Tailwind inputs: each tailwind.css
 // not in a static directory, where maago tailwind writes its output under
 // the same name (D-138). It looks where GoFiles looks.

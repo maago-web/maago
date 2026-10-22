@@ -80,3 +80,11 @@ func CRUDs(app *model.App, d project.Dialect) []CRUD {
 	}
 	return out
 }
+
+// PolicyGet is the SQL of GetX of c's model, which applies its policy p:
+// the row of the id, if p lets the user read it. Args are ID, then the
+// parameters of p in the order of their placeholders.
+func PolicyGet(c CRUD, p *Policy, d project.Dialect) Statement {
+	sql, args := p.sql(d, []string{"ID"})
+	return Statement{strings.Replace(c.Get.SQL, " WHERE ", " "+p.Alias+" WHERE ", 1) + " AND " + sql, args}
+}

@@ -139,6 +139,8 @@ func paramType(ctx context.Context, db *practicedb.DB, q *Query, v Variant, name
 		}
 	}
 	switch {
+	case p.Viewer:
+		fix = "compare it with a column of type " + pgTypes[base].name + ": it is the user's field, of type " + typ
 	case p.Type.Slice || p.Type.Choices != nil:
 		fix += "compare it with a column of type " + pgTypes[base].name
 	default:

@@ -1,0 +1,8 @@
+blog/policies.sql:3:1: ERROR: column p.titel does not exist (SQLSTATE 42703)
+  fix: fix the SQL
+blog/policies.sql:5:10: ERROR: could not determine data type of parameter $1 (SQLSTATE 42P18)
+  fix: fix the SQL
+blog/policies.sql:10:7: parameter n is string, but PostgreSQL reads :n here as integer
+  fix: declare it as int32, or write :n::text if the SQL needs a text there
+blog/policies.sql:10:24: parameter viewer_id is int64, but PostgreSQL reads :viewer_id here as text
+  fix: compare it with a column of type bigint: it is the user's field, of type int64

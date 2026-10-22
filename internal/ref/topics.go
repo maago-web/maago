@@ -140,7 +140,7 @@ It becomes
 With no params there is no p. db is a maago.DB or a maago.Tx, as the view
 has it.
 
-The five rules (a diagnostic's "rule N" is one of these):
+The six rules (a diagnostic's "rule N" is one of these):
 
  1. One query to a file. The header names it, its result and its params;
     ? marks a value that may be missing.
@@ -157,6 +157,11 @@ The five rules (a diagnostic's "rule N" is one of these):
  5. maago gen prepares every combination. Errors: an empty WHERE in a
     statement other than SELECT, a missing param used where no condition
     says it is given, result columns other than the declared ones.
+ 6. A query that reads the table of a model with read policies
+    (policies.sql of its app) says so where it reads it: -- policy: name
+    alias in the header and name(alias) as an AND term of that SELECT's
+    WHERE, or -- policy: none alias why. The tables a table function reads
+    are not seen.
 
 The result after the kind is one of three:
 
@@ -184,7 +189,7 @@ or choices: a nil or empty slice is none, and choices name their own none
 (any/draft/published). Names: the query and a new result
 start with an uppercase letter; params and columns are lowercase
 snake_case.`,
-		Lists: []*List{QueryKeys, QueryKinds},
+		Lists: []*List{QueryKeys, QueryKinds, PolicyKeys},
 		API:   []string{"DB", "ErrManyRows", "ErrEmptySlice"},
 	},
 	{

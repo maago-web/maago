@@ -62,6 +62,10 @@
 
 - [ ] API 뷰의 unique 위반: `f.Fail(err)`는 칸에 문구를 쓰지만 API 뷰는 그것을 422로 돌려줄 길이 없다(생성된 `invalidX`는 생성 코드만 부른다, D-120). 지금 쓸 길은 `var ue *maago.UniqueError; errors.As(err, &ue)` 뒤 `maago.Invalid(&f.Title, "…")`나 `maago.InvalidForm("…")`(M11 1번 fable)
 
+- [ ] 앱을 넘는 정책 사용: 다른 앱의 쿼리가 정책 모델을 읽으면 지금은 오류(정책은 쿼리 앱의 `policies.sql`에서만 찾는다, M11 6번)
+- [ ] 복사된 auth의 모델에 정책을 걸면 auth의 쿼리가 `-- policy:`가 없어 실패한다. 표 함수가 읽는 표는 규칙 6이 보지 않는다(규칙 글에 한 줄)
+- [ ] 사용자 타입을 dot import한 뷰는 구문에서 타입을 풀지 못해 정책이 "no view takes the user"라고 한다(M11 6번 fable)
+
 ## 언젠가
 
 - [ ] 마이그레이션 롤백(down 마이그레이션)

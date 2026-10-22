@@ -66,7 +66,9 @@ func (q *Query) body() []diag.Diagnostic {
 	}
 	b := &bodyReader{q: q, params: map[string]*Param{}, used: map[string]bool{}, maybe: map[string]bool{}}
 	for i := range q.Params {
-		b.params[q.Params[i].Name] = &q.Params[i]
+		if !q.Params[i].Viewer { // a policy's, from the user
+			b.params[q.Params[i].Name] = &q.Params[i]
+		}
 	}
 	for _, c := range comments {
 		if c.Pos.Offset < q.HeaderEnd {
@@ -113,7 +115,15 @@ func (q *Query) body() []diag.Diagnostic {
 	if b.open != nil {
 		b.errf(b.open.Pos, "close it with } on a line of its own", "%s { is not closed", b.open.Keyword)
 	}
+	for _, u := range q.Uses {
+		if u.Name != "none" && !u.expanded && len(b.ds) == 0 {
+			b.errf(u.Pos, fmt.Sprintf("write %s(%s) in the WHERE of the SELECT that reads %s, or remove the -- policy: line", u.Name, u.Alias, u.Alias), "policy %s is not used", u.Name)
+		}
+	}
 	for _, p := range q.Params {
+		if p.Pos.Filename != q.File { // a policy's, which uses it
+			continue
+		}
 		if !b.used[p.Name] && !b.maybe[p.Name] {
 			b.errf(p.Pos, "use it as :"+p.Name+" or in a {condition}, or remove the -- param: line", "parameter %s is not used", p.Name)
 		}
@@ -277,7 +287,31 @@ func (b *bodyReader) text(cond *Cond, toks []dialect.Token) bool {
 	l.Pos = toks[0].Pos
 	from := toks[0].Pos // where the next SQL part starts
 	undeclared := false
+	skip := 0 // tokens of a policy's use, read already
 	for i, t := range toks {
+		if i < skip {
+			continue
+		}
+		if u := b.use(toks[i:]); u != nil {
+			skip = i + 4
+			if u.Name == "" {
+				continue // reported
+			}
+			if from.Offset < t.Pos.Offset {
+				l.Parts = append(l.Parts, Part{SQL: src[from.Offset:t.Pos.Offset], Pos: from})
+			}
+			p := b.q.policies[slices.IndexFunc(b.q.policies, func(p *Policy) bool { return p.Name == u.Name })]
+			for _, part := range p.expand(src[toks[i+2].Pos.Offset:toks[i+2].Pos.Offset+len(toks[i+2].Text)], t.Pos) {
+				if part.Param != "" {
+					b.used[part.Param] = true
+				}
+				l.Parts = append(l.Parts, part)
+			}
+			from = toks[i+3].Pos
+			from.Offset++
+			from.Column++
+			continue
+		}
 		var next dialect.Token
 		glued := false // next starts right where t ends
 		if i+1 < len(toks) {
@@ -319,6 +353,33 @@ func (b *bodyReader) text(cond *Cond, toks []dialect.Token) bool {
 	}
 	b.q.Lines = append(b.q.Lines, l)
 	return true
+}
+
+// use reads a use of a policy the header declares at the start of toks:
+// name(alias). It returns nil if toks do not start with a declared name,
+// and a Use with no Name after an error.
+func (b *bodyReader) use(toks []dialect.Token) *Use {
+	t := toks[0]
+	if t.Kind != dialect.Word || len(b.q.policies) == 0 || !slices.ContainsFunc(b.q.Uses, func(u Use) bool { return u.Name != "none" && strings.EqualFold(u.Name, t.Text) }) {
+		return nil
+	}
+	if len(toks) < 2 || !is(toks[1], "(") {
+		return nil // a column of that name, say: a use left out is reported as one
+	}
+	if len(toks) < 4 || toks[2].Kind != dialect.Word && toks[2].Kind != dialect.Quoted || !is(toks[3], ")") {
+		b.errf(t.Pos, fmt.Sprintf("write %s(alias) on one line, alias the one of its -- policy: line", strings.ToLower(t.Text)), "policy %s used without its alias", strings.ToLower(t.Text))
+		return &Use{}
+	}
+	alias := fold(toks[2])
+	for i := range b.q.Uses {
+		u := &b.q.Uses[i]
+		if u.Name != "none" && strings.EqualFold(u.Name, t.Text) && u.Alias == alias {
+			u.expanded = true
+			return u
+		}
+	}
+	b.errf(toks[2].Pos, fmt.Sprintf("declare -- policy: %s %s, or use the alias its -- policy: line names", strings.ToLower(t.Text), alias), "no -- policy: %s %s", strings.ToLower(t.Text), alias)
+	return &Use{}
 }
 
 func isNameStart(c byte) bool { return c == '_' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' }

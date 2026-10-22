@@ -30,30 +30,105 @@ type Checked struct {
 	Result   *Result
 }
 
+// User is the user type as an app's generated code writes it (D-155):
+// User, or maagouser.User, Import naming maagouser's path.
+type User struct{ Type, Import string }
+
 // ModelsFile is the models_gen.go of app: the fields that are not columns
-// (D-18), and each model's input type and CRUD (D-21, D-106).
-func ModelsFile(d project.Dialect, app *model.App) []byte {
+// (D-18), and each model's input type and CRUD (D-21, D-106). pols are
+// the app's policies: the GetX of a model with them applies one, and
+// GetXIgnoringPolicies does not (D-155).
+func ModelsFile(d project.Dialect, app *model.App, pols []*Policy, user User) []byte {
 	g := &gen{d: d, imports: map[string]bool{"context": true, "database/sql": true}}
 	var unsupported []string
 	var ms []modelView
+	uses := false
 	for _, c := range CRUDs(app, d) {
 		for _, u := range c.Model.Unsupported {
 			unsupported = append(unsupported, c.Model.Name+"."+u.Name+": "+u.Reason)
 		}
-		ms = append(ms, g.model(c))
+		v := g.model(c)
+		if i := slices.IndexFunc(pols, func(p *Policy) bool { return p.Get != "" && p.Model == c.Model.Name }); i >= 0 {
+			g.policyGet(&v, c, pols[i], user)
+			uses = uses || user.Import != ""
+		}
+		ms = append(ms, v)
 	}
-	return g.execute("models.go.tmpl", map[string]any{"Package": app.Name, "Unsupported": unsupported, "Models": ms})
+	if !uses {
+		user.Import = ""
+	}
+	return g.execute("models.go.tmpl", map[string]any{"Package": app.Name, "Unsupported": unsupported, "Models": ms, "UserImport": user.Import})
 }
 
 // QueriesFile is the queries_gen.go of one app's queries, in package pkg.
-func QueriesFile(d project.Dialect, pkg string, qs []Checked) []byte {
+// A query that uses a policy takes the user, of type user.
+func QueriesFile(d project.Dialect, pkg string, qs []Checked, user User) []byte {
 	g := &gen{d: d, imports: map[string]bool{"context": true}}
 	declared := map[*Result]bool{} // new result types, declared once
 	var vs []queryView
+	uses := false
 	for _, c := range qs {
-		vs = append(vs, g.query(c, declared))
+		v := g.query(c, declared)
+		if len(c.Query.policies) > 0 {
+			v.User, v.Body = user.Type, g.viewer(c.Query.Params)+v.Body
+			uses = true
+		}
+		vs = append(vs, v)
 	}
-	return g.execute("queries.go.tmpl", map[string]any{"Package": pkg, "Queries": vs})
+	if !uses {
+		user.Import = ""
+	}
+	return g.execute("queries.go.tmpl", map[string]any{"Package": pkg, "Queries": vs, "UserImport": user.Import})
+}
+
+// policyGet makes v's GetX apply p, and keeps the GetX without it as
+// GetXIgnoringPolicies.
+func (g *gen) policyGet(v *modelView, c CRUD, p *Policy, user User) {
+	st := PolicyGet(c, p, g.d)
+	v.Policy, v.User, v.Ignoring = p.Name, user.Type, v.Get
+	v.Get = GoString(st.SQL)
+	v.GetBody = g.viewer(p.Params)
+	for _, prm := range p.Params { // in the order they are declared
+		if !prm.Viewer {
+			v.GetParams += ", " + lowerFirst(FieldName(prm.Name)) + " " + g.typ(prm.Type.Base, false)
+		}
+	}
+	for _, a := range st.Args[1:] { // in the order of the placeholders
+		prm := p.Params[slices.IndexFunc(p.Params, func(o Param) bool { return o.Name == a })]
+		x := viewerVar(a)
+		if !prm.Viewer {
+			x = g.arg(lowerFirst(FieldName(a)), prm.Type.Base, false)
+		}
+		v.GetArgs += ", " + x
+	}
+}
+
+// viewerVar is the variable of parameter viewer_x in the generated code.
+func viewerVar(name string) string { return lowerFirst(FieldName(name)) }
+
+func lowerFirst(s string) string { return strings.ToLower(s[:1]) + s[1:] }
+
+// viewer is the code that reads the :viewer_ parameters of params from
+// u, the user: nil, nobody, leaves each NULL, as does a nil field.
+func (g *gen) viewer(params []Param) string {
+	var names, sets []string
+	for _, p := range params {
+		if !p.Viewer {
+			continue
+		}
+		x := viewerVar(p.Name)
+		names = append(names, x)
+		f := p.Field
+		if f.Pointer {
+			sets = append(sets, fmt.Sprintf("if u.%s != nil {\n%s = %s\n}", f.Name, x, g.arg("*u."+f.Name, f.Type, false)))
+		} else {
+			sets = append(sets, x+" = "+g.arg("u."+f.Name, f.Type, false))
+		}
+	}
+	if names == nil {
+		return ""
+	}
+	return "var " + strings.Join(names, ", ") + " any // NULL for nobody\nif u != nil {\n" + strings.Join(sets, "\n") + "\n}\n"
 }
 
 // gen writes one file: Go fragments for the templates, and the imports
@@ -90,6 +165,11 @@ type modelView struct {
 	Uniques             []uniqueView
 	Keys                string // what Write takes: uniqueName, or nil
 	Scan                string
+	Policy              string // the policy Get applies, "" for none
+	User                string // the user's type, which Get then takes
+	Ignoring            string // the SQL of GetXIgnoringPolicies
+	GetParams, GetArgs  string // the policy's, after id: ", now time.Time"
+	GetBody             string // code before Get reads, for the user's columns
 }
 
 type inputField struct{ Name, Type, Default string }
@@ -193,6 +273,7 @@ type queryView struct {
 	Body         string
 	Row          string // the type the scan function reads; "" for :exec
 	Scan         string
+	User         string // the user's type, which a query with a policy takes
 }
 
 type choiceView struct {
@@ -203,10 +284,13 @@ type choiceView struct {
 func (g *gen) query(c Checked, declared map[*Result]bool) queryView {
 	q := c.Query
 	v := queryView{Name: q.Name, File: q.File}
-	if len(q.Params) > 0 {
+	if slices.ContainsFunc(q.Params, func(p Param) bool { return !p.Viewer }) {
 		v.Params = q.Name + "Params"
 	}
 	for _, p := range q.Params {
+		if p.Viewer {
+			continue
+		}
 		typ := g.paramType(q, p)
 		v.Fields = append(v.Fields, FieldName(p.Name)+" "+typ)
 		if p.Type.Choices != nil {
@@ -286,6 +370,9 @@ func (g *gen) body(c Checked, zero string) string {
 		w("key := 0")
 	}
 	for _, p := range q.Params {
+		if p.Viewer {
+			continue
+		}
 		x := "p." + FieldName(p.Name)
 		axis := slices.IndexFunc(c.Axes, func(a Axis) bool { return a.Param == p.Name })
 		add := func(k int) {
@@ -417,6 +504,10 @@ func (g *gen) scalars(q *Query, v Variant) []string {
 	for _, name := range v.Args {
 		p := q.param(name)
 		x := "p." + FieldName(name)
+		if p.Viewer {
+			out = append(out, viewerVar(name))
+			continue
+		}
 		switch {
 		case p.Type.Choices != nil:
 			x = "string(" + x + ")"

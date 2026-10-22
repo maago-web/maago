@@ -63,11 +63,15 @@ func checking(root string) [][]pipeline.Step {
 	s := &state{root: root}
 	parse := func() []diag.Diagnostic {
 		var ds []diag.Diagnostic
-		if files, qds := project.QueryFiles(s.root); len(qds) > 0 {
+		files, qds := project.QueryFiles(s.root)
+		pfiles, pds := project.PolicyFiles(s.root)
+		if qds = append(qds, pds...); len(qds) > 0 {
 			ds = qds
 		} else {
-			s.queries, ds = mapper.Read(s.root, files)
-			ds = diag.See(ref.Query, ds)
+			s.pols, ds = mapper.ReadPolicies(s.root, pfiles)
+			var rds []diag.Diagnostic
+			s.queries, rds = mapper.Read(s.root, files, s.pols)
+			ds = diag.See(ref.Query, append(ds, rds...))
 		}
 		mod, mds := project.ModulePath(s.root)
 		if len(mds) > 0 {
@@ -86,6 +90,7 @@ func checking(root string) [][]pipeline.Step {
 		var ads []diag.Diagnostic
 		s.admin, ads = admingen.Use(s.fset, s.parsed, s.mod, s.apps, s.web)
 		ds = append(ds, diag.See(ref.Admin, ads)...)
+		ds = append(ds, diag.See(ref.Query, mapper.CheckPolicies(s.apps, s.pols, s.queries, s.viewer()))...)
 		s.checked, s.pkgs = map[string][]mapper.Checked{}, map[string]string{}
 		for _, qa := range s.queries {
 			ds = append(ds, diag.See(ref.Query, mapper.Versions(s.apps, qa.Queries))...)
@@ -127,6 +132,21 @@ func checking(root string) [][]pipeline.Step {
 				more.Imports = append(more.Imports, admingen.Path)
 			}
 		}
+		for _, app := range s.apps { // the GetX without the policy
+			guarded := mapper.Guarded(app, s.pols[app.Dir])
+			for _, m := range app.Models {
+				if !guarded[m] {
+					continue
+				}
+				more := routes[app.Dir]
+				if more == nil {
+					more = &mapper.More{}
+					routes[app.Dir] = more
+				}
+				more.Names = append(more.Names, mapper.Name{Name: "Get" + m.Name + "IgnoringPolicies", By: "the CRUD of model " + m.Name, Pos: s.fset.Position(m.Pos),
+					Fix: "rename what your code declares under that name; the CRUD's names follow the model's"})
+			}
+		}
 		for _, dir := range slices.Sorted(maps.Keys(dirs)) {
 			ds = append(ds, mapper.Names(s.fset, s.root, dir, s.app(dir), queries[dir], routes[dir])...)
 		}
@@ -135,13 +155,13 @@ func checking(root string) [][]pipeline.Step {
 	return append(stages(s, parse, early, func() []diag.Diagnostic { return checkDatabase(s) }),
 		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic {
 			for _, app := range s.apps {
-				r.Files[path.Join(app.Dir, "models_gen.go")] = mapper.ModelsFile(s.d, app)
+				r.Files[path.Join(app.Dir, "models_gen.go")] = mapper.ModelsFile(s.d, app, s.pols[app.Dir], s.user(app.Dir))
 				if s.admin {
-					r.Files[path.Join(app.Dir, "admin_gen.go")] = admingen.File(s.d, app, s.apps)
+					r.Files[path.Join(app.Dir, "admin_gen.go")] = admingen.File(s.d, app, s.apps, mapper.Guarded(app, s.pols[app.Dir]))
 				}
 			}
 			for dir, qs := range s.checked {
-				r.Files[path.Join(dir, "queries_gen.go")] = mapper.QueriesFile(s.d, s.pkgs[dir], qs)
+				r.Files[path.Join(dir, "queries_gen.go")] = mapper.QueriesFile(s.d, s.pkgs[dir], qs, s.user(dir))
 			}
 			// The views call the URL functions and the forms' Valid, and main
 			// names each App, so they exist before the type check; App gets
@@ -184,6 +204,7 @@ type state struct {
 	url, ddl   string
 	migrations []migrate.File
 	queries    []*mapper.App               // nil for makemigrations
+	pols       mapper.Policies             // each app's read policies
 	checked    map[string][]mapper.Checked // each app's queries, by directory
 	pkgs       map[string]string           // the package of each app with queries
 	files      []string                    // the project's Go files
@@ -191,6 +212,34 @@ type state struct {
 	parsed     map[string][]*ast.File      // the Go files that are neither tests nor generated, by directory
 	admin      bool                        // a file imports contrib/admin (D-131)
 	web        []*web.App                  // the apps with routes; nil for makemigrations
+}
+
+// viewer is the user type the views take, for the policies (D-155).
+func (s *state) viewer() mapper.Viewer {
+	p, name, pos := web.User(s.fset, s.web)
+	if name == "" {
+		return mapper.Viewer{}
+	}
+	v := mapper.Viewer{Expr: path.Base(p) + "." + name, Pos: pos}
+	for _, app := range s.apps {
+		if web.ImportPath(s.mod, app.Dir) == p {
+			for _, m := range app.Models {
+				if m.Name == name {
+					v.Model = m
+				}
+			}
+		}
+	}
+	return v
+}
+
+// user is the user type as the generated code of the app at dir writes it.
+func (s *state) user(dir string) mapper.User {
+	p, name, _ := web.User(s.fset, s.web)
+	if p == web.ImportPath(s.mod, dir) {
+		return mapper.User{Type: name}
+	}
+	return mapper.User{Type: "maagouser." + name, Import: p}
 }
 
 // app is the app with models at dir, or nil.
@@ -308,12 +357,30 @@ func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagno
 	if len(ds) > 0 {
 		return ds
 	}
+	for _, ps := range s.pols {
+		for _, p := range ps {
+			q, v := p.Probe()
+			_, pds, fatal := mapper.Describe(ctx, a, q, nil, []mapper.Variant{v})
+			if fatal {
+				return pds
+			}
+			ds = append(ds, diag.See(ref.Query, pds)...)
+		}
+	}
+	if len(ds) > 0 {
+		return ds
+	}
 	var sqls []string
 	for _, app := range s.apps {
 		for _, c := range mapper.CRUDs(app, s.d) {
 			for _, st := range []*mapper.Statement{&c.Get, &c.Insert, c.Update, &c.Delete} {
 				if st != nil {
 					sqls = append(sqls, st.SQL)
+				}
+			}
+			for _, p := range s.pols[app.Dir] {
+				if p.Get != "" && p.Model == c.Model.Name {
+					sqls = append(sqls, mapper.PolicyGet(c, p, s.d).SQL)
 				}
 			}
 		}

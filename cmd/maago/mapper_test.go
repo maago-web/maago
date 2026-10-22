@@ -12,6 +12,7 @@ import (
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/golden"
 	"github.com/maago-web/maago/internal/mapper"
+	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/practicedb"
 	"github.com/maago-web/maago/internal/project"
 )
@@ -33,7 +34,7 @@ func describeQueries(t *testing.T, db *practicedb.DB, files map[string]string) (
 		list = append(list, p)
 	}
 	sort.Strings(list)
-	apps, ds := mapper.Read(root, list)
+	apps, ds := mapper.Read(root, list, nil)
 	if ds != nil {
 		t.Fatalf("read:\n%s", text(ds))
 	}
@@ -112,7 +113,7 @@ func TestDescribeFatal(t *testing.T) {
 	db.Close()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "blog", "queries", "q.sql"), q)
-	apps, ds := mapper.Read(root, []string{"blog/queries/q.sql"})
+	apps, ds := mapper.Read(root, []string{"blog/queries/q.sql"}, nil)
 	if ds != nil {
 		t.Fatal(text(ds))
 	}
@@ -157,6 +158,40 @@ func TestDescribeQueries(t *testing.T) {
 			if s := strings.Join(got, " | "); s != want {
 				t.Errorf("got  %s\nwant %s", s, want)
 			}
+		})
+	}
+}
+
+// A policy is prepared alone: what the database finds wrong in it is at
+// its place in policies.sql, a :viewer_ column's type too.
+func TestDescribePolicyErrors(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "blog", "policies.sql"), "-- name: typo Post p\n-- get: GetPost\np.titel = 'x'\n\n"+
+		"-- name: untyped Post p\np.id > 0 OR :viewer_id IS NULL\n\n"+
+		"-- name: typed Post p\n-- param: n string\np.n = :n AND p.title = :viewer_id\n")
+	pols, ds := mapper.ReadPolicies(root, []string{"blog/policies.sql"})
+	if ds != nil {
+		t.Fatal(text(ds))
+	}
+	field := func(name, col string, typ model.Type) *model.Field {
+		return &model.Field{Name: name, Column: col, Type: typ}
+	}
+	post := &model.Model{Name: "Post", Table: "posts", Fields: []*model.Field{field("ID", "id", model.Int64)}}
+	user := &model.Model{Name: "User", Table: "users", Fields: []*model.Field{field("ID", "id", model.Int64)}}
+	mapper.CheckPolicies([]*model.App{{Dir: "blog", Models: []*model.Model{post, user}}}, pols, nil, mapper.Viewer{Expr: "User", Model: user}) // finds the model; "used by no query" is beside the point
+	for _, d := range []project.Dialect{project.SQLite, project.Postgres} {
+		t.Run(string(d), func(t *testing.T) {
+			db := describeDB(t, d)
+			var all []diag.Diagnostic
+			for _, p := range pols["blog"] {
+				q, v := p.Probe()
+				_, ds, fatal := mapper.Describe(ctx(t), db, q, nil, []mapper.Variant{v})
+				if fatal {
+					t.Fatal(text(ds))
+				}
+				all = append(all, ds...)
+			}
+			golden.Check(t, "testdata/describe_policy_errors."+string(d)+".golden", []byte(text(all)))
 		})
 	}
 }

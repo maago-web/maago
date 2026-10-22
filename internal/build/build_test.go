@@ -251,3 +251,18 @@ func TestPermissionsTable(t *testing.T) {
 		t.Errorf("gen wrote files despite an error")
 	}
 }
+
+// A policy needs the user's type, which the views tell (D-155): with no
+// view taking the user, gen says so before the database.
+func TestPolicyNeedsUser(t *testing.T) {
+	root := example(t)
+	write(t, filepath.Join(root, "blog", "policies.sql"), "-- name: mine Post p\n-- get: GetPost\np.author_id = :viewer_id\n")
+	_, ds := Gen(root)
+	want := `blog/policies.sql:1:10: policies need the user's type, but no view takes the user
+  fix: take the user in a view, like func Home(ctx context.Context, u *auth.User, db maago.DB, in struct{}): a query with a policy takes it too
+  see: maago doc query
+`
+	if out := text(ds); out != want {
+		t.Errorf("got:\n%s", out)
+	}
+}

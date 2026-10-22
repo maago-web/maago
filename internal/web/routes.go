@@ -38,6 +38,7 @@ type App struct {
 	funcs map[string]*ast.FuncDecl // the top-level functions, for Views
 	types map[string]*ast.TypeSpec // the top-level types
 	maago map[string][]string      // each type's and function's file's names for maago
+	files map[string]*ast.File     // each function's file, for the imports of a view
 	forms map[string]*form         // the form structs, by name: Forms fills it
 	valid map[string]token.Pos     // the methods Valid and Fail, as Type.Method
 	used  map[string]bool          // the static files a template asks for, of any app
@@ -109,7 +110,7 @@ func ImportPath(modulePath, dir string) string { return path.Join(modulePath, di
 // readApp returns the app of p, or nil if p has no route table.
 func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath string) (*App, []diag.Diagnostic) {
 	app := &App{Dir: dir, Name: files[0].Name.Name, ImportPath: importPath,
-		funcs: map[string]*ast.FuncDecl{}, types: map[string]*ast.TypeSpec{}, maago: map[string][]string{}, valid: map[string]token.Pos{}}
+		funcs: map[string]*ast.FuncDecl{}, types: map[string]*ast.TypeSpec{}, maago: map[string][]string{}, files: map[string]*ast.File{}, valid: map[string]token.Pos{}}
 	var ds []diag.Diagnostic
 	errAt := func(pos token.Pos, msg, fix string) { ds = append(ds, diag.New(fset.Position(pos), msg, fix)) }
 	const form = "declare the table at the top level as var Routes = maago.Routes{…}"
@@ -124,6 +125,7 @@ func readApp(fset *token.FileSet, dir string, files []*ast.File, importPath stri
 					app.Funcs = append(app.Funcs, d.Name.Name)
 					app.funcs[d.Name.Name] = d
 					app.maago[d.Name.Name] = names // a view's file: maago.DB in its signature
+					app.files[d.Name.Name] = f
 				} else if (d.Name.Name == "Valid" || d.Name.Name == "Fail") && len(d.Recv.List) == 1 {
 					t := ast.Unparen(d.Recv.List[0].Type)
 					if star, ok := t.(*ast.StarExpr); ok {

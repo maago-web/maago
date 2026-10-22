@@ -85,7 +85,7 @@ func mark(d project.Dialect, n int) string {
 
 // formCode is the Go of m's Form function. models maps each table to its
 // model, as "app.Model".
-func formCode(m *model.Model, d project.Dialect, models map[string]string, imports map[string]bool) string {
+func formCode(m *model.Model, d project.Dialect, models map[string]string, imports map[string]bool, guarded bool) string {
 	var b strings.Builder
 	w := func(format string, args ...any) { fmt.Fprintf(&b, format+"\n", args...) }
 	add := blocks(m) == ""
@@ -104,7 +104,11 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 	}
 	w("if id != 0 {")
 	w("var err error")
-	w("if o, err = Get%s(ctx, db, id); err != nil {", m.Name)
+	get := "Get" + m.Name
+	if guarded {
+		get += "IgnoringPolicies"
+	}
+	w("if o, err = %s(ctx, db, id); err != nil {", get)
 	w("return admin.Form{}, err")
 	w("}")
 	if version != nil {

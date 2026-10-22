@@ -1,0 +1,2 @@
+blog/policies.sql:1:10: SQL logic error: no such column: p.titel (1)
+  fix: fix the SQL

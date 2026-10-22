@@ -48,11 +48,11 @@ func TestParse(t *testing.T) {
 				HeaderEnd: 274,
 				Name:      "SearchOrders", NamePos: at(1, 10, 9), Kind: Many, Result: "OrderSummary",
 				Params: []Param{
-					{"status", at(4, 10, 83), true, Type{Base: model.String}},
-					{"ids", at(5, 11, 111), false, Type{Base: model.Int64, Slice: true}},
-					{"sort", at(6, 11, 133), false, Type{Choices: []string{"latest", "amount"}}},
-					{"data", at(9, 11, 214), true, Type{Base: model.Bytes}},
-					{"blobs", at(10, 11, 237), false, Type{Base: model.Bytes, Slice: true}},
+					{"status", at(4, 10, 83), true, Type{Base: model.String}, false, nil},
+					{"ids", at(5, 11, 111), false, Type{Base: model.Int64, Slice: true}, false, nil},
+					{"sort", at(6, 11, 133), false, Type{Choices: []string{"latest", "amount"}}, false, nil},
+					{"data", at(9, 11, 214), true, Type{Base: model.Bytes}, false, nil},
+					{"blobs", at(10, 11, 237), false, Type{Base: model.Bytes, Slice: true}, false, nil},
 				},
 				Columns: []Column{
 					{"n", at(7, 14, 165), false, model.Int64},
@@ -63,7 +63,7 @@ func TestParse(t *testing.T) {
 		},
 		{
 			src:  "-- name: Get :one Post\r\n-- param: id int64\r\nSELECT *\r\n",
-			want: Query{HeaderEnd: 44, Name: "Get", NamePos: at(1, 10, 9), Kind: One, Result: "Post", Params: []Param{{"id", at(2, 11, 34), false, Type{Base: model.Int64}}}},
+			want: Query{HeaderEnd: 44, Name: "Get", NamePos: at(1, 10, 9), Kind: One, Result: "Post", Params: []Param{{"id", at(2, 11, 34), false, Type{Base: model.Int64}, false, nil}}},
 		},
 		{
 			src:  "-- name: Touch :exec\nUPDATE t SET x = 1",
@@ -179,7 +179,7 @@ func TestRead(t *testing.T) {
 
 	list = append(list, "gone/queries/a.sql") // cannot be read; the rest still is
 
-	apps, ds := Read(root, list)
+	apps, ds := Read(root, list, nil)
 
 	want := "blog/queries/b.sql:1:10: query name Q is also the name of blog/queries/a.sql\n" +
 		"  fix: rename one of them; each query becomes a Go function of the package\n" +

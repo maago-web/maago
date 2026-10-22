@@ -38,8 +38,19 @@ type Query struct {
 	Scalar    model.Type // the result's type when Result names one, like bool; 0 for a struct
 	Params    []Param
 	Columns   []Column
+	Uses      []Use           // the -- policy: lines (D-155)
 	Lines     []Line          // the body
 	toks      []dialect.Token // of the body's statement, for the joins (D-104)
+	policies  []*Policy       // of each of Uses but none, once Read finds them
+}
+
+// Use is a -- policy: line: the query reads Alias under policy Name, or,
+// when Name is none, reads every row of it, for the reason Why.
+type Use struct {
+	Name, Alias string
+	Why         string
+	Pos         token.Position // of the name
+	expanded    bool           // the body wrote Name(Alias)
 }
 
 // Kind is what a query returns.
@@ -59,6 +70,10 @@ type Param struct {
 	Pos      token.Position
 	Optional bool // name? : a pointer, nil when absent
 	Type     Type
+	// Viewer is set for :viewer_<column> of a policy: the value is the
+	// user's field, NULL for nobody. It is in no Params struct.
+	Viewer bool
+	Field  *model.Field // the user's field of a Viewer parameter, once checked
 }
 
 // Column is a -- column: line (D-104).
@@ -94,8 +109,10 @@ func init() {
 
 // Read reads the headers of the mapper files, as project.QueryFiles lists
 // them, and groups the queries by app. A file with an error in its header
-// gives no query, so later checks do not report what follows from it.
-func Read(root string, files []string) ([]*App, []diag.Diagnostic) {
+// gives no query, so later checks do not report what follows from it; nor
+// does one using a policy with an error. pols are the apps' policies, which
+// a query's body expands where it uses them (D-155).
+func Read(root string, files []string, pols Policies) ([]*App, []diag.Diagnostic) {
 	var apps []*App
 	var ds []diag.Diagnostic
 	for _, f := range slices.Sorted(slices.Values(files)) {
@@ -107,6 +124,10 @@ func Read(root string, files []string) ([]*App, []diag.Diagnostic) {
 		q, qds := parse(f, string(src))
 		ds = append(ds, qds...)
 		if q == nil {
+			continue
+		}
+		if pds, ok := q.findPolicies(pols[path.Dir(path.Dir(f))]); !ok {
+			ds = append(ds, pds...)
 			continue
 		}
 		if bds := q.body(); bds != nil {
@@ -125,6 +146,49 @@ func Read(root string, files []string) ([]*App, []diag.Diagnostic) {
 		app.Queries = append(app.Queries, q)
 	}
 	return apps, ds
+}
+
+// findPolicies finds the policies q uses among the app's, and adds their
+// parameters to q's: a parameter both declare is one, of one type. It
+// reports false if q is to be left out.
+func (q *Query) findPolicies(pols []*Policy) ([]diag.Diagnostic, bool) {
+	var ds []diag.Diagnostic
+	broken := false
+	for _, u := range q.Uses {
+		if u.Name == "none" {
+			continue
+		}
+		i := slices.IndexFunc(pols, func(p *Policy) bool { return p.Name == u.Name })
+		if i < 0 {
+			fix := "write the policy in policies.sql of the app, beside queries/, or use -- policy: none " + u.Alias + " why"
+			var names []string
+			for _, p := range pols {
+				names = append(names, p.Name)
+			}
+			if s := diag.Suggest(u.Name, names); s != "" {
+				fix = fmt.Sprintf("did you mean %q? or %s", s, fix)
+			}
+			ds = append(ds, diag.New(u.Pos, "no policy "+u.Name+" in policies.sql of the app", fix))
+			continue
+		}
+		p := pols[i]
+		broken = broken || p.broken
+		q.policies = append(q.policies, p)
+		for _, pp := range p.Params {
+			j := slices.IndexFunc(q.Params, func(o Param) bool { return o.Name == pp.Name })
+			switch {
+			case j < 0:
+				q.Params = append(q.Params, pp)
+			case pp.Viewer && !q.Params[j].Viewer:
+				ds = append(ds, diag.New(q.Params[j].Pos, fmt.Sprintf("parameter %s is the user's column in policy %s", pp.Name, p.Name), "rename it"))
+			case pp.Viewer:
+			case q.Params[j].Optional || q.Params[j].Type.Slice || q.Params[j].Type.Choices != nil || q.Params[j].Type.Base != pp.Type.Base:
+				ds = append(ds, diag.New(q.Params[j].Pos, fmt.Sprintf("parameter %s is not the %s of policy %s", pp.Name, typeString(pp.Type), p.Name),
+					fmt.Sprintf("declare it as -- param: %s %s, or rename it", pp.Name, typeString(pp.Type))))
+			}
+		}
+	}
+	return ds, ds == nil && !broken
 }
 
 // parse reads the header: the lines from the start of src that are empty
@@ -253,6 +317,8 @@ func (h *header) read(i int) {
 		h.param(fs)
 	case "column":
 		h.column(fs)
+	case "policy":
+		h.policy(fs)
 	default:
 		panic("maago bug: header key " + key + " is in ref.QueryKeys but not handled")
 	}
@@ -380,7 +446,7 @@ func (h *header) param(fs []field) {
 			return
 		}
 	}
-	h.q.Params = append(h.q.Params, Param{name, h.pos(fs[0].i), optional, typ})
+	h.q.Params = append(h.q.Params, Param{Name: name, Pos: h.pos(fs[0].i), Optional: optional, Type: typ})
 }
 
 func (h *header) paramType(name string, f field) (Type, bool) {
@@ -435,6 +501,43 @@ func (h *header) column(fs []field) {
 		return
 	}
 	h.q.Columns = append(h.q.Columns, Column{name, h.pos(fs[0].i), optional, b})
+}
+
+// policy reads -- policy: name alias, or -- policy: none alias why.
+func (h *header) policy(fs []field) {
+	const form = "write -- policy: name alias, or -- policy: none alias why"
+	switch {
+	case len(fs) < 2:
+		h.errf(len(h.text), form, "-- policy: line has %d words", len(fs))
+		return
+	case !sqlName.MatchString(fs[0].s):
+		h.errf(fs[0].i, form, "policy name %q is not lowercase snake_case", fs[0].s)
+		return
+	case !sqlName.MatchString(fs[1].s):
+		fix := form
+		if len(fs) == 3 && goName.MatchString(fs[1].s) {
+			fix = fmt.Sprintf("write -- policy: %s %s; the model is in policies.sql", fs[0].s, fs[2].s)
+		}
+		h.errf(fs[1].i, fix, "alias %q is not lowercase snake_case", fs[1].s)
+		return
+	case fs[0].s == "none" && len(fs) == 2:
+		h.errf(len(h.text), "say why the query reads every row of "+fs[1].s+": -- policy: none "+fs[1].s+" why", "-- policy: none with no reason")
+		return
+	case fs[0].s != "none" && len(fs) > 2:
+		h.errf(fs[2].i, "remove it; "+form[len("write "):], "unexpected %q after the alias of -- policy:", fs[2].s)
+		return
+	}
+	for _, u := range h.q.Uses {
+		if u.Alias == fs[1].s {
+			h.errf(fs[1].i, "keep one -- policy: line for each alias", "alias %s has a -- policy: line already", u.Alias)
+			return
+		}
+	}
+	u := Use{Name: fs[0].s, Alias: fs[1].s, Pos: h.pos(fs[0].i)}
+	if u.Name == "none" {
+		u.Why = strings.TrimSpace(h.text[fs[2].i:])
+	}
+	h.q.Uses = append(h.q.Uses, u)
 }
 
 func (h *header) unknownType(f field, base string, slice bool, more string) {

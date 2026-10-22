@@ -48,7 +48,7 @@ func TestNames(t *testing.T) {
 	}
 	apps, fset := modeltest.Example(t, root)
 	qfiles, _ := project.QueryFiles(root)
-	qapps, ds := Read(root, qfiles)
+	qapps, ds := Read(root, qfiles, nil)
 	if ds != nil {
 		t.Fatal(ds)
 	}

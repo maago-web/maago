@@ -99,7 +99,7 @@ func TestSearchOrdersIsTheDecisionsExample(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := string(doc)
-	s = s[strings.Index(s, "**SQL 규칙 5개**"):]
+	s = s[strings.Index(s, "**SQL 규칙 6개**"):]
 	s = s[strings.Index(s, "```sql\n")+len("```sql\n"):]
 	s = s[:strings.Index(s, "```")]
 	fixture, err := os.ReadFile("../testdata/orders/queries/search_orders.sql")

@@ -21,7 +21,7 @@ func TestIDOrderAndOtherApp(t *testing.T) {
 		t.Errorf("list: %s", got)
 	}
 	apps := []*model.App{{Dir: "notes", Name: "notes", Models: []*model.Model{note}}, {Dir: "shop", Name: "shop", Models: []*model.Model{item}}}
-	if got := string(File(project.SQLite, apps[0], apps)); !strings.Contains(got, `{Name: "ItemID", Label: "ItemID", FK: "shop.Item"}`) {
+	if got := string(File(project.SQLite, apps[0], apps, nil)); !strings.Contains(got, `{Name: "ItemID", Label: "ItemID", FK: "shop.Item"}`) {
 		t.Errorf("admin_gen.go:\n%s", got)
 	}
 }
@@ -34,7 +34,7 @@ func TestPassword(t *testing.T) {
 		{Name: "Password", Column: "password", Type: model.String},
 	}}
 	app := &model.App{Dir: "auth", Name: "auth", Models: []*model.Model{user}}
-	got := string(File(project.SQLite, app, []*model.App{app}))
+	got := string(File(project.SQLite, app, []*model.App{app}, nil))
 	if !strings.Contains(got, `{Name: "Password", Label: "Password"}`) || !strings.Contains(got, `List: []string{"ID", "Password"}`) {
 		t.Errorf("admin_gen.go:\n%s", got)
 	}
@@ -77,7 +77,7 @@ func TestNoEditAndPasswordForm(t *testing.T) {
 		t.Errorf("update: %q", st.Update)
 	}
 	app := &model.App{Dir: "shop", Name: "shop", Models: []*model.Model{item}}
-	if got := string(File(project.SQLite, app, []*model.App{app})); strings.Contains(got, "Edit: true") || strings.Contains(got, "UPDATE") || !strings.Contains(got, "Add: true") ||
+	if got := string(File(project.SQLite, app, []*model.App{app}, nil)); strings.Contains(got, "Edit: true") || strings.Contains(got, "UPDATE") || !strings.Contains(got, "Add: true") ||
 		!strings.Contains(got, "_, err := InsertItem(ctx, db, NewItemInput{})") {
 		t.Errorf("admin_gen.go:\n%s", got)
 	}
@@ -86,7 +86,7 @@ func TestNoEditAndPasswordForm(t *testing.T) {
 		{Name: "Password", Column: "password", Type: model.String},
 	}}
 	app = &model.App{Dir: "auth", Name: "auth", Models: []*model.Model{user}}
-	if got := string(File(project.SQLite, app, []*model.App{app})); !strings.Contains(got, `rt.BindString(ctx, vals, &f.Password, rt.Rule{Name: "password", Label: "Password"})`) {
+	if got := string(File(project.SQLite, app, []*model.App{app}, nil)); !strings.Contains(got, `rt.BindString(ctx, vals, &f.Password, rt.Rule{Name: "password", Label: "Password"})`) {
 		t.Errorf("admin_gen.go:\n%s", got)
 	}
 }
@@ -100,7 +100,7 @@ func TestNullBool(t *testing.T) {
 		{Name: "On", Column: "on", Type: model.Bool, Pointer: true, Default: &yes},
 	}}
 	app := &model.App{Dir: "f", Name: "f", Models: []*model.Model{m}}
-	got := string(File(project.SQLite, app, []*model.App{app}))
+	got := string(File(project.SQLite, app, []*model.App{app}, nil))
 	for _, want := range []string{"On maago.Field[string]", `rt.BindString(ctx, vals, &f.On, rt.Rule{Name: "on", Label: "On", Choices: []string{"yes", "no"}, Optional: true})`,
 		`f.On.Raw = "yes"`, "On: maago.Set(admin.Bool(f.On))", "admin.Bool(f.On), id"} {
 		if !strings.Contains(got, want) {
@@ -117,7 +117,7 @@ func TestEmptyDefault(t *testing.T) {
 		{Name: "Nick", Column: "nick", Type: model.String, Default: &empty},
 	}}
 	app := &model.App{Dir: "n", Name: "n", Models: []*model.Model{m}}
-	got := string(File(project.SQLite, app, []*model.App{app}))
+	got := string(File(project.SQLite, app, []*model.App{app}, nil))
 	if !strings.Contains(got, `rt.Rule{Name: "nick", Label: "Nick", Optional: true}`) || !strings.Contains(got, `admin.In(&f.Nick, false, "")`) {
 		t.Errorf("admin_gen.go:\n%s", got)
 	}
@@ -143,7 +143,7 @@ func TestRefs(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Errorf("refs:\n%+v\nwant\n%+v", got, want)
 	}
-	if file := string(File(project.Postgres, apps[1], apps)); !strings.Contains(file, `{Model: "notes.Note", Field: "ItemID", SQL: `+"`"+`SELECT COUNT(*) FROM "notes" WHERE "item_id" = $1`+"`"+`}`) ||
+	if file := string(File(project.Postgres, apps[1], apps, nil)); !strings.Contains(file, `{Model: "notes.Note", Field: "ItemID", SQL: `+"`"+`SELECT COUNT(*) FROM "notes" WHERE "item_id" = $1`+"`"+`}`) ||
 		!strings.Contains(file, "Delete: DeleteItem,") {
 		t.Errorf("admin_gen.go:\n%s", file)
 	}

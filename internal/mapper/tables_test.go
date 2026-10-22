@@ -67,7 +67,7 @@ func TestTables(t *testing.T) {
 		if out != "" {
 			t.Fatalf("%s: %s", c.body, out)
 		}
-		refs, ds := q.tables()
+		refs, _, ds := q.tables()
 		got := strings.TrimPrefix(text(ds), file+":2:")
 		if ds == nil {
 			got = refsText(refs)
@@ -113,13 +113,13 @@ func TestTablesOfQueries(t *testing.T) {
 		if ds != nil {
 			t.Fatal(text(ds))
 		}
-		apps, ds := Read(root, files)
+		apps, ds := Read(root, files, nil)
 		if ds != nil {
 			t.Fatalf("%s: %s", root, text(ds))
 		}
 		for _, a := range apps {
 			for _, q := range a.Queries {
-				refs, ds := q.tables()
+				refs, _, ds := q.tables()
 				if ds != nil {
 					t.Errorf("%s", text(ds))
 				}

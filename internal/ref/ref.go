@@ -122,6 +122,12 @@ var (
 		{"name", "-- name: Name :kind [Result]: the Go function, what it returns, and the result type.", nil},
 		{"param", "-- param: name[?] type: a value the SQL uses as :name; ? when it may be missing.", nil},
 		{"column", "-- column: name[?] type: the type of a result column the database cannot tell (an expression, an outer join's side); ? when it may be NULL.", nil},
+		{"policy", "-- policy: name alias: the query reads alias under the app's read policy name, written as name(alias) in its WHERE; -- policy: none alias why: it reads every row of alias, for the reason given.", nil},
+	}}
+	PolicyKeys = &List{"Header lines of policies.sql", []Item{
+		{"name", "-- name: name Model alias: starts a policy, a condition on the rows of Model, which its SQL calls alias.", nil},
+		{"param", "-- param: name type: a value the condition uses as :name; a query that uses the policy takes it too.", nil},
+		{"get", "-- get: GetModel: GetModel applies this policy; each model with policies has one.", nil},
 	}}
 	QueryKinds = &List{"Kinds", []Item{
 		{":one", "One row: sql.ErrNoRows when none, maago.ErrManyRows when more.", nil},

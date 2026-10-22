@@ -13,6 +13,8 @@ type tableRef struct {
 	Table string         // lower case, without a schema
 	Alias string         // lower case unless quoted; "" if none
 	Pos   token.Position // of the first token of the name, the schema if any
+	Index int            // of that token in the statement's tokens
+	Block int            // the SELECT it is read in, as blocks numbers them
 }
 
 // A cte is a name a WITH defines. It hides the table of that name in
@@ -100,8 +102,11 @@ var (
 // tables lists where the statement reads tables: the items of FROM
 // lists and joins, in subqueries, CTEs and every SELECT of a UNION too,
 // but not the tables that INSERT, UPDATE or DELETE write. It reports the
-// shapes that may read a table it cannot name.
-func (q *Query) tables() ([]tableRef, []diag.Diagnostic) {
+// shapes that may read a table it cannot name. blocks numbers the SELECT
+// (or UPDATE, DELETE) each token is in: the parentheses that saw its verb,
+// or the statement, and each SELECT of a UNION apart; parentheses with no
+// verb, like (a OR b), are in the block around them.
+func (q *Query) tables() (refs []tableRef, blocks []int, ds []diag.Diagnostic) {
 	toks := q.toks
 	cs := ctes(toks)
 	word := func(i int) string {
@@ -113,9 +118,9 @@ func (q *Query) tables() ([]tableRef, []diag.Diagnostic) {
 	name := func(i int) bool {
 		return i < len(toks) && (toks[i].Kind == dialect.Word || toks[i].Kind == dialect.Quoted)
 	}
-	fail := func(i int, why string) ([]tableRef, []diag.Diagnostic) {
+	fail := func(i int, why string) ([]tableRef, []int, []diag.Diagnostic) {
 		i = min(i, len(toks)-1)
-		return nil, []diag.Diagnostic{diag.New(toks[i].Pos, "cannot tell which tables the query reads: "+why,
+		return nil, nil, []diag.Diagnostic{diag.New(toks[i].Pos, "cannot tell which tables the query reads: "+why,
 			"name the table in FROM or JOIN, or split the query")}
 	}
 	// The {condition} that starts a line is not SQL (body.go).
@@ -129,17 +134,22 @@ func (q *Query) tables() ([]tableRef, []diag.Diagnostic) {
 	}
 	// What each open parenthesis has seen: a verb, so FROM starts a
 	// FROM list, and whether it is in one, so a comma starts an item.
-	type level struct{ verb, list bool }
+	type level struct {
+		verb, list bool
+		block      int
+	}
 	levels := []level{{}}
-	var refs []tableRef
+	n := 0 // blocks so far
+	blocks = make([]int, len(toks))
 	for i, t := range toks {
+		blocks[i] = levels[len(levels)-1].block
 		if cond[i] {
 			continue
 		}
 		top := &levels[len(levels)-1]
 		switch w := word(i); {
 		case is(t, "("):
-			levels = append(levels, level{})
+			levels = append(levels, level{block: top.block})
 			continue
 		case is(t, ")"):
 			if len(levels) > 1 {
@@ -151,7 +161,14 @@ func (q *Query) tables() ([]tableRef, []diag.Diagnostic) {
 				continue
 			}
 		case w == "SELECT" || w == "UPDATE" || w == "DELETE":
+			if !top.verb {
+				n++
+				top.block, blocks[i] = n, n
+			}
 			top.verb = true
+			continue
+		case w == "UNION" || w == "INTERSECT" || w == "EXCEPT":
+			top.list, top.verb = false, false // the next SELECT is a block of its own
 			continue
 		case w == "TABLE" && (i == 0 || is(toks[i-1], "(") || word(i-1) == "UNION" || word(i-1) == "INTERSECT" || word(i-1) == "EXCEPT" || word(i-1) == "ALL"):
 			what := t.Text
@@ -199,7 +216,7 @@ func (q *Query) tables() ([]tableRef, []diag.Diagnostic) {
 		if k+1 < len(toks) && is(toks[k+1], "(") {
 			continue // a table function, like json_each(x)
 		}
-		ref := tableRef{Table: strings.ToLower(dialect.Name(toks[k])), Pos: toks[start].Pos}
+		ref := tableRef{Table: strings.ToLower(dialect.Name(toks[k])), Pos: toks[start].Pos, Index: start, Block: top.block}
 		bare := k == start // a CTE has no schema
 		id := fold(toks[k])
 		k++
@@ -224,5 +241,5 @@ func (q *Query) tables() ([]tableRef, []diag.Diagnostic) {
 			refs = append(refs, ref)
 		}
 	}
-	return refs, nil
+	return refs, blocks, nil
 }

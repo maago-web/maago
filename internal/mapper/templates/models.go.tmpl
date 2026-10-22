@@ -8,6 +8,7 @@ package {{.Package}}
 {{end}}{{end}}
 import (
 {{range .Imports}}{{if .}}	"{{.}}"{{end}}
+{{end}}{{if .UserImport}}	maagouser "{{.UserImport}}"
 {{end}})
 {{range .Models}}
 {{- if .Uniques}}
@@ -24,10 +25,25 @@ type New{{.Name}}Input struct {
 {{range .Input}}	{{.Name}} {{.Type}}{{if .Default}} // default {{.Default}}{{end}}
 {{end}}}
 
+{{if .Policy}}
+// Get{{.Name}} reads the {{.Name}} with id, if policy {{.Policy}} lets u read
+// it, nil being nobody: sql.ErrNoRows if there is none or it may not.
+func Get{{.Name}}(ctx context.Context, u *{{.User}}, db maago.DB, id int64{{.GetParams}}) ({{.Name}}, error) {
+{{.GetBody}}	return rt.One(ctx, db, scan{{.Name}}, {{.Get}}, id{{.GetArgs}})
+}
+
+// Get{{.Name}}IgnoringPolicies reads the {{.Name}} with id, whoever may read
+// it: sql.ErrNoRows if there is none. It is for what reads every row, as
+// the admin does.
+func Get{{.Name}}IgnoringPolicies(ctx context.Context, db maago.DB, id int64) ({{.Name}}, error) {
+	return rt.One(ctx, db, scan{{.Name}}, {{.Ignoring}}, id)
+}
+{{else}}
 // Get{{.Name}} reads the {{.Name}} with id: sql.ErrNoRows if there is none.
 func Get{{.Name}}(ctx context.Context, db maago.DB, id int64) ({{.Name}}, error) {
 	return rt.One(ctx, db, scan{{.Name}}, {{.Get}}, id)
 }
+{{end}}
 
 // Insert{{.Name}} inserts in and returns the {{.Name}}: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in

@@ -7,7 +7,9 @@ import (
 	"go/token"
 	"go/types"
 	"maps"
+	"path"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/maago-web/maago/internal/diag"
@@ -18,10 +20,13 @@ import (
 // view is a route's view as Views reads it from the syntax: what the
 // generated adapter and URL function need before the types are known.
 type view struct {
-	escape    bool      // func(http.ResponseWriter, *http.Request)
-	user      bool      // takes the user, between ctx and In (D-149)
-	userPtr   bool      // as *U: optional, nil without one
-	userExpr  string    // the user's type as the view writes it, for fixes
+	escape    bool   // func(http.ResponseWriter, *http.Request)
+	user      bool   // takes the user, between ctx and In (D-149)
+	userPtr   bool   // as *U: optional, nil without one
+	userExpr  string // the user's type as the view writes it, for fixes
+	userPath  string // the import path of the package userExpr names, as the syntax tells
+	userName  string // the type's name
+	userPos   token.Pos
 	db        bool      // takes maago.DB
 	tx        bool      // takes maago.Tx: runs in a transaction (D-150)
 	in        string    // the name of In's type, "" for struct{}
@@ -216,8 +221,9 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 		return nil, ds
 	}
 	if user != nil {
-		v.user, v.userExpr = true, types.ExprString(user)
+		v.user, v.userExpr, v.userPos = true, types.ExprString(user), user.Pos()
 		_, v.userPtr = user.(*ast.StarExpr)
+		v.userPath, v.userName = typePath(app, app.files[r.View], user)
 	}
 	var st *ast.StructType
 	switch t := last.(type) {
@@ -489,4 +495,44 @@ func optionPos(r *Route, name string) token.Pos {
 		}
 	}
 	return r.Pos
+}
+
+// typePath is the import path and name of the named type x, a type
+// expression of file f of app, as the syntax tells: "" if it is not one.
+// A package imported without a name is taken to be named as its path ends.
+func typePath(app *App, f *ast.File, x ast.Expr) (string, string) {
+	if star, ok := x.(*ast.StarExpr); ok {
+		x = star.X
+	}
+	switch x := x.(type) {
+	case *ast.Ident:
+		return app.ImportPath, x.Name
+	case *ast.SelectorExpr:
+		id, ok := x.X.(*ast.Ident)
+		if !ok || f == nil {
+			return "", ""
+		}
+		for _, imp := range f.Imports {
+			p, _ := strconv.Unquote(imp.Path.Value)
+			if imp.Name != nil && imp.Name.Name == id.Name || imp.Name == nil && path.Base(p) == id.Name {
+				return p, x.Sel.Name
+			}
+		}
+	}
+	return "", ""
+}
+
+// User is the user type the first view to take one names, as the syntax
+// tells: its import path and name, and where the view names it; "" if no
+// view takes the user. The generated code that takes the user is written
+// with it before the types can be checked; Types checks it then.
+func User(fset *token.FileSet, apps []*App) (importPath, name string, pos token.Position) {
+	for _, app := range apps {
+		for _, r := range app.Routes {
+			if v := r.view; v != nil && v.user && v.userName != "" {
+				return v.userPath, v.userName, fset.Position(v.userPos)
+			}
+		}
+	}
+	return "", "", token.Position{}
 }

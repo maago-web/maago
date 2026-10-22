@@ -60,19 +60,19 @@ blog/queries/q.sql:2:4: second -- name: line
 
 "-- name: Q :many R\n-- parm: x int64\n"
 blog/queries/q.sql:2:4: unknown header key "parm"
-  fix: did you mean "param"? allowed: name, param, column; start a comment with something other than "word:"
+  fix: did you mean "param"? allowed: name, param, column, policy; start a comment with something other than "word:"
 
 "-- name: Q :many R\n-- Note: see below\n"
 blog/queries/q.sql:2:4: unknown header key "Note"
-  fix: did you mean "name"? allowed: name, param, column; start a comment with something other than "word:"
+  fix: did you mean "name"? allowed: name, param, column, policy; start a comment with something other than "word:"
 
 "-- name: Q :many R\n-- https://example.com\n"
 blog/queries/q.sql:2:4: unknown header key "https"
-  fix: allowed: name, param, column; start a comment with something other than "word:"
+  fix: allowed: name, param, column, policy; start a comment with something other than "word:"
 
 "-- name: Q :many R\n-- maago: allow-drop\n"
 blog/queries/q.sql:2:4: unknown header key "maago"
-  fix: allowed: name, param, column; start a comment with something other than "word:"
+  fix: allowed: name, param, column, policy; start a comment with something other than "word:"
 
 "-- name: Q :many R\n-- param:\n"
 blog/queries/q.sql:2:10: -- param: line has no name

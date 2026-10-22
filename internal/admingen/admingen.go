@@ -191,8 +191,9 @@ func argsCode(m *model.Model, fail string) (code, list string) {
 }
 
 // File is the admin_gen.go of app, whose list SQL is in d. apps are all
-// the project's, for the models an FK refers to.
-func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
+// the project's, for the models an FK refers to. The admin reads a row of
+// a model in guarded with GetXIgnoringPolicies: it reads every row.
+func File(d project.Dialect, app *model.App, apps []*model.App, guarded map[*model.Model]bool) []byte {
 	type field struct {
 		Name, Label, Help, FK string
 		ReadOnly              bool
@@ -232,7 +233,7 @@ func File(d project.Dialect, app *model.App, apps []*model.App) []byte {
 			noAdd = append(noAdd, why)
 		}
 		v := modelView{Name: m.Name, List: m.AdminList, ListSQL: mapper.GoString(sql.List), CountSQL: mapper.GoString(sql.Count),
-			Form: formCode(m, d, models, imports), Add: why == "", Edit: slices.ContainsFunc(m.Fields, editable), Row: mapper.GoString(sql.Row), Search: m.AdminSearch}
+			Form: formCode(m, d, models, imports, guarded[m]), Add: why == "", Edit: slices.ContainsFunc(m.Fields, editable), Row: mapper.GoString(sql.Row), Search: m.AdminSearch}
 		v.RowsArgs, v.Args = argsCode(m, "nil")
 		v.CountArgs, _ = argsCode(m, "0")
 		v.ArgList = strings.TrimSuffix(v.Args, ", ")

@@ -115,7 +115,7 @@ func TestDocExamples(t *testing.T) {
 }
 
 // readLists are the lists the checkers read as they check.
-var readLists = []*ref.List{ref.ModelTags, ref.FieldTags, ref.QueryKeys, ref.InTags, ref.RouteOptions, ref.FormTags}
+var readLists = []*ref.List{ref.ModelTags, ref.FieldTags, ref.QueryKeys, ref.PolicyKeys, ref.InTags, ref.RouteOptions, ref.FormTags}
 
 // The checkers read the table: with any key or value of a topic's lists
 // taken out of it, maago check refuses the example that uses it (D-152).

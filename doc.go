@@ -73,12 +73,19 @@
 //   - name: -- name: Name :kind [Result]: the Go function, what it returns, and the result type.
 //   - param: -- param: name[?] type: a value the SQL uses as :name; ? when it may be missing.
 //   - column: -- column: name[?] type: the type of a result column the database cannot tell (an expression, an outer join's side); ? when it may be NULL.
+//   - policy: -- policy: name alias: the query reads alias under the app's read policy name, written as name(alias) in its WHERE; -- policy: none alias why: it reads every row of alias, for the reason given.
 //
 // Kinds:
 //
 //   - :one: One row: sql.ErrNoRows when none, maago.ErrManyRows when more.
 //   - :many: A slice of rows; none is an empty slice.
 //   - :exec: No rows: the number of rows changed (0 is no error).
+//
+// Header lines of policies.sql:
+//
+//   - name: -- name: name Model alias: starts a policy, a condition on the rows of Model, which its SQL calls alias.
+//   - param: -- param: name type: a value the condition uses as :name; a query that uses the policy takes it too.
+//   - get: -- get: GetModel: GetModel applies this policy; each model with policies has one.
 //
 // Names: [DB], [ErrManyRows], [ErrEmptySlice].
 //
