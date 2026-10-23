@@ -239,13 +239,14 @@ D-148이 뒤로 미룬 것과 M10 13번 게이트가 넘긴 것([TODO.md](TODO.m
 작업 목록은 [TASKS-M11.md](TASKS-M11.md). 결정은 D-154~D-156.
 
 완료 조건
-- [ ] unique 위반이 500이 아니라 그 폼의 필드 오류다: 동시 요청 경쟁에서 진 쪽도(D-154)
-- [ ] 정책을 선언한 모델의 표를 읽는 쿼리와 `GetX`는 정책을 쓰거나 쓰지 않는 까닭을 말해야 생성된다. 게시판의 "초안은 작성자·staff만"이 네 곳의 조건이 아니라 정책 둘이다(D-155)
-- [ ] 라우트마다(admin 포함) 역할별 기대 상태가 시험의 표에 있고, 표에 없는 라우트가 있으면 `go test`가 실패한다(D-156)
-- [ ] 게시판 튜토리얼이 이 셋으로 걷는다. v0.2.0을 `go install`한 에이전트 게이트가 단계 글만 보고 셋을 쓴다
+- [x] unique 위반이 500이 아니라 그 폼의 필드 오류다: 동시 요청 경쟁에서 진 쪽도(D-154): `TestWriteRace`·`TestWriteSavepointLost`(두 방언), `rt`의 `TestWriteUnique`·`TestFail`, `TestWeb`의 `TestFormTaken`(site), gentest `TestUnique`·`TestAdminForm`, 복사된 auth의 `TestSignupRace`(`TestAddAuth`가 두 방언에서), 게시판 0034의 `TestWriteRace`(`TestBoardTutorial`)
+- [x] 정책을 선언한 모델의 표를 읽는 쿼리와 `GetX`는 정책을 쓰거나 쓰지 않는 까닭을 말해야 생성된다. 게시판의 "초안은 작성자·staff만"이 네 곳의 조건이 아니라 정책 둘이다(D-155): `TestPolicyCheck`·`TestPolicyFile`·`TestPolicyVariants`·`TestPolicyCheckPolicies`, gentest `TestPolicies`(두 방언: 아무도·남·작성자·팀·staff), `TestDescribePolicyErrors`, `TestPolicyNeedsUser`, 게시판 0035의 `Maago-Expect`와 0036(`TestBoardTutorial`), Catches의 "a draft to anybody, at gen"
+- [x] 라우트마다(admin 포함) 역할별 기대 상태가 시험의 표에 있고, 표에 없는 라우트가 있으면 `go test`가 실패한다(D-156): `maagotest`의 `TestPermissions`·`TestPermissionsFails`·`TestPermissionsPrefix`, `contrib/admin`의 `TestPermissionsTable`, 생성기 `TestPermissionsCall`·`TestPermissionsTable`(build), auth 복사본의 표(`TestAddAuth`), 게시판 0021~의 `TestPermissions`와 Catches의 "a route without its row"·"no permission table"
+- [x] 게시판 튜토리얼이 이 셋으로 걷는다. v0.2.0을 `go install`한 에이전트 게이트가 단계 글만 보고 셋을 쓴다: `TestBoardTutorial`·`TestBoardTutorialCatches`(PG, 0034~0036), v0.2.0 태그(2026-10-23), 게이트 둘이 0033의 끝에서 0036까지([gate-logs/m11-board-1.md](gate-logs/m11-board-1.md)·[m11-board-2.md](gate-logs/m11-board-2.md))
 
-그다음(순서는 M11 끝에 정한다): 게이트가 넘긴 것(한 페이지의 폼 둘, auth 시험 도우미), D-148의 나머지(decimal·UUID·JSON, outbox,
-외부 미디어 저장소, 타입 있는 탈출구 뷰, 단계를 넘어 계속하는 검사)
+그다음(사람의 결정, 2026-10-23): v0.2.1은 지금 내지 않는다. 다음 마일스톤(M12)은 첫 작업으로 M11 게이트의 TODO(규칙 6 fix가 첫 정책을 권함, 문서 두 줄),
+그다음 게이트가 넘긴 것(한 페이지의 폼 둘, auth 시험 도우미의 남은 것: API 토큰 역할), 그다음 D-148의 나머지(decimal·UUID·JSON, outbox,
+외부 미디어 저장소, 타입 있는 탈출구 뷰, 단계를 넘어 계속하는 검사). M12의 `TASKS-M12.md`는 아직 없다
 
 ---
 

@@ -3,9 +3,9 @@
 **에이전트가 웹 애플리케이션을 쓰고, 기계가 그 코드를 실행 전에 검증하는 Go 프레임워크.**
 모델은 Django처럼 struct에 선언하고, SQL은 MyBatis처럼 파일에 손으로 쓴다.
 
-M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·M4(HTTP)·M5(인증)·M6(admin)·M7(정적 파일과 업로드)·M8(튜토리얼 검증: 게시판)·M9(v0 게이트)·M10(연구 반영과 첫 릴리스, v0.1.0)이 끝났다. 다음은 v0.2, 안전부터(M11). 문서부터 읽는다.
+M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·M4(HTTP)·M5(인증)·M6(admin)·M7(정적 파일과 업로드)·M8(튜토리얼 검증: 게시판)·M9(v0 게이트)·M10(연구 반영과 첫 릴리스, v0.1.0)·M11(안전: unique 위반·권한 표·읽기 정책, v0.2.0)이 끝났다. 다음은 M12. 문서부터 읽는다.
 
-**다음 작업: [TASKS-M11](docs/TASKS-M11.md) 11번**([MILESTONES.md](docs/MILESTONES.md)의 M11: unique 위반 → 필드 오류, 권한 표, 읽기 정책. 결정 D-154~D-156).
+**다음 작업: M12의 `TASKS-M12.md` 초안**([MILESTONES.md](docs/MILESTONES.md)의 v0.2 끝: 첫 작업은 M11 게이트의 TODO, 그다음 한 페이지의 폼 둘·API 토큰 역할, 그다음 D-148의 나머지).
 
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙

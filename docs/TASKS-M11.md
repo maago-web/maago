@@ -259,6 +259,8 @@
    - 한쪽만 짚은 것: `go doc maago.UniqueError`에 생성되는 `Fail`이 없다(2번), `GetPost`의 `now`에 무엇을 넘기는지 글이 말하지 않는다(2번, 둘 다 `time.Now()`), 0034의 경쟁 시험을 어떻게 기다리는지(1번은 100ms, 2번은 `pg_stat_activity`: 0034 계획이 기각한 길이지만 단계 글이 시험 방법을 정하지 않는다) → TODO
 11. **M11 끝**: MILESTONES의 M11 체크, README, 다음 마일스톤의 순서
 
+   기록(2026-10-23): 완료 조건마다 시험 이름을 MILESTONES에, 조건의 시험을 PG로 다시 돌려 초록(`rt`·`cmd/maago`·gentest·`mapper`·`build`·`web`·`maagotest`·`contrib/admin`, `TestAddAuth` 두 방언, 게시판은 a10c483의 전체 시험). 다음 마일스톤의 차례는 사람의 결정(v0.2.1은 내지 않고 M12의 첫 작업이 게이트 TODO, 그다음 폼 둘·API 토큰 역할, 그다음 D-148의 나머지). `TASKS-M12.md` 초안은 쓰지 않음(지시)
+
 ## 초안 리뷰 (2026-10-19, codex와 fable)
 
 - **PG의 abort**(둘 다): 실패한 INSERT 뒤 요청 트랜잭션이 abort라 `Fail` 뒤의 읽기와 커밋이 실패한다 → 생성 함수의 savepoint, 확인에 "다시 읽고 커밋까지"
@@ -278,7 +280,7 @@
 
 ## M11 끝
 
-- [ ] 1~11 완료
-- [ ] M11 완료 조건을 실제로 돌려 확인, 조건마다 시험 이름
-- [ ] MILESTONES.md의 M11 체크박스
-- [ ] push 뒤 GitHub Actions
+- [x] 1~11 완료
+- [x] M11 완료 조건을 실제로 돌려 확인, 조건마다 시험 이름
+- [x] MILESTONES.md의 M11 체크박스
+- [x] push 뒤 GitHub Actions
