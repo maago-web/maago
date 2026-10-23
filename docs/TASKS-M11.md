@@ -246,6 +246,11 @@
    - 그 뒤 `TestBoardTutorial`과 전체 시험(게시판 패치가 바뀌었으므로), 커밋·push. 공개 뒤 고칠 것이 나오면 태그를 옮기지 않고 v0.2.1(12번의 규칙)
    - 기록(2026-10-23): 909069c에서 PG 전체 시험(`go test exit=0`) 뒤 `v0.2.0`(주석 태그, v0.1.0과 같은 꼴)을 그 커밋에 달아 push, `git ls-remote --tags origin v0.2.0`. 빈 `GOPATH`·`GOMODCACHE`·`GOCACHE`·`GOWORK=off`에서 `GOPROXY=direct`와 기본 프록시 둘 다 `go install github.com/maago-web/maago/cmd/maago@v0.2.0`, `maago help`, `go version -m`이 `github.com/maago-web/maago v0.2.0 h1:vy2v09FW…`. 게시판: 0001·0013의 `go.mod`·`go.sum`을 v0.2.0으로(체크섬은 기본 프록시·sum.golang.org의 `go mod download -json`, `go.mod`의 것은 v0.1.0과 같다), `unpack`·`pack`. 공개 판으로 걷기의 끝: 마지막 단계의 사본(`git archive`)에서 `GOWORK=off`, 설치한 v0.2.0 `maago`로 새 PG 데이터베이스에 `add auth`·`migrate`·`gen`·`check`, `go mod tidy -diff`·`go mod verify`·`go vet ./...`·`go test ./...` 초록
 10. **에이전트 게이트**: `go install …@v0.2.0`부터, 0033의 끝에서 시작해 새 단계(0034~0036) 글만 보고 서로 모르는 실행 둘. 0033의 끝에 표가 이미 있으므로(4번) 게이트는 표를 처음부터가 아니라 정책이 바꾼 행으로 쓴다 → 확인: 기록, 셋을 메시지와 `maago doc`만으로 씀
+
+   방법(2026-10-23). 계획 리뷰 없음(M9 6·7번, M10 13번의 방법 그대로)
+   - 디렉터리 둘(`m11gate1`·`m11gate2`, 스크래치): 게시판 0033의 끝(패치에서, `go.work`·생성 파일 없이, `go.mod`는 공개된 v0.2.0, `maago add auth`가 쓴 `auth/` 포함), `bin/maago`는 빈 `GOPATH`에서 `go install …@v0.2.0`한 것, `STEPS.md`는 0034~0036의 단계 글(`git mailinfo`의 본문, 트레일러 포함)만, PG 데이터베이스 `m11gate1`·`m11gate2`. 시작 상태는 따로 사본에서 `migrate`·`gen`·`check`·`vet`·`test`가 초록임을 확인했다
+   - 프롬프트는 M10 13번의 것: 단계 글은 영어, 참조는 `maago doc`과 `go doc`, 이 저장소와 모듈 캐시의 maago 소스는 읽지 않는다, `GATE-LOG.md`에 단계마다 명령·실패와 오류 글·고친 것과 무엇이 알려 줬는지·헷갈린 곳. 서로 모르는 일반 서브에이전트 둘
+   - 끝 확인은 내가: `go version -m`이 v0.2.0, `go.mod`에 `replace` 없음, `maago check`·`go vet`·`go test ./...`, 0035의 `Maago-Expect`가 글자 그대로였는지, `TestPermissions`의 diff가 정책이 바꾼 행인지, `policies.sql`과 쿼리의 정책이 단계 글대로인지
 11. **M11 끝**: MILESTONES의 M11 체크, README, 다음 마일스톤의 순서
 
 ## 초안 리뷰 (2026-10-19, codex와 fable)
