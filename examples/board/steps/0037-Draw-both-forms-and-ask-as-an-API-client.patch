@@ -1,0 +1,283 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Sat, 24 Oct 2026 01:33:31 +0900
+Subject: [PATCH] Draw both forms, and ask as an API client
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A post's page has two forms, a comment and a file, and its In reads one,
+the comment. Since 0029 the page's other form has been drawn by hand:
+the file input's name is written in the template, name="file", and when
+an attach fails, the page draws again with CommentForm{}, whose textarea
+has no name at all. maago gen writes, for each form X, a NewX that
+returns the form, empty, each field with its name and label, as a GET
+draws it:
+
+    func NewCommentForm() CommentForm
+    func NewAttachmentForm() AttachmentForm
+
+- postPage gives the page NewAttachmentForm(), and Attach, drawing the
+  page again, NewCommentForm() for the comment form
+- post_page.html draws the file field as the comment field is drawn:
+
+      {{with .AttachForm.File}}<label>{{.Label}} <input type="file" name="{{.Name}}"></label>
+      {{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+
+The permission table asks as an API client too. Every route accepts an
+API token, not only the API's; the copied auth makes one for a test,
+and maagotest wraps the site with it, as As does with a session:
+
+    token, err := auth.SignInToken(ctx, db, u) // (string, error)
+    maagotest.Bearer(h, token)                  // every request: Authorization: Bearer token
+
+- The token is cat's, a third user, neither the author nor staff: the
+  role cat_token, after bob and before ann. Its column is bob's, by
+  token instead of cookie, and the rows that write make their own
+  ("cat의 게시판", "cat의 글", "cat의 API 글"). Not ann's token: ann's
+  rows publish, archive and delete her posts, and a second ann would
+  find them gone. That an author's token writes as the author is
+  TestAPI's, which creates and publishes with ann's token
+- TestAPI and TestMe make their token with auth.SignInToken instead of
+  NewToken and InsertAPIToken by hand
+
+TestAttachments sees both forms: the page's file field by its label and
+name, and after an attach with no file the comment's textarea named
+text.
+
+diff --git a/board/attach_test.go b/board/attach_test.go
+index 4ffb32a..63bd0a1 100644
+--- a/board/attach_test.go
++++ b/board/attach_test.go
+@@ -59,7 +59,8 @@ func TestAttachments(t *testing.T) {
+ 	if w := upload(bob, p.ID, "a.txt", body); w.Code != 403 {
+ 		t.Errorf("not its author: %d", w.Code)
+ 	}
+-	if w := upload(ann, p.ID, "", nil); w.Code != 200 || !strings.Contains(w.Body.String(), "This field is required.") {
++	// The page draws again with both its forms, the comment's too.
++	if w := upload(ann, p.ID, "", nil); w.Code != 200 || !strings.Contains(w.Body.String(), "This field is required.") || !strings.Contains(w.Body.String(), `<textarea name="text">`) {
+ 		t.Errorf("no file: %d %s", w.Code, w.Body)
+ 	}
+ 	if w := upload(ann, p.ID, "../evil.txt", body); w.Code != 303 {
+@@ -73,7 +74,7 @@ func TestAttachments(t *testing.T) {
+ 	if entries, _ := os.ReadDir(cfg.MediaDir); len(entries) != 1 || entries[0].Name() != a.Key {
+ 		t.Errorf("the media directory: %v", entries)
+ 	}
+-	if code, page := get(h, PostDetailURL(p.ID)); code != 200 || !strings.Contains(page, `href="`+AttachmentURL(fmt.Sprint(a.ID))+`"`) {
++	if code, page := get(h, PostDetailURL(p.ID)); code != 200 || !strings.Contains(page, `href="`+AttachmentURL(fmt.Sprint(a.ID))+`"`) || !strings.Contains(page, `<label>파일 <input type="file" name="file"></label>`) {
+ 		t.Errorf("the post: %d %s", code, page)
+ 	}
+ 
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index 81f1b8a..d19f08f 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -34,8 +34,16 @@ func TestPermissions(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	// bob is another user than the author, ann; staff may do anything.
+-	roles := []maagotest.Role{{Name: "nobody", Handler: h}, {Name: "bob", Handler: asBob}, {Name: "ann", Handler: asAnn}, {Name: "staff", Handler: maagotest.As(h, session)}}
++	// cat is an API client: a frontend with cat's token, which every
++	// route accepts.
++	token, err := auth.SignInToken(ctx, db, newUser(t, db, "cat@example.com"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	// bob and cat are other users than the author, ann; staff may do
++	// anything. Those who are refused ask first, before ann's and staff's
++	// rows publish or delete what they ask for.
++	roles := []maagotest.Role{{Name: "nobody", Handler: h}, {Name: "bob", Handler: asBob}, {Name: "cat_token", Handler: maagotest.Bearer(h, token)}, {Name: "ann", Handler: asAnn}, {Name: "staff", Handler: maagotest.As(h, session)}}
+ 	// want is each role's status, in the order of roles; skip is a role
+ 	// the row does not ask as.
+ 	want := func(codes ...int) map[string]int {
+@@ -118,65 +126,69 @@ func TestPermissions(t *testing.T) {
+ 	}
+ 
+ 	// A sign-in first: a GET without one goes to the sign-in page, a POST
+-	// is a 401. The API takes the session's cookie too.
++	// is a 401. The API takes the session's cookie too, and the pages an
++	// API token.
+ 	maagotest.Permissions(t, []maago.App{App, adminApp()}, roles,
+-		maagotest.Row{Route: "home", URL: HomeURL(), Want: want(200, 200, 200, 200)},
+-		maagotest.Row{Route: "board_new", URL: BoardNewURL(), Want: want(303, 200, 200, 200)},
+-		maagotest.Row{Route: "board_detail", URL: BoardDetailURL(b.ID), Want: want(200, 200, 200, 200)},
+-		maagotest.Row{Route: "board_rows", URL: BoardRowsURL(b.ID), Want: want(200, 200, 200, 200)},
+-		maagotest.Row{Route: "board_export", URL: BoardExportURL(fmt.Sprint(b.ID)), Want: want(200, 200, 200, 200)},
+-		maagotest.Row{Route: "post_new", URL: PostNewURL(b.ID), Want: want(303, 200, 200, 200)},
+-		maagotest.Row{Route: "post_detail", URL: PostDetailURL(out.ID), Want: want(200, 200, 200, 200)},
+-		maagotest.Row{Route: "api_posts", URL: APIPostsURL(b.ID), Want: want(200, 200, 200, 200)},
++		maagotest.Row{Route: "home", URL: HomeURL(), Want: want(200, 200, 200, 200, 200)},
++		maagotest.Row{Route: "board_new", URL: BoardNewURL(), Want: want(303, 200, 200, 200, 200)},
++		maagotest.Row{Route: "board_detail", URL: BoardDetailURL(b.ID), Want: want(200, 200, 200, 200, 200)},
++		maagotest.Row{Route: "board_rows", URL: BoardRowsURL(b.ID), Want: want(200, 200, 200, 200, 200)},
++		maagotest.Row{Route: "board_export", URL: BoardExportURL(fmt.Sprint(b.ID)), Want: want(200, 200, 200, 200, 200)},
++		maagotest.Row{Route: "post_new", URL: PostNewURL(b.ID), Want: want(303, 200, 200, 200, 200)},
++		maagotest.Row{Route: "post_detail", URL: PostDetailURL(out.ID), Want: want(200, 200, 200, 200, 200)},
++		maagotest.Row{Route: "api_posts", URL: APIPostsURL(b.ID), Want: want(200, 200, 200, 200, 200)},
+ 		// The writes: anybody signed in.
+-		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "bob의 게시판"), Want: want(401, 303, skip, skip)},
+-		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "ann의 게시판"), Want: want(skip, skip, 303, skip)},
+-		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "staff의 게시판"), Want: want(skip, skip, skip, 303)},
+-		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "bob의 글", "body", "본문"), Want: want(401, 303, skip, skip)},
+-		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "ann의 글", "body", "본문"), Want: want(skip, skip, 303, skip)},
+-		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "staff의 글", "body", "본문"), Want: want(skip, skip, skip, 303)},
+-		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "bob의 API 글", "body": "본문"}`, Want: want(401, 200, skip, skip)},
+-		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "ann의 API 글", "body": "본문"}`, Want: want(skip, skip, 200, skip)},
+-		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "staff의 API 글", "body": "본문"}`, Want: want(skip, skip, skip, 200)},
+-		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(out.ID), Body: form("text", "댓글"), Want: want(401, 303, 303, 303)},
++		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "bob의 게시판"), Want: want(401, 303, skip, skip, skip)},
++		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "cat의 게시판"), Want: want(skip, skip, 303, skip, skip)},
++		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "ann의 게시판"), Want: want(skip, skip, skip, 303, skip)},
++		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "staff의 게시판"), Want: want(skip, skip, skip, skip, 303)},
++		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "bob의 글", "body", "본문"), Want: want(401, 303, skip, skip, skip)},
++		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "cat의 글", "body", "본문"), Want: want(skip, skip, 303, skip, skip)},
++		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "ann의 글", "body", "본문"), Want: want(skip, skip, skip, 303, skip)},
++		maagotest.Row{Route: "post_create", URL: PostCreateURL(b.ID), Body: form("title", "staff의 글", "body", "본문"), Want: want(skip, skip, skip, skip, 303)},
++		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "bob의 API 글", "body": "본문"}`, Want: want(401, 200, skip, skip, skip)},
++		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "cat의 API 글", "body": "본문"}`, Want: want(skip, skip, 200, skip, skip)},
++		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "ann의 API 글", "body": "본문"}`, Want: want(skip, skip, skip, 200, skip)},
++		maagotest.Row{Route: "api_post_create", URL: APIPostCreateURL(b.ID), Body: `{"title": "staff의 API 글", "body": "본문"}`, Want: want(skip, skip, skip, skip, 200)},
++		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(out.ID), Body: form("text", "댓글"), Want: want(401, 303, 303, 303, 303)},
+ 		// Publish, archive, delete: the author or staff. A post with no
+ 		// author is staff's. A draft is not there to anyone else (404):
+ 		// GetPost reads it under policy visible.
+-		maagotest.Row{Route: "post_publish", URL: PostPublishURL(draft.ID), Want: want(401, 404, 303, skip)},
+-		maagotest.Row{Route: "post_publish", URL: PostPublishURL(oldDraft.ID), Want: want(401, 404, 404, 303)},
+-		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(apiDraft.ID), Want: want(401, 404, 200, skip)},
+-		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(oldAPIDraft.ID), Want: want(401, 404, 404, 200)},
+-		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(published.ID), Want: want(401, 403, 303, skip)},
+-		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(oldPublished.ID), Want: want(401, 403, 403, 303)},
+-		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toDelete.ID), Want: want(401, 403, 303, skip)},
+-		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(oldToDelete.ID), Want: want(401, 403, 403, 303)},
+-		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toHide.ID), Want: want(401, 403, 303, skip)},
++		maagotest.Row{Route: "post_publish", URL: PostPublishURL(draft.ID), Want: want(401, 404, 404, 303, skip)},
++		maagotest.Row{Route: "post_publish", URL: PostPublishURL(oldDraft.ID), Want: want(401, 404, 404, 404, 303)},
++		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(apiDraft.ID), Want: want(401, 404, 404, 200, skip)},
++		maagotest.Row{Route: "api_post_publish", URL: APIPostPublishURL(oldAPIDraft.ID), Want: want(401, 404, 404, 404, 200)},
++		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(published.ID), Want: want(401, 403, 403, 303, skip)},
++		maagotest.Row{Route: "post_archive", URL: PostArchiveURL(oldPublished.ID), Want: want(401, 403, 403, 403, 303)},
++		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toDelete.ID), Want: want(401, 403, 403, 303, skip)},
++		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(oldToDelete.ID), Want: want(401, 403, 403, 403, 303)},
++		maagotest.Row{Route: "post_delete", URL: PostDeleteURL(toHide.ID), Want: want(401, 403, 403, 303, skip)},
+ 		// Changing a post: its author or staff, as publishing.
+-		maagotest.Row{Route: "post_edit", URL: PostEditURL(out.ID), Want: want(303, 403, 200, 200)},
+-		maagotest.Row{Route: "post_change", URL: change(changes[0]), Body: form("title", "앤이 고친 제목", "body", "본문"), Want: want(401, 403, 303, skip)},
+-		maagotest.Row{Route: "post_change", URL: change(changes[1]), Body: form("title", "staff가 고친 제목", "body", "본문"), Want: want(skip, skip, skip, 303)},
++		maagotest.Row{Route: "post_edit", URL: PostEditURL(out.ID), Want: want(303, 403, 403, 200, 200)},
++		maagotest.Row{Route: "post_change", URL: change(changes[0]), Body: form("title", "앤이 고친 제목", "body", "본문"), Want: want(401, 403, 403, 303, skip)},
++		maagotest.Row{Route: "post_change", URL: change(changes[1]), Body: form("title", "staff가 고친 제목", "body", "본문"), Want: want(skip, skip, skip, skip, 303)},
+ 		// Files: the author and staff attach them; whoever may see the post
+ 		// downloads them, a draft's only its author and staff.
+-		maagotest.Row{Route: "attachment_add", URL: AttachmentAddURL(out.ID), Body: file.String(), ContentType: mw.FormDataContentType(), Want: want(401, 403, 303, 303)},
+-		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[0].ID)), Want: want(200, 200, 200, 200)},
+-		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[1].ID)), Want: want(404, 404, 200, 200)},
+-		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[2].ID)), Want: want(404, 404, 200, 200)},
++		maagotest.Row{Route: "attachment_add", URL: AttachmentAddURL(out.ID), Body: file.String(), ContentType: mw.FormDataContentType(), Want: want(401, 403, 403, 303, 303)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[0].ID)), Want: want(200, 200, 200, 200, 200)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[1].ID)), Want: want(404, 404, 404, 200, 200)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[2].ID)), Want: want(404, 404, 404, 200, 200)},
+ 		// What is not out.
+-		maagotest.Row{Route: "post_detail", URL: PostDetailURL(unseen.ID), Want: want(404, 404, 200, 200)},
+-		maagotest.Row{Route: "post_detail", URL: PostDetailURL(scheduled.ID), Want: want(404, 404, 200, 200)},
+-		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(unseen.ID), Body: form("text", "초안의 댓글"), Want: want(401, 404, 303, 303)},
++		maagotest.Row{Route: "post_detail", URL: PostDetailURL(unseen.ID), Want: want(404, 404, 404, 200, 200)},
++		maagotest.Row{Route: "post_detail", URL: PostDetailURL(scheduled.ID), Want: want(404, 404, 404, 200, 200)},
++		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(unseen.ID), Body: form("text", "초안의 댓글"), Want: want(401, 404, 404, 303, 303)},
+ 		// Me: whoever is signed in, as their own page.
+-		maagotest.Row{Route: "me", URL: MeURL(), Want: want(303, 200, 200, 200)},
+-		maagotest.Row{Route: "api_me", URL: APIMeURL(), Want: want(401, 200, 200, 200)},
++		maagotest.Row{Route: "me", URL: MeURL(), Want: want(303, 200, 200, 200, 200)},
++		maagotest.Row{Route: "api_me", URL: APIMeURL(), Want: want(401, 200, 200, 200, 200)},
+ 		// The admin: staff only. Its URLs are the admin's own, by app and model.
+-		maagotest.Row{Route: "admin_index", URL: "/admin/", Want: want(303, 403, 403, 200)},
+-		maagotest.Row{Route: "admin_list", URL: "/admin/board/Post/", Want: want(303, 403, 403, 200)},
+-		maagotest.Row{Route: "admin_row", URL: fmt.Sprintf("/admin/board/Post/%d/", out.ID), Want: want(303, 403, 403, 200)},
+-		maagotest.Row{Route: "admin_row_submit", URL: fmt.Sprintf("/admin/board/Board/%d/", b.ID), Body: form("name", "자유"), Want: want(401, 403, 403, 303)},
+-		maagotest.Row{Route: "admin_add", URL: "/admin/board/Board/add/", Want: want(303, 403, 403, 200)},
+-		maagotest.Row{Route: "admin_add_submit", URL: "/admin/board/Board/add/", Body: form("name", "admin의 게시판"), Want: want(401, 403, 403, 303)},
+-		maagotest.Row{Route: "admin_delete", URL: fmt.Sprintf("/admin/board/Post/delete/?id=%d", toAdminDelete.ID), Want: want(303, 403, 403, 200)},
+-		maagotest.Row{Route: "admin_delete_submit", URL: "/admin/board/Post/delete/", Body: form("id", fmt.Sprint(toAdminDelete.ID)), Want: want(401, 403, 403, 303)},
++		maagotest.Row{Route: "admin_index", URL: "/admin/", Want: want(303, 403, 403, 403, 200)},
++		maagotest.Row{Route: "admin_list", URL: "/admin/board/Post/", Want: want(303, 403, 403, 403, 200)},
++		maagotest.Row{Route: "admin_row", URL: fmt.Sprintf("/admin/board/Post/%d/", out.ID), Want: want(303, 403, 403, 403, 200)},
++		maagotest.Row{Route: "admin_row_submit", URL: fmt.Sprintf("/admin/board/Board/%d/", b.ID), Body: form("name", "자유"), Want: want(401, 403, 403, 403, 303)},
++		maagotest.Row{Route: "admin_add", URL: "/admin/board/Board/add/", Want: want(303, 403, 403, 403, 200)},
++		maagotest.Row{Route: "admin_add_submit", URL: "/admin/board/Board/add/", Body: form("name", "admin의 게시판"), Want: want(401, 403, 403, 403, 303)},
++		maagotest.Row{Route: "admin_delete", URL: fmt.Sprintf("/admin/board/Post/delete/?id=%d", toAdminDelete.ID), Want: want(303, 403, 403, 403, 200)},
++		maagotest.Row{Route: "admin_delete_submit", URL: "/admin/board/Post/delete/", Body: form("id", fmt.Sprint(toAdminDelete.ID)), Want: want(401, 403, 403, 403, 303)},
+ 	)
+ }
+ 
+diff --git a/board/templates/post_page.html b/board/templates/post_page.html
+index e896453..060295b 100644
+--- a/board/templates/post_page.html
++++ b/board/templates/post_page.html
+@@ -13,8 +13,8 @@
+ <li>첨부가 없습니다.</li>{{end}}
+ </ul>
+ <form method="post" action="{{url "attachment_add" .Post.ID}}" enctype="multipart/form-data">
+-<input type="file" name="file">
+-{{with .AttachForm.File}}{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
++{{with .AttachForm.File}}<label>{{.Label}} <input type="file" name="{{.Name}}"></label>
++{{if .Error}}<p class="error">{{.Error}}</p>{{end}}{{end}}
+ <button>올리기</button>
+ </form>
+ <h2>댓글</h2>
+diff --git a/board/views.go b/board/views.go
+index 9a7efc5..49dd70e 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -110,14 +110,14 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
+ }
+ 
+ // postPage is the page of post id, with its comments and attachments,
+-// and the comment form f, if u may read it (policy visible): a post u may
+-// not read is not found.
++// the comment form f and an empty attachment form, if u may read it
++// (policy visible): a post u may not read is not found.
+ func postPage(ctx context.Context, db maago.DB, u *auth.User, id int64, f CommentForm) (PostPage, error) {
+ 	p, err := PostDetail(ctx, u, db, PostDetailParams{ID: id, Now: time.Now()})
+ 	if err != nil {
+ 		return PostPage{}, err
+ 	}
+-	page := PostPage{Post: p, Form: f}
++	page := PostPage{Post: p, Form: f, AttachForm: NewAttachmentForm()}
+ 	if page.Comments, err = PostComments(ctx, db, PostCommentsParams{PostID: p.ID}); err != nil {
+ 		return PostPage{}, err
+ 	}
+@@ -154,7 +154,7 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
+ 		}
+ 		return maago.SeeOther[PostPage](PostDetailURL(post.ID)), nil
+ 	}
+-	page, err := postPage(ctx, tx, &u, post.ID, CommentForm{})
++	page, err := postPage(ctx, tx, &u, post.ID, NewCommentForm())
+ 	page.AttachForm = in.Form
+ 	return maago.Show(page), err
+ }
+diff --git a/board/web_test.go b/board/web_test.go
+index 63d8973..dc6520b 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -377,8 +377,8 @@ func TestAPI(t *testing.T) {
+ 	}
+ 	// The frontend writes with an API token of its user (auth's /tokens).
+ 	ann := newUser(t, db, "ann@example.com")
+-	token, hash := authlib.NewToken()
+-	if _, err := auth.InsertAPIToken(t.Context(), db, auth.NewAPITokenInput{UserID: ann.ID, Name: "front", Hash: hash}); err != nil {
++	token, err := auth.SignInToken(t.Context(), db, ann)
++	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	bearer := []string{"Authorization", "Bearer " + token}
+@@ -681,8 +681,8 @@ func TestMe(t *testing.T) {
+ 		t.Errorf("/me without a sign-in: %d", code)
+ 	}
+ 
+-	token, hash := authlib.NewToken()
+-	if _, err := auth.InsertAPIToken(ctx, db, auth.NewAPITokenInput{UserID: ann.ID, Name: "front", Hash: hash}); err != nil {
++	token, err := auth.SignInToken(ctx, db, ann)
++	if err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	// call asks for the API's /me with the Authorization header header.

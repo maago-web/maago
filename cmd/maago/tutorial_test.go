@@ -101,6 +101,10 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"no permission table", "0021-Sign-in.patch", "+\tmaagotest.Permissions(t, []maago.App{App}, roles,", "+\t_ = maagotest.Permissions; permissions(t, []maago.App{App}, roles,", "maago gen:\n"},
 		// A taken title is the form's error, not a 500 (D-154).
 		{"a taken title as a 500", "0034-Let-the-database-refuse-what-is-taken.patch", "+\tif f.Fail(err) {\n+\t\treturn Post{}, false, nil", "+\tif false {\n+\t\treturn Post{}, false, nil", "go test: "},
+		// The page's other form is NewX's: without it, a name is missing.
+		{"the comment form, unnamed", "0037-Draw-both-forms-and-ask-as-an-API-client.patch", "post.ID, NewCommentForm())", "post.ID, CommentForm{})", "go test: "},
+		// The API client's column is asked, cell by cell.
+		{"a token's cell", "0037-Draw-both-forms-and-ask-as-an-API-client.patch", `Route: "me", URL: MeURL(), Want: want(303, 200, 200, 200, 200)`, `Route: "me", URL: MeURL(), Want: want(303, 200, 303, 200, 200)`, "go test: "},
 		// A fix: line the step quotes is maago gen's, word for word.
 		{"a misquoted fix", "0035-Write-who-may-read-a-post.patch", "each shows)", "each show)", "maago gen: the message quotes\n"},
 		// A query that reads the posts without their policy stops maago gen,

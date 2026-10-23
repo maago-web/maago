@@ -96,6 +96,19 @@
    기록(2026-10-24): 복사된 auth의 `SignInToken`, `maagotest.Bearer`와 `TestBearer`, auth 복사본의 권한 표에 `cat_token`(모든 행, 토큰 칸 하나를 틀리게 하면 실패를 확인), `TestSignInRefuses`, `maago doc view`의 권한 문단, `auth.txt` 예의 토큰 역할. `TestAddAuth`(두 방언)·`TestDocExamples`
 
 4. **게시판 0037: 폼 둘과 토큰**: 글 페이지가 `NewCommentForm`·`NewAttachmentForm`으로, 손으로 쓴 폼 칸의 `name=`·라벨을 지운다. `TestPermissions`에 토큰 역할(모든 행), `TestAPI`·`TestMe`의 손 토큰을 `SignInToken`으로, MAP.md에 행 → 확인: `TestBoardTutorial`(PG), `TestBoardMap`, 폼 struct 칸의 `name=`이 템플릿에 손으로 없다(0008의 검색 `q`는 폼이 아니다)
+   계획
+   - 단계 0037 `Draw both forms and test as an API client`(이름은 짧게 고칠 수 있다): `postPage`가 `AttachForm: NewAttachmentForm()`을 기본으로, `Attach`의 다시 그리기가 `CommentForm{}` 대신 `NewCommentForm()`, `post_page.html`의 파일 칸이 `{{.AttachForm.File.Name}}`·라벨 `{{.AttachForm.File.Label}}`(지금 손으로 쓴 `name="file"`)
+   - `TestPermissions`: 역할 `cat_token`(셋째 사용자 cat, `auth.SignInToken` + `maagotest.Bearer`, 쿠키 없음). 작성자도 staff도 아니므로 칸은 bob과 같은 까닭의 답(남의 글 403·초안 404·admin 403), 만드는 행 셋(`board_create`·`post_create`·`api_post_create`)은 cat의 제목으로 행을 하나씩 더하고 기존 행은 `skip`. 3번처럼 ann의 토큰이 아닌 까닭: 작성자의 행(게시·보관·지우기)은 소비하는 행이라 ann의 쿠키 행을 먹는다. 표 주석의 "The API takes the session's cookie too"에 토큰을 더한다
+   - `TestAPI`(0022~)·`TestMe`(0030~)의 손 토큰(`authlib.NewToken()` + `auth.InsertAPIToken`)을 `auth.SignInToken`으로. 그 요청은 `Origin`과 머리를 직접 싣는 그대로(평문 토큰만 필요)
+   - 시험이 손으로 쓴 이름을 보던 곳: 첨부 시험이 `name="file"`을 찾는지 본다(있으면 그대로 통과해야 한다: 이름은 같다)
+   - 단계 글: 0029·0031이 손으로 쓴 이름을 고친다는 것, `NewX`는 폼마다 생성된다, 토큰 역할의 까닭. `examples/board/MAP.md` 둘째 표에 0037 행
+   - 확인: `TestBoardTutorial`(PG), `TestBoardMap`, `TestBoardTutorialCatches`(새 단계가 마지막이 되어 바뀌는 행이 있는지), 템플릿에 폼 칸의 손 `name=`이 없다(grep: `name="file"`·`name="text"`)
+   - 계획 리뷰는 fable 하나: 정해진 틀 안의 게시판 단계(2·3번의 API를 쓴다)
+   - 계획 리뷰(fable): `want`는 역할의 차례대로라 cat이 ann 뒤면 ann·staff의 게시·지우기 행이 먼저 먹는다 → 차례 `nobody, bob, cat_token, ann, staff`. 손 이름 grep은 헛것(댓글은 이미 `{{.Name}}`) → 진짜 결함(첨부 실패 뒤 댓글 칸 `name=""`)을 `TestAttachments`가 보고, GET의 파일 칸 이름·라벨도, Catches 두 행(`NewCommentForm()` → `CommentForm{}`, 토큰 칸 하나). 글은 0029만(0031 아님), 서명을 인용, ann의 토큰이 아닌 까닭. 마지막 단계를 이름으로 부르는 다른 행은 없다(확인). 모두 받음
+   - 구현 리뷰는 ponytail(지울 것 없음)과 fable 하나: 패치 머리의 `From:`이 개인 주소(0034도) → `Maago <maago@example.com>`, 글 두 구절, 주석 줄 바꿈. 받음
+
+   기록(2026-10-24): 단계 0037 `Draw both forms, and ask as an API client`(`postPage`의 `NewAttachmentForm()`, `Attach`의 `NewCommentForm()`, 파일 칸의 라벨·이름, 권한 표의 `cat_token`과 cat의 만드는 행 셋, `TestAPI`·`TestMe`의 `SignInToken`, `TestAttachments`의 두 폼), MAP의 0037 행, Catches "the comment form, unnamed"·"a token's cell". `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardMap`(PG)
+
 5. **타입 있는 탈출구 뷰**(Q5): 서명 검사, 생성 어댑터, 쓰기 전·뒤의 오류, `ServeMedia`의 오류, 라우트 표·URL 함수·권한 표가 그대로 → 확인: 쓰기 전 오류의 상태(404·`Status`·500과 `OnError`), 쓴 뒤 오류의 끊긴 연결, 감싼 `w`의 `Flush`가 스트리밍한다, `Tx`는 생성 오류, `ServeMedia`의 Range 응답(206), 골든, 두 방언
 6. **게시판 0038: 내보내기와 내려받기**: `ExportBoard`·`DownloadAttachment`를 새 꼴로, 손 파싱·`panic`·`UserFrom`이 사라진다, MAP.md에 행 → 확인: `TestBoardTutorial`, `TestBoardMap`, 게시판에 `panic(`이 없다
 7. **UUID·JSON·돈의 정수**(Q6): 태그·DDL·스키마 읽기·비교, 쿼리 결과·매개변수 타입, 폼 바인딩(UUID, `decimal=`), admin, `float64` 돈 이름의 진단, `maago doc` → 확인: 두 방언에서 모델 → `makemigrations` → `migrate` → 쿼리 → 폼·admin(gentest, `orders`의 `Total`이 `decimal=2`), 손 SQL `WHERE total > :min`·`SUM(total)`이 두 방언에서 같은 행·같은 값, 소수 자리 넘침·자릿수 넘침이 폼 오류, 스키마 비교의 차이 없음, `TestDocExamples`
