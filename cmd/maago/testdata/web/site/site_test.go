@@ -79,6 +79,11 @@ func TestUpload(t *testing.T) {
 		h.ServeHTTP(w, r)
 		return w
 	}
+	get := func(u string) *httptest.ResponseRecorder {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", u, nil))
+		return w
+	}
 	png := append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 100)...)
 	for _, c := range []struct {
 		name string
@@ -86,6 +91,7 @@ func TestUpload(t *testing.T) {
 		code int
 		body string
 	}{
+		{"the page", get(UploadURL()), 200, `<label>제목 <input name="title"></label>`},
 		{"a png", post("a.png", png), 200, "<p>got a.png image/png "},
 		{"html named png", post("a.png", []byte("<!DOCTYPE html><p>x")), 200, "This kind of file is not allowed."},
 		{"no file chosen", post("", nil), 200, "This field is required."},
@@ -93,6 +99,11 @@ func TestUpload(t *testing.T) {
 	} {
 		if c.w.Code != c.code || !strings.Contains(c.w.Body.String(), c.body) {
 			t.Errorf("%s: %d %q", c.name, c.w.Code, c.w.Body)
+		}
+		// The page's other form, NewPostForm, is drawn by name and label,
+		// and no request read it: no error of its own.
+		if c.code == 200 && (!strings.Contains(c.w.Body.String(), `<label>제목 <input name="title"></label></form>`) || strings.Count(c.w.Body.String(), "This field is required.") > 1) {
+			t.Errorf("%s: the other form: %q", c.name, c.w.Body)
 		}
 	}
 	// What was saved comes back down, to download; another key is 404.

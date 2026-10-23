@@ -128,15 +128,16 @@ func ViewsFile(app *App, apps []*App) []byte {
 		"Static": static, "Used": slices.Sorted(maps.Keys(app.used)), "UserImport": userImport})
 }
 
-// FormsFile is forms_gen.go of app: the Valid method of each form, read
-// by an In or not yet, or nil when there is none. The views call Valid, so
-// it exists before the type check, unlike views_gen.go.
+// FormsFile is forms_gen.go of app: the Valid and Fail methods and the
+// NewX of each form, read by an In or not yet, or nil when there is none.
+// The views call them, so it exists before the type check, unlike
+// views_gen.go.
 func FormsFile(app *App) []byte {
 	var forms []map[string]any
 	for _, name := range slices.Sorted(maps.Keys(app.forms)) {
 		var fields []map[string]string
 		for _, ff := range app.forms[name].fields {
-			fields = append(fields, map[string]string{"Name": ff.name})
+			fields = append(fields, map[string]string{"Name": ff.name, "Rule": ruleLit(ff)})
 		}
 		forms = append(forms, map[string]any{"Name": name, "Fields": fields})
 	}
@@ -207,6 +208,10 @@ func More(fset *token.FileSet, app *App) *mapper.More {
 				}
 			}
 		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(app.forms)) {
+		m.Names = append(m.Names, mapper.Name{Name: "New" + name, By: "form " + name, Pos: fset.Position(app.forms[name].pos),
+			Fix: "rename the form, or what else declares New" + name + "; maago generates New" + name + " to draw form " + name + " empty"})
 	}
 	if len(app.Static) > 0 {
 		for _, n := range []string{"maagoStaticFiles", "maagoStatic"} {

@@ -118,7 +118,7 @@ func TestFormErrors(t *testing.T) {
 		{"a model form's own rule", "Kind       maago.Field[string] `maago:\"optional\"`", "Kind       maago.Field[string] `maago:\"max=3\"`", []string{`board/urls.go:29:41: form field Kind takes its rules from model Board`}},
 		{"model type differs", "\tName       maago.Field[string]\n", "\tName       maago.Field[int64]\n", []string{`board/urls.go:28:13: form field Name is maago.Field[int64], but model Board has it as string`}},
 		{"auto in a model form", "\tName       maago.Field[string]\n", "\tName       maago.Field[string]\n\tCreated    maago.Field[time.Time]\n", []string{`board/urls.go:29:2: field Created of model Board is not for a form to set`}},
-		{"two forms in an In", "\tForm BoardForm `maago:\"form\"`\n}", "\tForm BoardForm `maago:\"form\"`\n\tMore BoardForm `maago:\"form\"`\n}", []string{`board/urls.go:45:2: BoardIn reads a second form, More`}},
+		{"two forms in an In", "\tForm BoardForm `maago:\"form\"`\n}", "\tForm BoardForm `maago:\"form\"`\n\tMore NoticeForm `maago:\"form\"`\n}", []string{`board/urls.go:45:2: BoardIn reads a second form, More`}},
 		{"not a form", "\tForm NoticeForm `maago:\"form\"`", "\tForm NoticePage `maago:\"form\"`", []string{`board/urls.go:52:2: NoticeIn.Form reads form NoticePage, which does not embed maago.Form`}},
 		{"another package's form", "\tForm NoticeForm `maago:\"form\"`", "\tForm time.Time `maago:\"form\"`", []string{`board/urls.go:52:7: form Form is not of a type of this package: time.Time`}},
 		{"form with a value", "\tForm NoticeForm `maago:\"form\"`", "\tForm NoticeForm `maago:\"form=x\"`", []string{`board/urls.go:52:26: maago:"form" takes no value`}},
@@ -132,6 +132,7 @@ func TestFormErrors(t *testing.T) {
 		{"a Valid method", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() {}\n\nfunc (f NoticeForm) Valid() bool { return true }", []string{`board/urls.go:43:21: form NoticeForm declares Valid, which maago gen writes for it`}},
 		{"a field named Valid", "Pinned maago.Field[bool]", "Valid  maago.Field[bool]", []string{`board/urls.go:37:2: form field Valid takes the name of the form's method Valid`}},
 		{"a Fail method", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() {}\n\nfunc (f *NoticeForm) Fail(err error) bool { return false }", []string{`board/urls.go:43:22: form NoticeForm declares Fail, which maago gen writes for it`}},
+		{"a func named NewX", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() {}\n\nfunc NewNoticeForm() NoticeForm { return NoticeForm{} }", []string{`board/urls.go:32:6: form NoticeForm would declare NewNoticeForm, which board/urls.go:43 declares already`}},
 		{"a field named Fail", "Pinned maago.Field[bool]", "Fail   maago.Field[bool]", []string{`board/urls.go:37:2: form field Fail takes the name of the form's method Fail`}},
 		{"a form as the In", "in BoardIn) (BoardPage, error) { return BoardPage{in.Form}, nil }", "f *BoardForm) (BoardPage, error) { return BoardPage{*f}, nil }", []string{`board/urls.go:49:38: view BoardNew takes form BoardForm as its In`}},
 		{"a form value as the In", "in BoardIn) (BoardPage, error) { return BoardPage{in.Form}, nil }", "f BoardForm) (BoardPage, error) { return BoardPage{f}, nil }", []string{`board/urls.go:49:38: view BoardNew takes form BoardForm as its In`}},
@@ -159,10 +160,10 @@ func TestFormErrors(t *testing.T) {
 	golden.Check(t, "testdata/forms.golden", []byte(all.String()))
 }
 
-// A form no In reads yet has Valid too: a view written before its route
-// still type-checks.
+// A form no In reads yet has Valid and NewX too: a view written before
+// its route still type-checks.
 func TestFormValidUnread(t *testing.T) {
-	out, files := generate(t, boardFiles("func BoardNew(", "type DraftForm struct {\n\tmaago.Form\n\tNote maago.Field[string]\n}\n\nfunc draftOK(f DraftForm) bool { return f.Valid() }\n\nfunc BoardNew("))
+	out, files := generate(t, boardFiles("func BoardNew(", "type DraftForm struct {\n\tmaago.Form\n\tNote maago.Field[string]\n}\n\nfunc draftOK(f DraftForm) bool { return f.Valid() || NewDraftForm().Note.Name == \"note\" }\n\nfunc BoardNew("))
 	if out != "" {
 		t.Fatalf("errors:\n%s", out)
 	}

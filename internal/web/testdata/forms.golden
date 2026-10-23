@@ -60,7 +60,7 @@ board/urls.go:29:2: field Created of model Board is not for a form to set
 
 # two forms in an In
 board/urls.go:45:2: BoardIn reads a second form, More
-  fix: keep one form field in In; a page with two forms posts each to its own route
+  fix: keep one form field in In, draw the other with NewNoticeForm(), and post each form to its own route
 
 # not a form
 board/urls.go:52:2: NoticeIn.Form reads form NoticePage, which does not embed maago.Form
@@ -116,6 +116,10 @@ board/urls.go:37:2: form field Valid takes the name of the form's method Valid
 # a Fail method
 board/urls.go:43:22: form NoticeForm declares Fail, which maago gen writes for it
   fix: remove it, or rename it: the generated Valid counts the form's errors and its fields', and Fail shows a unique constraint's error
+
+# a func named NewX
+board/urls.go:32:6: form NoticeForm would declare NewNoticeForm, which board/urls.go:43 declares already
+  fix: rename the form, or what else declares NewNoticeForm; maago generates NewNoticeForm to draw form NoticeForm empty
 
 # a field named Fail
 board/urls.go:37:2: form field Fail takes the name of the form's method Fail

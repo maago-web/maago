@@ -20,6 +20,17 @@ func (f *BoardForm) Fail(err error) bool {
 	return rt.Fail(&f.Form, err, map[string]*string{"Name": &f.Name.Error, "Kind": &f.Kind.Error})
 }
 
+// NewBoardForm is form BoardForm empty, as a GET draws it: each field's
+// name, label, help and choices, for a page that draws it beside the form
+// its In reads. No request sent it: Valid is false, and Fail uses the
+// default messages.
+func NewBoardForm() BoardForm {
+	var f BoardForm
+	rt.Describe(&f.Name, rt.Rule{Name: "name", Label: "이름", Max: 50})
+	rt.Describe(&f.Kind, rt.Rule{Name: "kind", Label: "Kind", Choices: []string{"free", "notice"}, Optional: true})
+	return f
+}
+
 // Valid reports whether form NoticeForm was sent and has no error: neither
 // its own nor one of its fields', which binding, Validate or the view set.
 func (f NoticeForm) Valid() bool {
@@ -32,4 +43,18 @@ func (f NoticeForm) Valid() bool {
 // error; it reports whether it did, so the view draws the form again.
 func (f *NoticeForm) Fail(err error) bool {
 	return rt.Fail(&f.Form, err, map[string]*string{"Title": &f.Title.Error, "Days": &f.Days.Error, "Rate": &f.Rate.Error, "Pinned": &f.Pinned.Error, "Start": &f.Start.Error})
+}
+
+// NewNoticeForm is form NoticeForm empty, as a GET draws it: each field's
+// name, label, help and choices, for a page that draws it beside the form
+// its In reads. No request sent it: Valid is false, and Fail uses the
+// default messages.
+func NewNoticeForm() NoticeForm {
+	var f NoticeForm
+	rt.Describe(&f.Title, rt.Rule{Name: "title", Label: "제목", Help: "짧게", Min: 2, Max: 200})
+	rt.Describe(&f.Days, rt.Rule{Name: "days", Label: "Days", MinValue: "1", MaxValue: "30"})
+	rt.Describe(&f.Rate, rt.Rule{Name: "rate", Label: "Rate", Optional: true})
+	rt.Describe(&f.Pinned, rt.Rule{Name: "pinned", Label: "Pinned"})
+	rt.Describe(&f.Start, rt.Rule{Name: "start", Label: "Start", Optional: true})
+	return f
 }

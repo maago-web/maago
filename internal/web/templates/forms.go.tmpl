@@ -19,4 +19,16 @@ func (f {{.Name}}) Valid() bool {
 func (f *{{.Name}}) Fail(err error) bool {
 	return rt.Fail(&f.Form, err, map[string]*string{ {{- range $i, $f := .Fields}}{{if $i}}, {{end}}"{{$f.Name}}": &f.{{$f.Name}}.Error{{end -}} })
 }
+
+// New{{.Name}} is form {{.Name}} empty, as a GET draws it: each field's
+// name, label, help and choices, for a page that draws it beside the form
+// its In reads. No request sent it: Valid is false, and Fail uses the
+// default messages.
+func New{{.Name}}() {{.Name}} {
+	var f {{.Name}}
+{{- range .Fields}}
+	rt.Describe(&f.{{.Name}}, {{.Rule}})
+{{- end}}
+	return f
+}
 {{end}}

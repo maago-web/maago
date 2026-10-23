@@ -56,7 +56,7 @@ func MultipartValues(r *http.Request, keys ...string) (url.Values, error) {
 // not given. Raw is the name the file was sent under.
 func BindFile(r *http.Request, vals url.Values, f *maago.Field[maago.File], rule Rule) {
 	ctx := r.Context()
-	f.Name, f.Label, f.Help, f.Choices = rule.Name, rule.Label, rule.Help, rule.Choices
+	Describe(f, rule)
 	if vals == nil {
 		return
 	}

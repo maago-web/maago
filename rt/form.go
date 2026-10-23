@@ -67,11 +67,17 @@ func FormValues(r *http.Request, keys ...string) (url.Values, error) {
 	return r.PostForm, nil
 }
 
+// Describe fills f's description from rule: what a template draws of a
+// field no request read. Only generated code calls it.
+func Describe[T any](f *maago.Field[T], rule Rule) {
+	f.Name, f.Label, f.Help, f.Choices = rule.Name, rule.Label, rule.Help, rule.Choices
+}
+
 // bind fills f's description from rule and, when the form was sent, its
 // text; it reports whether there is text to read. Not given: an error
 // when required, else the zero value.
 func bind[T any](ctx context.Context, vals url.Values, f *maago.Field[T], rule Rule) bool {
-	f.Name, f.Label, f.Help, f.Choices = rule.Name, rule.Label, rule.Help, rule.Choices
+	Describe(f, rule)
 	if vals == nil {
 		return false
 	}

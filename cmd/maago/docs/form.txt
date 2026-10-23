@@ -147,18 +147,20 @@ type ReviewIn struct {
 	Form ReviewForm `maago:"form"`
 }
 
+// ReviewPage draws a second form, Post, which its In does not read.
 type ReviewPage struct {
 	Form ReviewForm
+	Post PostForm
 	Sent bool
 }
 
 func Review(ctx context.Context, in ReviewIn) (ReviewPage, error) {
-	return ReviewPage{Form: in.Form}, nil
+	return ReviewPage{Form: in.Form, Post: NewPostForm()}, nil
 }
 
 // SendReview writes nothing to the database, yet a POST takes maago.Tx.
 func SendReview(ctx context.Context, tx maago.Tx, in ReviewIn) (maago.Result[ReviewPage], error) {
-	return maago.Show(ReviewPage{Form: in.Form, Sent: in.Form.Valid()}), nil
+	return maago.Show(ReviewPage{Form: in.Form, Post: NewPostForm(), Sent: in.Form.Valid()}), nil
 }
 -- blog/templates/base.html --
 <!doctype html>
@@ -181,6 +183,10 @@ func SendReview(ctx context.Context, tx maago.Tx, in ReviewIn) (maago.Result[Rev
     {{with .Form.Rating}}<input name="{{.Name}}" value="{{.Raw}}"> {{.Error}}{{end}}
     {{with .Form.Photo}}<input type="file" name="{{.Name}}"> {{.Error}}{{end}}
     <button>Send</button>
+  </form>
+  <form method="post" action="{{url "post_create"}}">
+    {{with .Post.Title}}<label>{{.Label}} <input name="{{.Name}}"></label>{{end}}
+    <button>Save</button>
   </form>
 {{end}}
 -- blog/blog_test.go --
@@ -223,5 +229,10 @@ func TestForms(t *testing.T) {
 	}
 	if w := post("/api/posts", `{"title": "Other", "status": "draft"}`, "application/json"); w.Code != 200 {
 		t.Errorf("a right JSON form: %d %s", w.Code, w.Body)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/review", nil))
+	if !strings.Contains(w.Body.String(), `<label>Title <input name="title"></label>`) {
+		t.Errorf("the second form: %d %s", w.Code, w.Body) // NewPostForm named it
 	}
 }

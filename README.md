@@ -5,7 +5,7 @@
 
 M0(뼈대)·M1(모델)·M2(연습용 DB와 마이그레이션)·M3(SQL 매퍼)·M4(HTTP)·M5(인증)·M6(admin)·M7(정적 파일과 업로드)·M8(튜토리얼 검증: 게시판)·M9(v0 게이트)·M10(연구 반영과 첫 릴리스, v0.1.0)·M11(안전: unique 위반·권한 표·읽기 정책, v0.2.0)이 끝났다. 다음은 M12(게이트가 넘긴 것과 맞음). 문서부터 읽는다.
 
-**다음 작업: [TASKS-M12](docs/TASKS-M12.md) 2번**(한 페이지의 폼 둘, 그다음 API 토큰 역할, 탈출구 뷰, UUID·JSON·돈, outbox. 결정 D-157~D-159).
+**다음 작업: [TASKS-M12](docs/TASKS-M12.md) 3번**(API 토큰 역할, 그다음 게시판 0037, 탈출구 뷰, UUID·JSON·돈, outbox. 결정 D-157~D-159).
 
 - [MISSION.md](docs/MISSION.md) — 무엇을 하려는가
 - [PHILOSOPHY.md](docs/PHILOSOPHY.md) — 결정을 낳는 원칙

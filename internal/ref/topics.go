@@ -344,6 +344,17 @@ field read and passed its rules and Validate added no error:
 		return maago.SeeOther[PostFormPage](PostListURL()), nil
 	}
 
+An In reads one form. A page that draws another beside it, such as a
+review page with a PostForm under its ReviewForm, gets that one from
+NewPostForm(), which maago gen writes for each form X as NewX: empty,
+each field with its Name, Label, Help and Choices, as a GET draws it.
+Each form posts to its own route, whose In reads it. No request sent the
+other: its Valid is false, and its Fail uses the default messages.
+
+	func Review(ctx context.Context, in ReviewIn) (ReviewPage, error) {
+		return ReviewPage{Form: in.Form, Post: NewPostForm()}, nil
+	}
+
 A maago.File field is read from a multipart form (enctype="multipart/form-data"),
 and needs maago.Config.MediaDir; maago.SaveMedia keeps the file. A field
 takes one file, from an HTML form: an API route takes none. Its kind is

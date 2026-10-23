@@ -17,13 +17,16 @@ type UploadIn struct {
 	Form UploadForm `maago:"form"`
 }
 
+// UploadPage draws a second form, NewPostForm, which its In does not
+// read: NewNewPostForm describes it.
 type UploadPage struct {
 	Form UploadForm
+	Post NewPostForm
 	Got  string
 }
 
 func Upload(ctx context.Context, in UploadIn) (UploadPage, error) {
-	p := UploadPage{Form: in.Form}
+	p := UploadPage{Form: in.Form, Post: NewNewPostForm()}
 	if in.Form.Valid() {
 		m, err := maago.SaveMedia(ctx, in.Form.Doc.Value)
 		if err != nil {

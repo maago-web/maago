@@ -1,1 +1,1 @@
-{{define "content"}}<form method="post" enctype="multipart/form-data"><input type="file" name="{{.Form.Doc.Name}}">{{.Form.Doc.Error}}</form>{{if .Got}}<p>got {{.Got}}</p>{{end}}{{end}}
+{{define "content"}}<form method="post" enctype="multipart/form-data"><input type="file" name="{{.Form.Doc.Name}}">{{.Form.Doc.Error}}</form><form method="post" action="{{url "post_new_save"}}"><label>{{.Post.Title.Label}} <input name="{{.Post.Title.Name}}"></label>{{.Post.Title.Error}}</form>{{if .Got}}<p>got {{.Got}}</p>{{end}}{{end}}

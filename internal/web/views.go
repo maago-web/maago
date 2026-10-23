@@ -257,7 +257,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 		}
 	}
 	if forms := slices.DeleteFunc(slices.Clone(v.fields), func(f inField) bool { return f.source != "form" }); len(forms) > 1 {
-		errAt(forms[1].pos, fmt.Sprintf("%s reads a second form, %s", v.in, forms[1].name), "keep one form field in In; a page with two forms posts each to its own route")
+		errAt(forms[1].pos, fmt.Sprintf("%s reads a second form, %s", v.in, forms[1].name), "keep one form field in In, draw the other with New"+forms[1].typ+"(), and post each form to its own route")
 	}
 	paths := map[string]inField{}
 	for _, f := range append(v.fields, bad...) {

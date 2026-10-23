@@ -10,8 +10,8 @@ import (
 
 // Form is embedded in every form struct: the errors of the form
 // as a whole, and whether the request filled it in. A form's fields are
-// Field values; maago gen writes the code that reads them, and the
-// form's Valid method.
+// Field values; maago gen writes the code that reads them, the form's
+// Valid and Fail methods, and NewX, form X empty for a template to draw.
 type Form struct {
 	Errors []string // the form's own errors, beside its fields'
 	state  rtcore.FormState
@@ -32,6 +32,9 @@ type Field[T any] struct {
 	Given bool   // the text sent is not empty
 	Error string // why the text is not a valid value; "" when it is
 
+	// What a template draws. A form no request read has them only when
+	// NewX, which maago gen writes for form X, made it: no request sent
+	// it, so Valid is false, and Fail uses the default messages.
 	Name    string // the form key: the field's name in snake_case
 	Label   string
 	Help    string
