@@ -80,7 +80,21 @@
    - 구현 리뷰(ponytail·codex·fable): ponytail 지울 것 없음(`Describe`는 두 곳의 같은 네 줄을 하나로). codex 결함 없음(샌드박스가 쓰기를 막아 시험은 돌리지 못했다: 읽은 리뷰). fable: 보내지 않은 폼의 `Fail`은 할 일이 없지 않고 기본 문구를 쓴다(`rt/write.go:92`) → 생성 주석·`maago.Field`·`maago doc form`에 같은 문장, 두 폼 사례가 둘 다 `BoardForm`이라 fix가 어느 폼을 말하는지 못 가린다 → 둘째를 `NoticeForm`으로, `form.go`의 글. 받음
 
    기록(2026-10-24): `rt.Describe`, 폼마다 `NewX()`(`forms_gen.go`, 쓰이지 않는 폼도), `More`의 `NewX` 이름 검사, 둘째 폼의 fix가 `NewX()`를 가리킨다, `maago doc form`의 문단과 예(리뷰 페이지가 `NewPostForm()`), `maago.Field` 문서, D-119 고침. 시험: 골든 둘, 충돌 사례, `TestFormValidUnread`(쓰이지 않는 폼의 `NewX`), site `TestUpload`(GET과 실패한 POST가 다른 폼의 `name="title"`·`제목`, 그 폼에 오류 없음, `NewNewPostForm()`을 빼면 실패를 확인), 예의 시험. PG 전체 시험 초록
-3. **API 토큰 역할**(Q4): 복사된 auth의 `SignInToken`, `maagotest.Bearer`, auth 복사본의 권한 표에 토큰 역할 → 확인: `TestAddAuth`(두 방언), 닫히거나 확인 안 된 계정은 오류, 지운 토큰은 사용자 없음, 쿠키와 Bearer가 함께면 토큰이 정한다
+3. **API 토큰 역할**(Q4): 복사된 auth의 `SignInToken`, `maagotest.Bearer`, auth 복사본의 권한 표에 토큰 역할 → 확인: `TestAddAuth`(두 방언), 닫히거나 확인 안 된 계정은 오류(`TestSignInRefuses`), 지운 토큰·쿠키와 함께인 토큰은 이미 `TestAPITokens`·`contrib/auth`의 시험, `TestDocExamples`, `TestNoDecisionsInUserText`
+   계획
+   - 복사된 auth(`internal/scaffold/testdata/auth/auth.go`, `SignIn` 곁): `SignInToken(ctx, db, u User) (string, error)`: `SignIn`과 같은 거절(닫히거나 확인 안 된 계정은 오류: 그 토큰은 `APITokenUser`가 아무도 아님으로 읽는다), `authlib.NewToken()`과 `InsertAPIToken(… Name: "test" …)`, 평문 토큰을 돌려준다. 문서: `maagotest.Bearer(h, token)`과 함께, 토큰은 그 사용자의 토큰 목록(/tokens)에 보인다. 비밀번호를 다시 묻지 않는다(D-129의 재확인은 사람이 토큰을 만드는 화면의 것, 시험은 DB에 직접 쓴다: `SignIn`이 세션을 그렇게 만드는 것과 같다)
+   - `maagotest.Bearer(h http.Handler, token string) http.Handler`: 요청마다 `Authorization: Bearer token`(`As` 곁, 같은 꼴). 쿠키가 함께여도 토큰이 정하는 것은 auth의 일(D-129, `TestAPITokens`가 본다)
+   - auth 복사본의 권한 표(`permissions_test.go`): 역할 `cat_token`(셋째 사용자 cat의 `SignInToken`, 쿠키는 없다)을 더하고 모든 행에 그 칸을 채운다(리뷰가 고침: ann의 토큰이면 세션을 끝내는 `logout`·`account_close_submit`과 ann의 토큰을 지우는 `api_token_delete`가 ann의 쿠키 행을 먹는다. cat이면 셋 다 진짜 답: 로그아웃 303, 남의 토큰 404, 자기 계정 닫기 303). Bearer는 모든 라우트에서 받으므로(D-129) 나머지 칸은 로그인한 사용자의 것과 같다. 표의 주석에 토큰 역할의 까닭(API 클라이언트의 길)과 시도 수의 문장 고침(로그인한 행의 틀린 비밀번호는 그 사용자의 시도로 센다)
+   - `TestSignInRefuses`가 `SignInToken`도 본다
+   - `maagotest`: `Bearer`의 시험 하나(머리가 실린다, `As`와 함께 감싸도 머리가 실린다), `As`의 문서와 패키지 문서의 짝
+   - 문서: `maago doc view`의 권한 표 문단(`maagotest.As`와 `auth.SignIn`을 말하는 곳, `internal/ref/topics.go:298`)에 `SignInToken`·`Bearer`, 예 `cmd/maago/docs/auth.txt`의 권한 표에 토큰 역할(`api_me` 행의 진짜 클라이언트, `TestDocExamples`가 이름을 컴파일한다). `SignInToken`의 Go 문서는 "for a test"로 시작하고, 사람에게 토큰을 만들어 주는 길은 비밀번호를 다시 묻는 `APITokensSubmit`이라고. `TestAddAuth`(두 방언)가 복사본의 시험을 돌린다
+   - 하지 않는 것: `Role`을 바꾸기(Q4 b), 게시판(4번)
+   - 계획 리뷰는 codex·fable 둘(auth, DB 쓰기)
+   - 계획 리뷰(codex·fable): 토큰 역할이 ann이면 소비하는 행 셋이 서로를 먹는다(둘 다, 고친 길은 갈렸다: codex는 진짜 행, fable은 Skip과 둘째 fixture) → 셋째 사용자 cat으로 둘 다의 뜻을 살린다. "쿠키와 Bearer가 함께면 토큰"·"지운 토큰은 아무도 아님"은 이미 `contrib/auth`의 `session_test.go`와 auth 복사본 `TestAPITokens`가 본다(fable) → 확인에서 그 이름으로. 문서 이름을 컴파일하는 예(fable) → `auth.txt`. 받지 않음: `SignInToken`을 `_test.go`로(codex): 게시판의 시험은 다른 패키지라 `_test.go`의 이름을 못 본다, `SignIn`도 같은 까닭으로 `auth.go`에 있다(M11 3번). 대신 문서가 "for a test"로 시작하고 사람의 길을 가리킨다. 토큰에 만료가 없다(codex)는 이번 일 밖
+   - 구현 리뷰(ponytail·codex·fable): ponytail 지울 것 없음(`Bearer`는 `As`의 꼴, `SignInToken`은 여섯 줄). codex 결함 없음(시험은 샌드박스가 막았다: 읽은 리뷰). codex의 "`logout`의 303은 토큰을 받았는지 가리지 못한다"는 받지 않음: 로그아웃은 누구에게나 303이고 표는 누가 물을 수 있는지를 본다, 토큰을 받았다는 증거는 `password_change` 200(아무도 303)과 `api_token_delete` 404(아무도 401). fable: 글 고침(takes → accepts, `Role` 문서에 Bearer, 표 주석, 예의 겹친 append). 받음
+
+   기록(2026-10-24): 복사된 auth의 `SignInToken`, `maagotest.Bearer`와 `TestBearer`, auth 복사본의 권한 표에 `cat_token`(모든 행, 토큰 칸 하나를 틀리게 하면 실패를 확인), `TestSignInRefuses`, `maago doc view`의 권한 문단, `auth.txt` 예의 토큰 역할. `TestAddAuth`(두 방언)·`TestDocExamples`
+
 4. **게시판 0037: 폼 둘과 토큰**: 글 페이지가 `NewCommentForm`·`NewAttachmentForm`으로, 손으로 쓴 폼 칸의 `name=`·라벨을 지운다. `TestPermissions`에 토큰 역할(모든 행), `TestAPI`·`TestMe`의 손 토큰을 `SignInToken`으로, MAP.md에 행 → 확인: `TestBoardTutorial`(PG), `TestBoardMap`, 폼 struct 칸의 `name=`이 템플릿에 손으로 없다(0008의 검색 `q`는 폼이 아니다)
 5. **타입 있는 탈출구 뷰**(Q5): 서명 검사, 생성 어댑터, 쓰기 전·뒤의 오류, `ServeMedia`의 오류, 라우트 표·URL 함수·권한 표가 그대로 → 확인: 쓰기 전 오류의 상태(404·`Status`·500과 `OnError`), 쓴 뒤 오류의 끊긴 연결, 감싼 `w`의 `Flush`가 스트리밍한다, `Tx`는 생성 오류, `ServeMedia`의 Range 응답(206), 골든, 두 방언
 6. **게시판 0038: 내보내기와 내려받기**: `ExportBoard`·`DownloadAttachment`를 새 꼴로, 손 파싱·`panic`·`UserFrom`이 사라진다, MAP.md에 행 → 확인: `TestBoardTutorial`, `TestBoardMap`, 게시판에 `panic(`이 없다

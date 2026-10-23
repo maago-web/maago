@@ -14,7 +14,8 @@ import (
 
 // Role is who sends a row's request: a name for the table, and the
 // handler that sends it as them. Nobody is the site's handler itself;
-// a signed-in user is the handler with their session, from As.
+// a signed-in user is the handler with their session, from As, and an
+// API client the handler with their token, from Bearer.
 type Role struct {
 	Name    string
 	Handler http.Handler
@@ -46,6 +47,16 @@ const Skip = -1
 func As(h http.Handler, c *http.Cookie) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.AddCookie(c)
+		h.ServeHTTP(w, r)
+	})
+}
+
+// Bearer is h for an API client with token, such as one the project's
+// auth.SignInToken made: every request carries Authorization: Bearer
+// token.
+func Bearer(h http.Handler, token string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("Authorization", "Bearer "+token)
 		h.ServeHTTP(w, r)
 	})
 }

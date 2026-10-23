@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -169,5 +170,21 @@ func TestPermissionsPrefix(t *testing.T) {
 		if got := unprefixed(u); got != want {
 			t.Errorf("%s: %s, want %s", u, got, want)
 		}
+	}
+}
+
+// Bearer sends the token on every request, and As around it too: which
+// of the two the site believes is the site's own rule.
+func TestBearer(t *testing.T) {
+	var got []string
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, _ := r.Cookie("s")
+		got = append(got, r.Header.Get("Authorization")+" "+c.String())
+	})
+	for _, b := range []http.Handler{Bearer(h, "t1"), Bearer(As(h, &http.Cookie{Name: "s", Value: "ann"}), "t2")} {
+		b.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", "/", nil))
+	}
+	if want := []string{"Bearer t1 ", "Bearer t2 s=ann"}; !slices.Equal(got, want) {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

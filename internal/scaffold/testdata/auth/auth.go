@@ -132,6 +132,22 @@ func SignIn(ctx context.Context, db maago.DB, u User) (*http.Cookie, error) {
 	return newSession(ctx, db, u.ID)
 }
 
+// SignInToken makes an API token for u, for a test that asks as an API
+// client would, with maagotest.Bearer(h, token); it shows on u's /tokens.
+// It does not ask for the password: a person makes a token on /tokens
+// (APITokensSubmit), which asks again. An account that may not sign in,
+// closed or not verified, is an error, as for SignIn.
+func SignInToken(ctx context.Context, db maago.DB, u User) (string, error) {
+	if !u.IsActive || u.VerifiedAt == nil {
+		return "", fmt.Errorf("auth: %s may not sign in: the account is closed or not verified", u.Email)
+	}
+	token, hash := authlib.NewToken()
+	if _, err := InsertAPIToken(ctx, db, NewAPITokenInput{UserID: u.ID, Name: "test", Hash: hash}); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
 // cookiePath is where the session cookie goes: the whole site.
 func cookiePath() string { return cmp.Or(maago.Prefix(), "/") }
 

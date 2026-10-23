@@ -296,7 +296,9 @@ or maago gen refuses it: maagotest.Permissions(t, apps, roles, rows...),
 a row for each route and a status for each role in each row
 (maagotest.Skip leaves a role out of a row). A role signed in is
 maagotest.As(h, session), the session the copied auth's
-auth.SignIn(ctx, db, u) starts. The admin's routes are in the table
+auth.SignIn(ctx, db, u) starts; an API client is maagotest.Bearer(h,
+token), the token auth.SignInToken(ctx, db, u) makes. Every route
+accepts a token, not only the API ones. The admin's routes are in the table
 only if its App is in apps; a row's URL is its route's own, from the
 URL function. go doc github.com/maago-web/maago/maagotest has Row's Body
 and ContentType.
