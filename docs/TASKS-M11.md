@@ -251,6 +251,12 @@
    - 디렉터리 둘(`m11gate1`·`m11gate2`, 스크래치): 게시판 0033의 끝(패치에서, `go.work`·생성 파일 없이, `go.mod`는 공개된 v0.2.0, `maago add auth`가 쓴 `auth/` 포함), `bin/maago`는 빈 `GOPATH`에서 `go install …@v0.2.0`한 것, `STEPS.md`는 0034~0036의 단계 글(`git mailinfo`의 본문, 트레일러 포함)만, PG 데이터베이스 `m11gate1`·`m11gate2`. 시작 상태는 따로 사본에서 `migrate`·`gen`·`check`·`vet`·`test`가 초록임을 확인했다
    - 프롬프트는 M10 13번의 것: 단계 글은 영어, 참조는 `maago doc`과 `go doc`, 이 저장소와 모듈 캐시의 maago 소스는 읽지 않는다, `GATE-LOG.md`에 단계마다 명령·실패와 오류 글·고친 것과 무엇이 알려 줬는지·헷갈린 곳. 서로 모르는 일반 서브에이전트 둘
    - 끝 확인은 내가: `go version -m`이 v0.2.0, `go.mod`에 `replace` 없음, `maago check`·`go vet`·`go test ./...`, 0035의 `Maago-Expect`가 글자 그대로였는지, `TestPermissions`의 diff가 정책이 바꾼 행인지, `policies.sql`과 쿼리의 정책이 단계 글대로인지
+
+   결과(2026-10-23, 기록은 [gate-logs/m11-board-1.md](gate-logs/m11-board-1.md)·[m11-board-2.md](gate-logs/m11-board-2.md))
+   - **둘 다 0036까지**, 사람 없이, 각 약 6분(14:01~14:07). 뜻밖의 실패 0: 실패는 모두 단계 글이 말한 자리였다(0035의 `Maago-Expect`가 글자 그대로, 0036의 `maago gen`이 새 서명을 부르는 곳 12개를 타입 오류로 늘어놓음, `TestPermissions`가 정확히 넷의 여섯 칸)
+   - 끝 확인(내가): 둘 다 `go version -m`이 v0.2.0, `go.mod`에 `replace` 없음·`go.work` 없음, `maago check`·`go vet`·`go test -count=1 ./...` 초록, `policies.sql`이 단계 글과 같음, 정책 모델의 표를 읽는 쿼리 일곱이 정책이나 까닭 있는 `none`, 바뀐 표의 행이 정책이 바꾼 넷. 셋(unique·권한 표·정책)을 메시지와 `maago doc`만으로 썼다. 둘 다 0036의 "숨긴 글은 작성자도 지우지 못한다"에 시험을 더했다
+   - 둘이 함께 짚은 것: (1) **`maago doc form`의 긴 예가 여전히 먼저 읽고 쓴다**(`titleTaken`): 위 단락의 `Fail`과 어긋남 → 이 작업에서 고침(모델의 `unique`, HTML 뷰는 `f.Fail(err)`, API 뷰는 `errors.As`의 `UniqueError`, 쓰이지 않는 `post_by_title.sql`을 지움) (2) 0035 진단의 fix가 그 모델의 첫 정책(`out`)을 권한다: 단계 글이 경고하지만 글 없이는 상세에 `out`을 고를 것(1번) → TODO(fix를 바꾸면 v0.2.0의 출력을 인용한 0035 글도: v0.2.1과 함께) (3) 정책을 쓰는 쿼리가 제 `-- param: now`를 두어도 지워도 된다(1번은 두고 2번은 지움, 둘 다 `maago doc query`가 받는 길)
+   - 한쪽만 짚은 것: `go doc maago.UniqueError`에 생성되는 `Fail`이 없다(2번), `GetPost`의 `now`에 무엇을 넘기는지 글이 말하지 않는다(2번, 둘 다 `time.Now()`), 0034의 경쟁 시험을 어떻게 기다리는지(1번은 100ms, 2번은 `pg_stat_activity`: 0034 계획이 기각한 길이지만 단계 글이 시험 방법을 정하지 않는다) → TODO
 11. **M11 끝**: MILESTONES의 M11 체크, README, 다음 마일스톤의 순서
 
 ## 초안 리뷰 (2026-10-19, codex와 fable)

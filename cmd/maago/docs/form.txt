@@ -34,7 +34,7 @@ type Post struct {
 	maago.Model
 
 	ID       int64
-	Title    string  `maago:"max=200,label='Title'"`
+	Title    string  `maago:"max=200,unique,label='Title'"`
 	Status   string  `maago:"choices=draft/published,default='draft'"`
 	Subtitle *string `maago:"max=200"` // a pointer: optional in the model form
 }
@@ -92,7 +92,6 @@ package blog
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 
 	"github.com/maago-web/maago"
@@ -112,13 +111,14 @@ func NewPost(ctx context.Context, in NewPostIn) (PostFormPage, error) {
 
 func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[PostFormPage], error) {
 	f := in.Form
-	if f.Valid() && titleTaken(ctx, tx, f.Title.Value) {
-		f.Title.Error = "A post has this title." // a check that needs the database
-	}
 	if !f.Valid() {
 		return maago.Show(PostFormPage{Form: f}), nil
 	}
-	if _, err := insert(ctx, tx, f); err != nil {
+	_, err := insert(ctx, tx, f)
+	if f.Fail(err) { // the title is taken: the unique constraint said so
+		return maago.Show(PostFormPage{Form: f}), nil
+	}
+	if err != nil {
 		return maago.Result[PostFormPage]{}, err
 	}
 	return maago.SeeOther[PostFormPage](PostNewURL()), nil
@@ -127,10 +127,12 @@ func CreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (maago.Result[Po
 // APICreatePost takes the same form as JSON; a wrong one is a 422.
 func APICreatePost(ctx context.Context, tx maago.Tx, in NewPostIn) (Post, error) {
 	f := in.Form
-	if titleTaken(ctx, tx, f.Title.Value) {
+	p, err := insert(ctx, tx, f)
+	var taken *maago.UniqueError
+	if errors.As(err, &taken) {
 		return Post{}, maago.Invalid(&f.Title, "A post has this title.")
 	}
-	return insert(ctx, tx, f)
+	return p, err
 }
 
 func insert(ctx context.Context, tx maago.Tx, f PostForm) (Post, error) {
@@ -139,11 +141,6 @@ func insert(ctx context.Context, tx maago.Tx, f PostForm) (Post, error) {
 		in.Subtitle = &f.Subtitle.Value
 	}
 	return InsertPost(ctx, tx, in)
-}
-
-func titleTaken(ctx context.Context, tx maago.Tx, title string) bool {
-	_, err := PostByTitle(ctx, tx, PostByTitleParams{Title: title})
-	return !errors.Is(err, sql.ErrNoRows)
 }
 
 type ReviewIn struct {
@@ -163,10 +160,6 @@ func Review(ctx context.Context, in ReviewIn) (ReviewPage, error) {
 func SendReview(ctx context.Context, tx maago.Tx, in ReviewIn) (maago.Result[ReviewPage], error) {
 	return maago.Show(ReviewPage{Form: in.Form, Sent: in.Form.Valid()}), nil
 }
--- blog/queries/post_by_title.sql --
--- name: PostByTitle :one Post
--- param: title string
-SELECT * FROM blog_post WHERE title = :title
 -- blog/templates/base.html --
 <!doctype html>
 <main>{{block "content" .}}{{end}}</main>
@@ -222,7 +215,7 @@ func TestForms(t *testing.T) {
 	if w := post("/post/new", "title=Hello&status=draft", form); w.Code != 303 {
 		t.Errorf("a right form: %d", w.Code)
 	}
-	if w := post("/post/new", "title=Hello&status=draft", form); w.Code != 200 || !strings.Contains(w.Body.String(), "A post has this title.") {
+	if w := post("/post/new", "title=Hello&status=draft", form); w.Code != 200 || !strings.Contains(w.Body.String(), "This value is already taken.") {
 		t.Errorf("the same title: %d", w.Code)
 	}
 	if w := post("/api/posts", `{"title": "Hello", "status": "draft"}`, "application/json"); w.Code != 422 {
