@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"go/token"
 	"maps"
+	"path"
 	"slices"
 	"strings"
 
@@ -158,6 +159,23 @@ func CheckPolicies(apps []*model.App, pols Policies, queries []*App, v Viewer) [
 	return ds
 }
 
+// missingPolicyFix is the fix of a query that reads the table of g as
+// alias with no policy. Of several policies it picks none: which rows the
+// query may show is the author's to say.
+func missingPolicyFix(g *guarded, alias string) string {
+	name, which := g.ps[0].Name, ""
+	if len(g.ps) > 1 {
+		name = "<name>"
+		which = ", <name> one of " + policyNames(g.ps) + " ("
+		if i := slices.IndexFunc(g.ps, func(p *Policy) bool { return p.Get != "" }); i >= 0 {
+			which += g.ps[i].Get + " reads under " + g.ps[i].Name + "; "
+		}
+		which += path.Join(g.dir, "policies.sql") + " says which rows each shows)"
+	}
+	return fmt.Sprintf("declare -- policy: %s %s and write %s(%s) in the WHERE of the SELECT that reads it%s; or -- policy: none %s why, if it may read every row",
+		name, alias, name, alias, which, alias)
+}
+
 func policyNames(ps []*Policy) string {
 	var names []string
 	for _, p := range ps {
@@ -226,9 +244,7 @@ func (q *Query) checkPolicies(dir string, byTable map[string]*guarded) []diag.Di
 		}
 		ok := slices.ContainsFunc(uses, func(u policyUse) bool { return u.u.Alias == k && blocks[u.i] == r.Block && u.policy.model == g.m })
 		if !ok {
-			errAt(r.Pos, fmt.Sprintf("declare -- policy: %s %s and write %s(%s) in the WHERE of the SELECT that reads it (policies of %s: %s); or -- policy: none %s why, if it may read every row",
-				g.ps[0].Name, k, g.ps[0].Name, k, g.m.Name, policyNames(g.ps), k),
-				"query reads %s %s without a policy (rule 6)", r.Table, k)
+			errAt(r.Pos, missingPolicyFix(g, k), "query reads %s %s without a policy (rule 6)", r.Table, k)
 		}
 	}
 	for _, u := range uses {

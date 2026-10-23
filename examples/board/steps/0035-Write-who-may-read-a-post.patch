@@ -51,11 +51,11 @@ post_detail is left as it was, and maago gen stops at it, before any of
 it runs:
 
     board/queries/post_detail.sql:5:6: query reads board_post p without a policy (rule 6)
-      fix: declare -- policy: out p and write out(p) in the WHERE of the SELECT that reads it (policies of Post: out, visible); or -- policy: none p why, if it may read every row
+      fix: declare -- policy: <name> p and write <name>(p) in the WHERE of the SELECT that reads it, <name> one of out, visible (GetPost reads under visible; board/policies.sql says which rows each shows); or -- policy: none p why, if it may read every row
       see: maago doc query
 
-The fix names the model's first policy; a post's page is visible, not
-out. The next commit uses it, and the views pass the user.
+Of the two, a post's page is visible, not out: GetPost reads under it.
+The next commit uses it, and the views pass the user.
 
 Maago-Expect: board/queries/post_detail.sql:5:6: query reads board_post p without a policy (rule 6)
 

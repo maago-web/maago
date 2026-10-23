@@ -175,6 +175,33 @@ func TestPolicyCheck(t *testing.T) {
 	}
 }
 
+// TestPolicyCheckFix: the fix of a query without a policy names the only
+// policy of the model, and of several picks none, so that the author says
+// which rows the query may show.
+func TestPolicyCheckFix(t *testing.T) {
+	apps, pols := policyFixture(t)
+	user := apps[0].Models[slices.IndexFunc(apps[0].Models, func(m *model.Model) bool { return m.Name == "User" })]
+	for _, c := range []struct{ src, want string }{
+		{"SELECT 1 FROM board_post p", "fix: declare -- policy: <name> p and write <name>(p) in the WHERE of the SELECT that reads it, <name> one of out, visible (GetPost reads under visible; board/policies.sql says which rows each shows); or -- policy: none p why, if it may read every row"},
+		{"SELECT 1 FROM board_comment c", "fix: declare -- policy: shown c and write shown(c) in the WHERE of the SELECT that reads it; or -- policy: none c why, if it may read every row"},
+	} {
+		q, ds := parse("board/queries/q.sql", "-- name: Q :many R\n"+c.src)
+		if ds == nil {
+			ds = q.body()
+		}
+		if ds == nil {
+			ds = CheckPolicies(apps, pols, []*App{{Dir: "board", Queries: []*Query{q}}}, Viewer{Expr: "User", Model: user})
+		}
+		// The fix line after the rule's: the fixture's policies are used by
+		// no query, which is an error too.
+		lines := strings.Split(text(ds), "\n")
+		i := slices.IndexFunc(lines, func(l string) bool { return strings.HasSuffix(l, "without a policy (rule 6)") })
+		if i < 0 || i+1 == len(lines) || strings.TrimSpace(lines[i+1]) != c.want {
+			t.Errorf("%q:\n got %s\nwant %s", c.src, text(ds), c.want)
+		}
+	}
+}
+
 func TestPolicyCheckPolicies(t *testing.T) {
 	apps, _ := policyFixture(t)
 	user := apps[0].Models[slices.IndexFunc(apps[0].Models, func(m *model.Model) bool { return m.Name == "User" })]

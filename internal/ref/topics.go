@@ -191,6 +191,9 @@ A query that uses a policy takes the user, as the views do:
 
 	func SearchPosts(ctx context.Context, u *auth.User, db maago.DB, p SearchPostsParams) ([]PostSummary, error)
 
+A policy's params are the query's to fill like its own: now is when the
+request reads, time.Now().
+
 The GetX that -- get: names applies its policy, its params after the id
 in the order declared, and GetXIgnoringPolicies reads any row, for the
 admin and the tests that read back what they wrote:
@@ -285,7 +288,8 @@ func(w http.ResponseWriter, r *http.Request). It reads the database and
 the user itself, maago.DBFrom(r.Context()) and maago.UserFrom[U](r.Context()),
 and answers a missing sign-in itself. A typed view that calls either is an
 error; maago gen sees the calls in the view's own body, not in the
-functions it calls.
+functions it calls. A query that uses a policy takes &u when UserFrom's
+ok is true, and nil for nobody.
 
 An app whose views take the user has a permission table in its tests,
 or maago gen refuses it: maagotest.Permissions(t, apps, roles, rows...),

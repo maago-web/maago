@@ -51,7 +51,19 @@
 
 순서: 게이트 TODO, 폼 둘·토큰(사람의 차례), 그다음 API를 바꾸는 탈출구 뷰를 타입보다 먼저(뒤의 게시판 단계가 새 꼴로 쓴다), 타입, outbox, 문서, 릴리스, 게이트.
 
-1. **게이트 TODO**: 규칙 6의 fix가 정책을 고르지 않는다(꼴은 계획에서), 0035 글을 저장소의 출력으로. 글이 인용한 fix 줄은 걷기가 보지 않으므로 트레일러를 fix까지 넓힐지 계획에서 정한다. `go doc maago.UniqueError`가 `Fail`이 생성되는 폼의 메서드라고, `maago doc query`가 `GetX`의 정책 param(`now`는 `time.Now()`)을, `maago doc view`가 `func(w, r)` 뷰의 사용자는 `maago.UserFrom`이라고(게이트 2번) → 확인: 규칙 6 골든(정책 하나·둘), `TestBoardTutorial`(0035의 `Maago-Expect` 그대로), `TestDocExamples`, `TestPackageDoc`
+1. **게이트 TODO**: 규칙 6의 fix가 정책을 고르지 않는다(꼴은 계획에서), 0035 글을 저장소의 출력으로. 글이 인용한 fix 줄은 걷기가 보지 않으므로 트레일러를 fix까지 넓힐지 계획에서 정한다. `go doc maago.UniqueError`가 `Fail`이 생성되는 폼의 메서드라고, `maago doc query`가 `GetX`의 정책 param(`now`는 `time.Now()`)을, `maago doc view`가 `func(w, r)` 뷰의 사용자는 `maago.UserFrom`이라고(게이트 2번) → 확인: `TestPolicyCheckFix`(정책 하나·둘의 fix 전문), `TestBoardTutorial`(0035의 `Maago-Expect` 그대로), `TestDocExamples`, `TestPackageDoc`
+
+   계획
+   - `internal/mapper/policycheck.go:229`: 모델의 정책이 하나면 fix 그대로(그 이름). 여럿이면 이름을 고르지 않는다: `declare -- policy: name p and write name(p) in the WHERE of the SELECT that reads it, name the policy of Post whose rows the query may show (out or visible, as policies.sql says); or -- policy: none p why, if it may read every row`. 정책의 주석은 fix에 싣지 않는다(정책마다 여러 줄이고 `policies.sql`에 있다) → 확인: `policy_test.go`에 fix 전문을 보는 시험 하나, Post(둘)와 Comment(`shown` 하나)
+   - 0035 글(`examples/board/steps/0035-*.patch`의 메시지)의 fix 인용을 새 출력으로, "The fix names the model's first policy…" 문단을 "a post's page is visible"로. 메시지만 고치고 hunk는 그대로
+   - 걷기가 인용을 본다(fable의 지적): `expected`가 `Maago-Expect:`가 있는 단계의 메시지에서 들여 쓴 `fix: ` 줄을 모으고, `walkStep`이 그 줄마다 gen 출력에 있는지 본다. 지금 그런 단계는 여섯(0006·0009·0020·0024·0027·0035), 줄은 일곱. 실패를 기대하지 않는 단계(0021)의 인용은 보지 않는다(그 단계의 gen은 통과한다) → 확인: `TestBoardTutorial`, fix 줄 하나를 일부러 바꾸면 실패
+   - 문서 셋: `UniqueError`의 Go 문서에 "Fail은 `maago gen`이 폼마다 쓰는 메서드"(`query.go:28`, 이미 `Fail`을 가리키고 빠진 것은 "생성된다"), `maago doc query`의 `GetX` 예 뒤에 정책 param은 쿼리의 param처럼 그 값(`now`는 보통 `time.Now()`), `maago doc view`의 `func(w, r)` 문단에 정책을 쓰는 쿼리에는 `UserFrom`이 ok면 `&u`, 아니면 nil(게이트 둘 다 `userFrom(r)`을 지어냈다) → 확인: `TestDocExamples`, `TestPackageDoc`, `TestNoDecisionsInUserText`
+   - 하지 않는 것: 정책 주석을 fix에 넣기, 트레일러 새로 만들기(`fix:` 인용은 이미 메시지에 있다)
+   - 계획 리뷰는 fable 하나: 정해진 틀 안의 작은 작업(진단 글 하나, 문서 세 줄, 시험의 몇 줄)
+   - 계획 리뷰(fable): `name`은 자리표시자인지 모른다 → `<name>`(`:viewer_<column>`의 꼴), post_detail을 가르는 사실은 `-- get:` → fix에 "GetPost reads under visible"(모델마다 `-- get:` 정책은 하나, 고르기가 아니라 사실), 경로는 `board/policies.sql`(게이트 2번이 어느 디렉터리인지 헤맸다), 인용 확인은 줄 전체 일치(부분 일치는 짧은 인용이 묻힌다), 문서 줄은 정책 쿼리 문단 곁. 모두 받음
+   - 구현 리뷰는 ponytail(지울 것 없음)과 fable 하나(계획 리뷰를 하나로 줄인 작업): 걷기의 새 확인을 지키는 Catches 행이 없다 → "a misquoted fix", `UserFrom` 문장이 "either"의 앞을 끊었다 → 그 문단 끝으로, `now`의 글. 받음. fable의 PG 걷기가 같은 스키마 이름으로 내 전체 시험과 겹쳐 0017에서 `no schema has been selected`: 겹치지 않게 다시 돌림
+
+   기록(2026-10-24): `missingPolicyFix`(`internal/mapper/policycheck.go`), `TestPolicyCheckFix`(옛 꼴로 되돌리면 실패), 0035 메시지, 걷기의 `fix:` 인용 확인과 Catches "a misquoted fix"(인용을 한 글자 바꾸면 `the message quotes`로 실패), 문서 셋(`query.go`의 `UniqueError`, `maago doc query`·`view`). 여섯 단계의 일곱 인용은 지금 출력과 글자 그대로 같았다
 2. **폼 둘**(Q3): `forms_gen.go`의 `NewXForm(ctx)`, 생성 이름 충돌 검사(앱이 같은 이름을 선언하면 오류), 둘째 폼 진단의 fix, `maago doc form`의 두 폼 예 → 확인: 한 페이지 두 폼의 GET과 POST 다시 그리기에서 다른 폼의 이름·라벨이 차 있다(웹 시험), 뷰가 `NewXForm`을 불러도 `maago gen`이 통과(타입 검사 앞), 골든, `TestDocExamples`
 3. **API 토큰 역할**(Q4): 복사된 auth의 `SignInToken`, `maagotest.Bearer`, auth 복사본의 권한 표에 토큰 역할 → 확인: `TestAddAuth`(두 방언), 닫히거나 확인 안 된 계정은 오류, 지운 토큰은 사용자 없음, 쿠키와 Bearer가 함께면 토큰이 정한다
 4. **게시판 0037: 폼 둘과 토큰**: 글 페이지가 `NewCommentForm`·`NewAttachmentForm`으로, 손으로 쓴 폼 칸의 `name=`·라벨을 지운다. `TestPermissions`에 토큰 역할(모든 행), `TestAPI`·`TestMe`의 손 토큰을 `SignInToken`으로, MAP.md에 행 → 확인: `TestBoardTutorial`(PG), `TestBoardMap`, 폼 struct 칸의 `name=`이 템플릿에 손으로 없다(0008의 검색 `q`는 폼이 아니다)

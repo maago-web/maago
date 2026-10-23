@@ -101,6 +101,8 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"no permission table", "0021-Sign-in.patch", "+\tmaagotest.Permissions(t, []maago.App{App}, roles,", "+\t_ = maagotest.Permissions; permissions(t, []maago.App{App}, roles,", "maago gen:\n"},
 		// A taken title is the form's error, not a 500 (D-154).
 		{"a taken title as a 500", "0034-Let-the-database-refuse-what-is-taken.patch", "+\tif f.Fail(err) {\n+\t\treturn Post{}, false, nil", "+\tif false {\n+\t\treturn Post{}, false, nil", "go test: "},
+		// A fix: line the step quotes is maago gen's, word for word.
+		{"a misquoted fix", "0035-Write-who-may-read-a-post.patch", "each shows)", "each show)", "maago gen: the message quotes\n"},
 		// A query that reads the posts without their policy stops maago gen,
 		// before a draft gets out (D-155).
 		{"a draft to anybody, at gen", "0036-Read-posts-under-the-policies.patch", "+-- policy: visible p\n", "+-- the policy, forgotten\n", "maago gen:\nboard/queries/post_detail.sql:6:6: query reads board_post p without a policy (rule 6)"},
@@ -463,6 +465,15 @@ func walkStep(root, patch string, tr trailers) error {
 		if !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(want))) {
 			return fmt.Errorf("maago gen: expected\n%s\ngot\n%s", strings.Join(want, "\n"), text(ds))
 		}
+		lines := strings.Split(text(ds), "\n")
+		for i := range lines {
+			lines[i] = strings.TrimSpace(lines[i])
+		}
+		for _, fix := range tr.fixes {
+			if !slices.Contains(lines, fix) {
+				return fmt.Errorf("maago gen: the message quotes\n%s\ngot\n%s", fix, text(ds))
+			}
+		}
 		return nil
 	}
 	if ds != nil {
@@ -488,6 +499,7 @@ func walkStep(root, patch string, tr trailers) error {
 // trailers are what a step's commit message asks of the walk.
 type trailers struct {
 	want, apps []string // Maago-Expect:, Maago-Run: maago add
+	fixes      []string // the fix: lines the message quotes
 	postgres   int      // Maago-Database: postgres lines
 }
 
@@ -496,7 +508,9 @@ type trailers struct {
 // Maago-Expect: lines, the apps of Maago-Run: maago add APP lines, which
 // the step runs before its patch, and Maago-Database: postgres, which moves
 // the walk to PostgreSQL before it. The mail header before it has no
-// Maago- lines.
+// Maago- lines. A step with Maago-Expect: lines quotes the fix: lines of
+// its diagnostics as maago gen writes them, each on one line: the walk
+// finds each among gen's lines.
 func expected(patch []byte) (tr trailers, err error) {
 	msg, _, ok := strings.Cut(string(patch), "\ndiff --git ")
 	if !ok {
@@ -504,6 +518,8 @@ func expected(patch []byte) (tr trailers, err error) {
 	}
 	for _, line := range strings.Split(msg, "\n") {
 		switch {
+		case strings.HasPrefix(strings.TrimSpace(line), "fix: "):
+			tr.fixes = append(tr.fixes, strings.TrimSpace(line))
 		case strings.HasPrefix(line, "Maago-Expect: "):
 			tr.want = append(tr.want, strings.TrimPrefix(line, "Maago-Expect: "))
 		case strings.HasPrefix(line, "Maago-Run: maago add ") && !strings.ContainsAny(strings.TrimPrefix(line, "Maago-Run: maago add "), " \t") && line != "Maago-Run: maago add ":

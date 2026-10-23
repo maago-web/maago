@@ -25,8 +25,8 @@ var ErrEmptySlice = errors.New("maago: empty slice, which IN (…) cannot take; 
 // UniqueError is what a generated Insert or Update gives when a unique
 // constraint refused its row: a value, or values together, that another
 // row has. Fields are the model's fields of that constraint, nil when
-// maago cannot tell which. A form's Fail shows it on the form; else it
-// answers 500.
+// maago cannot tell which. Fail, the method maago gen writes for each
+// form, shows it on the form; else it answers 500.
 type UniqueError struct {
 	Fields []string
 	Err    error // the driver's
