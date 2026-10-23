@@ -236,6 +236,14 @@
    - 구현 리뷰는 fable 하나(문서 작업): "쓰이지 않는 정책"은 `-- get:`이 이름 붙인 것을 빼고 → "neither a query nor -- get: uses", 이력 줄의 차례(1번을 초안 뒤로), ARCHITECTURE의 maagotest 줄에 `Permissions`·`As`, admin은 목록·수를 제 SELECT로 읽고 폼만 `GetXIgnoringPolicies`로. 받지 않음: "never on a {condition} line"을 코드만큼 정확히(같은 줄의 조건부 JOIN은 받는다: 에이전트에게는 "never"가 안전한 읽기), D-24의 출처(초안의 사람의 결정이 맞다: 계획의 "M11 6번"이 틀렸다)
    - → 확인: `TestDocExamples`·`TestDocKeysAreRead`·`TestDocExamplesUseEveryKey`, `TestPackageDoc`(-update 뒤 diff를 읽는다), `TestNoDecisionsInUserText`, 글에 쓴 이름이 코드와 같은지(`GetXIgnoringPolicies`, `maagotest.Skip`, `auth.SignIn`, 진단 글), `gofmt -l .`, `go mod tidy -diff && go vet ./... && go test ./...`(PG)
 9. **v0.2.0**: 태그, 게시판의 `go.mod`를 v0.2.0으로(0001·0013, 12번의 길) → 확인: 빈 GOPATH에서 `go install …@v0.2.0`, 공개 판으로 걷기의 끝
+
+   **사람의 결정(2026-10-23)**: 진행 승인, 이번에 한해 `v0.2.0` 태그를 만들어 push(다른 태그 없음, force-push 없음). 태그는 PG 전체 시험이 통과한 커밋에. GetX의 정책 param은 위치 인자 그대로(D-155에 적음)
+
+   **계획**(M10 12번의 길. 계획 리뷰 없음: 사람의 결정과 정해진 확인만인 작업, M10 12번과 같은 까닭)
+   - 차례: 이 계획 커밋 → PG 전체 시험(`go test`의 종료 코드를 로그에서) → 그 커밋에 `v0.2.0` 태그·push → 확인 셋: `git ls-remote --tags origin v0.2.0`, 빈 `GOPATH`·`GOMODCACHE`·`GOWORK=off`에서 `GOPROXY=direct`와 기본 프록시 둘 다 `go install github.com/maago-web/maago/cmd/maago@v0.2.0`과 `maago help`, 바이너리의 `go version -m`이 `github.com/maago-web/maago v0.2.0`
+   - 게시판: `steps.sh unpack`, 0001의 `go.mod`·`go.sum`(require와 두 줄)과 0013의 문맥 줄을 v0.2.0으로(체크섬은 기본 프록시와 sum.golang.org가 확인한 `go mod download -json`의 것), 그 사이 커밋은 rebase가 나르고 `pack`. 태그는 게시판 커밋보다 앞이다: 걷기는 `go.work`로 로컬 모듈을 보므로 게시판 커밋이 태그를 기다리지 않는다
+   - 공개 판으로 걷기의 끝: 마지막 단계의 사본에서 `go.work` 없이(`GOWORK=off`), 설치한 v0.2.0 `maago`로 PG에서 `migrate`·`gen`·`check`, `go mod tidy -diff`·`go mod verify`·`go vet ./...`·`go test ./...`
+   - 그 뒤 `TestBoardTutorial`과 전체 시험(게시판 패치가 바뀌었으므로), 커밋·push. 공개 뒤 고칠 것이 나오면 태그를 옮기지 않고 v0.2.1(12번의 규칙)
 10. **에이전트 게이트**: `go install …@v0.2.0`부터, 0033의 끝에서 시작해 새 단계(0034~0036) 글만 보고 서로 모르는 실행 둘. 0033의 끝에 표가 이미 있으므로(4번) 게이트는 표를 처음부터가 아니라 정책이 바꾼 행으로 쓴다 → 확인: 기록, 셋을 메시지와 `maago doc`만으로 씀
 11. **M11 끝**: MILESTONES의 M11 체크, README, 다음 마일스톤의 순서
 
