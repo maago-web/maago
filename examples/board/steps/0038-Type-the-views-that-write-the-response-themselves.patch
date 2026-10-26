@@ -1,0 +1,355 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Tue, 27 Oct 2026 04:17:12 +0900
+Subject: [PATCH] Type the views that write the response themselves
+
+The CSV export (0017) and the download (0029) write the response
+themselves, so they have been func(w, r) views, and did by hand what a
+typed view is given: they parsed the id from the path, read the user and
+the database from the request, and had no error to return: before
+writing, a panic for a 500; after, a panic(http.ErrAbortHandler) to cut
+the connection. A view that writes the response itself can be typed: it
+takes what a typed view takes, then w and r, and returns an error:
+
+    func ExportBoard(ctx context.Context, u *auth.User, db maago.DB, in ExportIn, w http.ResponseWriter, r *http.Request) error
+    func DownloadAttachment(ctx context.Context, u *auth.User, db maago.DB, in DownloadIn, w http.ResponseWriter, r *http.Request) error
+
+- ExportIn and DownloadIn hold the path's id, an int64. A path whose id
+  is not a number is a 404, as for any typed view
+- The error is answered as a typed view's until the first byte is out:
+  sql.ErrNoRows is a 404, any other a 500 that Config.OnError hears.
+  After, the 200 and some rows are out: the runtime cuts the connection,
+  so a cut file never looks whole, and OnError hears the error (main's
+  comment on OnError says so now). So the export returns ExportRows's
+  error, and the csv.Writer's, the same way on any page, and abort,
+  which logged and cut, is gone. It sets its CSV headers once the first
+  page is read: a 500 is no longer a download named board-1.csv
+- The download returns maago.ServeMedia's error: a row whose file is
+  gone is its 404. The switch 0029 wrote around ServeMedia is gone, and
+  TestAttachments moves a file away to see the 404: a view that drops
+  ServeMedia's error sends an empty 200
+- The URL functions take the In's int64 now: BoardExportURL(b.ID) and
+  AttachmentURL(a.ID), with no fmt.Sprint. The test of an id that is not
+  a number asks for the path itself, "/boards/abc/posts.csv"
+
+A func(w, r) view stays for what reads the request as it is, such as a
+webhook's body; the board has none now.
+
+diff --git a/board/attach_test.go b/board/attach_test.go
+index 63bd0a1..84e9b81 100644
+--- a/board/attach_test.go
++++ b/board/attach_test.go
+@@ -2,11 +2,11 @@ package board
+ 
+ import (
+ 	"bytes"
+-	"fmt"
+ 	"mime/multipart"
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"os"
++	"path/filepath"
+ 	"strings"
+ 	"testing"
+ 
+@@ -74,20 +74,31 @@ func TestAttachments(t *testing.T) {
+ 	if entries, _ := os.ReadDir(cfg.MediaDir); len(entries) != 1 || entries[0].Name() != a.Key {
+ 		t.Errorf("the media directory: %v", entries)
+ 	}
+-	if code, page := get(h, PostDetailURL(p.ID)); code != 200 || !strings.Contains(page, `href="`+AttachmentURL(fmt.Sprint(a.ID))+`"`) || !strings.Contains(page, `<label>파일 <input type="file" name="file"></label>`) {
++	if code, page := get(h, PostDetailURL(p.ID)); code != 200 || !strings.Contains(page, `href="`+AttachmentURL(a.ID)+`"`) || !strings.Contains(page, `<label>파일 <input type="file" name="file"></label>`) {
+ 		t.Errorf("the post: %d %s", code, page)
+ 	}
+ 
+ 	// Anyone gets a published post's file, to download.
+-	r := httptest.NewRequest("GET", AttachmentURL(fmt.Sprint(a.ID)), nil)
++	r := httptest.NewRequest("GET", AttachmentURL(a.ID), nil)
+ 	w := httptest.NewRecorder()
+ 	h.ServeHTTP(w, r)
+ 	if w.Code != 200 || w.Body.String() != string(body) || !strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") {
+ 		t.Errorf("download: %d %v", w.Code, w.Header())
+ 	}
+-	if code, _ := get(h, AttachmentURL(fmt.Sprint(a.ID+1))); code != 404 {
++	if code, _ := get(h, AttachmentURL(a.ID+1)); code != 404 {
+ 		t.Errorf("no attachment: %d", code)
+ 	}
++	// A row whose file is gone is a 404 too, not an empty 200.
++	file := filepath.Join(cfg.MediaDir, a.Key)
++	if err := os.Rename(file, file+".away"); err != nil {
++		t.Fatal(err)
++	}
++	if code, _ := get(h, AttachmentURL(a.ID)); code != 404 {
++		t.Errorf("no file: %d", code)
++	}
++	if err := os.Rename(file+".away", file); err != nil {
++		t.Fatal(err)
++	}
+ 	if w := upload(ann, p.ID, "big.bin", make([]byte, 10<<20+1)); w.Code != 413 {
+ 		t.Errorf("past 10MB: %d", w.Code)
+ 	}
+@@ -102,7 +113,7 @@ func TestAttachments(t *testing.T) {
+ 		h    http.Handler
+ 		code int
+ 	}{"no one signed in": {h, 404}, "bob": {bob, 404}, "ann": {ann, 200}} {
+-		if code, _ := get(c.h, AttachmentURL(fmt.Sprint(a.ID))); code != c.code {
++		if code, _ := get(c.h, AttachmentURL(a.ID)); code != c.code {
+ 			t.Errorf("a draft's file to %s: %d, want %d", who, code, c.code)
+ 		}
+ 	}
+@@ -138,7 +149,7 @@ func TestHiddenAttachments(t *testing.T) {
+ 	if len(as) != 1 {
+ 		t.Fatalf("rows: %+v", as)
+ 	}
+-	if code, _ := get(ann, AttachmentURL(fmt.Sprint(as[0].ID))); code != 404 {
++	if code, _ := get(ann, AttachmentURL(as[0].ID)); code != 404 {
+ 		t.Errorf("a hidden post's file: %d", code)
+ 	}
+ 	if w := upload(ann, p.ID, "b.txt", []byte("x")); w.Code != 404 {
+diff --git a/board/export.go b/board/export.go
+index 752f46f..973b851 100644
+--- a/board/export.go
++++ b/board/export.go
+@@ -1,10 +1,8 @@
+ package board
+ 
+ import (
+-	"database/sql"
++	"context"
+ 	"encoding/csv"
+-	"errors"
+-	"log"
+ 	"net/http"
+ 	"strconv"
+ 	"strings"
+@@ -18,66 +16,49 @@ import (
+ // exportPage is how many rows ExportBoard reads at a time.
+ var exportPage int64 = 500
+ 
++// ExportIn is the board ExportBoard sends.
++type ExportIn struct {
++	ID int64 `maago:"path=id"`
++}
++
+ // ExportBoard sends a board's posts as a CSV file, a page of rows at a
+ // time, so a long board never sits whole in memory. A CSV is not a page,
+-// so this is an escape view: an http.HandlerFunc, which reads the
+-// path and writes the response itself.
+-func ExportBoard(w http.ResponseWriter, r *http.Request) {
+-	ctx, db := r.Context(), maago.DBFrom(r.Context())
+-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+-	if err != nil {
+-		http.NotFound(w, r)
+-		return
++// so the view writes the response itself. The CSV is what is out
++// for u, who may be nobody. An error before the first page is out is a
++// 404 or a 500; one after cuts the connection, so a cut file never looks
++// whole, and Config.OnError hears it.
++func ExportBoard(ctx context.Context, u *auth.User, db maago.DB, in ExportIn, w http.ResponseWriter, r *http.Request) error {
++	if _, err := GetBoard(ctx, db, in.ID); err != nil {
++		return err
+ 	}
+-	if _, err := GetBoard(ctx, db, id); errors.Is(err, sql.ErrNoRows) {
+-		http.NotFound(w, r)
+-		return
+-	} else if err != nil {
+-		panic(err) // nothing is written yet: a 500, and Config.OnError hears it
+-	}
+-	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+-	w.Header().Set("Content-Disposition", `attachment; filename="board-`+strconv.FormatInt(id, 10)+`.csv"`)
+ 	cw := csv.NewWriter(w)
+ 	cw.Write([]string{"id", "title", "status", "created_at", "comments"})
+ 	var after int64
+ 	now := time.Now() // one moment for every page
+-	// An escape view takes no parameters: it reads the user, as the
+-	// database, from the request. The CSV is what is out, for anybody.
+-	var u *auth.User
+-	if user, ok := maago.UserFrom[auth.User](ctx); ok {
+-		u = &user
+-	}
+ 	for {
+-		rows, err := ExportRows(ctx, u, db, ExportRowsParams{BoardID: id, Now: now, After: after, Limit: exportPage})
+-		if err != nil && after == 0 {
+-			panic(err) // the csv.Writer still holds the first line: as above
+-		}
++		rows, err := ExportRows(ctx, u, db, ExportRowsParams{BoardID: in.ID, Now: now, After: after, Limit: exportPage})
+ 		if err != nil {
+-			abort(id, err)
++			return err
++		}
++		if after == 0 { // the first page is read: a CSV, no longer a 500
++			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
++			w.Header().Set("Content-Disposition", `attachment; filename="board-`+strconv.FormatInt(in.ID, 10)+`.csv"`)
+ 		}
+ 		for _, p := range rows {
+ 			cw.Write([]string{strconv.FormatInt(p.ID, 10), cell(p.Title), p.Status, p.CreatedAt.Format(time.RFC3339), strconv.FormatInt(p.Comments, 10)})
+ 		}
+ 		cw.Flush() // from the csv.Writer into w
+ 		if err := cw.Error(); err != nil {
+-			abort(id, err) // the client left, most likely
++			return err // the client left, most likely
+ 		}
+ 		if int64(len(rows)) < exportPage {
+-			return // the last page
++			return nil // the last page
+ 		}
+ 		w.(http.Flusher).Flush() // from w to the client
+ 		after = rows[len(rows)-1].ID
+ 	}
+ }
+ 
+-// abort ends an export cut short. The 200 and some rows are out: ending
+-// the response would make a cut file look whole, so it cuts the
+-// connection instead, and the client knows the file is not.
+-func abort(id int64, err error) {
+-	log.Printf("export of board %d: %v", id, err)
+-	panic(http.ErrAbortHandler)
+-}
+-
+ // cell keeps a spreadsheet from running what a title says: text that
+ // starts like a formula gets a ' in front (CSV injection).
+ func cell(s string) string {
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index d19f08f..ad87901 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -133,7 +133,7 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "board_new", URL: BoardNewURL(), Want: want(303, 200, 200, 200, 200)},
+ 		maagotest.Row{Route: "board_detail", URL: BoardDetailURL(b.ID), Want: want(200, 200, 200, 200, 200)},
+ 		maagotest.Row{Route: "board_rows", URL: BoardRowsURL(b.ID), Want: want(200, 200, 200, 200, 200)},
+-		maagotest.Row{Route: "board_export", URL: BoardExportURL(fmt.Sprint(b.ID)), Want: want(200, 200, 200, 200, 200)},
++		maagotest.Row{Route: "board_export", URL: BoardExportURL(b.ID), Want: want(200, 200, 200, 200, 200)},
+ 		maagotest.Row{Route: "post_new", URL: PostNewURL(b.ID), Want: want(303, 200, 200, 200, 200)},
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(out.ID), Want: want(200, 200, 200, 200, 200)},
+ 		maagotest.Row{Route: "api_posts", URL: APIPostsURL(b.ID), Want: want(200, 200, 200, 200, 200)},
+@@ -170,9 +170,9 @@ func TestPermissions(t *testing.T) {
+ 		// Files: the author and staff attach them; whoever may see the post
+ 		// downloads them, a draft's only its author and staff.
+ 		maagotest.Row{Route: "attachment_add", URL: AttachmentAddURL(out.ID), Body: file.String(), ContentType: mw.FormDataContentType(), Want: want(401, 403, 403, 303, 303)},
+-		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[0].ID)), Want: want(200, 200, 200, 200, 200)},
+-		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[1].ID)), Want: want(404, 404, 404, 200, 200)},
+-		maagotest.Row{Route: "attachment", URL: AttachmentURL(fmt.Sprint(files[2].ID)), Want: want(404, 404, 404, 200, 200)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(files[0].ID), Want: want(200, 200, 200, 200, 200)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(files[1].ID), Want: want(404, 404, 404, 200, 200)},
++		maagotest.Row{Route: "attachment", URL: AttachmentURL(files[2].ID), Want: want(404, 404, 404, 200, 200)},
+ 		// What is not out.
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(unseen.ID), Want: want(404, 404, 404, 200, 200)},
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(scheduled.ID), Want: want(404, 404, 404, 200, 200)},
+diff --git a/board/views.go b/board/views.go
+index 9e5ea97..df40601 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -2,12 +2,9 @@ package board
+ 
+ import (
+ 	"context"
+-	"database/sql"
+ 	"errors"
+-	"io/fs"
+ 	"log"
+ 	"net/http"
+-	"strconv"
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
+@@ -160,41 +157,24 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
+ 	return maago.Show(page), err
+ }
+ 
++// DownloadIn is the attachment DownloadAttachment sends.
++type DownloadIn struct {
++	ID int64 `maago:"path=id"`
++}
++
+ // DownloadAttachment sends an attachment down, to whoever may read its
+ // post (policy visible). The view checks it: no route serves the media directory
+-// as it is.
+-func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+-	ctx := r.Context()
+-	db := maago.DBFrom(ctx)
+-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
++// as it is. It writes the response itself: a missing row, or a
++// row whose file is gone, is a 404.
++func DownloadAttachment(ctx context.Context, u *auth.User, db maago.DB, in DownloadIn, w http.ResponseWriter, r *http.Request) error {
++	a, err := GetAttachment(ctx, db, in.ID)
+ 	if err != nil {
+-		http.NotFound(w, r)
+-		return
+-	}
+-	// An escape view takes no parameters: it reads the user, as the
+-	// database, from the request.
+-	var u *auth.User
+-	if user, ok := maago.UserFrom[auth.User](ctx); ok {
+-		u = &user
+-	}
+-	a, err := GetAttachment(ctx, db, id)
+-	if err == nil {
+-		_, err = GetPost(ctx, u, db, a.PostID, time.Now())
+-	}
+-	switch {
+-	case errors.Is(err, sql.ErrNoRows):
+-		http.NotFound(w, r)
+-		return
+-	case err != nil:
+-		panic(err) // nothing is written yet: a 500, and Config.OnError hears it
++		return err
+ 	}
+-	// A func(w, r) has no error to return: ServeMedia's is answered here.
+-	switch err := maago.ServeMedia(w, r, a.media()); {
+-	case errors.Is(err, fs.ErrNotExist):
+-		http.NotFound(w, r) // the row is there, its file is not
+-	case err != nil:
+-		panic(err) // nothing is written yet: a 500, and Config.OnError hears it
++	if _, err := GetPost(ctx, u, db, a.PostID, time.Now()); err != nil {
++		return err
+ 	}
++	return maago.ServeMedia(w, r, a.media())
+ }
+ 
+ // RemovePost deletes a post. One without comments goes from the database;
+diff --git a/board/web_test.go b/board/web_test.go
+index dc6520b..072590c 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -480,7 +480,7 @@ func TestExport(t *testing.T) {
+ 	exportPage = 2 // four rows: two full pages, then an empty one
+ 
+ 	w := httptest.NewRecorder()
+-	h.ServeHTTP(w, httptest.NewRequest("GET", BoardExportURL(fmt.Sprint(b.ID)), nil))
++	h.ServeHTTP(w, httptest.NewRequest("GET", BoardExportURL(b.ID), nil))
+ 	if w.Code != 200 || w.Header().Get("Content-Type") != "text/csv; charset=utf-8" || w.Header().Get("Content-Disposition") != `attachment; filename="board-1.csv"` {
+ 		t.Fatalf("%d %v", w.Code, w.Header())
+ 	}
+@@ -496,7 +496,7 @@ func TestExport(t *testing.T) {
+ 		t.Errorf("titles %s in\n%q", got, rows)
+ 	}
+ 
+-	for _, path := range []string{BoardExportURL("2"), BoardExportURL("abc")} {
++	for _, path := range []string{BoardExportURL(2), "/boards/abc/posts.csv"} {
+ 		if code, _ := get(h, path); code != 404 {
+ 			t.Errorf("%s: %d", path, code)
+ 		}
+@@ -861,7 +861,7 @@ func TestDrafts(t *testing.T) {
+ 		return strings.Contains(body, "앤의 게시 글") && !strings.Contains(body, "초안") && !strings.Contains(body, "예약")
+ 	}
+ 	for _, w := range []who{nobody, annH, staff} {
+-		for _, path := range []string{BoardDetailURL(b.ID), BoardDetailURL(b.ID) + "?q=앤", APIPostsURL(b.ID), BoardExportURL(fmt.Sprint(b.ID))} {
++		for _, path := range []string{BoardDetailURL(b.ID), BoardDetailURL(b.ID) + "?q=앤", APIPostsURL(b.ID), BoardExportURL(b.ID)} {
+ 			if code, body := get(w.h, path); code != 200 || !out(body) {
+ 				t.Errorf("%s GET %s: %d\n%s", w.name, path, code, body)
+ 			}
+diff --git a/main.go b/main.go
+index 08ffb04..f71a30a 100644
+--- a/main.go
++++ b/main.go
+@@ -92,8 +92,9 @@ func main() {
+ 		// a directory beside the binary, which the server does not serve
+ 		// as it is. The view that sends one down checks who asks.
+ 		MediaDir: "media",
+-		// Every 5xx: a view's error or a panic. Send it where you watch
+-		// errors; the log will do here.
++		// Every 5xx, a view's error or a panic, and any error after a view
++		// began writing. Send it where you watch errors; the log will do
++		// here.
+ 		OnError: func(ctx context.Context, r *http.Request, err error) {
+ 			log.Printf("%s %s: %v", r.Method, r.URL.Path, err)
+ 		},

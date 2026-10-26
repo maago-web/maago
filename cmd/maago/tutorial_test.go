@@ -105,6 +105,11 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"the comment form, unnamed", "0037-Draw-both-forms-and-ask-as-an-API-client.patch", "post.ID, NewCommentForm())", "post.ID, CommentForm{})", "go test: "},
 		// The API client's column is asked, cell by cell.
 		{"a token's cell", "0037-Draw-both-forms-and-ask-as-an-API-client.patch", `Route: "me", URL: MeURL(), Want: want(303, 200, 200, 200, 200)`, `Route: "me", URL: MeURL(), Want: want(303, 200, 303, 200, 200)`, "go test: "},
+		// A view that writes the response returns ServeMedia's error: a
+		// row whose file is gone is a 404, not an empty 200 (D-140).
+		{"ServeMedia's error, dropped", "0038-Type-the-views-that-write-the-response-themselves.patch", "+\treturn maago.ServeMedia(w, r, a.media())", "+\treturn func(error) error { return nil }(maago.ServeMedia(w, r, a.media()))", "go test: "},
+		// Its response is out before any commit: no transaction (D-157).
+		{"a writing view's Tx", "0038-Type-the-views-that-write-the-response-themselves.patch", "+func ExportBoard(ctx context.Context, u *auth.User, db maago.DB, in ExportIn", "+func ExportBoard(ctx context.Context, u *auth.User, tx maago.Tx, in ExportIn", "maago gen:\nboard/export.go:30:41: view ExportBoard takes a transaction"},
 		// A fix: line the step quotes is maago gen's, word for word.
 		{"a misquoted fix", "0035-Write-who-may-read-a-post.patch", "each shows)", "each show)", "maago gen: the message quotes\n"},
 		// A query that reads the posts without their policy stops maago gen,
