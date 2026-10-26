@@ -110,6 +110,29 @@
    기록(2026-10-24): 단계 0037 `Draw both forms, and ask as an API client`(`postPage`의 `NewAttachmentForm()`, `Attach`의 `NewCommentForm()`, 파일 칸의 라벨·이름, 권한 표의 `cat_token`과 cat의 만드는 행 셋, `TestAPI`·`TestMe`의 `SignInToken`, `TestAttachments`의 두 폼), MAP의 0037 행, Catches "the comment form, unnamed"·"a token's cell". `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardMap`(PG)
 
 5. **타입 있는 탈출구 뷰**(Q5): 서명 검사, 생성 어댑터, 쓰기 전·뒤의 오류, `ServeMedia`의 오류, 라우트 표·URL 함수·권한 표가 그대로 → 확인: 쓰기 전 오류의 상태(404·`Status`·500과 `OnError`), 쓴 뒤 오류의 끊긴 연결, 감싼 `w`의 `Flush`가 스트리밍한다, `Tx`는 생성 오류, `ServeMedia`의 Range 응답(206), 골든, 두 방언
+   계획
+   - **이미 있는 것**: 런타임은 라우트마다 `w`를 `written`으로 감싸고(`http.go`), 뷰가 돌려준 오류는 `report`가 상태로(아직 쓰지 않았으면) 바꾸고 5xx면 `OnError`에 알린다. `written`은 `Flush`와 `Unwrap`을 이미 보인다(0017의 스트리밍). 그래서 생성 어댑터는 뷰의 오류를 그대로 돌려주면 되고, 새 런타임 코드는 "쓴 뒤의 오류"뿐이다
+   - 꼴(D-157): `func(ctx context.Context, [u U | *U,] [db maago.DB,] in In, w http.ResponseWriter, r *http.Request) error`. 이 문서와 진단에서는 "스트리밍 뷰"가 아니라 "a view that writes the response itself"(`func(w, r)`도 그렇다)
+   - `internal/web/views.go` `readView`: 결과가 하나이고 마지막 두 매개변수가 `http.ResponseWriter`·`*http.Request`(구문의 이름, 타입 검사가 확인)면 `v.writes = true`, 그 둘을 떼고 타입 있는 뷰와 같은 길(사용자·DB·In의 차례, `DBFrom`·`UserFrom` 금지, In의 필드와 경로 값). `maago.Tx`는 생성 오류: "a view that writes the response itself takes db maago.DB: its response is sent as it is written, before any commit". `shapes`에 셋째 꼴
+   - `internal/web/typecheck.go` `signature`: `writes`면 첫째 `context.Context`, 끝 둘의 타입, 결과 `error`. 사용자 타입 검사는 그대로(1번 자리). 페이지·템플릿이 없다: `escape`처럼 건너뛴다(`Block`은 오류). 템플릿 검사에서 그 라우트의 경로 값은 In의 타입(지금 `func(w, r)`만 `string or int`)
+   - `views.go.tmpl`: `writes`면 In·사용자 읽기는 타입 있는 뷰 그대로, 그다음 `return View(r.Context(), [u,] [maago.DBFrom(r.Context()),] in, w, r)`
+   - `http.go` `report`: 이미 썼으면(`w.wrote`) `OnError`(5xx) 뒤 `panic(http.ErrAbortHandler)`: 받는 쪽이 잘린 200을 끝난 응답으로 받지 않게. 패닉 경로(`recover`의 `report`)도 같은 길을 탄다: 쓴 뒤의 패닉도 연결을 끊는다(지금은 끊지 않고 남는다)
+   - `media.go` `ServeMedia(w, r, m) error`: 없는 열쇠는 `maago.Status(404, err)`, 그 밖의 여는 오류는 그대로(쓰기 전이라 500과 `OnError`). `func(w, r)`에서 부르는 곳은 오류를 스스로 다룬다(문서). D-140 고침
+   - 시험(`cmd/maago/testdata/web/site`): `MediaDownload`를 새 꼴로(경로 `key`는 In, `return maago.ServeMedia(w, r, …)`), 새 라우트 하나가 쓰기 전 오류(`sql.ErrNoRows` → 404, `maago.Status(403)` → 403, 그 밖 → 500과 `OnError`)와 쓴 뒤 오류(연결 끊김: 클라이언트가 `io.ErrUnexpectedEOF`, `OnError`가 들음)와 `Flush`(묶음 사이에 플러시가 닿는다), 사용자를 받는 꼴(로그인 없으면 401·303). `ServeMedia`의 Range(206)와 없는 열쇠 404. 생성기 골든(`views.golden`의 진단: `Tx`, 결과 둘, 끝 둘의 순서), `signature_views_gen.go.golden`류의 어댑터
+   - 문서: `maago doc view`의 탈출구 문단(`DBFrom`·`UserFrom`을 쓰는 `func(w, r)` 대신 새 꼴이 먼저, `func(w, r)`은 몸통을 그대로 읽는 웹훅 받기 따위), 예 `cmd/maago/docs/view.txt`에 새 꼴 하나, D-41·D-149·D-140 고침
+   - 하지 않는 것: `func(w, r)` 없애기(Q5 b), `maago.Tx`(D-157), 게시판의 새 꼴(6번)
+   - 계획 리뷰는 codex·fable 둘(새 API의 모양, 런타임)
+   - 계획 리뷰(codex·fable)로 고친 것(모두 받음, 결정에 없는 선택은 ★)
+     - 꼴 판별은 결과 수로: 0이면 `func(w, r)`, 1이면 쓰는 뷰, 2이면 타입 있는 뷰. `readView`의 매개변수 상한은 6, 끝 둘(w·r)을 먼저 떼고 그 앞을 지금의 사용자·DB·In 검사에 넘긴다. 결과 둘에 w·r가 붙은 뷰는 "takes no In"이 아니라 "a view that writes the response itself returns only error"
+     - `writes`를 `escape`가 있는 자리 모두에 더한다: `gen.go:99,181`의 `html`(쓰는 뷰만 있는 앱에 `templates` embed가 생기지 않게), 템플릿 데이터, `typecheck.go:92`의 건너뛰기(`Block`은 오류), `loginOptions`의 fix, `viewSignature`(새 꼴도 찍는다), `shapes` 상수 둘과 `views.golden`
+     - ★ POST 라우트의 쓰는 뷰: 트랜잭션이 없다. `noTxOptions`에서 `func(w, r)`처럼 다룬다: `maago.NoTx`는 "writes the response itself, which has no transaction" 오류, "takes maago.DB, which runs outside a transaction"에서 빠진다. 까닭: `Tx`가 생성 오류인 뷰에 `NoTx`를 요구하면 고를 것이 없는 의식이다
+     - ★ 쓴 뒤의 오류는 상태와 관계없이 끊고, 5xx만이 아니라 모두 `OnError`에 알린다: 첫 바이트 뒤에는 403도 답할 수 없어 뷰의 잘못이고, 조용히 버리지 않는다(PHILOSOPHY 7). 쓴 뒤의 패닉도 끊는다(D-157은 돌려준 오류만 말한다). 타입 있는 뷰는 `rt.Render`·`rt.JSON`이 버퍼하므로 쓴 뒤 오류는 `Write` 실패(클라이언트가 떠남)뿐이다
+     - 쓰는 뷰의 `AfterCommit`은 트랜잭션이 없어 곧 돈다(`tx.go`): 문서에 한 줄
+     - 시험: 쓴 뒤 오류는 `httptest.NewServer`로, 뷰가 오류 전에 `Flush`하고 `io.ReadAll`의 err가 `io.ErrUnexpectedEOF`임을 단언(몸통이 아니라). `TestExportStreams`의 "panic after a row"도 그 err를 단언하게 고친다(지금은 err를 버려 abort 없이도 통과). `Flush`는 gate로 "첫 묶음이 둘째가 쓰이기 전에 닿는다"(`TestExportStreams`의 꼴). `WriteHeader(200)`만 한 뒤의 오류도 끊긴다. `ServeMedia`의 Range(206), HEAD(몸통 없음), 없는 열쇠 404. 쓰기 전 오류와 쿠키(쓰기 전 오류면 `SetCookie`가 버려진다)는 Recorder로. 사용자를 받는 꼴은 GET이라 로그인 없이 303. 새 라우트마다 `permissions_test.go`에 행(쓰기 전 상태만)
+     - 문서의 자리: `cmd/maago/docs/view.txt`(새 꼴 예), 패키지 주석 `http.go`의 `func(w, r)` 문단들, `media.go`의 `ServeMedia` 주석, fix 글 `views.go`의 `func(w, r)`를 말하는 곳. In에 폼이 든 쓰는 뷰는 어댑터가 몸통을 읽으므로 `r.Body`를 다시 읽을 수 없다는 한 줄
+     - 게시판 0029·0032(사람의 결정 2026-10-27, fable이 짚음): `ServeMedia`를 문장으로 부르면 반환이 버려져 파일 없는 내려받기가 빈 200이 된다. 두 패치를 `switch err := maago.ServeMedia(w, r, a.media()); { case errors.Is(err, fs.ErrNotExist): http.NotFound(w, r); case err != nil: panic(err) }`로(0038이 이 손 처리를 지운다), 0029 글의 "calls maago.ServeMedia"에 그 처리
+     - 확인에 `TestBoardTutorial`과 골든 `urls_gen.go.golden`·`routes.golden`(라우트 표·URL 함수가 그대로)
+
 6. **게시판 0038: 내보내기와 내려받기**: `ExportBoard`·`DownloadAttachment`를 새 꼴로, 손 파싱·`panic`·`UserFrom`이 사라진다, MAP.md에 행 → 확인: `TestBoardTutorial`, `TestBoardMap`, 게시판에 `panic(`이 없다
 7. **UUID·JSON·돈의 정수**(Q6): 태그·DDL·스키마 읽기·비교, 쿼리 결과·매개변수 타입, 폼 바인딩(UUID, `decimal=`), admin, `float64` 돈 이름의 진단, `maago doc` → 확인: 두 방언에서 모델 → `makemigrations` → `migrate` → 쿼리 → 폼·admin(gentest, `orders`의 `Total`이 `decimal=2`), 손 SQL `WHERE total > :min`·`SUM(total)`이 두 방언에서 같은 행·같은 값, 소수 자리 넘침·자릿수 넘침이 폼 오류, 스키마 비교의 차이 없음, `TestDocExamples`
 8. **게시판 0039: UUID와 JSON**: 게시판에 돈은 없다(돈은 gentest `orders`가 본다). 글의 공개 열쇠 UUID(정책을 쓰는 손 쿼리로 읽기)와 첨부의 JSON 메타 따위, 쓰임은 계획에서, MAP.md에 행 → 확인: `TestBoardTutorial`, `TestBoardMap`
