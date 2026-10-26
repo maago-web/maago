@@ -266,10 +266,10 @@ index ef76a77..f9773bb 100644
  	maago.GET("/api/me", "api_me", Me, maago.API),
  }
 diff --git a/board/views.go b/board/views.go
-index 12ae34c..0f860e9 100644
+index e96f1b5..5815d99 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -86,16 +86,17 @@ type PostPage struct {
+@@ -87,16 +87,17 @@ type PostPage struct {
  	AttachForm  AttachmentForm
  }
  
@@ -291,7 +291,7 @@ index 12ae34c..0f860e9 100644
  	if err != nil {
  		return maago.Result[PostPage]{}, err
  	}
-@@ -109,8 +110,15 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
+@@ -110,8 +111,15 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
  }
  
  // postPage is the page of post id, with its comments and attachments,
@@ -309,7 +309,7 @@ index 12ae34c..0f860e9 100644
  	p, err := PostDetail(ctx, db, PostDetailParams{ID: id})
  	if err != nil {
  		return PostPage{}, err
-@@ -155,14 +163,14 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
+@@ -156,14 +164,14 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
  		}
  		return maago.SeeOther[PostPage](PostDetailURL(post.ID)), nil
  	}
@@ -327,7 +327,7 @@ index 12ae34c..0f860e9 100644
  func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
  	ctx := r.Context()
  	db := maago.DBFrom(ctx)
-@@ -176,22 +184,22 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+@@ -177,22 +185,22 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
  	if err == nil {
  		post, err = GetPost(ctx, db, a.PostID)
  	}
@@ -357,10 +357,10 @@ index 12ae34c..0f860e9 100644
 -			return
 -		}
 -	}
- 	maago.ServeMedia(w, r, a.media())
- }
- 
-@@ -298,8 +306,7 @@ func CreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (ma
+ 	// A func(w, r) has no error to return: ServeMedia's is answered here.
+ 	switch err := maago.ServeMedia(w, r, a.media()); {
+ 	case errors.Is(err, fs.ErrNotExist):
+@@ -305,8 +313,7 @@ func CreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (ma
  // only the database can check: the same title twice on one board would
  // break the model's unique=(BoardID,Title) as a 500, and two notices may
  // not be pinned at once. When one fails, it says so on f, as Validate
@@ -370,7 +370,7 @@ index 12ae34c..0f860e9 100644
  func savePost(ctx context.Context, tx maago.Tx, u auth.User, boardID int64, f *PostForm) (Post, bool, error) {
  	taken, err := PostTitleTaken(ctx, tx, PostTitleTakenParams{BoardID: boardID, Title: f.Title.Value})
  	if err != nil {
-@@ -326,11 +333,6 @@ func savePost(ctx context.Context, tx maago.Tx, u auth.User, boardID int64, f *P
+@@ -333,11 +340,6 @@ func savePost(ctx context.Context, tx maago.Tx, u auth.User, boardID int64, f *P
  	if err != nil {
  		return Post{}, false, err
  	}
@@ -382,7 +382,7 @@ index 12ae34c..0f860e9 100644
  	return p, true, nil
  }
  
-@@ -344,24 +346,41 @@ func Archive(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.Re
+@@ -351,24 +353,41 @@ func Archive(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.Re
  	return move(ctx, tx, u, in.ID, "archived")
  }
  
@@ -431,7 +431,7 @@ index 12ae34c..0f860e9 100644
  }
  
  type APIPostsIn struct {
-@@ -397,6 +416,28 @@ func APICreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn)
+@@ -404,6 +423,28 @@ func APICreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn)
  	}
  }
  

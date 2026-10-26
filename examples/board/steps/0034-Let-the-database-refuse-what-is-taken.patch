@@ -85,10 +85,10 @@ index e17b664..0000000
 -WHERE board_id = :board_id AND title = :title
 -  {skip_id} AND id <> :skip_id
 diff --git a/board/views.go b/board/views.go
-index 0f860e9..f8b8839 100644
+index 5815d99..c74da1e 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -245,21 +245,16 @@ func NewBoard(ctx context.Context, u auth.User, in NewBoardIn) (BoardFormPage, e
+@@ -252,21 +252,16 @@ func NewBoard(ctx context.Context, u auth.User, in NewBoardIn) (BoardFormPage, e
  }
  
  // CreateBoard saves the form, or draws it again with what is wrong. A
@@ -113,7 +113,7 @@ index 0f860e9..f8b8839 100644
  	if err != nil {
  		return maago.Result[BoardFormPage]{}, err
  	}
-@@ -302,20 +297,12 @@ func CreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (ma
+@@ -309,20 +304,12 @@ func CreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (ma
  	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
  }
  
@@ -139,7 +139,7 @@ index 0f860e9..f8b8839 100644
  	if f.PinnedFrom.Given {
  		n, err := PinnedOverlap(ctx, tx, PinnedOverlapParams{BoardID: boardID, From: f.PinnedFrom.Value, Until: f.PinnedUntil.Value})
  		if err != nil {
-@@ -330,6 +317,9 @@ func savePost(ctx context.Context, tx maago.Tx, u auth.User, boardID int64, f *P
+@@ -337,6 +324,9 @@ func savePost(ctx context.Context, tx maago.Tx, u auth.User, boardID int64, f *P
  		BoardID: boardID, AuthorID: &u.ID, Title: f.Title.Value, Body: f.Body.Value,
  		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
  	})
@@ -149,7 +149,7 @@ index 0f860e9..f8b8839 100644
  	if err != nil {
  		return Post{}, false, err
  	}
-@@ -532,14 +522,6 @@ func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn)
+@@ -539,14 +529,6 @@ func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn)
  	if !f.Valid() {
  		return maago.Show(PostEditPage{p, f, in.Version}), nil
  	}
@@ -164,7 +164,7 @@ index 0f860e9..f8b8839 100644
  	changed := p
  	changed.Title, changed.Body = f.Title.Value, f.Body.Value
  	changed.UpdatedAt = time.UnixMicro(in.Version) // UpdatePost writes only over this version
-@@ -547,6 +529,8 @@ func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn)
+@@ -554,6 +536,8 @@ func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn)
  	case errors.Is(err, maago.ErrConflict):
  		f.AddError("그새 다른 사람이 이 글을 고쳤습니다. 다시 열어 고치세요.")
  		return maago.Show(PostEditPage{p, f, in.Version}), nil

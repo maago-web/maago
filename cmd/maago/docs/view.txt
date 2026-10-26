@@ -72,7 +72,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/maago-web/maago"
 
@@ -146,20 +145,15 @@ func APIPosts(ctx context.Context, db maago.DB, in struct{}) ([]Post, error) {
 	return AllPosts(ctx, db)
 }
 
-// PostText answers plain text, so it is a func(w, r) and reads what it
-// needs from the request.
-func PostText(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+// PostText answers plain text, so it writes the response itself: it
+// takes w and r after In, and returns only an error.
+func PostText(ctx context.Context, db maago.DB, in PostDetailIn, w http.ResponseWriter, r *http.Request) error {
+	p, err := GetPost(ctx, db, in.ID)
 	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	p, err := GetPost(r.Context(), maago.DBFrom(r.Context()), id)
-	if err != nil {
-		http.NotFound(w, r)
-		return
+		return err // nothing is written yet: sql.ErrNoRows is a 404
 	}
 	fmt.Fprintln(w, p.Title)
+	return nil
 }
 -- blog/queries/all_posts.sql --
 -- name: AllPosts :many Post
@@ -191,7 +185,6 @@ UPDATE blog_post SET views = views + 1 WHERE id = :id
 package blog
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -270,7 +263,7 @@ func TestPermissions(t *testing.T) {
 		maagotest.Row{Route: "post_new", URL: PostNewURL(), Want: want(303, 200)},
 		maagotest.Row{Route: "post_create", URL: PostCreateURL(), Body: "title=second", Want: want(401, 303)},
 		maagotest.Row{Route: "post_view", URL: PostViewURL(p.ID), Want: want(303, 303)},
-		maagotest.Row{Route: "post_text", URL: PostTextURL(fmt.Sprint(p.ID)), Want: want(200, 200)},
+		maagotest.Row{Route: "post_text", URL: PostTextURL(p.ID), Want: want(200, 200)},
 		maagotest.Row{Route: "api_posts", URL: APIPostsURL(), Want: want(200, 200)},
 	)
 }

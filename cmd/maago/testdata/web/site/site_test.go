@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -358,14 +359,87 @@ func TestExportStreams(t *testing.T) {
 		t.Errorf("headers: %q %q", ct, cd)
 	}
 
-	// A panic after the first row: the status stays, nothing is added, and
+	// A panic after the first row: the status stays, the connection is
+	// cut, so the client knows the response is not whole (D-157), and
 	// OnError hears it.
 	resp, body = get(PostExportURL("panic"))
-	all, _ := io.ReadAll(body)
-	if resp.StatusCode != 200 || string(all) != "format,panic\n" {
-		t.Errorf("panic after a row: %d %q", resp.StatusCode, all)
+	all, err := io.ReadAll(body)
+	if resp.StatusCode != 200 || string(all) != "format,panic\n" || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("panic after a row: %d %q %v", resp.StatusCode, all, err)
 	}
 	if len(*reported) != 1 || !strings.HasPrefix((*reported)[0].Error(), "panic: export failed") {
+		t.Errorf("OnError heard %v", *reported)
+	}
+}
+
+// TestWrites: a view that writes the response itself takes the user, the
+// database and In as a typed view does (D-157). An error before it writes
+// answers as a typed view's does, without the cookies; one after cuts the
+// connection, and OnError hears it. Its w flushes.
+func TestWrites(t *testing.T) {
+	h, _, reported := handler(t)
+	get := func(how, user string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", StreamURL(how), nil)
+		if user != "" {
+			r.Header.Set("X-User", user)
+		}
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for _, c := range []struct {
+		how, user string
+		code      int
+		body      string
+	}{
+		{"rows", "ann", 200, "user,ann\nposts,0\n"},
+		{"rows", "", 303, ""},
+		{"gone", "ann", 404, "Not Found\n"},
+		{"refuse", "ann", 403, "Forbidden\n"},
+		{"fail", "ann", 500, "Internal Server Error\n"},
+	} {
+		w := get(c.how, c.user)
+		cookie := w.Header().Get("Set-Cookie")
+		if w.Code != c.code || c.code != 303 && w.Body.String() != c.body || (cookie == "seen=ann") != (c.code == 200) {
+			t.Errorf("%s as %q: %d %q Set-Cookie %q", c.how, c.user, w.Code, w.Body, cookie)
+		}
+	}
+	if len(*reported) != 1 || (*reported)[0].Error() != "stream failed" {
+		t.Errorf("OnError heard %v", *reported)
+	}
+	*reported = nil
+
+	srv := httptest.NewServer(h)
+	gate := make(chan struct{})
+	exportGate = gate
+	open := sync.OnceFunc(func() { close(gate) })
+	t.Cleanup(func() { open(); srv.Close(); exportGate = nil })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	get2 := func(how string) (*http.Response, *bufio.Reader) {
+		req, _ := http.NewRequestWithContext(ctx, "GET", srv.URL+StreamURL(how), nil)
+		req.Header.Set("X-User", "ann")
+		resp, err := srv.Client().Do(req)
+		if err != nil {
+			t.Fatalf("GET %s: %v", how, err)
+		}
+		t.Cleanup(func() { resp.Body.Close() })
+		return resp, bufio.NewReader(resp.Body)
+	}
+	_, body := get2("rows")
+	if first, err := body.ReadString('\n'); err != nil || first != "user,ann\n" {
+		t.Fatalf("first row before the second is written: %q %v", first, err)
+	}
+	open()
+	if rest, err := io.ReadAll(body); err != nil || string(rest) != "posts,0\n" {
+		t.Errorf("rest: %q %v", rest, err)
+	}
+	resp, body := get2("late")
+	all, err := io.ReadAll(body)
+	if resp.StatusCode != 200 || string(all) != "user,ann\n" || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Errorf("an error after a row: %d %q %v", resp.StatusCode, all, err)
+	}
+	if len(*reported) != 1 || (*reported)[0].Error() != "stream failed late" {
 		t.Errorf("OnError heard %v", *reported)
 	}
 }

@@ -89,8 +89,8 @@ func Types(root string, fset *token.FileSet, res *gotypes.Result, apps []*App) [
 				failed = true
 				continue
 			}
-			if r.view.escape || hasOption(r.Options, "API") {
-				if r.view.escape && hasOption(r.Options, "Block") { // with API, Check said it
+			if r.view.escape || r.view.writes || hasOption(r.Options, "API") {
+				if (r.view.escape || r.view.writes) && hasOption(r.Options, "Block") { // with API, Check said it
 					ds = append(ds, diag.New(fset.Position(r.Pos), "route "+r.Name+" renders a block, but its view returns no page", "remove maago.Block"))
 				}
 				continue
@@ -119,7 +119,8 @@ func hasOption(opts []Option, name string) bool {
 // signature checks sig against the view's shape, and records its page
 // type. It returns what is wrong, and how to fix it.
 func (v *view) signature(sig *types.Signature, pkg *types.Package, api bool) (msg, fix string) {
-	const shapes = "write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)"
+	const shapes = "write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), " +
+		"func(ctx context.Context, [u User,] [db maago.DB,] in In, w http.ResponseWriter, r *http.Request) error to write the response itself, or func(w http.ResponseWriter, r *http.Request)"
 	ps, rs := sig.Params(), sig.Results()
 	if v.escape {
 		if !named(ps.At(0).Type(), "net/http", "ResponseWriter") || !isPointerTo(ps.At(1).Type(), "net/http", "Request") {
@@ -129,6 +130,16 @@ func (v *view) signature(sig *types.Signature, pkg *types.Package, api bool) (ms
 	}
 	if !named(ps.At(0).Type(), "context", "Context") {
 		return "takes " + types.TypeString(ps.At(0).Type(), types.RelativeTo(pkg)) + " first, not a context.Context", shapes
+	}
+	if v.writes {
+		w, r := ps.At(ps.Len()-2).Type(), ps.At(ps.Len()-1).Type()
+		switch {
+		case !named(w, "net/http", "ResponseWriter") || !isPointerTo(r, "net/http", "Request"):
+			return "takes " + types.TypeString(w, qualifier(pkg)) + " and " + types.TypeString(r, qualifier(pkg)) + " last, not an http.ResponseWriter and an *http.Request", shapes
+		case !types.Identical(rs.At(0).Type(), types.Universe.Lookup("error").Type()):
+			return "returns " + types.TypeString(rs.At(0).Type(), qualifier(pkg)) + ", not an error", shapes
+		}
+		return "", ""
 	}
 	if !types.Identical(rs.At(1).Type(), types.Universe.Lookup("error").Type()) {
 		return "returns " + types.TypeString(rs.At(1).Type(), types.RelativeTo(pkg)) + " second, not an error", shapes

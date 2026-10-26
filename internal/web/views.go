@@ -21,6 +21,7 @@ import (
 // generated adapter and URL function need before the types are known.
 type view struct {
 	escape    bool   // func(http.ResponseWriter, *http.Request)
+	writes    bool   // a typed view that writes the response itself: takes w and r last, returns error (D-157)
 	user      bool   // takes the user, between ctx and In (D-149)
 	userPtr   bool   // as *U: optional, nil without one
 	userExpr  string // the user's type as the view writes it, for fixes
@@ -116,8 +117,14 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 	if fd == nil {
 		return nil, nil // Check reported it
 	}
-	const shapes = "write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), or func(w http.ResponseWriter, r *http.Request)"
+	const shapes = "write func(ctx context.Context, [u User,] [db maago.DB | tx maago.Tx,] in In) (Page or maago.Result[Page], error), " +
+		"func(ctx context.Context, [u User,] [db maago.DB,] in In, w http.ResponseWriter, r *http.Request) error to write the response itself, or func(w http.ResponseWriter, r *http.Request)"
 	params, results := fields(fd.Type.Params), fields(fd.Type.Results)
+	tail := len(params) >= 2 && writesTail(params[len(params)-2:]) // w and r after In: the view writes the response itself
+	np := len(params)
+	if tail && len(results) != 0 {
+		params = params[:np-2]
+	}
 	wildcards, wds := pathWildcards(r)
 	for _, w := range wds {
 		errAt(r.PathPos, w, "split the route, or read the rest of the path with a func(w, r) view")
@@ -132,8 +139,11 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 			v.wildcards = append(v.wildcards, param{w, "string"})
 		}
 		return v, ds
-	case len(params) < 2 || len(params) > 5 || len(results) != 2:
-		errAt(fd.Name.Pos(), fmt.Sprintf("view %s takes %d values and returns %d", r.View, len(params), len(results)), shapes)
+	case tail && len(results) == 2:
+		errAt(fd.Name.Pos(), "view "+r.View+" takes w and r and returns a page: a view that writes the response itself returns only error", shapes)
+		return nil, ds
+	case len(params) < 2 || len(params) > 5 || len(results) != 2 && !(tail && len(results) == 1):
+		errAt(fd.Name.Pos(), fmt.Sprintf("view %s takes %d values and returns %d", r.View, np, len(results)), shapes)
 		return nil, ds
 	}
 	// The user and the database come as parameters (D-149): a typed view
@@ -159,7 +169,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 			return true
 		})
 	}
-	v := &view{}
+	v := &view{writes: tail}
 	last := params[len(params)-1]
 	in := last
 	if star, ok := in.(*ast.StarExpr); ok {
@@ -200,21 +210,29 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 		} else if user == nil {
 			u = last
 		}
-		errAt(last.Pos(), "view "+r.View+" takes no In: In comes last, even when empty", "write "+viewSignature(r.View, u, db, tx, "struct{}"))
+		errAt(last.Pos(), "view "+r.View+" takes no In: In comes last, even when empty", "write "+viewSignature(v.writes, r.View, u, db, tx, "struct{}"))
 		return nil, ds
 	}
 	switch {
 	case both:
-		errAt(params[1].Pos(), "view "+r.View+" takes both maago.Tx and maago.DB", "write "+viewSignature(r.View, user, false, true, types.ExprString(last))+": the transaction reads and writes")
+		fix := "write " + viewSignature(v.writes, r.View, user, v.writes, !v.writes, types.ExprString(last))
+		if !v.writes {
+			fix += ": the transaction reads and writes"
+		}
+		errAt(params[1].Pos(), "view "+r.View+" takes both maago.Tx and maago.DB", fix)
+		return nil, ds
+	case v.tx && v.writes:
+		errAt(params[1].Pos(), "view "+r.View+" takes a transaction, but it writes the response itself, which is sent as it is written, before any commit",
+			"write "+viewSignature(true, r.View, user, true, false, types.ExprString(last)))
 		return nil, ds
 	case order:
-		errAt(params[1].Pos(), "view "+r.View+" takes its values out of order", "write "+viewSignature(r.View, user, v.db, v.tx, types.ExprString(last)))
+		errAt(params[1].Pos(), "view "+r.View+" takes its values out of order", "write "+viewSignature(v.writes, r.View, user, v.db, v.tx, types.ExprString(last)))
 		return nil, ds
 	case wrong != "" && v.db:
-		errAt(params[1].Pos(), "view "+r.View+" takes the database as "+wrong+", not maago.DB", "write "+viewSignature(r.View, user, true, false, types.ExprString(last)))
+		errAt(params[1].Pos(), "view "+r.View+" takes the database as "+wrong+", not maago.DB", "write "+viewSignature(v.writes, r.View, user, true, false, types.ExprString(last)))
 		return nil, ds
 	case wrong != "":
-		errAt(params[1].Pos(), "view "+r.View+" takes the transaction as "+wrong+", not maago.Tx", "write "+viewSignature(r.View, user, false, true, types.ExprString(last)))
+		errAt(params[1].Pos(), "view "+r.View+" takes the transaction as "+wrong+", not maago.Tx", "write "+viewSignature(v.writes, r.View, user, false, true, types.ExprString(last)))
 		return nil, ds
 	case v.tx && (r.Method == "GET" || r.Method == "HEAD"):
 		errAt(params[1].Pos(), "view "+r.View+" takes maago.Tx, but route "+r.Name+" is a "+r.Method+", which does not write", "take db maago.DB; a view that writes serves a POST")
@@ -237,7 +255,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 	}
 	if st == nil || v.in == "" && len(st.Fields.List) > 0 {
 		errAt(last.Pos(), "the In of view "+r.View+" is not struct{} or a struct type named in package "+app.Name,
-			"declare type "+r.View+"In struct{…} in package "+app.Name+" with fields tagged maago:\"path=name\", maago:\"query=name\" or maago:\"form\", or take struct{}; if it is the user, In comes after it: "+viewSignature(r.View, last, false, false, "struct{}"))
+			"declare type "+r.View+"In struct{…} in package "+app.Name+" with fields tagged maago:\"path=name\", maago:\"query=name\" or maago:\"form\", or take struct{}; if it is the user, In comes after it: "+viewSignature(v.writes, r.View, last, false, false, "struct{}"))
 		return nil, ds
 	}
 	var bad []inField // path fields of a type Views rejected
@@ -367,8 +385,8 @@ func fields(fl *ast.FieldList) []ast.Expr {
 }
 
 // viewSignature is a typed view's signature in the order D-149 gives, for a
-// fix.
-func viewSignature(view string, user ast.Expr, db, tx bool, in string) string {
+// fix; one that writes the response itself takes w and r after In.
+func viewSignature(writes bool, view string, user ast.Expr, db, tx bool, in string) string {
 	s := "func " + view + "(ctx context.Context, "
 	if user != nil {
 		s += "u " + types.ExprString(user) + ", "
@@ -378,7 +396,23 @@ func viewSignature(view string, user ast.Expr, db, tx bool, in string) string {
 	} else if db {
 		s += "db maago.DB, "
 	}
+	if writes {
+		return s + "in " + in + ", w http.ResponseWriter, r *http.Request) error"
+	}
 	return s + "in " + in + ") …"
+}
+
+// writesTail reports whether ps, a view's last two parameters, are
+// http.ResponseWriter and *http.Request, as the syntax tells; Types checks
+// the types.
+func writesTail(ps []ast.Expr) bool {
+	w, _ := ps[0].(*ast.SelectorExpr)
+	star, _ := ps[1].(*ast.StarExpr)
+	var req *ast.SelectorExpr
+	if star != nil {
+		req, _ = star.X.(*ast.SelectorExpr)
+	}
+	return w != nil && w.Sel.Name == "ResponseWriter" && req != nil && req.Sel.Name == "Request"
 }
 
 // store is what e names of the database: "db" for a DB, "tx" for a
@@ -455,6 +489,8 @@ func noTxOptions(fset *token.FileSet, app *App) []diag.Diagnostic {
 			ds = append(ds, diag.New(at, "route "+r.Name+" has maago.NoTx, but a "+r.Method+" writes nothing", fix))
 		case r.view.escape:
 			ds = append(ds, diag.New(at, "route "+r.Name+" has maago.NoTx, but view "+r.View+" is a func(w, r), which has no transaction", fix))
+		case r.view.writes:
+			ds = append(ds, diag.New(at, "route "+r.Name+" has maago.NoTx, but view "+r.View+" writes the response itself, which has no transaction", fix))
 		case r.view.tx:
 			ds = append(ds, diag.New(at, "route "+r.Name+" has maago.NoTx, but view "+r.View+" takes maago.Tx", "remove maago.NoTx, or take db maago.DB"))
 		case !r.view.db:
@@ -477,7 +513,7 @@ func noTxOptions(fset *token.FileSet, app *App) []diag.Diagnostic {
 		case with != nil && without != nil:
 			ds = append(ds, diag.New(fset.Position(optionPos(with, "NoTx")), fmt.Sprintf("route %s has maago.NoTx, but route %s of the same view %s does not", with.Name, without.Name, view),
 				"give both maago.NoTx, or split the view"))
-		case without != nil && v != nil && v.db:
+		case without != nil && v != nil && v.db && !v.writes:
 			// A write outside a transaction is maago.NoTx's to ask for;
 			// the fix does not offer it, or it would be the reflex (D-150).
 			ds = append(ds, diag.New(fset.Position(without.Pos), fmt.Sprintf("route %s writes, but view %s takes maago.DB, which runs outside a transaction", without.Name, view),

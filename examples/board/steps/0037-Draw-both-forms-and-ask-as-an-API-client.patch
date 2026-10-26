@@ -225,10 +225,10 @@ index e896453..060295b 100644
  </form>
  <h2>댓글</h2>
 diff --git a/board/views.go b/board/views.go
-index 9a7efc5..49dd70e 100644
+index b4855d8..9e5ea97 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -110,14 +110,14 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
+@@ -111,14 +111,14 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
  }
  
  // postPage is the page of post id, with its comments and attachments,
@@ -246,7 +246,7 @@ index 9a7efc5..49dd70e 100644
  	if page.Comments, err = PostComments(ctx, db, PostCommentsParams{PostID: p.ID}); err != nil {
  		return PostPage{}, err
  	}
-@@ -154,7 +154,7 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
+@@ -155,7 +155,7 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
  		}
  		return maago.SeeOther[PostPage](PostDetailURL(post.ID)), nil
  	}

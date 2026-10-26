@@ -96,9 +96,9 @@ func ViewsFile(app *App, apps []*App) []byte {
 				"Parser": strings.ToUpper(f.typ[:1]) + f.typ[1:], "Form": f.typ, "Keys": keysOf(app.forms[f.typ]), "Multipart": app.forms[f.typ] != nil && app.forms[f.typ].hasFile()})
 		}
 		api := hasOption(r.Options, "API")
-		html = html || !v.escape && !api
+		html = html || !v.escape && !v.writes && !api
 		rs = append(rs, map[string]any{
-			"Name": r.Name, "View": r.View, "Serve": "serve" + mapper.FieldName(r.Name), "Escape": v.escape,
+			"Name": r.Name, "View": r.View, "Serve": "serve" + mapper.FieldName(r.Name), "Escape": v.escape, "Writes": v.writes,
 			"In": in, "Fields": fields, "Query": query, "Result": v.result, "API": api, "Template": v.template, "Block": blockOf(&r),
 			"User": v.userType, "UserPtr": v.userPtr, "DB": v.db, "Tx": v.tx,
 		})
@@ -178,7 +178,7 @@ func More(fset *token.FileSet, app *App) *mapper.More {
 	seen := map[string]bool{}
 	html := false
 	for _, r := range app.Routes {
-		html = html || r.view != nil && !r.view.escape && !hasOption(r.Options, "API")
+		html = html || r.view != nil && !r.view.escape && !r.view.writes && !hasOption(r.Options, "API")
 		if seen[r.Name] {
 			continue // Check reported the name taken
 		}

@@ -171,10 +171,10 @@ index 45f151f..ef76a77 100644
  	maago.POST("/posts/{id}/archive", "post_archive", Archive),
  	maago.POST("/posts/{id}/delete", "post_delete", RemovePost),
 diff --git a/board/views.go b/board/views.go
-index a6133c9..12ae34c 100644
+index 48dfc36..e96f1b5 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -447,3 +447,83 @@ func Me(ctx context.Context, u auth.User, db maago.DB, in struct{}) (MePage, err
+@@ -454,3 +454,83 @@ func Me(ctx context.Context, u auth.User, db maago.DB, in struct{}) (MePage, err
  	ps, err := MyPosts(ctx, db, MyPostsParams{AuthorID: u.ID})
  	return MePage{Email: u.Email, Posts: ps}, err
  }

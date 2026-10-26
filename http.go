@@ -79,8 +79,8 @@ type Config struct {
 
 	// MaxBody is the most bytes the body of a request may hold, 0 for
 	// 10MB. A route that reads more answers 413, whatever the body: a
-	// form, JSON, or what a func(w, r) view reads, when the view returns
-	// the read's error before writing.
+	// form, JSON, or what a view that writes the response itself reads
+	// from r.Body, when it returns the read's error before writing.
 	MaxBody int64
 
 	// MediaDir is the directory SaveMedia keeps files in, relative
@@ -310,20 +310,23 @@ func (h *handler) serve(route *rtcore.Route) http.Handler {
 	})
 }
 
-// report answers with code, unless the route wrote already, and tells
-// OnError of a 5xx.
+// report answers with code and tells OnError of a 5xx. Once the route
+// has written, no code can answer: OnError hears any error, and the
+// connection is cut, so the client does not take a cut response for a
+// whole one (D-157).
 func (h *handler) report(w *written, r *http.Request, route *rtcore.Route, code int, err error) {
-	if code >= 500 {
+	if code >= 500 || w.wrote {
 		if h.cfg.OnError != nil {
 			h.cfg.OnError(r.Context(), r, err)
 		} else {
 			log.Printf("maago: %s %s: %v", r.Method, r.URL.Path, err)
 		}
 	}
-	if !w.wrote {
-		w.cookies = nil // a failed view leaves no session behind
-		h.fail(w, route, code, err)
+	if w.wrote {
+		panic(http.ErrAbortHandler)
 	}
+	w.cookies = nil // a failed view leaves no session behind
+	h.fail(w, route, code, err)
 }
 
 // fail writes the error response: an RFC 9457 problem for an API route,
@@ -381,7 +384,7 @@ func (w *written) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
-var _ http.Flusher = (*written)(nil) // streaming views flush (task 8)
+var _ http.Flusher = (*written)(nil) // a view that writes the response itself flushes
 
 func (w *written) Flush() { w.start(); http.NewResponseController(w.ResponseWriter).Flush() }
 

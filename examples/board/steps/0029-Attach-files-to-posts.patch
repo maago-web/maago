@@ -24,7 +24,9 @@ Attach files to posts, as the original's uploads (fastapi-storages) did.
 - The download, attachment, is a func(w, r) view. No route serves the
   media directory as it is: the view reads the post, says 404 for a
   hidden one, lets only the author and staff have a draft's, and then
-  calls maago.ServeMedia. It is always a download (attachment), so an
+  calls maago.ServeMedia. A func(w, r) has no error to return, so it
+  answers ServeMedia's itself: a row whose file is gone is a 404, any
+  other error a panic, a 500. It is always a download (attachment), so an
   uploaded HTML file never opens as a page of the site. An escape view
   takes no parameters, so it reads the user from the request, as it
   does the database: maago.UserFrom[auth.User](ctx)
@@ -362,22 +364,23 @@ index 809df22..b747943 100644
  	// JSON for a frontend on another origin: main trusts it in Config.Origins.
  	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
 diff --git a/board/views.go b/board/views.go
-index 4b213ac..3d48202 100644
+index 4b213ac..cad2137 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -2,9 +2,11 @@ package board
+@@ -2,9 +2,12 @@ package board
  
  import (
  	"context"
 +	"database/sql"
  	"errors"
++	"io/fs"
  	"log"
  	"net/http"
 +	"strconv"
  	"time"
  
  	"github.com/maago-web/maago"
-@@ -77,9 +79,11 @@ type ShowPostIn struct {
+@@ -77,9 +80,11 @@ type ShowPostIn struct {
  }
  
  type PostPage struct {
@@ -392,7 +395,7 @@ index 4b213ac..3d48202 100644
  }
  
  // ShowPost shows one post and its comments, and the form for one more.
-@@ -104,15 +108,91 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
+@@ -104,15 +109,97 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
  	return maago.SeeOther[PostPage](PostDetailURL(in.ID)), nil
  }
  
@@ -484,11 +487,17 @@ index 4b213ac..3d48202 100644
 +			return
 +		}
 +	}
-+	maago.ServeMedia(w, r, a.media())
++	// A func(w, r) has no error to return: ServeMedia's is answered here.
++	switch err := maago.ServeMedia(w, r, a.media()); {
++	case errors.Is(err, fs.ErrNotExist):
++		http.NotFound(w, r) // the row is there, its file is not
++	case err != nil:
++		panic(err) // nothing is written yet: a 500, and Config.OnError hears it
++	}
  }
  
  // RemovePost deletes a post. One without comments goes from the database;
-@@ -132,7 +212,7 @@ func RemovePost(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago
+@@ -132,7 +219,7 @@ func RemovePost(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago
  		return maago.Result[PostPage]{}, err
  	}
  	if len(cs) == 0 {
@@ -497,7 +506,7 @@ index 4b213ac..3d48202 100644
  	} else {
  		p.Hidden = true
  		err = UpdatePost(ctx, tx, &p)
-@@ -325,3 +405,31 @@ func mayChange(u auth.User, p Post) error {
+@@ -325,3 +412,31 @@ func mayChange(u auth.User, p Post) error {
  	}
  	return maago.Status(http.StatusForbidden, errors.New("only its author or staff may change a post"))
  }

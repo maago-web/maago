@@ -222,10 +222,10 @@ index d134276..dd95ca0 100644
  	}
  }
 diff --git a/board/views.go b/board/views.go
-index f8b8839..9a7efc5 100644
+index c74da1e..b4855d8 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -43,8 +43,8 @@ type BoardPage struct {
+@@ -44,8 +44,8 @@ type BoardPage struct {
  }
  
  // ShowBoard shows a board's posts, a page at a time, or those whose title
@@ -236,7 +236,7 @@ index f8b8839..9a7efc5 100644
  	b, err := GetBoard(ctx, db, in.ID)
  	if err != nil {
  		return BoardPage{}, err // sql.ErrNoRows: a 404
-@@ -55,11 +55,11 @@ func ShowBoard(ctx context.Context, db maago.DB, in BoardIn) (BoardPage, error)
+@@ -56,11 +56,11 @@ func ShowBoard(ctx context.Context, db maago.DB, in BoardIn) (BoardPage, error)
  	}
  	if in.Q != nil {
  		p.Q = *in.Q
@@ -250,7 +250,7 @@ index f8b8839..9a7efc5 100644
  	if len(p.Posts) > pageSize {
  		p.Posts, p.Next = p.Posts[:pageSize], p.Page+1
  	}
-@@ -87,7 +87,7 @@ type PostPage struct {
+@@ -88,7 +88,7 @@ type PostPage struct {
  }
  
  // ShowPost shows one post and its comments, and the form for one more,
@@ -259,7 +259,7 @@ index f8b8839..9a7efc5 100644
  func ShowPost(ctx context.Context, u *auth.User, db maago.DB, in ShowPostIn) (PostPage, error) {
  	return postPage(ctx, db, u, in.ID, in.Form)
  }
-@@ -110,16 +110,10 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
+@@ -111,16 +111,10 @@ func CreateComment(ctx context.Context, u auth.User, tx maago.Tx, in ShowPostIn)
  }
  
  // postPage is the page of post id, with its comments and attachments,
@@ -279,7 +279,7 @@ index f8b8839..9a7efc5 100644
  	if err != nil {
  		return PostPage{}, err
  	}
-@@ -142,12 +136,9 @@ type AttachIn struct {
+@@ -143,12 +137,9 @@ type AttachIn struct {
  // write lock of SQLite meanwhile. A row that fails takes its file with it;
  // a commit that fails leaves the file behind, with no row.
  func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.Result[PostPage], error) {
@@ -294,7 +294,7 @@ index f8b8839..9a7efc5 100644
  	}
  	if err := mayChange(u, post); err != nil {
  		return maago.Result[PostPage]{}, err
-@@ -168,8 +159,8 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
+@@ -169,8 +160,8 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
  	return maago.Show(page), err
  }
  
@@ -305,7 +305,7 @@ index f8b8839..9a7efc5 100644
  // as it is.
  func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
  	ctx := r.Context()
-@@ -179,19 +170,15 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+@@ -180,19 +171,15 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
  		http.NotFound(w, r)
  		return
  	}
@@ -332,7 +332,7 @@ index f8b8839..9a7efc5 100644
  	}
  	switch {
  	case errors.Is(err, sql.ErrNoRows):
-@@ -208,7 +195,7 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
+@@ -215,7 +202,7 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
  // comment never points at a post that is gone (the foreign key would
  // refuse it).
  func RemovePost(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (maago.Result[PostPage], error) {
@@ -341,7 +341,7 @@ index f8b8839..9a7efc5 100644
  	if err != nil {
  		return maago.Result[PostPage]{}, err
  	}
-@@ -349,7 +336,7 @@ func move(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string) (m
+@@ -356,7 +343,7 @@ func move(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string) (m
  // hears of it once the transaction has committed, and never of a post
  // rolled back.
  func moveTo(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string) (Post, error) {
@@ -350,7 +350,7 @@ index f8b8839..9a7efc5 100644
  	if err != nil {
  		return Post{}, err
  	}
-@@ -379,11 +366,11 @@ type APIPostsIn struct {
+@@ -386,11 +373,11 @@ type APIPostsIn struct {
  
  // APIPosts is the first page of a board as JSON, for a frontend of its
  // own: the same query as the board's page.
@@ -364,7 +364,7 @@ index f8b8839..9a7efc5 100644
  }
  
  // APICreatePost writes a post from a JSON object, with the same form as
-@@ -412,22 +399,6 @@ func APIPublish(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (Post,
+@@ -419,22 +406,6 @@ func APIPublish(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (Post,
  	return moveTo(ctx, tx, u, in.ID, "published")
  }
  
@@ -387,7 +387,7 @@ index f8b8839..9a7efc5 100644
  // mayChange refuses with 403 whoever neither wrote p nor is staff. A post
  // from before there were accounts has no author: staff change it.
  func mayChange(u auth.User, p Post) error {
-@@ -475,7 +446,7 @@ type MePage struct {
+@@ -482,7 +453,7 @@ type MePage struct {
  // routes; MePage, not auth.User, is what goes out, so the password's hash
  // never does.
  func Me(ctx context.Context, u auth.User, db maago.DB, in struct{}) (MePage, error) {
@@ -396,7 +396,7 @@ index f8b8839..9a7efc5 100644
  	return MePage{Email: u.Email, Posts: ps}, err
  }
  
-@@ -537,15 +508,12 @@ func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn)
+@@ -544,15 +515,12 @@ func ChangePost(ctx context.Context, u auth.User, tx maago.Tx, in ChangePostIn)
  	return maago.SeeOther[PostEditPage](PostDetailURL(p.ID)), nil
  }
  

@@ -21,9 +21,11 @@ var maagoRoutes = map[string]string{
 	"api_post":    "/api/posts/{id}",
 	"api_save":    "/api/save",
 	"by_post_id":  "/by/{post_id}",
+	"dl":          "/dl/{id}",
 	"feed":        "/feed.csv",
 	"here":        "/here",
 	"home":        "/{$}",
+	"hook":        "/hook",
 	"maybe":       "/maybe",
 	"me":          "/me",
 	"post_detail": "/posts/{id}",
@@ -136,6 +138,23 @@ func serveAPISave(w http.ResponseWriter, r *http.Request) error {
 func serveRaw(w http.ResponseWriter, r *http.Request) error {
 	Raw(w, r)
 	return nil
+}
+
+// serveDl serves route dl with view Download.
+func serveDl(w http.ResponseWriter, r *http.Request) error {
+	var err error
+	var in DownloadIn
+	if in.ID, err = rt.Path(r, "id", rt.ParseInt64); err != nil {
+		return err
+	}
+	u, _ := maago.UserFrom[maagouser.User](r.Context()) // the route requires login
+	return Download(r.Context(), u, maago.DBFrom(r.Context()), in, w, r)
+}
+
+// serveHook serves route hook with view Hook.
+func serveHook(w http.ResponseWriter, r *http.Request) error {
+	var in struct{}
+	return Hook(r.Context(), maago.DBFrom(r.Context()), in, w, r)
 }
 
 // serveHome serves route home with view Home.

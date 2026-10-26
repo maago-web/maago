@@ -2,6 +2,7 @@ package site
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -146,7 +147,7 @@ func APIPostCreate(ctx context.Context, tx maago.Tx, in PostFormIn) (Post, error
 	return InsertPost(ctx, tx, NewPostInput{Title: f.Title.Value})
 }
 
-// exportGate, when a test sets it, holds PostExport between its two rows,
+// exportGate, when a test sets it, holds PostExport and Stream between their two rows,
 // so the test sees the first arrive alone. Nil, it holds nothing.
 var exportGate chan struct{}
 
@@ -173,6 +174,47 @@ func PostExport(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	fmt.Fprintf(w, "posts,%d\n", n)
+}
+
+// StreamIn says what Stream does.
+type StreamIn struct {
+	How string `maago:"path=how"`
+}
+
+// Stream writes the response itself (D-157): the user, the database and
+// In come as a typed view's, w and r after them. It sets a cookie, which
+// an error before writing drops. How "gone", "refuse" and "fail" return
+// an error before writing; "late" one after the first row; any other
+// streams two rows, the first flushed before the second is written.
+func Stream(ctx context.Context, u Account, db maago.DB, in StreamIn, w http.ResponseWriter, r *http.Request) error {
+	maago.SetCookie(ctx, &http.Cookie{Name: "seen", Value: u.Name})
+	var n int
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM site_post`).Scan(&n); err != nil {
+		return err
+	}
+	switch in.How {
+	case "gone":
+		return fmt.Errorf("stream: %w", sql.ErrNoRows)
+	case "refuse":
+		return maago.Status(http.StatusForbidden, errors.New("not yours"))
+	case "fail":
+		return errors.New("stream failed")
+	}
+	w.Header().Set("Content-Type", "text/csv")
+	fmt.Fprintf(w, "user,%s\n", u.Name)
+	w.(http.Flusher).Flush()
+	if in.How == "late" {
+		return errors.New("stream failed late")
+	}
+	if exportGate != nil {
+		select {
+		case <-exportGate:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	fmt.Fprintf(w, "posts,%d\n", n)
+	return nil
 }
 
 // Account is the fixture's user: who a request says it is.

@@ -283,11 +283,26 @@ error on an API route a 422, any other a 500 that Config.OnError hears.
 maago.AfterCommit(ctx, f) runs f after the commit, before the response,
 and never after a rollback; a write that must not be lost is no job for it.
 
-A view that answers with something other than a page, such as a file, is a
-func(w http.ResponseWriter, r *http.Request). It reads the database and
-the user itself, maago.DBFrom(r.Context()) and maago.UserFrom[U](r.Context()),
-and answers a missing sign-in itself. A typed view that calls either is an
-error; maago gen sees the calls in the view's own body, not in the
+A view that answers with something other than a page, such as a file or
+a stream, writes the response itself: it takes w and r after In, and
+returns only an error.
+
+	func PostText(ctx context.Context, db maago.DB, in PostDetailIn, w http.ResponseWriter, r *http.Request) error
+
+It takes the user, the database and In as above, but not maago.Tx: what
+it writes is sent as it is written, before any commit, so it has no
+transaction (and maago.AfterCommit runs f at once), and a writing route
+needs no maago.NoTx. An error returned before it writes answers as above;
+one after it wrote cuts the connection, so the client sees a cut
+response, and Config.OnError hears it. w flushes (w.(http.Flusher)).
+maago.ServeMedia(w, r, m) sends a file and returns its error. When In
+reads a form, the body is read: r.Body is empty.
+
+A func(w http.ResponseWriter, r *http.Request) is for what reads the
+request as it is, such as a webhook. It reads the database and the user
+itself, maago.DBFrom(r.Context()) and maago.UserFrom[U](r.Context()),
+and answers a missing sign-in itself. A typed view that calls either is
+an error; maago gen sees the calls in the view's own body, not in the
 functions it calls. A query that uses a policy takes &u when UserFrom's
 ok is true, and nil for nobody.
 

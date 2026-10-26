@@ -128,23 +128,23 @@ func DeleteMedia(ctx context.Context, key string) error {
 
 // ServeMedia answers r with m's file, to download: never shown
 // as a page of the site, so an HTML or SVG file someone sent does not
-// run there, while <img> still draws an image. It answers 404 itself
-// when there is no such file. A func(w, r) view calls it once it has
-// checked that the user may have the file; any other error panics before
-// anything is written, so the response is a 500 that Config.OnError hears.
-func ServeMedia(w http.ResponseWriter, r *http.Request, m Media) {
+// run there, while <img> still draws an image. A view calls it once it
+// has checked that the user may have the file, and returns its error:
+// one for no such file is a 404, any other a 500 that Config.OnError
+// hears. Either comes before anything is written. A func(w, r) view,
+// which returns nothing, answers it itself.
+func ServeMedia(w http.ResponseWriter, r *http.Request, m Media) error {
 	file, err := OpenMedia(r.Context(), m.Key)
 	if errors.Is(err, fs.ErrNotExist) {
-		http.NotFound(w, r)
-		return
+		return Status(http.StatusNotFound, err)
 	}
 	if err != nil {
-		panic(err)
+		return err
 	}
 	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
-		panic(err)
+		return err
 	}
 	typ := "application/octet-stream" // for a type that is none
 	if _, _, err := mime.ParseMediaType(m.Type); err == nil {
@@ -160,4 +160,5 @@ func ServeMedia(w http.ResponseWriter, r *http.Request, m Media) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Cache-Control", "private")
 	http.ServeContent(w, r, "", info.ModTime(), file)
+	return nil
 }

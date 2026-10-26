@@ -108,10 +108,10 @@ index b747943..45f151f 100644
 +	maago.GET("/api/me", "api_me", Me, maago.API),
  }
 diff --git a/board/views.go b/board/views.go
-index 3d48202..a6133c9 100644
+index cad2137..48dfc36 100644
 --- a/board/views.go
 +++ b/board/views.go
-@@ -433,3 +433,17 @@ func deletePost(ctx context.Context, tx maago.Tx, id int64) error {
+@@ -440,3 +440,17 @@ func deletePost(ctx context.Context, tx maago.Tx, id int64) error {
  	})
  	return nil
  }

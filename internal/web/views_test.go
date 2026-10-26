@@ -197,7 +197,7 @@ const usersPkg = "package users\n\ntype User struct{ Email string }\n\ntype Othe
 // A view takes the user and the database in its signature; the adapter
 // passes them, and the route requires login when the user must be there.
 func TestViewSignature(t *testing.T) {
-	src := strings.Replace(site, "var Routes = maago.Routes{", "var Routes = maago.Routes{\n\tmaago.GET(\"/me\", \"me\", Me),\n\tmaago.GET(\"/maybe\", \"maybe\", Maybe, maago.API),\n\tmaago.POST(\"/here\", \"here\", Here, maago.NoTx),\n\tmaago.POST(\"/save\", \"save\", Save),\n\tmaago.POST(\"/api/save\", \"api_save\", APISave, maago.API),\n\tmaago.GET(\"/raw\", \"raw\", Raw),", 1)
+	src := strings.Replace(site, "var Routes = maago.Routes{", "var Routes = maago.Routes{\n\tmaago.GET(\"/me\", \"me\", Me),\n\tmaago.GET(\"/maybe\", \"maybe\", Maybe, maago.API),\n\tmaago.POST(\"/here\", \"here\", Here, maago.NoTx),\n\tmaago.POST(\"/save\", \"save\", Save),\n\tmaago.POST(\"/api/save\", \"api_save\", APISave, maago.API),\n\tmaago.GET(\"/raw\", \"raw\", Raw),\n\tmaago.GET(\"/dl/{id}\", \"dl\", Download),\n\tmaago.POST(\"/hook\", \"hook\", Hook),", 1)
 	more := "package site\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\n\t\"github.com/maago-web/maago\"\n\n\t\"example.com/app/users\"\n)\n\n" +
 		"func Me(ctx context.Context, u users.User, db maago.DB, in struct{}) (HomePage, error) { return HomePage{}, nil }\n\n" +
 		"func Maybe(ctx context.Context, u *users.User, in struct{}) (*users.User, error) { return u, nil }\n\n" +
@@ -205,13 +205,19 @@ func TestViewSignature(t *testing.T) {
 		"func Save(ctx context.Context, u users.User, tx maago.Tx, in struct{}) (maago.Result[HomePage], error) { return maago.Show(HomePage{}), nil }\n\n" +
 		"func APISave(ctx context.Context, tx maago.Tx, in struct{}) (HomePage, error) { return HomePage{}, nil }\n\n" +
 		// A func(w, r) has no parameters for them: it reads ctx (D-149).
-		"func Raw(w http.ResponseWriter, r *http.Request) { _, _ = maago.DBFrom(r.Context()), maago.UserFrom[users.User] }\n"
+		"func Raw(w http.ResponseWriter, r *http.Request) { _, _ = maago.DBFrom(r.Context()), maago.UserFrom[users.User] }\n\n" +
+		// A view that writes the response itself takes them as a typed
+		// view does, and w and r after In; on a POST it has no transaction
+		// and wants no maago.NoTx (D-157).
+		"type DownloadIn struct{ ID int64 `maago:\"path=id\"` }\n\n" +
+		"func Download(ctx context.Context, u users.User, db maago.DB, in DownloadIn, w http.ResponseWriter, r *http.Request) error { return nil }\n\n" +
+		"func Hook(ctx context.Context, db maago.DB, in struct{}, w http.ResponseWriter, r *http.Request) error { return nil }\n"
 	out, files := generate(t, siteFiles("site/urls.go", src, "site/more.go", more, "users/users.go", usersPkg))
 	if out != "" {
 		t.Fatalf("errors:\n%s", out)
 	}
 	golden.Check(t, "testdata/signature_views_gen.go.golden", files["site/views_gen.go"])
-	for _, want := range []string{`Name: "me", LoginRequired: true, User: true,`, `Name: "maybe", API: true, User: true,`, `Name: "here", Serve:`} {
+	for _, want := range []string{`Name: "me", LoginRequired: true, User: true,`, `Name: "maybe", API: true, User: true,`, `Name: "here", Serve:`, `Name: "dl", LoginRequired: true, User: true,`, "func DlURL(id int64) string {"} {
 		if !strings.Contains(string(files["site/urls_gen.go"]), want) {
 			t.Errorf("urls_gen.go has no %s:\n%s", want, files["site/urls_gen.go"])
 		}
@@ -234,14 +240,15 @@ func TestViewSignature(t *testing.T) {
 
 func TestEscapeOnly(t *testing.T) {
 	out, files := generate(t, map[string]string{
-		"main.go":      "package main\n\nimport \"example.com/app/feed\"\n\nvar _ = feed.App\n\nfunc main() {}\n",
-		"feed/urls.go": "package feed\n\nimport (\n\t\"net/http\"\n\n\t\"github.com/maago-web/maago\"\n)\n\nvar Routes = maago.Routes{maago.GET(\"/f/{name}\", \"feed\", Feed)}\n\nfunc Feed(w http.ResponseWriter, r *http.Request) {}\n",
+		"main.go": "package main\n\nimport \"example.com/app/feed\"\n\nvar _ = feed.App\n\nfunc main() {}\n",
+		"feed/urls.go": "package feed\n\nimport (\n\t\"context\"\n\t\"net/http\"\n\n\t\"github.com/maago-web/maago\"\n)\n\nvar Routes = maago.Routes{maago.GET(\"/f/{name}\", \"feed\", Feed), maago.GET(\"/g\", \"get\", Get)}\n\n" +
+			"func Feed(w http.ResponseWriter, r *http.Request) {}\n\nfunc Get(ctx context.Context, in struct{}, w http.ResponseWriter, r *http.Request) error { return nil }\n",
 	})
 	if out != "" {
 		t.Fatal(out)
 	}
 	if v := string(files["feed/views_gen.go"]); strings.Contains(v, "\"github.com/maago-web/maago\"") || strings.Contains(v, "embed") {
-		t.Errorf("an app of func(w, r) views imports what it does not use:\n%s", v)
+		t.Errorf("an app of views that write the response imports what it does not use:\n%s", v)
 	}
 	if u := string(files["feed/urls_gen.go"]); !strings.Contains(u, "func FeedURL(name string) string {\n\treturn maago.Prefix() + \"/f/\" + rt.PathSegment(name)") {
 		t.Errorf("urls_gen.go:\n%s", u)
@@ -382,6 +389,26 @@ func TestViewErrors(t *testing.T) {
 			[]string{"site/templates/base.html:1: bad character U+007D"}},
 		{"a template name in other letters", siteFiles("site/templates/home_page.html", "", "site/templates/Home_Page.html", "<p></p>\n"),
 			[]string{"site/templates/Home_Page.html: template Home_Page.html is no page's and not base.html", "site/urls.go:22:6: page HomePage has no template site/templates/home_page.html"}},
+		{"writes with a transaction", routes(`maago.POST("/a", "a", A),`, "\nfunc A(ctx context.Context, tx maago.Tx, in struct{}, w http.ResponseWriter, r *http.Request) error { return nil }\n"),
+			[]string{"site/urls.go:65:32: view A takes a transaction, but it writes the response itself"}},
+		{"writes and returns a page", routes(`maago.GET("/a", "a", A),`, "\nfunc A(ctx context.Context, in struct{}, w http.ResponseWriter, r *http.Request) (HomePage, error) { return HomePage{}, nil }\n"),
+			[]string{"site/urls.go:65:6: view A takes w and r and returns a page"}},
+		{"writes and returns no error", routes(`maago.GET("/a", "a", A),`, "\nfunc A(ctx context.Context, in struct{}, w http.ResponseWriter, r *http.Request) int { return 0 }\n"),
+			[]string{"site/urls.go:65:6: view A returns int, not an error"}},
+		{"writes to other types", func() map[string]string {
+			files := routes(`maago.GET("/a", "a", A),`, "")
+			files["site/more.go"] = "package site\n\nimport (\n\t\"context\"\n\n\t\"example.com/app/fake\"\n)\n\nfunc A(ctx context.Context, in struct{}, w fake.ResponseWriter, r *fake.Request) error { return nil }\n"
+			files["fake/fake.go"] = "package fake\n\ntype ResponseWriter int\n\ntype Request struct{}\n"
+			return files
+		}(), []string{"site/more.go:9:6: view A takes fake.ResponseWriter and *fake.Request last, not an http.ResponseWriter and an *http.Request"}},
+		{"writes with a transaction and the database", routes(`maago.POST("/a", "a", A),`, "\nfunc A(ctx context.Context, tx maago.Tx, db maago.DB, in struct{}, w http.ResponseWriter, r *http.Request) error { return nil }\n"),
+			[]string{"site/urls.go:65:32: view A takes both maago.Tx and maago.DB"}},
+		{"writes, In missing", routes(`maago.GET("/a", "a", A),`, "\nfunc A(ctx context.Context, w http.ResponseWriter, r *http.Request) error { return nil }\n"),
+			[]string{"site/urls.go:65:6: view A takes 3 values and returns 1"}},
+		{"NoTx on a view that writes", routes(`maago.POST("/a", "a", A, maago.NoTx),`, "\nfunc A(ctx context.Context, db maago.DB, in struct{}, w http.ResponseWriter, r *http.Request) error { return nil }\n"),
+			[]string{"site/urls.go:11:27: route a has maago.NoTx, but view A writes the response itself, which has no transaction"}},
+		{"a block of a view that writes", routes(`maago.GET("/a", "a", A, maago.Block("rows")),`, "\nfunc A(ctx context.Context, in struct{}, w http.ResponseWriter, r *http.Request) error { return nil }\n"),
+			[]string{"site/urls.go:11:2: route a renders a block, but its view returns no page"}},
 		{"func(w, r) of other types", routes(`maago.GET("/a", "a", A),`, "\nfunc A(w int, r string) {}\n"),
 			[]string{"site/urls.go:65:6: view A takes int and string, not an http.ResponseWriter and an *http.Request"}},
 		{"no template", siteFiles("site/templates/home_page.html", ""),

@@ -44,6 +44,7 @@ func TestPermissions(t *testing.T) {
 		maagotest.Row{Route: "upload", URL: UploadURL(), Want: both(200, 200)},
 		maagotest.Row{Route: "upload_save", URL: UploadSaveURL(), Want: both(400, 400)},
 		maagotest.Row{Route: "media", URL: MediaURL("nokey"), Want: both(404, 404)},
+		maagotest.Row{Route: "stream", URL: StreamURL("refuse"), Want: both(303, 403)},
 		// A tag's name is taken once: each role saves its own.
 		maagotest.Row{Route: "tag_save", URL: TagSaveURL(), Body: "name=a&kind=k&code=1", Want: both(303, maagotest.Skip)},
 		maagotest.Row{Route: "tag_save", URL: TagSaveURL(), Body: "name=b&kind=k&code=2", Want: both(maagotest.Skip, 303)},

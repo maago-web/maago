@@ -106,7 +106,9 @@ func TestServeMedia(t *testing.T) {
 			r.Header.Set(header[i], header[i+1])
 		}
 		w := httptest.NewRecorder()
-		ServeMedia(w, r, m)
+		if err := ServeMedia(w, r, m); err != nil {
+			t.Fatalf("%s %s: %v", method, m.Key, err)
+		}
 		return w
 	}
 	w := serveMedia("GET", m)
@@ -140,11 +142,12 @@ func TestServeMedia(t *testing.T) {
 			t.Errorf("type %q: %s, want %s", typ, got, want)
 		}
 	}
+	// None is a 404 the view returns, with nothing written.
 	for _, key := range []string{"../x", strings.Repeat("0", 32)} {
-		n := m
-		n.Key = key
-		if w := serveMedia("GET", n); w.Code != 404 || w.Header().Get("Content-Disposition") != "" {
-			t.Errorf("%s: %d %v", key, w.Code, w.Header())
+		w := httptest.NewRecorder()
+		err := ServeMedia(w, httptest.NewRequest("GET", "/m", nil).WithContext(ctx), Media{Key: key})
+		if rtcore.Code(err) != 404 || !errors.Is(err, fs.ErrNotExist) || len(w.Header()) > 0 || w.Body.Len() > 0 {
+			t.Errorf("%s: %v %v", key, err, w.Header())
 		}
 	}
 }

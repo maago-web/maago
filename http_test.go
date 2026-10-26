@@ -157,18 +157,8 @@ func TestErrorStatus(t *testing.T) {
 		{"panic", false, func(http.ResponseWriter, *http.Request) error { panic("boom") }, 500, "Internal Server Error\n", "panic: boom\n"},
 		{"panic with an error", false, func(http.ResponseWriter, *http.Request) error { panic(sql.ErrConnDone) }, 500, "Internal Server Error\n", "panic: sql: connection is already closed\n"},
 		{"status 503", false, func(http.ResponseWriter, *http.Request) error { return Status(503, errors.New("db down")) }, 503, "Service Unavailable\n", "db down"},
-		{"error after a header", false, func(w http.ResponseWriter, _ *http.Request) error { w.WriteHeader(204); return errors.New("late") }, 204, "", "late"},
 		// The recorder keeps the 1xx code; the body shows the 500 was written.
 		{"error after a 1xx", false, func(w http.ResponseWriter, _ *http.Request) error { w.WriteHeader(103); return errors.New("early") }, 103, "Internal Server Error\n", "early"},
-		{"error after writing", false, func(w http.ResponseWriter, _ *http.Request) error {
-			w.WriteHeader(202)
-			fmt.Fprint(w, "partial")
-			return errors.New("late")
-		}, 202, "partial", "late"},
-		{"panic after writing", false, func(w http.ResponseWriter, _ *http.Request) error {
-			fmt.Fprint(w, "partial")
-			panic("late")
-		}, 200, "partial", "panic: late\n"},
 	}
 	for _, c := range cases {
 		app := NewApp("a", route("GET", "/x", c.api, c.serve))
@@ -184,6 +174,65 @@ func TestErrorStatus(t *testing.T) {
 			t.Errorf("%s: OnError heard %v", c.name, reported)
 		case c.reported != "" && (len(reported) != 1 || !strings.HasPrefix(reported[0].Error(), c.reported)):
 			t.Errorf("%s: OnError heard %v, want one starting %q", c.name, reported, c.reported)
+		}
+	}
+}
+
+// An error once the response has started cuts the connection, whatever
+// its code, and OnError hears it: the client sees a cut response, not a
+// whole one (D-157). Through a real server, which does the cutting.
+func TestErrorAfterWriting(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		serve func(w http.ResponseWriter, r *http.Request) error
+		body  string
+		heard string
+	}{
+		{"error", func(w http.ResponseWriter, _ *http.Request) error {
+			fmt.Fprint(w, "partial")
+			w.(http.Flusher).Flush()
+			return errors.New("late")
+		}, "partial", "late"},
+		{"4xx", func(w http.ResponseWriter, _ *http.Request) error {
+			fmt.Fprint(w, "partial")
+			w.(http.Flusher).Flush()
+			return Status(403, errors.New("too late to refuse"))
+		}, "partial", "too late to refuse"},
+		{"header only", func(w http.ResponseWriter, _ *http.Request) error {
+			w.WriteHeader(200)
+			w.(http.Flusher).Flush()
+			return errors.New("late")
+		}, "", "late"},
+		{"panic", func(w http.ResponseWriter, _ *http.Request) error {
+			fmt.Fprint(w, "partial")
+			w.(http.Flusher).Flush()
+			panic("late")
+		}, "partial", "panic: late\n"},
+	} {
+		heard := make(chan error, 1)
+		h, err := Handler(Config{DB: testDB, Apps: []App{NewApp("a", route("GET", "/x", false, c.serve))},
+			OnError: func(_ context.Context, _ *http.Request, err error) { heard <- err }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		srv := httptest.NewServer(h)
+		resp, err := srv.Client().Get(srv.URL + "/x")
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		srv.Close()
+		if resp.StatusCode != 200 || string(body) != c.body || !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Errorf("%s: %d %q %v, want a cut response", c.name, resp.StatusCode, body, err)
+		}
+		select { // srv.Close waited for the handler
+		case err := <-heard:
+			if !strings.HasPrefix(err.Error(), c.heard) {
+				t.Errorf("%s: OnError heard %v", c.name, err)
+			}
+		default:
+			t.Errorf("%s: OnError heard nothing", c.name)
 		}
 	}
 }
@@ -310,7 +359,12 @@ func TestSetCookie(t *testing.T) {
 			http.NewResponseController(w).Flush()
 			return errors.New("too late to say")
 		}),
-		route("GET", "/late", false, func(w http.ResponseWriter, r *http.Request) error { ok(w, r); set(w, r); return nil }),
+		route("GET", "/late", false, func(w http.ResponseWriter, r *http.Request) error {
+			ok(w, r)
+			http.NewResponseController(w).Flush()
+			set(w, r)
+			return nil
+		}),
 		route("GET", "/invalid", false, func(w http.ResponseWriter, r *http.Request) error {
 			SetCookie(r.Context(), &http.Cookie{Name: "bad name", Value: "x"})
 			return ok(w, r)
@@ -325,8 +379,6 @@ func TestSetCookie(t *testing.T) {
 		{"/written", 200, "session=s1", false},
 		{"/error", 422, "", false},
 		{"/panic", 500, "", true},
-		{"/flushed", 200, "session=s1", false},
-		{"/late", 200, "", true}, // the panic comes after the body: OnError hears it
 		{"/invalid", 500, "", true},
 	} {
 		w, reported := serve(t, Config{Apps: apps}, httptest.NewRequest("GET", c.path, nil))
@@ -336,7 +388,8 @@ func TestSetCookie(t *testing.T) {
 		}
 	}
 	// An early hint goes before the response, without its cookies.
-	cfg := Config{Apps: apps, DB: testDB}
+	heard := make(chan error, 1)
+	cfg := Config{Apps: apps, DB: testDB, OnError: func(_ context.Context, _ *http.Request, err error) { heard <- err }}
 	h, err := Handler(cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -353,6 +406,28 @@ func TestSetCookie(t *testing.T) {
 	resp.Body.Close()
 	if hint == nil || hint.Get("Set-Cookie") != "" || resp.StatusCode != 201 || resp.Header.Get("Set-Cookie") != "session=s1" {
 		t.Errorf("early hints: 103 %v, then %d %v", hint, resp.StatusCode, resp.Header)
+	}
+	// Once the response has started, its cookies went with it; an error
+	// then cuts the connection, and so does a cookie set too late, a panic
+	// OnError hears.
+	for path, cookie := range map[string]string{"/flushed": "session=s1", "/late": ""} {
+		resp, err := srv.Client().Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 || resp.Header.Get("Set-Cookie") != cookie || !errors.Is(err, io.ErrUnexpectedEOF) {
+			t.Errorf("%s: %d Set-Cookie %q %v", path, resp.StatusCode, resp.Header.Get("Set-Cookie"), err)
+		}
+		select {
+		case err := <-heard:
+			if path == "/late" && !strings.HasPrefix(err.Error(), "panic: ") {
+				t.Errorf("%s: OnError heard %v", path, err)
+			}
+		default:
+			t.Errorf("%s: OnError heard nothing", path)
+		}
 	}
 
 	defer func() {

@@ -37,8 +37,14 @@ func Upload(ctx context.Context, in UploadIn) (UploadPage, error) {
 	return p, nil
 }
 
-// MediaDownload sends a saved file down; a real view would read its row
+// MediaIn is the key of the file MediaDownload sends.
+type MediaIn struct {
+	Key string `maago:"path=key"`
+}
+
+// MediaDownload sends a saved file down: it writes the response itself
+// (D-157), and returns ServeMedia's error. A real view would read its row
 // and check the user may have it first (D-140).
-func MediaDownload(w http.ResponseWriter, r *http.Request) {
-	maago.ServeMedia(w, r, maago.Media{Key: r.PathValue("key"), Name: "a.png", Type: "image/png"})
+func MediaDownload(ctx context.Context, in MediaIn, w http.ResponseWriter, r *http.Request) error {
+	return maago.ServeMedia(w, r, maago.Media{Key: in.Key, Name: "a.png", Type: "image/png"})
 }

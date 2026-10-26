@@ -81,7 +81,9 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 	u, _ := maago.UserFrom[{{.User}}](r.Context()) // the route requires login
 {{- end}}
 {{- end}}
-{{- if .Tx}}
+{{- if .Writes}}
+	return {{.View}}(r.Context(){{if .User}}, u{{end}}{{if .DB}}, maago.DBFrom(r.Context()){{end}}, in, w, r)
+{{- else if .Tx}}
 	// The view runs in a transaction, and its page is drawn before the
 	// commit: one that fails to draw rolls it back.
 	b := rt.NewBuffer()
