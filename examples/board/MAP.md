@@ -80,9 +80,9 @@ Maago 칸의 머리 말: "복사한 auth가 준다"는 0020의 `maago add auth`�
 | 71 | `40c07c5` ADD google api sdk | 0018 | 게시판이 시험한다: SDK 대신 stdlib `net/http` | M4 |
 | 72 | `d361824` ADD 구글 캘린더 이벤트 생성 구현과 테스트 코드 | 0018 | 게시판이 시험한다: 외부 API 부르기 → 웹훅, 가짜 서버로 시험 | M4 |
 | 73 | `77f2c7a` REFACTOR 소소한 코드 스타일링 처리 | — | 스타일 리팩터: `gofmt`가 단계마다 본다 | — |
-| 74 | `9d19e1f` ADD 구글 캘린더 일정 수정, 삭제, 가져오기, 목록 구현과 테스트 코드 | 0018 | 게시판이 시험한다: 실패와 재시도(5xx는 다시, 4xx는 그만) | M4 |
+| 74 | `9d19e1f` ADD 구글 캘린더 일정 수정, 삭제, 가져오기, 목록 구현과 테스트 코드 | 0018·0040 | 게시판이 시험한다: 실패와 재시도(0018은 5xx는 다시, 4xx는 그만. 0040부터 outbox가 기다렸다 다시 보낸다) | M4·M12 |
 | 75 | `292b6f4` ADD 구글 캘린더 연동 구현 | 0018 | 게시판이 시험한다: 연동: 게시하면 알린다(0032에서 쓸 때가 아니라 게시할 때로) | M4 |
-| 76 | `86e3d97` ADD BackgroundTasks 로 구글 캘린더 작업 처리 | 0018 | 게시판이 시험한다: 커밋 뒤의 일은 `maago.AfterCommit`(D-150, 응답 전에 돌고 `maago.Serve`가 기다린다). 응답 뒤까지 남는 일은 v0.2의 outbox | M4 |
+| 76 | `86e3d97` ADD BackgroundTasks 로 구글 캘린더 작업 처리 | 0018·0040 | 게시판이 시험한다: 커밋 뒤의 일은 `maago.AfterCommit`(0018, D-150, 응답 전에 돌고 `maago.Serve`가 기다린다). 응답 뒤까지, 프로세스가 멈춰도 가야 하는 일은 outbox(0040, `maago add outbox`, D-159) | M4·M12 |
 | 77 | `b951305` ADD BackgroundTasks와 StreamingResponse | 0017 | 게시판이 시험한다: 스트리밍 응답은 탈출구 뷰(D-41) | M4 |
 | 78 | `c294fc9` ADD Calendar 에 Streaming 처리 | 0017 | 게시판이 시험한다: 게시판의 CSV를 쪽마다 흘려 보낸다 | M4 |
 | 79 | `17bc140` ADD Sentry 패키지 추가와 설정 | 0008 | main이 쓴다: Sentry 대신 `Config.OnError`, 5xx와 panic이 간다(원본도 설정만) | M4 |
@@ -118,3 +118,4 @@ Maago 칸의 머리 말: "복사한 auth가 준다"는 0020의 `maago add auth`�
 | 0037 | 고치기: 글 페이지의 두 폼을 생성된 `NewX()`로(0029의 손으로 쓴 이름), 권한 표에 API 토큰 역할(`auth.SignInToken`·`maagotest.Bearer`, D-119·D-156) | M12 |
 | 0038 | 고치기: 내보내기(0017)와 내려받기(0029)를 응답을 스스로 쓰는 타입 있는 뷰로(손 파싱·`panic`·`abort`·`UserFrom`·`DBFrom`과 `ServeMedia`의 손 처리가 사라진다, D-157·D-140) | M12 |
 | 0039 | 글의 열쇠와 첨부의 메타: `Post.Key *maago.UUID`(`savePost`가 `maago.NewUUID()`), API가 열쇠로 글을 읽는다(`GET /api/posts/{key}`, 정책을 쓰는 손 쿼리 `PostByKey`), `Attachment.Meta *maago.JSON[AttachmentMeta]`에 그림의 크기(D-158) | M12 |
+| 0040 | 고치기: 0018의 웹훅을 outbox로(`maago add outbox`): 게시하는 tx에서 `outbox.Enqueue`, `main`이 `Serve` 곁에 일꾼을, 웹훅이 내려가 있다 살아나도 받는다(D-159·D-153) | M12 |

@@ -1,0 +1,495 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Thu, 29 Oct 2026 04:28:01 +0900
+Subject: [PATCH] Send the webhook from an outbox
+
+The webhook of 0018 goes in maago.AfterCommit: after the commit, before
+the response, three tries in 10 seconds. A webhook down for longer, or
+a process that stops in between, and the post is never announced. An
+outbox keeps the notice in the database until it has gone. Not written
+by hand: copy the app maago has:
+
+    maago add outbox
+    maago makemigrations --name outbox
+
+It writes outbox/: a model Job (table outbox_job), the queries that take
+a job and put it off, and the worker, with its tests. What it writes is
+the project's own now. maago gen refuses until main gives the admin
+outbox.Admin, as it did for auth.Admin: a job whose last attempt failed
+stays, and shows there with its error. Set its Attempts to 0 to send it
+again.
+
+- moveTo writes the job in the request's transaction, where it
+  publishes the post:
+
+      outbox.Enqueue(ctx, tx, postPublished, map[string]any{"id": p.ID, "key": p.Key, "title": p.Title, "path": PostDetailURL(p.ID)})
+
+  A rollback takes the job with it, as AfterCommit dropped its call.
+  The payload is the webhook's body as it is. It has the post's key
+  now (0039), the address a receiver reads it by from the API; null for
+  a post with none. With no webhook URL, there is no job
+- main runs the worker beside the server, as package outbox's doc has
+  it: outbox.Run(work, db, board.Deliver). Once Serve has stopped, the
+  worker takes no more jobs and finishes the one in hand
+- Deliver posts one job's payload, once, within notifyWithin, with the
+  job's id as the Idempotency-Key header. The outbox tries a job again
+  that is not delivered: it waits 2 seconds, then twice as long each
+  time, 12 attempts in all. A job goes at least once, not exactly once:
+  the same key on a repeat lets the webhook drop it. A 4xx goes again
+  too: a wrong token or address, fixed in the environment, gets through
+  on the next attempt. A job keeps no address of its own: it goes to
+  board.Webhook as main has it when the job goes
+- AfterCommit stays where deletePost removes the files: short, and what
+  a missed call leaves is a file, not a lost notice
+
+The test runs the worker one step at a time, outbox.RunOnce, at a time
+of its own, and sleeps not at all. With no webhook, publishing writes
+no job. Then the webhook is down at first: the job is taken, fails, and
+is not due again at once. It is up again: at the job's RunAt, read from
+the database, the webhook hears of the post, its id, key, title and
+path, under the same Idempotency-Key, and the job is gone. The draft
+has a key of its own, so that the body's key is checked.
+
+Maago-Run: maago add outbox
+
+diff --git a/board/notify.go b/board/notify.go
+index 8cc46f5..604b069 100644
+--- a/board/notify.go
++++ b/board/notify.go
+@@ -1,12 +1,14 @@
+ package board
+ 
+ import (
+-	"bytes"
+ 	"context"
+-	"encoding/json"
+ 	"fmt"
+ 	"net/http"
++	"strconv"
++	"strings"
+ 	"time"
++
++	"example.com/board/outbox"
+ )
+ 
+ // Hook is a webhook: where to post, and the token it wants.
+@@ -16,55 +18,39 @@ type Hook struct{ URL, Token string }
+ // environment. With no URL, nothing is announced.
+ var Webhook Hook
+ 
+-// retryWait is how long notify waits before each try after the first.
+-var retryWait = []time.Duration{time.Second, 2 * time.Second}
++// postPublished is the kind of the outbox's jobs that announce a post.
++const postPublished = "post_published"
+ 
+-// notifyWithin bounds notify, its tries and waits together. It runs after
+-// the commit but before the response (maago.AfterCommit), so a webhook
+-// that is down slows the request by no more than this.
++// notifyWithin bounds one try of Deliver. The worker waits for the job
++// in hand as the server stops, so a webhook that never answers holds the
++// stop up by no more than this.
+ var notifyWithin = 10 * time.Second
+ 
+-// notify tells hook of post p. It tries again after a 5xx or no
+-// answer, and gives up after a 4xx, which another try would not change,
+-// or once notifyWithin is up.
+-func notify(ctx context.Context, hook Hook, p Post) error {
+-	if hook.URL == "" {
+-		return nil
++// Deliver is the outbox's worker's: it posts the payload of a job of
++// moveTo's to Webhook. An error, a 4xx or 5xx or no answer, has the
++// outbox try the job again later: a wrong token fixed in the
++// environment gets it through. The job's id goes as the Idempotency-Key
++// header, the same on each try, so the webhook can drop a repeat.
++func Deliver(ctx context.Context, j outbox.Job) error {
++	if j.Kind != postPublished {
++		return fmt.Errorf("board: no job of kind %q", j.Kind)
+ 	}
+ 	ctx, cancel := context.WithTimeout(ctx, notifyWithin)
+ 	defer cancel()
+-	body, err := json.Marshal(map[string]any{"id": p.ID, "title": p.Title, "path": PostDetailURL(p.ID)})
++	r, err := http.NewRequestWithContext(ctx, "POST", Webhook.URL, strings.NewReader(j.Payload))
+ 	if err != nil {
+ 		return err
+ 	}
+-	for i := 0; ; i++ {
+-		again, err := send(ctx, hook, body)
+-		if err == nil || !again || i == len(retryWait) {
+-			return err
+-		}
+-		select {
+-		case <-time.After(retryWait[i]):
+-		case <-ctx.Done():
+-			return err
+-		}
+-	}
+-}
+-
+-// send posts body to hook once, and reports whether to try again.
+-func send(ctx context.Context, hook Hook, body []byte) (again bool, err error) {
+-	r, err := http.NewRequestWithContext(ctx, "POST", hook.URL, bytes.NewReader(body))
+-	if err != nil {
+-		return false, err
+-	}
+ 	r.Header.Set("Content-Type", "application/json")
+-	r.Header.Set("Authorization", "Bearer "+hook.Token)
++	r.Header.Set("Authorization", "Bearer "+Webhook.Token)
++	r.Header.Set("Idempotency-Key", strconv.FormatInt(j.ID, 10))
+ 	resp, err := http.DefaultClient.Do(r)
+ 	if err != nil {
+-		return true, err // no answer
++		return err
+ 	}
+ 	resp.Body.Close()
+ 	if resp.StatusCode >= 300 {
+-		return resp.StatusCode >= 500, fmt.Errorf("webhook: %s", resp.Status)
++		return fmt.Errorf("webhook: %s", resp.Status)
+ 	}
+-	return false, nil
++	return nil
+ }
+diff --git a/board/notify_test.go b/board/notify_test.go
+index b3c8ef1..faf86e9 100644
+--- a/board/notify_test.go
++++ b/board/notify_test.go
+@@ -1,72 +1,65 @@
+ package board
+ 
+ import (
+-	"encoding/json"
++	"io"
+ 	"net/http"
+ 	"net/http/httptest"
+ 	"testing"
+ 	"time"
++
++	"example.com/board/outbox"
+ )
+ 
+-func TestNotify(t *testing.T) {
+-	defer func(w []time.Duration) { retryWait = w }(retryWait)
+-	retryWait = []time.Duration{time.Millisecond, time.Millisecond}
+-	post := Post{ID: 7, Title: "새 글"}
++func TestDeliver(t *testing.T) {
++	defer func(w Hook) { Webhook = w }(Webhook)
++	job := outbox.Job{ID: 7, Kind: postPublished, Payload: `{"id":3,"key":null,"path":"/posts/3","title":"새 글"}`}
+ 
+ 	for _, c := range []struct {
+-		name    string
+-		answers []int // the fake webhook's, in turn; the last again after
+-		calls   int
+-		fails   bool
+-	}{
+-		{"503 twice, then 200", []int{503, 503, 200}, 3, false},
+-		{"503 always", []int{503}, 3, true},
+-		{"400: not again", []int{400}, 1, true},
+-	} {
+-		var calls int
++		answer int
++		fails  bool
++	}{{200, false}, {503, true}, {400, true}} {
++		calls := 0
+ 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+-			var got struct {
+-				ID    int64
+-				Title string
+-				Path  string
+-			}
+-			if err := json.NewDecoder(r.Body).Decode(&got); err != nil || got.ID != 7 || got.Title != "새 글" || got.Path != "/posts/7" || r.Header.Get("Authorization") != "Bearer s3cret" {
+-				t.Errorf("%s: %+v %v %q", c.name, got, err, r.Header.Get("Authorization"))
++			body, _ := io.ReadAll(r.Body)
++			if string(body) != job.Payload || r.Header.Get("Authorization") != "Bearer s3cret" || r.Header.Get("Idempotency-Key") != "7" {
++				t.Errorf("%d: %s %q %q", c.answer, body, r.Header.Get("Authorization"), r.Header.Get("Idempotency-Key"))
+ 			}
+-			w.WriteHeader(c.answers[min(calls, len(c.answers)-1)])
++			w.WriteHeader(c.answer)
+ 			calls++
+ 		}))
+-		err := notify(t.Context(), Hook{srv.URL, "s3cret"}, post)
++		Webhook = Hook{srv.URL, "s3cret"}
++		err := Deliver(t.Context(), job)
+ 		srv.Close()
+-		if calls != c.calls || (err != nil) != c.fails {
+-			t.Errorf("%s: %d calls, %v", c.name, calls, err)
++		if calls != 1 || (err != nil) != c.fails {
++			t.Errorf("%d: %d calls, %v", c.answer, calls, err)
+ 		}
+ 	}
+ 
+-	// No answer at all: tried again, then given up.
+-	srv := httptest.NewServer(nil)
++	// A job of another kind is not the webhook's.
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		t.Error("another kind went to the webhook")
++	}))
++	Webhook = Hook{srv.URL, "s3cret"}
++	if err := Deliver(t.Context(), outbox.Job{ID: 8, Kind: "mail", Payload: "{}"}); err == nil {
++		t.Error("another kind: no error")
++	}
++	// No answer at all.
+ 	srv.Close()
+-	if err := notify(t.Context(), Hook{srv.URL, "s3cret"}, post); err == nil {
++	if err := Deliver(t.Context(), job); err == nil {
+ 		t.Error("no server: no error")
+ 	}
+-	if err := notify(t.Context(), Hook{}, post); err != nil {
+-		t.Errorf("no webhook: %v", err)
+-	}
+ 
+-	// A webhook that never answers: notify gives up at notifyWithin, the
+-	// first try having used it all.
++	// A webhook that never answers: Deliver gives up at notifyWithin.
+ 	defer func(d time.Duration) { notifyWithin = d }(notifyWithin)
+ 	notifyWithin = 50 * time.Millisecond
+-	block, calls := make(chan struct{}), 0
+-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+-		calls++
+-		<-block
+-	}))
++	block := make(chan struct{})
++	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
++	Webhook.URL = srv.URL
+ 	start := time.Now()
+-	err := notify(t.Context(), Hook{srv.URL, "s3cret"}, post)
++	err := Deliver(t.Context(), job)
+ 	close(block)
+ 	srv.Close()
+-	if err == nil || calls != 1 || time.Since(start) > time.Second {
+-		t.Errorf("no answer: %v, %d calls, %v", err, calls, time.Since(start))
++	if err == nil || time.Since(start) > time.Second {
++		t.Errorf("no answer: %v, %v", err, time.Since(start))
+ 	}
+ }
+diff --git a/board/views.go b/board/views.go
+index 474fd60..7bd2309 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -14,6 +14,7 @@ import (
+ 	"github.com/maago-web/maago"
+ 
+ 	"example.com/board/auth"
++	"example.com/board/outbox"
+ )
+ 
+ // pageSize is how many posts a page of a board shows.
+@@ -344,9 +345,9 @@ func move(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string) (m
+ }
+ 
+ // moveTo gives post id status to, if Post.Next allows it; what it does
+-// not allow is a 409 Conflict. A post just published is out: the webhook
+-// hears of it once the transaction has committed, and never of a post
+-// rolled back.
++// not allow is a 409 Conflict. A post just published is out: a job in the
++// outbox, in the same transaction, tells the webhook, so it hears of the
++// post once this commits, and never of one rolled back.
+ func moveTo(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string) (Post, error) {
+ 	p, err := GetPost(ctx, &u, tx, id, time.Now())
+ 	if err != nil {
+@@ -362,12 +363,11 @@ func moveTo(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string)
+ 	if err := UpdatePost(ctx, tx, &p); err != nil {
+ 		return Post{}, err
+ 	}
+-	if to == "published" {
+-		maago.AfterCommit(ctx, func(ctx context.Context) {
+-			if err := notify(ctx, Webhook, p); err != nil {
+-				log.Printf("notify of post %d: %v", p.ID, err)
+-			}
+-		})
++	if to == "published" && Webhook.URL != "" {
++		// What the webhook gets, as it is: Deliver sends the payload.
++		if _, err := outbox.Enqueue(ctx, tx, postPublished, map[string]any{"id": p.ID, "key": p.Key, "title": p.Title, "path": PostDetailURL(p.ID)}); err != nil {
++			return Post{}, err
++		}
+ 	}
+ 	return p, nil
+ }
+diff --git a/board/web_test.go b/board/web_test.go
+index 80b5c35..062b9eb 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -24,6 +24,7 @@ import (
+ 	"github.com/maago-web/maago/maagotest"
+ 
+ 	"example.com/board/auth"
++	"example.com/board/outbox"
+ )
+ 
+ func init() {
+@@ -843,13 +844,13 @@ func TestDrafts(t *testing.T) {
+ 		t.Fatal(err)
+ 	}
+ 	asBoss := maagotest.As(h, login(t, h, boss.Email))
+-	later := time.Now().Add(time.Hour)
++	later, key := time.Now().Add(time.Hour), maago.NewUUID()
+ 	var draft, scheduled Post
+ 	for _, p := range []struct {
+ 		to *Post
+ 		in NewPostInput
+ 	}{
+-		{&draft, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 초안", Body: "본문"}},
++		{&draft, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 초안", Body: "본문", Key: &key}},
+ 		{&scheduled, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 예약 글", Body: "본문", Status: maago.Set("published"), PublishAt: &later}},
+ 		{nil, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "앤의 게시 글", Body: "본문", Status: maago.Set("published")}},
+ 	} {
+@@ -888,32 +889,78 @@ func TestDrafts(t *testing.T) {
+ 	}
+ 
+ 	// The webhook hears of a post when it is published, not when it is
+-	// written: before, its link is not there. It hears before the
+-	// response (maago.AfterCommit), so there is nothing to wait for.
++	// written: before, its link is not there. It hears from the outbox's
++	// worker, after the response: here RunOnce is the worker, with the
++	// time it is.
++	type heard struct {
++		ID                     int64
++		Key, Title, Path, Idem string
++	}
+ 	var mu sync.Mutex
+-	var titles []string
+-	heard := func() []string { mu.Lock(); defer mu.Unlock(); return slices.Clone(titles) }
++	var calls []heard
++	answer := 503 // the webhook is down
+ 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+-		var p struct{ Title string }
+-		json.NewDecoder(r.Body).Decode(&p)
++		var h heard
++		json.NewDecoder(r.Body).Decode(&h)
++		h.Idem = r.Header.Get("Idempotency-Key")
+ 		mu.Lock()
+-		titles = append(titles, p.Title)
+-		mu.Unlock()
++		defer mu.Unlock()
++		calls = append(calls, h)
++		w.WriteHeader(answer)
+ 	}))
+ 	defer srv.Close()
++	got := func() []heard { mu.Lock(); defer mu.Unlock(); return slices.Clone(calls) }
+ 	defer func(w Hook) { Webhook = w }(Webhook)
++	Webhook = Hook{}
++	run := func(now time.Time) bool {
++		t.Helper()
++		found, err := outbox.RunOnce(ctx, db, now, Deliver)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return found
++	}
++	// With no webhook, a post published is no job.
++	quiet, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, AuthorID: &ann.ID, Title: "조용한 초안", Body: "본문"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if code, _, _ := post(asAnn, PostPublishURL(quiet.ID), nil); code != 303 || run(time.Now()) {
++		t.Fatalf("publish with no webhook: %d, a job", code)
++	}
+ 	Webhook = Hook{URL: srv.URL}
+-	if code, _, _ := post(asAnn, PostCreateURL(b.ID), url.Values{"title": {"새 초안"}, "body": {"본문"}}); code != 303 || len(heard()) != 0 {
+-		t.Fatalf("write: %d, heard %q", code, heard())
++	if code, _, _ := post(asAnn, PostCreateURL(b.ID), url.Values{"title": {"새 초안"}, "body": {"본문"}}); code != 303 || run(time.Now()) {
++		t.Fatalf("write: %d, a job", code)
+ 	}
+-	if code, _, _ := post(asAnn, PostPublishURL(draft.ID), nil); code != 303 || !slices.Equal(heard(), []string{"앤의 초안"}) {
+-		t.Fatalf("publish: %d, heard %q", code, heard())
++	if code, _, _ := post(asAnn, PostPublishURL(draft.ID), nil); code != 303 || len(got()) != 0 {
++		t.Fatalf("publish: %d, heard %+v before the worker", code, got())
+ 	}
+ 	if _, body := get(h, BoardDetailURL(b.ID)); !strings.Contains(body, "앤의 초안") {
+ 		t.Errorf("published, not on the board:\n%s", body)
+ 	}
++	// Down: the job waits, and is not due again at once.
++	if !run(time.Now()) || len(got()) != 1 || run(time.Now()) {
++		t.Fatalf("down: heard %+v", got())
++	}
++	// Up again: at the job's time, the webhook hears of the post, under
++	// the same key, and the job is done.
++	mu.Lock()
++	answer = 200
++	mu.Unlock()
++	id, _ := strconv.ParseInt(got()[0].Idem, 10, 64)
++	j, err := outbox.GetJob(ctx, db, id)
++	if err != nil {
++		t.Fatal(err)
++	}
++	want := heard{draft.ID, key.String(), "앤의 초안", PostDetailURL(draft.ID), got()[0].Idem}
++	if !run(j.RunAt) || len(got()) != 2 || got()[0] != want || got()[1] != want {
++		t.Fatalf("up again: heard %+v, want %+v twice", got(), want)
++	}
++	if _, err := outbox.GetJob(ctx, db, id); !errors.Is(err, sql.ErrNoRows) {
++		t.Errorf("the job is still there: %v", err)
++	}
+ 	// Archiving is no news.
+-	if code, _, _ := post(asAnn, PostArchiveURL(draft.ID), nil); code != 303 || len(heard()) != 1 {
+-		t.Fatalf("archive: %d, heard %q", code, heard())
++	if code, _, _ := post(asAnn, PostArchiveURL(draft.ID), nil); code != 303 || run(time.Now().Add(time.Hour)) {
++		t.Fatalf("archive: %d, a job", code)
+ 	}
+ }
+diff --git a/main.go b/main.go
+index f71a30a..6a3f1a3 100644
+--- a/main.go
++++ b/main.go
+@@ -16,6 +16,7 @@ import (
+ 
+ 	"example.com/board/auth"
+ 	"example.com/board/board"
++	"example.com/board/outbox"
+ 
+ 	_ "github.com/jackc/pgx/v5/stdlib" // the database driver: the app imports it, not maago
+ )
+@@ -69,12 +70,13 @@ func main() {
+ 	}
+ 	authlib.Mail = authlib.ConsoleMail
+ 	// Where to announce published posts. Settings of the app are the app's own
+-	// package variables, filled in here.
++	// package variables, filled in here. With no URL, nothing is announced.
+ 	board.Webhook.URL = os.Getenv("BOARD_WEBHOOK_URL")
+ 	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")
+ 	// The admin, at /app/admin/: the models of the apps it is given, to
+-	// those auth.Can lets see them.
+-	adminApp := admin.App(admin.Config{Models: [][]admin.Model{board.Admin, auth.Admin}, Can: auth.Can})
++	// those auth.Can lets see them. The outbox's jobs too: one whose last
++	// attempt failed stays there, with its error.
++	adminApp := admin.App(admin.Config{Models: [][]admin.Model{board.Admin, auth.Admin, outbox.Admin}, Can: auth.Can})
+ 	h, err := maago.Handler(maago.Config{
+ 		DB:   db,
+ 		Apps: []maago.App{board.App, auth.App, adminApp},
+@@ -105,9 +107,21 @@ func main() {
+ 	// StripPrefix takes /app off the path before the routes see it. A proxy
+ 	// in front that takes it off already gets h alone.
+ 	log.Printf("listening on http://localhost:%s/app/", port)
++	// The outbox's worker, beside the server: it sends the webhook of
++	// each published post, and again later if the webhook is down.
++	work, stop := context.WithCancel(ctx)
++	worked := make(chan struct{})
++	go func() {
++		outbox.Run(work, db, board.Deliver)
++		close(worked)
++	}()
+ 	// Serve stops on SIGTERM, as a platform stops a container: it takes no
+ 	// new connections and lets the running requests finish, for up to 30s.
+-	if err := maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h)); err != nil {
++	// Then the worker takes no more jobs, and finishes the one in hand.
++	err = maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h))
++	stop()
++	<-worked
++	if err != nil {
+ 		log.Fatal(err)
+ 	}
+ }
+diff --git a/migrations/0007_outbox.sql b/migrations/0007_outbox.sql
+new file mode 100644
+index 0000000..349252e
+--- /dev/null
++++ b/migrations/0007_outbox.sql
+@@ -0,0 +1,11 @@
++CREATE TABLE "outbox_job" (
++    "id" BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
++    "kind" VARCHAR(100) NOT NULL,
++    "payload" TEXT NOT NULL,
++    "attempts" BIGINT NOT NULL DEFAULT 0,
++    "run_at" TIMESTAMPTZ NOT NULL,
++    "last_error" TEXT NOT NULL DEFAULT '',
++    "created_at" TIMESTAMPTZ NOT NULL
++);
++
++CREATE INDEX "outbox_job_run_at_idx" ON "outbox_job" ("run_at");

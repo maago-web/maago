@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	osexec "os/exec"
@@ -89,7 +90,7 @@ func TestBoardTutorialCatches(t *testing.T) {
 		// The binary migrates its database itself, and stops cleanly on
 		// SIGTERM (D-153).
 		{"no migrations at the start", "0033-Ship-it.patch", "+\tapplied, err := maago.Migrate(ctx, maago.DBConfig{}, migrations)", "+\tapplied, err := []string(nil), error(nil)", "board -createsuperuser: "},
-		{"no graceful stop", "0033-Ship-it.patch", `+	if err := maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h)); err != nil {`, `+	if err := http.ListenAndServe(":"+port, http.StripPrefix("/app", h)); err != nil {`, "serve: "},
+		{"no graceful stop", "0040-Send-the-webhook-from-an-outbox.patch", `+	err = maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h))`, `+	err = http.ListenAndServe(":"+port, http.StripPrefix("/app", h))`, "serve: "},
 		// The binary reads PORT, and serves on it (D-142).
 		{"another port", "0033-Ship-it.patch", `+	port := cmp.Or(os.Getenv("PORT"), "8000")`, `+	port := cmp.Or(os.Getenv("ADDR"), "8000")`, "serve: "},
 		// A route without its row in the permission table fails the app's
@@ -114,6 +115,13 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"a post without its key", "0039-Give-each-post-a-key-and-each-image-its-size.patch", "+\t\tKey: &key,", "+\t\tKey: func(*maago.UUID) *maago.UUID { return nil }(&key),", "go test: "},
 		// A template reads a maago.JSON's value as .V, checked as any field.
 		{"an image's size, misspelled", "0039-Give-each-post-a-key-and-each-image-its-size.patch", "bytes{{with .Meta}}, {{.V.Width}}", "bytes{{with .Meta}}, {{.V.Widht}}", "maago gen:\nboard/templates/post_page.html:12:97: an element of PostPage.Attachments.Meta.V has no field or method \"Widht\""},
+		// The outbox's jobs are the admin's to show, as auth's users are.
+		{"the outbox out of the admin", "0040-Send-the-webhook-from-an-outbox.patch", "+\tadminApp := admin.App(admin.Config{Models: [][]admin.Model{board.Admin, auth.Admin, outbox.Admin}", "+\tadminApp := admin.App(admin.Config{Models: [][]admin.Model{board.Admin, auth.Admin}", "maago gen:\noutbox/models.go:16:6: app outbox has models, but no package uses outbox.Admin"},
+		// A webhook that is down is an error, for the outbox to try again:
+		// taken for done, the job is gone before the webhook is up.
+		{"a failure as success", "0040-Send-the-webhook-from-an-outbox.patch", "+\t\treturn fmt.Errorf(\"webhook: %s\", resp.Status)", "+\t\treturn nil", "go test: "},
+		// main runs the outbox's worker: without it, no job goes (D-159).
+		{"no worker", "0040-Send-the-webhook-from-an-outbox.patch", "+\t\toutbox.Run(work, db, board.Deliver)", "+\t\t_, _, _ = work, db, board.Deliver", "serve: "},
 		// A fix: line the step quotes is maago gen's, word for word.
 		{"a misquoted fix", "0035-Write-who-may-read-a-post.patch", "each shows)", "each show)", "maago gen: the message quotes\n"},
 		// A query that reads the posts without their policy stops maago gen,
@@ -286,7 +294,9 @@ func walk(t *testing.T, dir string) (root string, err error) {
 // it builds the binary as a container does, without cgo for Linux, then
 // builds one for this machine, which migrates the steps' database, emptied
 // first, as it starts (D-153), makes the first staff account (D-130), and
-// serves the board on PORT until SIGTERM stops it cleanly.
+// serves the board on PORT until SIGTERM stops it cleanly. On PostgreSQL,
+// a job written to the outbox reaches the webhook of the environment:
+// main runs the worker (D-159).
 func ship(t *testing.T, root, schema string) error {
 	cross := goCmd(root, "build", "-o", filepath.Join(t.TempDir(), "board"), ".")
 	cross.Env = append(cross.Env, "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64")
@@ -320,7 +330,37 @@ func ship(t *testing.T, root, schema string) error {
 			return fmt.Errorf("the superuser is not in schema %s: %v", schema, err)
 		}
 	}
-	return serve(root, bin, "/app/", http.StatusOK, []string{"BOARD_SITE_URL=http://localhost:8000"}, true, nil)
+	env := []string{"BOARD_SITE_URL=http://localhost:8000"}
+	var use func(string) error
+	if schema != "" { // a job in the outbox: main's worker sends it to the webhook
+		if err := withPostgres(func(db *sql.DB) error {
+			_, err := db.Exec("INSERT INTO " + schema + ".outbox_job (kind, payload, run_at, created_at) VALUES ('post_published', '{\"title\":\"shipped\"}', now(), now())")
+			return err
+		}); err != nil {
+			return err
+		}
+		heard := make(chan string, 1)
+		hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case heard <- r.Header.Get("Authorization"):
+			default:
+			}
+		}))
+		defer hook.Close()
+		env = append(env, "BOARD_WEBHOOK_URL="+hook.URL, "BOARD_WEBHOOK_TOKEN=s3cret")
+		use = func(string) error {
+			select {
+			case got := <-heard:
+				if got != "Bearer s3cret" {
+					return fmt.Errorf("the webhook heard Authorization %q", got)
+				}
+				return nil
+			case <-time.After(10 * time.Second):
+				return fmt.Errorf("the webhook heard nothing of the outbox's job in 10s")
+			}
+		}
+	}
+	return serve(root, bin, "/app/", http.StatusOK, env, true, use)
 }
 
 // serve runs bin in root on a free PORT until path answers want, for 10

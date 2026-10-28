@@ -23,7 +23,7 @@ unpack)
 	[ ! -e "$dir" ] || { echo "$dir exists" >&2; exit 1; }
 	trap 'rm -rf "$dir"' EXIT # a half-made DIR would block the next try
 	git init -q "$dir"
-	printf '*_gen.go\n/auth/\n.env\n*.db\ngo.work*\n' >>"$dir/.git/info/exclude"
+	printf '*_gen.go\n/auth/\n/outbox/\n.env\n*.db\ngo.work*\n' >>"$dir/.git/info/exclude"
 	printf 'go 1.25.0\n\nuse .\n\nreplace github.com/maago-web/maago => %s\n' "$repo" >"$dir/go.work"
 	printf 'MAAGO_DATABASE_URL=sqlite:board.db\n' >"$dir/.env"
 	go build -C "$repo/cmd/maago" -o "$(cd "$dir" && pwd -P)/.git/maago" .

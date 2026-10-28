@@ -40,7 +40,7 @@ notifyWithin the deadline, for a server that never answers.
 
 A notice that must arrive even when the webhook is down for long, or
 the process stops, needs a row in the database and a worker that sends
-it (an outbox). That is beyond this tutorial.
+it (an outbox). Step 0040 moves the webhook to one.
 
 diff --git a/board/notify.go b/board/notify.go
 new file mode 100644
