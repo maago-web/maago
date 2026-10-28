@@ -76,6 +76,7 @@
 - [ ] JSON의 `-- param:`과 바깥 조인 쪽 JSON 열을 새 결과 타입에 넣는 길: 지금은 모델 열의 결과 필드로만, 헤더에 쓰면 진단(M12 7번 fable)
 - [ ] `int32`의 `decimal=`(지금 `int64`만, M12 7번)
 - [ ] 있는 행에 UUID 열쇠를 채우는 길이 없다(손 SQL뿐): 게시판 0039의 열쇠는 새 글부터, 웹훅의 `"key"`도 옛 글은 null(M12 8·10번)
+- [ ] `maago doc main`의 예는 일꾼의 멈춤 차례(`<-worked`)를 컴파일만 본다: `TestDocExamples`의 PG 가지는 gen·check만 하고 go test는 돌리지 않는다(모든 주제가 같다). 진짜 검사는 게시판 0040의 ship(M12 11번)
 - [ ] outbox의 Kind가 여럿이 되면 `main`의 일꾼 함수가 Kind로 가르는 꼴(게시판 0040은 하나, M12 10번)
 
 ## 언젠가
