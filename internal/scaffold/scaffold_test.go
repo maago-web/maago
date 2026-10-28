@@ -116,7 +116,7 @@ func TestAddRefuses(t *testing.T) {
 
 func TestAddUnknownApp(t *testing.T) {
 	_, ds := Add(newProject(t), "autth")
-	if got := text(ds); got != "unknown app \"autth\"\n  fix: did you mean \"auth\"? apps: auth\n" {
+	if got := text(ds); got != "unknown app \"autth\"\n  fix: did you mean \"auth\"? apps: auth, outbox\n" {
 		t.Errorf("%s", got)
 	}
 }

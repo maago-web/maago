@@ -1,0 +1,5 @@
+// Package outbox tests run on PostgreSQL, the database of the project
+// when maago add wrote this file.
+package outbox
+
+import _ "github.com/jackc/pgx/v5/stdlib"

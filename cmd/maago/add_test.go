@@ -17,30 +17,9 @@ import (
 // lets in only staff with one line (D-130). Nothing else compiles it:
 // the go tool skips the scaffold's testdata.
 func TestAddAuth(t *testing.T) {
-	repo, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, dd := range []draftDialect{draftSQLite, draftPG} {
 		t.Run(string(dd.d), func(t *testing.T) {
-			root, err := filepath.EvalSymlinks(t.TempDir())
-			if err != nil {
-				t.Fatal(err)
-			}
-			// The fixture's module: both drivers, with their sums.
-			writeFile(t, filepath.Join(root, "go.mod"), strings.Replace(readFile(t, "testdata/web/go.mod"), "module example.com/web", "module example.com/app", 1))
-			writeFile(t, filepath.Join(root, "go.sum"), readFile(t, "testdata/web/go.sum"))
-			writeFile(t, filepath.Join(root, "go.work"), "go 1.25.0\n\nuse .\n\nreplace github.com/maago-web/maago => "+repo+"\n")
-			writeFile(t, filepath.Join(root, "main.go"), authMain)
-			t.Setenv("GOWORK", filepath.Join(root, "go.work"))
-			url := "sqlite:app.db"
-			if dd.d == project.Postgres {
-				url = pgURL(t)
-			}
-			t.Setenv("MAAGO_DATABASE_URL", url)
-			if _, ds := scaffold.Add(root, "auth"); ds != nil {
-				t.Fatal(text(ds))
-			}
+			root := addProject(t, dd, "auth", authMain)
 			for name, src := range staffApp {
 				writeFile(t, filepath.Join(root, "site", name), src)
 			}
@@ -70,6 +49,99 @@ func TestAddAuth(t *testing.T) {
 		})
 	}
 }
+
+// addProject is a project on the database of dd, with main and the app
+// maago add wrote.
+func addProject(t *testing.T, dd draftDialect, app, main string) string {
+	t.Helper()
+	repo, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture's module: both drivers, with their sums.
+	writeFile(t, filepath.Join(root, "go.mod"), strings.Replace(readFile(t, "testdata/web/go.mod"), "module example.com/web", "module example.com/app", 1))
+	writeFile(t, filepath.Join(root, "go.sum"), readFile(t, "testdata/web/go.sum"))
+	writeFile(t, filepath.Join(root, "go.work"), "go 1.25.0\n\nuse .\n\nreplace github.com/maago-web/maago => "+repo+"\n")
+	writeFile(t, filepath.Join(root, "main.go"), main)
+	t.Setenv("GOWORK", filepath.Join(root, "go.work"))
+	url := "sqlite:app.db"
+	if dd.d == project.Postgres {
+		url = pgURL(t)
+	}
+	t.Setenv("MAAGO_DATABASE_URL", url)
+	if _, ds := scaffold.Add(root, app); ds != nil {
+		t.Fatal(text(ds))
+	}
+	return root
+}
+
+// The outbox app maago add writes is an ordinary app too: its table goes
+// into makemigrations, check passes and its tests pass (the worker's
+// races, deaths, attempts and stop), in both dialects; and main runs its
+// worker beside Serve as its package's doc shows.
+func TestAddOutbox(t *testing.T) {
+	for _, dd := range []draftDialect{draftSQLite, draftPG} {
+		t.Run(string(dd.d), func(t *testing.T) {
+			root := addProject(t, dd, "outbox", outboxMain)
+			initial := readFile(t, filepath.Join(root, makeMigrations(t, root, "")))
+			want := map[project.Dialect]string{
+				project.SQLite:   `"run_at" TEXT NOT NULL`,
+				project.Postgres: `"run_at" TIMESTAMPTZ NOT NULL`,
+			}[dd.d]
+			for _, w := range []string{`CREATE TABLE "outbox_job"`, want, `CREATE INDEX "outbox_job_run_at_idx"`} {
+				if !strings.Contains(initial, w) {
+					t.Errorf("no %s in:\n%s", w, initial)
+				}
+			}
+			expect(t, root)
+			goTest(t, root)
+		})
+	}
+}
+
+// outboxMain runs the outbox's worker beside the server, as the doc of
+// package outbox has it. It is only compiled.
+const outboxMain = `package main
+
+import (
+	"context"
+	"log"
+	"net/http"
+
+	"github.com/maago-web/maago"
+	_ "modernc.org/sqlite"
+
+	"example.com/app/outbox"
+)
+
+func deliver(ctx context.Context, j outbox.Job) error { return nil }
+
+func main() {
+	ctx := context.Background()
+	db, err := maago.OpenDB(ctx, maago.DBConfig{})
+	if err != nil {
+		log.Fatal(err)
+	}
+	var h http.Handler = http.NotFoundHandler()
+
+	work, stop := context.WithCancel(ctx)
+	worked := make(chan struct{})
+	go func() {
+		outbox.Run(work, db, deliver) // deliver(ctx, j) does what j.Kind says
+		close(worked)
+	}()
+	err = maago.Serve(ctx, ":8000", h)
+	stop()
+	<-worked // the job in hand is finished
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+`
 
 // authMain serves the auth app, as main does once maago add auth wrote it.
 // It is only compiled, so its SQLite driver serves the PostgreSQL run too.
