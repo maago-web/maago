@@ -7,7 +7,8 @@ var Topics = []*Topic{
 		Title: "main.go",
 		Summary: `main.go puts the project together: it migrates the database, opens it, gives
 each app's App to maago.Handler with the project's settings, and serves the
-handler with maago.Serve.`,
+handler with maago.Serve, beside the worker of maago add outbox if the
+project has one.`,
 		Text: `A main:
 
 	//go:embed migrations
@@ -55,7 +56,17 @@ sqlite:app.db or postgres://….
 
 Settings of an app, such as a webhook's URL, are the app's own package
 variables, which main fills in before Handler. A test of the whole site
-calls the function that makes the handler, as main does.`,
+calls the function that makes the handler, as main does.
+
+Work that must happen once a transaction commits, even if the process
+stops, such as a webhook to call, goes through an outbox: maago add outbox
+copies one into the project (go doc ./outbox has the rest). If main
+serves the admin, maago gen refuses until outbox.Admin is in
+admin.Config's Models. The outbox's worker runs in main beside the server,
+as the example's main does: once Serve has stopped, it takes no more jobs
+and finishes the one in hand, for up to its lease (5 minutes). A second
+signal, during Serve's stop or after it, kills the process at once, and
+the job goes again later.`,
 		API: []string{"Handler", "Config", "App", "DBConfig", "OpenDB", "Migrate", "Serve", "Messages", "DefaultMessages", "Prefix"},
 	},
 	{
@@ -101,6 +112,8 @@ is uuid in PostgreSQL and its text in SQLite; maago.NewUUID() makes one
 8-4-4-4-12 text in JSON, forms, paths and queries. A maago.JSON[T] field
 keeps T as JSON, with T a type of the app's package (or a map or slice of
 such and Go's own types); the value is its V, and forms do not read it.
+time.Time, []byte, maago.UUID and maago.JSON have no default: such a
+field added to a table with rows is a pointer, nil in those rows.
 
 maago gen writes models_gen.go with, for a model Post:
 
@@ -296,7 +309,8 @@ commits and sends a 303. An error rolls back: sql.ErrNoRows is a 404,
 maago.Status(code, err) is that code, maago.ErrConflict a 409, a form's
 error on an API route a 422, any other a 500 that Config.OnError hears.
 maago.AfterCommit(ctx, f) runs f after the commit, before the response,
-and never after a rollback; a write that must not be lost is no job for it.
+and never after a rollback; work that must not be lost goes through an
+outbox instead (maago doc main).
 
 A view that answers with something other than a page, such as a file or
 a stream, writes the response itself: it takes w and r after In, and
@@ -538,7 +552,9 @@ app's Admin once a package imports it. Only a staff user gets in. The
 model's tags shape it (maago doc model): admin=hidden on the model or a
 field, admin=readonly on a field, admin_list, admin_search, admin_filter
 and ordering. A model has no add page if a field the form leaves out (an
-admin=hidden or admin=readonly one) has no default.
+admin=hidden or admin=readonly one) has no default. A maago.UUID field is
+changed as its text and a decimal one as 12.34; a maago.JSON field is
+shown, not changed.
 
 The URLs, under /admin/:
 

@@ -10,7 +10,8 @@
 //
 // main.go puts the project together: it migrates the database, opens it, gives
 // each app's App to maago.Handler with the project's settings, and serves the
-// handler with maago.Serve.
+// handler with maago.Serve, beside the worker of maago add outbox if the
+// project has one.
 //
 // Names: [Handler], [Config], [App], [DBConfig], [OpenDB], [Migrate], [Serve], [Messages], [DefaultMessages], [Prefix].
 //

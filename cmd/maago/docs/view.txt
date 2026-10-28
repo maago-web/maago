@@ -129,6 +129,8 @@ func CreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn) (ma
 	if err != nil {
 		return maago.Result[PostFormPage]{}, err // rolled back
 	}
+	// After the commit, work that is fine to lose if the process stops; a
+	// webhook or a mail goes through an outbox instead (maago doc main).
 	maago.AfterCommit(ctx, func(ctx context.Context) { fmt.Println("new post", p.ID) })
 	return maago.SeeOther[PostFormPage](PostDetailURL(p.ID)), nil
 }

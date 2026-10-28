@@ -1,3 +1,4 @@
+$ maago add outbox
 -- main.go --
 package main
 
@@ -6,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +17,7 @@ import (
 	_ "modernc.org/sqlite" // the database driver: main imports it, not maago
 
 	"example.com/app/notes"
+	"example.com/app/outbox"
 )
 
 // migrations are the project's migrations, in the binary: it migrates its
@@ -44,10 +47,32 @@ func main() {
 	}
 	port := cmp.Or(os.Getenv("PORT"), "8000")
 	log.Printf("listening on http://localhost:%s/", port)
+	// The outbox's worker, beside the server.
+	work, stop := context.WithCancel(ctx)
+	worked := make(chan struct{})
+	go func() {
+		outbox.Run(work, db, deliver)
+		close(worked)
+	}()
 	// Serve stops on SIGINT or SIGTERM and lets running requests finish.
-	if err := maago.Serve(ctx, ":"+port, h); err != nil {
+	// Then the worker takes no more jobs, and finishes the one in hand.
+	err = maago.Serve(ctx, ":"+port, h)
+	stop()
+	<-worked
+	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+// deliver does the work of a job the outbox's worker hands it, by its
+// Kind. An error, and the job goes again later: a kind it does not know
+// stays, for the admin to show, rather than being dropped.
+func deliver(ctx context.Context, j outbox.Job) error {
+	if j.Kind != "note_created" {
+		return fmt.Errorf("no job of kind %q", j.Kind)
+	}
+	log.Printf("note created: %s", j.Payload) // a webhook's call, say
+	return nil
 }
 
 // handler puts the apps together, apart from main so that a test serves
@@ -77,8 +102,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maago-web/maago"
+
+	"example.com/app/outbox"
 )
 
 func TestSite(t *testing.T) {
@@ -111,6 +139,14 @@ func TestSite(t *testing.T) {
 	}
 	if w := post("text=hello"); w.Code != http.StatusSeeOther {
 		t.Errorf("hello: %d %s", w.Code, w.Body)
+	}
+	// The note's job, one step of the worker: done, so none is left, not
+	// even an hour later, when a failed one would go again.
+	if found, err := outbox.RunOnce(ctx, db, time.Now(), deliver); !found || err != nil {
+		t.Errorf("worker: %v %v", found, err)
+	}
+	if found, err := outbox.RunOnce(ctx, db, time.Now().Add(time.Hour), deliver); found || err != nil {
+		t.Errorf("worker again: %v %v", found, err)
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
@@ -159,6 +195,8 @@ import (
 	"context"
 
 	"github.com/maago-web/maago"
+
+	"example.com/app/outbox"
 )
 
 type NoteListIn struct {
@@ -180,7 +218,12 @@ func CreateNote(ctx context.Context, tx maago.Tx, in NoteListIn) (maago.Result[N
 		notes, err := AllNotes(ctx, tx)
 		return maago.Show(NoteListPage{Notes: notes, Form: in.Form}), err
 	}
-	if _, err := InsertNote(ctx, tx, NewNoteInput{Text: in.Form.Text.Value}); err != nil {
+	n, err := InsertNote(ctx, tx, NewNoteInput{Text: in.Form.Text.Value})
+	if err != nil {
+		return maago.Result[NoteListPage]{}, err
+	}
+	// In the same transaction: with no note, no job.
+	if _, err := outbox.Enqueue(ctx, tx, "note_created", n); err != nil {
 		return maago.Result[NoteListPage]{}, err
 	}
 	return maago.SeeOther[NoteListPage](NoteListURL()), nil
