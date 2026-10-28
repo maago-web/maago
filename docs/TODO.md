@@ -69,6 +69,13 @@
 - [x] 규칙 6 진단의 fix가 모델의 첫 정책을 권한다(게이트 1번): 정책 이름을 고르지 않고 늘어놓기로. 0035 글이 v0.2.0의 출력을 인용하므로 v0.2.1에서 글과 함께(M11 10번) → M12 1번: 정책이 여럿이면 `<name>`과 이름들, `-- get:`의 정책, 걷기가 글의 `fix:` 인용을 gen 출력과 맞춘다
 - [x] `go doc maago.UniqueError`가 생성되는 폼의 `Fail`을 가리키게, `GetX`의 정책 param에 무엇을 넘기는지(`now`는 `time.Now()`) `maago doc query`에 한 마디(M11 10번 게이트 2번) → M12 1번, `func(w, r)`의 `&u`·nil도 `maago doc view`에
 
+## M12
+
+- [ ] UUID를 넣을 때 채우는 태그(`auto=create`처럼): 지금 포인터 아닌 `maago.UUID`는 default가 없어 admin의 새 행 폼이 손 입력을 요구하고, 앱이 `NewUUID()`로 채운다(M12 7번)
+- [ ] UUID·JSON 필드의 `default`(M12 7번)
+- [ ] JSON의 `-- param:`과 바깥 조인 쪽 JSON 열을 새 결과 타입에 넣는 길: 지금은 모델 열의 결과 필드로만, 헤더에 쓰면 진단(M12 7번 fable)
+- [ ] `int32`의 `decimal=`(지금 `int64`만, M12 7번)
+
 ## 언젠가
 
 - [ ] 마이그레이션 롤백(down 마이그레이션)
