@@ -18,7 +18,7 @@ const maxName = 63
 
 var types = map[model.Type]string{
 	model.Int64: "BIGINT", model.Int32: "INTEGER", model.Bool: "BOOLEAN", model.Float64: "DOUBLE PRECISION",
-	model.String: "TEXT", model.Time: "TIMESTAMPTZ", model.Bytes: "BYTEA",
+	model.String: "TEXT", model.Time: "TIMESTAMPTZ", model.Bytes: "BYTEA", model.UUID: "UUID", model.JSON: "JSONB",
 }
 
 // DDL returns every CREATE TABLE, then every foreign key, then every

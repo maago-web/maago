@@ -49,6 +49,8 @@ func URLsFile(app *App, stub bool) []byte {
 					part = `"/" + rt.PathSegment(` + p.name + `)`
 				case "int64":
 					part, imports["strconv"] = `"/" + strconv.FormatInt(`+p.name+`, 10)`, true
+				case "maago.UUID":
+					part = `"/" + ` + p.name + `.String()`
 				default:
 					part, imports["strconv"] = `"/" + strconv.FormatInt(int64(`+p.name+`), 10)`, true
 				}
@@ -65,6 +67,13 @@ func URLsFile(app *App, stub bool) []byte {
 		})
 	}
 	return execute("urls.go.tmpl", imports, map[string]any{"Package": app.Name, "ImportPath": app.ImportPath, "Stub": stub, "Routes": rs, "Static": len(app.Static) > 0})
+}
+
+// parserOf names rt's Parse function of a path or query value's type:
+// ParseInt64, ParseUUID.
+func parserOf(typ string) string {
+	typ = strings.TrimPrefix(typ, "maago.")
+	return strings.ToUpper(typ[:1]) + typ[1:]
 }
 
 // param is the URL function's parameter for wildcard name.
@@ -93,7 +102,7 @@ func ViewsFile(app *App, apps []*App) []byte {
 		for _, f := range v.fields {
 			query = query || f.source == "query"
 			fields = append(fields, map[string]any{"Name": f.name, "Source": f.source, "Key": f.key, "Pointer": f.pointer,
-				"Parser": strings.ToUpper(f.typ[:1]) + f.typ[1:], "Form": f.typ, "Keys": keysOf(app.forms[f.typ]), "Multipart": app.forms[f.typ] != nil && app.forms[f.typ].hasFile()})
+				"Parser": parserOf(f.typ), "Form": f.typ, "Keys": keysOf(app.forms[f.typ]), "Multipart": app.forms[f.typ] != nil && app.forms[f.typ].hasFile()})
 		}
 		api := hasOption(r.Options, "API")
 		html = html || !v.escape && !v.writes && !api
@@ -249,13 +258,13 @@ func formsData(app *App) []map[string]any {
 }
 
 // binds are the Bind functions of the form field types.
-var binds = map[string]string{"string": "BindString", "int64": "BindInt64", "int32": "BindInt32", "float64": "BindFloat64", "bool": "BindBool", "time.Time": "BindTime", "maago.File": "BindFile"}
+var binds = map[string]string{"string": "BindString", "int64": "BindInt64", "int32": "BindInt32", "float64": "BindFloat64", "bool": "BindBool", "time.Time": "BindTime", "maago.UUID": "BindUUID", "maago.File": "BindFile"}
 
 // ModelRule is the Bind function and the rt.Rule, as Go, of a model
 // form's field for mf: the rules a model form takes from its model
 // (D-119), for the admin's forms (D-131).
 func ModelRule(mf *model.Field, optional bool) (bind, rule string) {
-	ff := formField{name: mf.Name, typ: mf.Type.String(), label: mf.Name, help: mf.Help, choices: mf.Choices, max: mf.Max, optional: optional}
+	ff := formField{name: mf.Name, typ: mf.Type.String(), label: mf.Name, help: mf.Help, choices: mf.Choices, max: mf.Max, optional: optional, decimal: mf.Decimal}
 	if mf.Label != "" {
 		ff.label = mf.Label
 	}
@@ -289,6 +298,9 @@ func ruleLit(ff formField) string {
 	}
 	if ff.maxValue != "" {
 		parts = append(parts, "MaxValue: "+strconv.Quote(ff.maxValue))
+	}
+	if ff.decimal > 0 {
+		parts = append(parts, "Decimal: "+strconv.Itoa(ff.decimal))
 	}
 	if ff.accept != nil {
 		var qs []string

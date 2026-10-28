@@ -3,6 +3,16 @@
 // The admin's view of the models. Its columns, its search and
 // what it hides come from the models' admin tags: change the
 // tags, then run maago gen.
+//
+// Models with no adding in the admin:
+//
+//   - Parcel: no adding: Meta is maago.JSON, which the admin does not edit, with no default
+//
+// Fields the admin shows but does not edit, as maago.JSON, which forms
+// do not read: change them in code.
+//
+//   - Parcel.Meta
+//   - Parcel.Tags
 
 package orders
 
@@ -111,7 +121,7 @@ var Admin = []admin.Model{
 			}
 			rows := make([]admin.Row, len(vs))
 			for i, v := range vs {
-				rows[i] = admin.Row{ID: v.ID, Cells: []any{v.ID, v.CustomerID, v.Status, v.Amount, v.Priority, v.CreatedAt, v.UpdatedAt}}
+				rows[i] = admin.Row{ID: v.ID, Cells: []any{v.ID, v.CustomerID, v.Status, v.AmountText(), v.Priority, v.CreatedAt, v.UpdatedAt}}
 			}
 			return rows, nil
 		},
@@ -140,7 +150,7 @@ var Admin = []admin.Model{
 			}
 			rt.BindInt64(ctx, vals, &f.CustomerID, rt.Rule{Name: "customer_id", Label: "CustomerID", Optional: true})
 			rt.BindString(ctx, vals, &f.Status, rt.Rule{Name: "status", Label: "Status", Max: 20})
-			rt.BindInt64(ctx, vals, &f.Amount, rt.Rule{Name: "amount", Label: "Amount"})
+			rt.BindInt64(ctx, vals, &f.Amount, rt.Rule{Name: "amount", Label: "Amount", Decimal: 2})
 			rt.BindInt32(ctx, vals, &f.Priority, rt.Rule{Name: "priority", Label: "Priority", Optional: true})
 			rt.BindTime(ctx, vals, &f.CreatedAt, rt.Rule{Name: "created_at", Label: "CreatedAt"})
 			var form maago.Form // the form's own errors
@@ -148,7 +158,7 @@ var Admin = []admin.Model{
 			if vals == nil && id != 0 {
 				f.CustomerID.Raw = admin.Raw(o.CustomerID)
 				f.Status.Raw = admin.Raw(o.Status)
-				f.Amount.Raw = admin.Raw(o.Amount)
+				f.Amount.Raw = o.AmountText()
 				f.Priority.Raw = admin.Raw(o.Priority)
 				f.CreatedAt.Raw = admin.Raw(o.CreatedAt)
 			} else if vals == nil { // a new row: the defaults
@@ -192,7 +202,7 @@ var Admin = []admin.Model{
 			}
 			in = append(in, admin.In(&f.CustomerID, false, "orders.Customer"))
 			in = append(in, admin.In(&f.Status, true, ""))
-			in = append(in, admin.In(&f.Amount, true, ""))
+			in = append(in, admin.Decimal(admin.In(&f.Amount, true, "")))
 			in = append(in, admin.In(&f.Priority, false, ""))
 			in = append(in, admin.In(&f.CreatedAt, true, ""))
 			if id != 0 {
@@ -202,9 +212,105 @@ var Admin = []admin.Model{
 		},
 		Delete: DeleteOrder,
 		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
-			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "orders" WHERE "id" = ?1`, nil)
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "orders" WHERE "id" = ?1`, []admin.Ref{
+				{Model: "orders.Parcel", Field: "OrderID", SQL: `SELECT COUNT(*) FROM "parcels" WHERE "order_id" = ?1`},
+			})
 		},
 		Add:  true,
+		Edit: true,
+	},
+	{
+		App:  "orders",
+		Name: "Parcel",
+		Fields: []admin.Field{
+			{Name: "ID", Label: "ID", ReadOnly: true},
+			{Name: "OrderID", Label: "OrderID", FK: "orders.Order"},
+			{Name: "Key", Label: "Key"},
+			{Name: "Meta", Label: "Meta"},
+			{Name: "Tags", Label: "Tags"},
+			{Name: "Ref", Label: "Ref"},
+		},
+		List: []string{"ID", "OrderID", "Key", "Meta", "Tags", "Ref"},
+		Rows: func(ctx context.Context, db maago.DB, q admin.Query) ([]admin.Row, error) {
+			vs, err := rt.Many(ctx, db, scanParcel, `SELECT "id", "order_id", "key", "meta", "tags", "ref" FROM "parcels" ORDER BY "id" DESC LIMIT ?1 OFFSET ?2`, q.Limit, q.Offset)
+			if err != nil {
+				return nil, err
+			}
+			rows := make([]admin.Row, len(vs))
+			for i, v := range vs {
+				rows[i] = admin.Row{ID: v.ID, Cells: []any{v.ID, v.OrderID, v.Key, &v.Meta, v.Tags, v.Ref}}
+			}
+			return rows, nil
+		},
+		Count: func(ctx context.Context, db maago.DB, q admin.Query) (n int64, err error) {
+			err = db.QueryRowContext(ctx, `SELECT COUNT(*) FROM "parcels"`).Scan(&n)
+			return n, err
+		},
+		Form: func(ctx context.Context, db maago.DB, id int64, vals url.Values) (admin.Form, error) {
+			var o Parcel
+			if id != 0 {
+				var err error
+				if o, err = GetParcel(ctx, db, id); err != nil {
+					return admin.Form{}, err
+				}
+			}
+			var f struct {
+				OrderID maago.Field[int64]
+				Key     maago.Field[maago.UUID]
+				Ref     maago.Field[maago.UUID]
+			}
+			rt.BindInt64(ctx, vals, &f.OrderID, rt.Rule{Name: "order_id", Label: "OrderID"})
+			rt.BindUUID(ctx, vals, &f.Key, rt.Rule{Name: "key", Label: "Key"})
+			rt.BindUUID(ctx, vals, &f.Ref, rt.Rule{Name: "ref", Label: "Ref", Optional: true})
+			var form maago.Form // the form's own errors
+			rt.FinishForm(ctx, &form, vals != nil, true)
+			if vals == nil && id != 0 {
+				f.OrderID.Raw = admin.Raw(o.OrderID)
+				f.Key.Raw = admin.Raw(o.Key)
+				f.Ref.Raw = admin.Raw(o.Ref)
+			}
+			if vals != nil && f.OrderID.Error == "" && f.OrderID.Given {
+				if found, err := admin.Exists(ctx, db, `SELECT 1 FROM "orders" WHERE "id" = ?1`, f.OrderID.Value); err != nil {
+					return admin.Form{}, err
+				} else if !found {
+					rt.NoRow(ctx, &f.OrderID)
+				}
+			}
+			var err error
+			if vals != nil && f.OrderID.Error == "" && f.Key.Error == "" && f.Ref.Error == "" {
+				if id == 0 {
+					return admin.Form{}, admin.NoAdding("Parcel")
+				} else {
+					err = rt.Write(ctx, db, uniqueParcel, func() error {
+						return admin.Updated(rt.Exec(ctx, db, `UPDATE "parcels" SET "order_id" = ?1, "key" = ?2, "ref" = ?3 WHERE "id" = ?4`, f.OrderID.Value, f.Key.Value, admin.Ptr(f.Ref), id))
+					})
+				}
+				if err == nil {
+					return admin.Form{Saved: true}, nil
+				}
+				if rt.Fail(&form, err, map[string]*string{"OrderID": &f.OrderID.Error, "Key": &f.Key.Error, "Ref": &f.Ref.Error}) { // drawn again, with the error
+					err = nil
+				}
+			}
+			var in []admin.Input
+			if id != 0 {
+				in = append(in, admin.Show("ID", o.ID))
+			}
+			in = append(in, admin.In(&f.OrderID, true, "orders.Order"))
+			in = append(in, admin.In(&f.Key, true, ""))
+			if id != 0 {
+				in = append(in, admin.Show("Meta", &o.Meta))
+			}
+			if id != 0 {
+				in = append(in, admin.Show("Tags", o.Tags))
+			}
+			in = append(in, admin.In(&f.Ref, false, ""))
+			return admin.Form{Inputs: in, Errors: form.Errors}, err
+		},
+		Delete: DeleteParcel,
+		Refs: func(ctx context.Context, db maago.DB, id int64) ([]admin.Ref, error) {
+			return admin.CountRefs(ctx, db, id, `SELECT 1 FROM "parcels" WHERE "id" = ?1`, nil)
+		},
 		Edit: true,
 	},
 }

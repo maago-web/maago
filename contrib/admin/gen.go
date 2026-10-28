@@ -42,6 +42,12 @@ func In[T any](f *maago.Field[T], required bool, fk string) Input {
 	return in
 }
 
+// Decimal is in drawn for a decimal= field: text, which reads 12.34.
+func Decimal(in Input) Input {
+	in.Kind = "decimal"
+	return in
+}
+
 // Show is the input of a field the form does not change: its value as
 // the list shows it.
 func Show(label string, v any) Input {
@@ -74,6 +80,10 @@ func Raw(v any) string {
 	case time.Time:
 		s, _ := rt.DateFunc("2006-01-02T15:04:05.999999", v)
 		return s
+	case maago.UUID:
+		return v.String()
+	case *maago.UUID:
+		return raw(v)
 	case *string:
 		return raw(v)
 	case *int64:

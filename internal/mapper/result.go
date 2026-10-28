@@ -25,7 +25,8 @@ type Result struct {
 type ResultField struct {
 	Name, Column string // Go field name, result column name
 	Type         model.Type
-	Pointer      bool // the column may be NULL (D-75)
+	Pointer      bool   // the column may be NULL (D-75)
+	JSON         string // T of maago.JSON[T]
 }
 
 // Results works out the result type of each query of the app at dir,
@@ -81,7 +82,7 @@ func firstDifference(a, b []ResultField) string {
 	return fmt.Sprintf("%d fields there, %d here", len(a), len(b))
 }
 
-func fieldString(f ResultField) string { return f.Name + " " + fieldType(f.Type, f.Pointer) }
+func fieldString(f ResultField) string { return f.Name + " " + fieldType(f.Type, f.JSON, f.Pointer) }
 
 // result works out q's result type.
 func (q *Query) result(app *model.App, tables map[string]*model.Model, cols []practicedb.Column, typeName func(uint32) string) (*Result, []diag.Diagnostic) {
@@ -155,7 +156,7 @@ func (q *Query) modelResult(r *Result, cols []practicedb.Column, src func(practi
 			problems = append(problems, fmt.Sprintf("%q is on the outer side of a join", c.Name))
 		default:
 			seen[f.Column] = true
-			r.Fields = append(r.Fields, ResultField{f.Name, c.Name, f.Type, f.Pointer})
+			r.Fields = append(r.Fields, ResultField{f.Name, c.Name, f.Type, f.Pointer, f.JSON})
 		}
 	}
 	var missing []string
@@ -215,10 +216,10 @@ func (q *Query) newResult(r *Result, cols []practicedb.Column, src func(practice
 		if f != nil && !j.nullable(c) {
 			if isDeclared {
 				ds = append(ds, diag.New(d.Pos, fmt.Sprintf("result column %s needs no declaration", c.Name),
-					fmt.Sprintf("remove it; %s is %s.%s (%s)", c.Name, c.Table, c.Origin, fieldType(f.Type, f.Pointer))))
+					fmt.Sprintf("remove it; %s is %s.%s (%s)", c.Name, c.Table, c.Origin, fieldType(f.Type, f.JSON, f.Pointer))))
 				continue
 			}
-			r.Fields = append(r.Fields, ResultField{name, c.Name, f.Type, f.Pointer})
+			r.Fields = append(r.Fields, ResultField{name, c.Name, f.Type, f.Pointer, f.JSON})
 			continue
 		}
 		if !isDeclared {
@@ -241,7 +242,7 @@ func (q *Query) newResult(r *Result, cols []practicedb.Column, src func(practice
 			continue
 		}
 		if c.Type != 0 && !slices.Contains(pgTypes[d.Type].oids, c.Type) {
-			fix := fmt.Sprintf("cast the expression to %s, like …::%s", pgTypes[d.Type].name, pgTypes[d.Type].name)
+			fix := fmt.Sprintf("cast the expression to %s, like CAST(… AS %s)", pgTypes[d.Type].name, pgTypes[d.Type].name)
 			for t, pt := range pgTypes {
 				if slices.Contains(pt.oids, c.Type) {
 					fix = "declare it as " + t.String()
@@ -250,7 +251,7 @@ func (q *Query) newResult(r *Result, cols []practicedb.Column, src func(practice
 			ds = append(ds, diag.New(d.Pos, fmt.Sprintf("column %s is declared %s, but PostgreSQL gives %s", c.Name, d.Type, typeName(c.Type)), fix))
 			continue
 		}
-		r.Fields = append(r.Fields, ResultField{name, c.Name, d.Type, d.Optional})
+		r.Fields = append(r.Fields, ResultField{name, c.Name, d.Type, d.Optional, ""})
 	}
 	byField := map[string]string{} // column, by field name
 	for _, f := range r.Fields {
@@ -295,7 +296,7 @@ func (q *Query) scalarResult(r *Result, cols []practicedb.Column, src func(pract
 			return []diag.Diagnostic{diag.New(q.NamePos, fmt.Sprintf("query %s returns %s, but its column %s.%s may be NULL", q.Name, q.Scalar, c.Table, c.Origin), fix)}
 		}
 	} else if c.Type != 0 && !slices.Contains(pgTypes[q.Scalar].oids, c.Type) {
-		fix := fmt.Sprintf("cast the expression to %s, like …::%s", pgTypes[q.Scalar].name, pgTypes[q.Scalar].name)
+		fix := fmt.Sprintf("cast the expression to %s, like CAST(… AS %s)", pgTypes[q.Scalar].name, pgTypes[q.Scalar].name)
 		for t, pt := range pgTypes {
 			if slices.Contains(pt.oids, c.Type) && t != model.Bytes {
 				fix = fmt.Sprintf("write %s %s", q.Kind, t)
@@ -307,11 +308,17 @@ func (q *Query) scalarResult(r *Result, cols []practicedb.Column, src func(pract
 	return nil
 }
 
-func fieldType(t model.Type, pointer bool) string {
-	if pointer {
-		return "*" + t.String()
+// fieldType is the Go type of a column of type t; json is T of a
+// maago.JSON[T].
+func fieldType(t model.Type, json string, pointer bool) string {
+	s := t.String()
+	if t == model.JSON {
+		s += "[" + json + "]"
 	}
-	return t.String()
+	if pointer {
+		return "*" + s
+	}
+	return s
 }
 
 // FieldName is a Go name for a snake_case name: each word capitalized,

@@ -75,6 +75,19 @@ func DeleteOrders(ctx context.Context, db maago.DB, p DeleteOrdersParams) (int64
 	return rt.Exec(ctx, db, query, args...)
 }
 
+// OrderAmountSum runs queries/order_amount_sum.sql.
+func OrderAmountSum(ctx context.Context, db maago.DB) (int64, error) {
+	return rt.One(ctx, db, scanOrderAmountSum, `SELECT CAST(COALESCE(SUM(amount), 0) AS BIGINT) FROM orders`)
+}
+
+func scanOrderAmountSum(rows *sql.Rows) (int64, error) {
+	var v int64
+	if err := rows.Scan(&v); err != nil {
+		return v, fmt.Errorf("OrderAmountSum: %w", err)
+	}
+	return v, nil
+}
+
 // OrderAmounts runs queries/order_amounts.sql.
 func OrderAmounts(ctx context.Context, db maago.DB) ([]int64, error) {
 	return rt.Many(ctx, db, scanOrderAmounts, `SELECT amount FROM orders ORDER BY id`)
@@ -240,6 +253,47 @@ func scanOrdersMatching(rows *sql.Rows) (OrderMatch, error) {
 	var v OrderMatch
 	if err := rows.Scan(&v.ID, &v.Amount); err != nil {
 		return v, fmt.Errorf("OrdersMatching: %w", err)
+	}
+	return v, nil
+}
+
+// ParcelByKeyParams is what ParcelByKey takes.
+type ParcelByKeyParams struct {
+	Key maago.UUID
+}
+
+// ParcelByKey runs queries/parcel_by_key.sql.
+func ParcelByKey(ctx context.Context, db maago.DB, p ParcelByKeyParams) (Parcel, error) {
+	return rt.One(ctx, db, scanParcelByKey, `SELECT id, order_id, key, meta, tags, ref FROM parcels WHERE key = $1`, p.Key)
+}
+
+func scanParcelByKey(rows *sql.Rows) (Parcel, error) {
+	var v Parcel
+	if err := rows.Scan(&v.ID, &v.OrderID, &v.Key, &v.Meta, &v.Tags, &v.Ref); err != nil {
+		return v, fmt.Errorf("ParcelByKey: %w", err)
+	}
+	return v, nil
+}
+
+// ParcelMetaRow is a row of ParcelMetas.
+type ParcelMetaRow struct {
+	Key    maago.UUID
+	Meta   maago.JSON[ParcelMeta]
+	Tags   *maago.JSON[[]string]
+	Status string
+}
+
+// ParcelMetas runs queries/parcel_metas.sql.
+func ParcelMetas(ctx context.Context, db maago.DB) ([]ParcelMetaRow, error) {
+	return rt.Many(ctx, db, scanParcelMetas, `SELECT p.key, p.meta, p.tags, o.status
+FROM parcels p JOIN orders o ON o.id = p.order_id
+ORDER BY p.id`)
+}
+
+func scanParcelMetas(rows *sql.Rows) (ParcelMetaRow, error) {
+	var v ParcelMetaRow
+	if err := rows.Scan(&v.Key, &v.Meta, &v.Tags, &v.Status); err != nil {
+		return v, fmt.Errorf("ParcelMetas: %w", err)
 	}
 	return v, nil
 }

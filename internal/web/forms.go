@@ -12,6 +12,7 @@ import (
 	"github.com/maago-web/maago/internal/diag"
 	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/ref"
+	"github.com/maago-web/maago/internal/rtcore"
 	"github.com/maago-web/maago/rt"
 )
 
@@ -30,13 +31,14 @@ type form struct {
 // formField is one field of a form and its rules, from its tags or its
 // model's.
 type formField struct {
-	name, typ          string // typ: string, int64, int32, float64, bool or time.Time
+	name, typ          string // typ: string, int64, int32, float64, bool, time.Time, maago.UUID or maago.File
 	label, help        string
 	choices            []string
 	optional           bool
 	min, max           int
 	minValue, maxValue string
 	accept             []string // the kinds of file a file field takes
+	decimal            int      // an int64's digits after the point (decimal=N)
 }
 
 var formTypes = ref.FormTypes.Names()
@@ -214,11 +216,13 @@ func fieldType(e ast.Expr, names []string) (string, bool) {
 	if !ok || !isMaago(ix.X, "Field", names) {
 		return "", false
 	}
-	if isMaago(ix.Index, "File", names) {
-		return "maago.File", true
+	for _, m := range []string{"File", "UUID"} {
+		if isMaago(ix.Index, m, names) {
+			return "maago." + m, true
+		}
 	}
 	t := types.ExprString(ix.Index)
-	return t, slices.Contains(formTypes, t) && t != "maago.File"
+	return t, slices.Contains(formTypes, t) && !strings.HasPrefix(t, "maago.")
 }
 
 // tagRules reads the rules of a plain form's field from its tag.
@@ -237,6 +241,7 @@ func tagRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ident
 		}
 		return true
 	}
+	var bounds []model.Option // min_value and max_value, read once decimal is known
 	for i, o := range opts {
 		if slices.ContainsFunc(opts[:i], func(p model.Option) bool { return p.Key == o.Key }) {
 			errAt(o.KeyPos, fmt.Sprintf("%s of %s is given twice", o.Key, where), "keep one")
@@ -289,14 +294,17 @@ func tagRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ident
 			case !number:
 				errAt(o.KeyPos, fmt.Sprintf("%s applies to numbers, but %s is %s", o.Key, where, ff.typ), "remove it; min and max bound a string's length")
 			case shape(o, model.Bare, 1, "write "+o.Key+"=N"):
-				v := o.Values[0]
-				if !parses(ff.typ, v) {
-					errAt(o.ValuePos[0], fmt.Sprintf("%s of %s is %q, not a %s", o.Key, where, v, ff.typ), "write a number of the field's type")
-				} else if o.Key == "min_value" {
-					ff.minValue = v
-				} else {
-					ff.maxValue = v
-				}
+				bounds = append(bounds, o)
+			}
+		case "decimal":
+			switch {
+			case ff.typ != "int64":
+				errAt(o.KeyPos, fmt.Sprintf("decimal applies to int64, but %s is %s", where, ff.typ), "remove decimal, or make the field maago.Field[int64]: decimal=2 reads 12.34 as 1234")
+			case !shape(o, model.Bare, 1, "write the digits after the point, like decimal=2"):
+			case !digits(o.Values[0]):
+				errAt(o.ValuePos[0], fmt.Sprintf("decimal of %s is %q, not 1 to 18", where, o.Values[0]), "write the digits after the point, 1 to 18, like decimal=2")
+			default:
+				ff.decimal, _ = strconv.Atoi(o.Values[0])
 			}
 		case "accept":
 			switch {
@@ -326,17 +334,47 @@ func tagRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ident
 			panic("maago bug: form tag key " + o.Key + " is in ref.FormTags but not handled")
 		}
 	}
+	for _, o := range bounds {
+		v := o.Values[0]
+		switch {
+		case ff.decimal > 0 && !parsesDecimal(v, ff.decimal):
+			errAt(o.ValuePos[0], fmt.Sprintf("%s of %s is %q, not a decimal with at most %d digits after the point", o.Key, where, v, ff.decimal), "write a decimal, like "+o.Key+"=0.01")
+		case ff.decimal == 0 && !parses(ff.typ, v):
+			errAt(o.ValuePos[0], fmt.Sprintf("%s of %s is %q, not a %s", o.Key, where, v, ff.typ), "write a number of the field's type")
+		case o.Key == "min_value":
+			ff.minValue = v
+		default:
+			ff.maxValue = v
+		}
+	}
 	if ff.min > 0 && ff.max > 0 && ff.min > ff.max {
 		errAt(name.Pos(), fmt.Sprintf("%s has min=%d above max=%d", where, ff.min, ff.max), "swap them")
 	}
 	if ff.minValue != "" && ff.maxValue != "" {
 		lo, _ := strconv.ParseFloat(ff.minValue, 64)
 		hi, _ := strconv.ParseFloat(ff.maxValue, 64)
-		if lo > hi {
+		above := lo > hi
+		if ff.decimal > 0 { // exactly, as the form compares them
+			lo, _ := rtcore.ParseDecimal(ff.minValue, ff.decimal)
+			hi, _ := rtcore.ParseDecimal(ff.maxValue, ff.decimal)
+			above = lo > hi
+		}
+		if above {
 			errAt(name.Pos(), fmt.Sprintf("%s has min_value=%s above max_value=%s", where, ff.minValue, ff.maxValue), "swap them")
 		}
 	}
 	return ds
+}
+
+// digits reports whether v is a decimal= value: 1 to 18.
+func digits(v string) bool {
+	n, err := strconv.Atoi(v)
+	return err == nil && n >= 1 && n <= 18
+}
+
+func parsesDecimal(v string, places int) bool {
+	_, err := rtcore.ParseDecimal(v, places)
+	return err == nil
 }
 
 // parses reports whether v is a value of the number type typ.
@@ -401,7 +439,7 @@ func modelRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ide
 	if mf.Label != "" {
 		ff.label = mf.Label
 	}
-	ff.help, ff.choices, ff.max = mf.Help, mf.Choices, mf.Max
+	ff.help, ff.choices, ff.max, ff.decimal = mf.Help, mf.Choices, mf.Max, mf.Decimal
 	ff.optional = ff.optional || mf.Pointer && ff.typ != "bool" // an empty input stands for NULL
 	return ds
 }

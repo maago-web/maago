@@ -48,5 +48,7 @@ func TestPermissions(t *testing.T) {
 		// A tag's name is taken once: each role saves its own.
 		maagotest.Row{Route: "tag_save", URL: TagSaveURL(), Body: "name=a&kind=k&code=1", Want: both(303, maagotest.Skip)},
 		maagotest.Row{Route: "tag_save", URL: TagSaveURL(), Body: "name=b&kind=k&code=2", Want: both(maagotest.Skip, 303)},
+		maagotest.Row{Route: "key_page", URL: KeyPageURL(maago.NewUUID()), Want: both(200, 200)},
+		maagotest.Row{Route: "api_price", URL: APIPriceURL(), Body: `{"key": "0190a5c8-0000-7000-8000-00000000000f", "price": 1.5}`, Want: both(200, 200)},
 	)
 }

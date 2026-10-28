@@ -394,7 +394,7 @@ func TestAdminForm(t *testing.T) {
 		t.Fatalf("rows: %v %v", rows, err)
 	}
 	o, err := GetOrder(ctx, db, rows[0].ID)
-	if err != nil || o.CustomerID != nil || o.Priority != nil || o.Status != "paid" || o.Amount != 5 || o.UpdatedAt.IsZero() ||
+	if err != nil || o.CustomerID != nil || o.Priority != nil || o.Status != "paid" || o.Amount != 500 || o.UpdatedAt.IsZero() ||
 		!o.CreatedAt.Equal(time.Date(2026, 10, 13, 9, 30, 0, 0, time.UTC)) {
 		t.Errorf("the new order: %s %v", show(o), err)
 	}
@@ -425,7 +425,7 @@ func TestAdminFormVersion(t *testing.T) {
 	if f, err := save("3", opened.Version); !errors.Is(err, maago.ErrConflict) || f.Saved || !f.Version.Equal(opened.Version) {
 		t.Errorf("a second save at it: %v %+v", err, f)
 	}
-	if got, err := GetOrder(ctx, db, o.ID); err != nil || got.Amount != 2 {
+	if got, err := GetOrder(ctx, db, o.ID); err != nil || got.Amount != 200 {
 		t.Errorf("after: %s %v", show(got), err)
 	}
 	reopened, err := order.Form(ctx, db, o.ID, nil)
@@ -457,5 +457,133 @@ func TestHandUpdateVersion(t *testing.T) {
 	}
 	if got, err := GetOrder(ctx, db, o.ID); err != nil || got.Status != "paid" || got.Amount != 1 {
 		t.Errorf("after: %s %v", show(got), err)
+	}
+}
+
+// Money is cents in both databases, so hand SQL compares and sums it
+// alike; forms and the admin read and show it as a decimal (D-158).
+func TestMoney(t *testing.T) {
+	ctx, db := gentest.Open(t, fixture)
+	os := seed(t, ctx, db) // amounts 50, 300, 999, 10, 200, 120: cents
+	if sum, err := OrderAmountSum(ctx, db); err != nil || sum != 1679 {
+		t.Errorf("OrderAmountSum: %d %v", sum, err)
+	}
+	var ids []int64
+	for _, o := range os {
+		ids = append(ids, o.ID)
+	}
+	rows, err := OrdersMatching(ctx, db, OrdersMatchingParams{IDs: ids, Times: []time.Time{hour(1), hour(2), hour(3), hour(4), hour(5), hour(6)}, Min: 200})
+	if got := fmt.Sprint(rows); err != nil || got != "[{2 300} {3 999} {5 200}]" {
+		t.Errorf("amount >= 2.00: %s %v", got, err)
+	}
+	if got := os[0].AmountText() + " " + os[3].AmountText(); got != "0.50 0.10" {
+		t.Errorf("AmountText: %s", got)
+	}
+
+	order := Admin[1]
+	f, err := order.Form(ctx, db, os[1].ID, nil)
+	if err != nil || input(f, "amount").Raw != "3.00" || input(f, "amount").Kind != "decimal" {
+		t.Errorf("the form of 300 cents: %+v %v", input(f, "amount"), err)
+	}
+	if rs, err := order.Rows(ctx, db, admin.Query{Limit: 10}); err != nil || rs[0].ID != os[1].ID || rs[0].Cells[3] != "3.00" {
+		t.Errorf("a list's cell: %v %v", rs, err)
+	}
+	for amount, want := range map[string]string{
+		"1.234":                "Enter at most 2 digits after the decimal point.",
+		"92233720368547758.08": "Enter 92233720368547758.07 or less.",
+		"12,34":                "Enter a number.",
+		"123.45":               "",
+	} {
+		vals := url.Values{"status": {"new"}, "amount": {amount}, "priority": {""}, "created_at": {"2026-10-13T09:30"}}
+		f, err := order.Form(ctx, db, 0, vals)
+		if err != nil || input(f, "amount").Error != want || f.Saved != (want == "") {
+			t.Errorf("amount %s: %q %v, want %q", amount, input(f, "amount").Error, err, want)
+		}
+	}
+	if sum, err := OrderAmountSum(ctx, db); err != nil || sum != 1679+12345 {
+		t.Errorf("after 123.45: %d %v", sum, err)
+	}
+}
+
+// input is f's input of a form key.
+func input(f admin.Form, name string) admin.Input {
+	for _, in := range f.Inputs {
+		if in.Name == name {
+			return in
+		}
+	}
+	return admin.Input{}
+}
+
+// A UUID and JSON go in and come back, in a model and a new result type,
+// nil pointers too; a query reads a row by its UUID; the admin edits a
+// UUID and shows JSON without an input (D-158).
+func TestParcel(t *testing.T) {
+	ctx, db := gentest.Open(t, fixture)
+	o := seed(t, ctx, db)[0]
+	key, ref := maago.NewUUID(), maago.NewUUID()
+	tags := maago.JSON[[]string]{V: []string{"fragile"}}
+	p1, err := InsertParcel(ctx, db, NewParcelInput{OrderID: o.ID, Key: key, Meta: maago.JSON[ParcelMeta]{V: ParcelMeta{"post", 300}}, Tags: &tags, Ref: &ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2, err := InsertParcel(ctx, db, NewParcelInput{OrderID: o.ID, Key: maago.NewUUID()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InsertParcel(ctx, db, NewParcelInput{OrderID: o.ID, Key: key}); !errors.As(err, new(*maago.UniqueError)) {
+		t.Errorf("a key twice: %v", err)
+	}
+	got, err := ParcelByKey(ctx, db, ParcelByKeyParams{Key: key})
+	if err != nil || got.ID != p1.ID || got.Meta.V != (ParcelMeta{"post", 300}) || got.Tags == nil || fmt.Sprint(got.Tags.V) != "[fragile]" || got.Ref == nil || *got.Ref != ref {
+		t.Errorf("ParcelByKey: %+v %v", got, err)
+	}
+	if got, err := GetParcel(ctx, db, p2.ID); err != nil || got.Tags != nil || got.Ref != nil || got.Meta.V != (ParcelMeta{}) {
+		t.Errorf("nil pointers: %+v %v", got, err)
+	}
+	rows, err := ParcelMetas(ctx, db)
+	if err != nil || len(rows) != 2 || rows[0].Key != key || rows[0].Meta.V.Grams != 300 || rows[1].Tags != nil || rows[0].Status != "new" {
+		t.Errorf("ParcelMetas: %+v %v", rows, err)
+	}
+
+	parcel := Admin[2]
+	if parcel.Add || !parcel.Edit {
+		t.Errorf("Add %t, Edit %t", parcel.Add, parcel.Edit)
+	}
+	if _, err := parcel.Form(ctx, db, 0, url.Values{"order_id": {"1"}, "key": {key.String()}}); err == nil || !strings.Contains(err.Error(), "no adding") {
+		t.Errorf("adding: %v", err)
+	}
+	rs, err := parcel.Rows(ctx, db, admin.Query{Limit: 10})
+	var cells []string
+	for _, r := range rs {
+		for _, c := range r.Cells[3:5] {
+			cells = append(cells, c.(fmt.Stringer).String())
+		}
+	}
+	if want := []string{`{"carrier":"","grams":0}`, "", `{"carrier":"post","grams":300}`, `["fragile"]`}; err != nil || !slices.Equal(cells, want) {
+		t.Errorf("the JSON cells: %q %v, want %q", cells, err, want)
+	}
+	f, err := parcel.Form(ctx, db, p1.ID, nil)
+	if err != nil || input(f, "key").Raw != key.String() || input(f, "ref").Raw != ref.String() {
+		t.Fatalf("the form: %+v %v", f, err)
+	}
+	var shown []string
+	for _, in := range f.Inputs {
+		if in.Kind == "readonly" {
+			shown = append(shown, in.Label+"="+in.Raw)
+		}
+	}
+	if want := []string{"ID=1", `Meta={"carrier":"post","grams":300}`, `Tags=["fragile"]`}; !slices.Equal(shown, want) {
+		t.Errorf("read only: %q, want %q", shown, want)
+	}
+	other := maago.NewUUID()
+	if f, err := parcel.Form(ctx, db, p1.ID, url.Values{"order_id": {fmt.Sprint(o.ID)}, "key": {"nope"}, "ref": {""}}); err != nil || f.Saved || input(f, "key").Error != "Enter a UUID." {
+		t.Errorf("a bad UUID: %+v %v", input(f, "key"), err)
+	}
+	if f, err := parcel.Form(ctx, db, p1.ID, url.Values{"order_id": {fmt.Sprint(o.ID)}, "key": {strings.ToUpper(other.String())}, "ref": {""}}); err != nil || !f.Saved {
+		t.Fatalf("save: %+v %v", f, err)
+	}
+	if got, err := GetParcel(ctx, db, p1.ID); err != nil || got.Key != other || got.Ref != nil || got.Meta.V.Grams != 300 {
+		t.Errorf("after the save: %+v %v", got, err)
 	}
 }

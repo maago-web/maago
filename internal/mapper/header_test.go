@@ -130,6 +130,8 @@ func TestParseErrors(t *testing.T) {
 		{name + "-- column: n int64\n-- column: n int64\n", `3:12: column n is declared twice`},
 		{name + "-- column: n []int64\n", `2:14: unknown type "[]int64"`},
 		{name + "-- column: n a/b\n", `2:14: unknown type "a/b"`},
+		{name + "-- param: m maago.JSON\n", `2:13: a header line cannot name maago.JSON`},
+		{name + "-- column: m maago.JSON\n", `2:14: a header line cannot name maago.JSON`},
 		{"\t -- name: Q :mnay R\n", `1:14: unknown query kind ":mnay"`},
 	} {
 		q, ds := parse(file, c.src)
@@ -149,7 +151,7 @@ func TestParseSeveralErrors(t *testing.T) {
 	want := file + `:1:12: unknown query kind ":mnay"` + "\n" +
 		`  fix: did you mean ":many"? allowed: :one, :many, :exec` + "\n" +
 		file + `:2:13: unknown type "int"` + "\n" +
-		`  fix: did you mean "int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte; or a slice of one, like []int64, or choices, like latest/amount` + "\n"
+		`  fix: did you mean "int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte, maago.UUID; or a slice of one, like []int64, or choices, like latest/amount` + "\n"
 	if q != nil || text(ds) != want {
 		t.Errorf("got %v\n%s\nwant nil\n%s", q, text(ds), want)
 	}

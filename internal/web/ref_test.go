@@ -18,7 +18,7 @@ import (
 // says (D-152).
 func TestRefLists(t *testing.T) {
 	var types []string
-	for typ := model.Int64; typ <= model.Bytes; typ++ {
+	for typ := model.Int64; typ <= model.JSON; typ++ {
 		types = append(types, typ.String())
 	}
 	if got := ref.FieldTypes.Names(); !slices.Equal(got, types) {

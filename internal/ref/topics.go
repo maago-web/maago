@@ -90,6 +90,18 @@ you need the other row. choices are values the program writes, not words
 for people: lowercase, split by /, none twice; the form shows them as they
 are.
 
+Money is an int64 in its smallest unit, with decimal=N: Price int64 with
+maago:"decimal=2" holds 12.34 as 1234 in both databases, so SQL compares
+and sums it the same way (WHERE price > 1000 is above 10.00). Forms and
+the admin read and show 12.34, and maago gen writes p.PriceText(), "12.34",
+for an edit form's Raw and for templates. A float64 named like money
+(price, amount, total, cost, fee, balance) is an error. A maago.UUID field
+is uuid in PostgreSQL and its text in SQLite; maago.NewUUID() makes one
+(version 7, so later ones sort later), and it reads and writes its
+8-4-4-4-12 text in JSON, forms, paths and queries. A maago.JSON[T] field
+keeps T as JSON, with T a type of the app's package (or a map or slice of
+such and Go's own types); the value is its V, and forms do not read it.
+
 maago gen writes models_gen.go with, for a model Post:
 
 	func GetPost(ctx context.Context, db maago.DB, id int64) (Post, error)
@@ -106,7 +118,7 @@ these. maago doc query has the queries beyond them, and the read policies:
 the GetX of a model with them takes the user and the policy's params,
 and GetXIgnoringPolicies reads any row.`,
 		Lists: []*List{FieldTypes, FieldTags, ModelTags},
-		API:   []string{"Model", "Opt", "Set", "Ptr", "ErrConflict"},
+		API:   []string{"Model", "Opt", "Set", "Ptr", "ErrConflict", "UUID", "NewUUID", "ParseUUID", "JSON"},
 	},
 	{
 		Name:  Query,
@@ -229,8 +241,11 @@ read the row before would undo the change:
 A param's type is a field type, a slice of one ([]int64), or choices
 (latest/amount: lowercase snake_case, split by /). ? goes on no bool, slice
 or choices: a nil or empty slice is none, and choices name their own none
-(any/draft/published). Names: the query and a new result
-start with an uppercase letter; params and columns are lowercase
+(any/draft/published). A decimal= field's column holds its smallest unit,
+so a param compared with it does too: -- param: min int64 is 1000 for
+10.00. maago.UUID is a param's or a column's type; maago.JSON is neither,
+and comes from a model's column as it is. Names: the query and a new
+result start with an uppercase letter; params and columns are lowercase
 snake_case.`,
 		Lists: []*List{QueryKeys, QueryKinds, PolicyKeys},
 		API:   []string{"DB", "ErrManyRows", "ErrEmptySlice"},

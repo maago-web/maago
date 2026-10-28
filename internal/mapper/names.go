@@ -58,6 +58,17 @@ func Names(fset *token.FileSet, root, dir string, app *model.App, qs []*Query, m
 			if slices.ContainsFunc(m.Fields, func(f *model.Field) bool { return f.Name != "ID" && f.Auto != "create" }) {
 				add("Update"+m.Name, by, pos, fix)
 			}
+			for _, f := range m.Fields {
+				text := f.Name + "Text"
+				switch {
+				case f.Decimal == 0:
+				case slices.ContainsFunc(m.Fields, func(g *model.Field) bool { return g.Name == text }):
+					ds = append(ds, diag.New(fset.Position(f.Pos), fmt.Sprintf("model %s has a field %s, but maago gen writes the method %s.%s for decimal field %s", m.Name, text, m.Name, text, f.Name),
+						"rename the field "+text))
+				default:
+					add(m.Name+"."+text, "decimal field "+m.Name+"."+f.Name, fset.Position(f.Pos), "rename your method; maago gen writes "+text+" to show "+f.Name+" as a decimal")
+				}
+			}
 		}
 	}
 	results := map[string]bool{} // new result types, declared once
@@ -174,6 +185,8 @@ func declared(root, dir string) map[string]token.Position {
 			case *ast.FuncDecl:
 				if d.Recv == nil {
 					add(d.Name)
+				} else if recv := recvName(d.Recv.List[0].Type); recv != "" {
+					names[recv+"."+d.Name.Name] = fset.Position(d.Name.Pos()) // a method, which a generated one may clash with
 				}
 			case *ast.GenDecl:
 				for _, s := range d.Specs {
@@ -190,4 +203,15 @@ func declared(root, dir string) map[string]token.Position {
 		}
 	}
 	return names
+}
+
+// recvName is the type of a method's receiver, T or *T, or "".
+func recvName(e ast.Expr) string {
+	if star, ok := e.(*ast.StarExpr); ok {
+		e = star.X
+	}
+	if id, ok := e.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
 }

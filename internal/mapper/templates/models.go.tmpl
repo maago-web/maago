@@ -22,8 +22,20 @@ var unique{{.Name}} = []rt.UniqueKey{
 // the ID and the auto times.{{if .Defaults}} A maago.Opt field left unset takes the
 // column's default; maago.Set gives any value, even the zero value.{{end}}
 type New{{.Name}}Input struct {
-{{range .Input}}	{{.Name}} {{.Type}}{{if .Default}} // default {{.Default}}{{end}}
+{{range .Input}}	{{.Name}} {{.Type}}{{if or .Default .Unit}} //{{if .Default}} default {{.Default}}{{end}}{{if and .Default .Unit}};{{end}}{{if .Unit}} {{.Unit}}{{end}}{{end}}
 {{end}}}
+{{range .Texts}}
+// {{.Field}}Text is o.{{.Field}} as a decimal, as forms read it: 1234 is
+// "{{.Example}}"{{if .Pointer}}, nil is ""{{end}}.
+func (o {{.Model}}) {{.Field}}Text() string {
+{{- if .Pointer}}
+	if o.{{.Field}} == nil {
+		return ""
+	}
+{{- end}}
+	return rt.FormatDecimal({{.Value}}, {{.Places}})
+}
+{{end}}
 
 {{if .Policy}}
 // Get{{.Name}} reads the {{.Name}} with id, if policy {{.Policy}} lets u read

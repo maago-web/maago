@@ -568,6 +568,12 @@ func cell(v any) (string, error) {
 		return ptr(v)
 	case *[]byte:
 		return ptr(v)
+	case maago.UUID:
+		return v.String(), nil
+	case *maago.UUID:
+		return ptr(v)
+	case fmt.Stringer: // a *maago.JSON[T], nil or not; after time.Time, which is one too
+		return v.String(), nil
 	}
 	return "", fmt.Errorf("admin: a cell of type %T; this is a bug in maago", v)
 }

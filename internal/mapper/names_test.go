@@ -20,8 +20,8 @@ func TestNames(t *testing.T) {
 	files := map[string]string{
 		"go.mod": "module example.com/app\n",
 		"orders/models.go": "package orders\n\nimport \"github.com/maago-web/maago\"\n\n" +
-			"type Order struct {\n\tmaago.Model\n\tID int64\n}\n",
-		"orders/extra.go":              "package orders\n\nfunc Bar() {}\n\nvar fmt = 1\n\nfunc (Order) Baz() {}\n",
+			"type Order struct {\n\tmaago.Model\n\tID int64\n\tPrice int64 `maago:\"decimal=2\"`\n\tFee *int64 `maago:\"decimal=2\"`\n\tFeeText string\n\tTotal int64 `maago:\"decimal=2\"`\n}\n",
+		"orders/extra.go":              "package orders\n\nfunc Bar() {}\n\nvar fmt = 1\n\nfunc (Order) Baz() {}\n\nfunc (o *Order) PriceText() string { return \"\" }\n\nfunc TotalText() {}\n",
 		"orders/extra_test.go":         "package orders\n\nfunc scanOrder() {}\n\ntype NewOrderInput struct{}\n",
 		"orders/_scratch.go":           "package orders\n\nfunc DeleteOrder() {}\n",
 		"orders/x_test.go":             "package orders_test\n\nfunc Baz() {}\n",

@@ -10,14 +10,28 @@ import (
 	"github.com/maago-web/maago/internal/mapper"
 	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/project"
+	"github.com/maago-web/maago/internal/rtcore"
 	"github.com/maago-web/maago/internal/web"
 )
 
 // editable reports whether the admin's form changes f: not hidden, not
-// read-only, not set by the database or the CRUD, and not bytes, which
-// v0 does not edit (D-132).
+// read-only, not set by the database or the CRUD, and not bytes or JSON,
+// which forms do not read (D-132, D-158).
 func editable(f *model.Field) bool {
-	return f.Admin == "" && f.Name != "ID" && f.Auto == "" && f.Type != model.Bytes
+	return f.Admin == "" && f.Name != "ID" && f.Auto == "" && f.Type != model.Bytes && f.Type != model.JSON
+}
+
+// shown is the Go of o's field f as the admin shows it, in a list's cell
+// or a read-only input: a decimal as its text, a JSON value by pointer,
+// whose String the cell calls.
+func shown(o string, f *model.Field) string {
+	switch {
+	case f.Decimal > 0:
+		return o + "." + f.Name + "Text()"
+	case f.Type == model.JSON && !f.Pointer:
+		return "&" + o + "." + f.Name
+	}
+	return o + "." + f.Name
 }
 
 // blocks is why a new row of m cannot be made in the admin, or "": the
@@ -29,7 +43,11 @@ func blocks(m *model.Model) string {
 			continue
 		}
 		what := "admin=" + f.Admin
-		if f.Admin == "" {
+		switch {
+		case f.Admin != "":
+		case f.Type == model.JSON:
+			what = "maago.JSON, which the admin does not edit"
+		default:
 			what = "bytes, which the admin does not edit"
 		}
 		why = append(why, f.Name+" is "+what)
@@ -146,7 +164,11 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 		w("rt.FinishForm(ctx, &form, vals != nil, true)")
 		w("if vals == nil && id != 0 {")
 		for _, f := range fields {
-			w("f.%s.Raw = admin.Raw(o.%s)", f.Name, f.Name)
+			if f.Decimal > 0 {
+				w("f.%s.Raw = o.%sText()", f.Name, f.Name)
+			} else {
+				w("f.%s.Raw = admin.Raw(o.%s)", f.Name, f.Name)
+			}
 		}
 		if slices.ContainsFunc(fields, func(f *model.Field) bool { return f.Default != nil }) {
 			w("} else if vals == nil { // a new row: the defaults")
@@ -179,11 +201,13 @@ func formCode(m *model.Model, d project.Dialect, models map[string]string, impor
 			}
 			switch {
 			case f.Admin == "hidden":
+			case editable(f) && f.Decimal > 0:
+				w("in = append(in, admin.Decimal(admin.In(&f.%s, %t, \"\")))", f.Name, !optional(f))
 			case editable(f):
 				w("in = append(in, admin.In(&f.%s, %t, %q))", f.Name, !optional(f) && f.Type != model.Bool, models[f.FK])
 			default:
 				w("if id != 0 {")
-				w("in = append(in, admin.Show(%q, o.%s))", label, f.Name)
+				w("in = append(in, admin.Show(%q, %s))", label, shown("o", f))
 				w("}")
 			}
 		}
@@ -316,6 +340,10 @@ func defaultRaw(f *model.Field) string {
 		return ""
 	case model.String, model.Time:
 		return v
+	}
+	if f.Decimal > 0 {
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return rtcore.FormatDecimal(n, f.Decimal)
 	}
 	return dialect.Number(f.Type, v)
 }

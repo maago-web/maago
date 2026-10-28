@@ -90,6 +90,8 @@ func ParseFloat64(s string) (float64, error) {
 	return f, err
 }
 
+func ParseUUID(s string) (maago.UUID, error) { return maago.ParseUUID(s) }
+
 // PathSegment is s escaped as one segment of a path, for the generated
 // URL functions. An empty s matches no {name} wildcard, so it panics.
 func PathSegment(s string) string {
@@ -187,6 +189,8 @@ func URLFunc(routes map[string]string) func(name string, args ...any) (string, e
 					b.WriteString(url.PathEscape(v))
 				case int, int32, int64:
 					fmt.Fprint(&b, v)
+				case maago.UUID:
+					b.WriteString(v.String())
 				default:
 					return "", fmt.Errorf("route %s: %s cannot be %T", name, seg, v)
 				}

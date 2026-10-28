@@ -45,7 +45,7 @@ type view struct {
 // inField is a field of In and where its value comes from.
 type inField struct {
 	name, source, key string // source is "path", "query" or "form"
-	typ               string // string, int64, int32, bool or float64; a form's type name
+	typ               string // string, int64, int32, bool, float64 or maago.UUID; a form's type name
 	pointer           bool   // optional: nil when the query lacks it
 	pos               token.Pos
 }
@@ -53,8 +53,8 @@ type inField struct {
 type param struct{ name, typ string }
 
 var (
-	pathTypes  = []string{"string", "int64", "int32"}
-	queryTypes = []string{"string", "int64", "int32", "bool", "float64"}
+	pathTypes  = []string{"string", "int64", "int32", "maago.UUID"}
+	queryTypes = []string{"string", "int64", "int32", "bool", "float64", "maago.UUID"}
 )
 
 // Views checks the shape of each route's view in the syntax: the forms of
@@ -265,7 +265,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 			continue
 		}
 		for _, name := range f.Names {
-			field, ok := readField(fset, f, name, &ds)
+			field, ok := readField(fset, f, name, app.maago[v.in], &ds)
 			switch {
 			case ok:
 				v.fields = append(v.fields, field)
@@ -307,7 +307,7 @@ func readView(fset *token.FileSet, app *App, r *Route) (*view, []diag.Diagnostic
 }
 
 // readField reads one In field: its tag and its type.
-func readField(fset *token.FileSet, f *ast.Field, name *ast.Ident, ds *[]diag.Diagnostic) (inField, bool) {
+func readField(fset *token.FileSet, f *ast.Field, name *ast.Ident, maagoNames []string, ds *[]diag.Diagnostic) (inField, bool) {
 	errAt := func(pos token.Pos, msg, fix string) { *ds = append(*ds, diag.New(fset.Position(pos), msg, fix)) }
 	opts, tds := model.ParseTag(fset, f.Tag)
 	*ds = append(*ds, tds...)
@@ -341,9 +341,14 @@ func readField(fset *token.FileSet, f *ast.Field, name *ast.Ident, ds *[]diag.Di
 	if s, ok := t.(*ast.StarExpr); ok && o.Key == "query" {
 		field.pointer, t = true, s.X
 	}
-	id, _ := t.(*ast.Ident)
+	typ := ""
+	if id, ok := t.(*ast.Ident); ok {
+		typ = id.Name
+	} else if isMaago(t, "UUID", maagoNames) {
+		typ = "maago.UUID"
+	}
 	allowed := map[string][]string{"path": pathTypes, "query": queryTypes}[o.Key]
-	if id == nil || !slices.Contains(allowed, id.Name) {
+	if !slices.Contains(allowed, typ) {
 		fix := "use one of " + strings.Join(allowed, ", ")
 		if o.Key == "query" {
 			fix += ", or a pointer to one when the value may be missing"
@@ -351,7 +356,7 @@ func readField(fset *token.FileSet, f *ast.Field, name *ast.Ident, ds *[]diag.Di
 		errAt(f.Type.Pos(), fmt.Sprintf("%s value %s cannot be read into %s", o.Key, name.Name, types.ExprString(f.Type)), fix)
 		return field, false
 	}
-	field.typ = id.Name
+	field.typ = typ
 	return field, true
 }
 

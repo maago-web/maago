@@ -45,34 +45,38 @@ type Field[T any] struct {
 // project replaces them in Config.Messages; an empty one keeps the
 // default. Each %s or %d is filled as its default shows.
 type Messages struct {
-	Required  string // the field is empty
-	NotNumber string // the text is not a number
-	TooSmall  string // %s: the smallest number allowed
-	TooLarge  string // %s: the largest number allowed
-	TooShort  string // %d: the fewest characters allowed
-	TooLong   string // %d: the most characters allowed
-	NotChoice string // the text is not one of the choices
-	BadBool   string // a checkbox sent what it cannot send
-	BadTime   string // the text is not a date and time
-	NoRow     string // the number is of no row: an fk field in the admin
-	NotKind   string // the file is not of a kind the field accepts
-	Taken     string // a unique constraint refused the value: another row has it
+	Required   string // the field is empty
+	NotNumber  string // the text is not a number
+	TooSmall   string // %s: the smallest number allowed
+	TooLarge   string // %s: the largest number allowed
+	TooShort   string // %d: the fewest characters allowed
+	TooLong    string // %d: the most characters allowed
+	NotChoice  string // the text is not one of the choices
+	BadBool    string // a checkbox sent what it cannot send
+	BadTime    string // the text is not a date and time
+	NoRow      string // the number is of no row: an fk field in the admin
+	NotKind    string // the file is not of a kind the field accepts
+	Taken      string // a unique constraint refused the value: another row has it
+	TooPrecise string // %d: the most digits after the decimal point
+	BadUUID    string // the text is not a UUID
 }
 
 // DefaultMessages are the messages a project has not replaced.
 var DefaultMessages = Messages{
-	Required:  "This field is required.",
-	NotNumber: "Enter a number.",
-	TooSmall:  "Enter %s or more.",
-	TooLarge:  "Enter %s or less.",
-	TooShort:  "Enter at least %d characters.",
-	TooLong:   "Enter at most %d characters.",
-	NotChoice: "Select one of the choices.",
-	BadBool:   "Check the box or leave it.",
-	BadTime:   "Enter a date and time.",
-	NoRow:     "Select a row that exists.",
-	NotKind:   "This kind of file is not allowed.",
-	Taken:     "This value is already taken.",
+	Required:   "This field is required.",
+	NotNumber:  "Enter a number.",
+	TooSmall:   "Enter %s or more.",
+	TooLarge:   "Enter %s or less.",
+	TooShort:   "Enter at least %d characters.",
+	TooLong:    "Enter at most %d characters.",
+	NotChoice:  "Select one of the choices.",
+	BadBool:    "Check the box or leave it.",
+	BadTime:    "Enter a date and time.",
+	NoRow:      "Select a row that exists.",
+	NotKind:    "This kind of file is not allowed.",
+	Taken:      "This value is already taken.",
+	TooPrecise: "Enter at most %d digits after the decimal point.",
+	BadUUID:    "Enter a UUID.",
 }
 
 // check reports a message whose verbs do not fit what fills it, which
@@ -85,7 +89,7 @@ func (m Messages) check() error {
 		{"Required", m.Required, nil}, {"NotNumber", m.NotNumber, nil}, {"NotChoice", m.NotChoice, nil},
 		{"BadBool", m.BadBool, nil}, {"BadTime", m.BadTime, nil}, {"NoRow", m.NoRow, nil}, {"NotKind", m.NotKind, nil}, {"Taken", m.Taken, nil},
 		{"TooSmall", m.TooSmall, []any{"1"}}, {"TooLarge", m.TooLarge, []any{"1"}},
-		{"TooShort", m.TooShort, []any{1}}, {"TooLong", m.TooLong, []any{1}},
+		{"TooShort", m.TooShort, []any{1}}, {"TooLong", m.TooLong, []any{1}}, {"TooPrecise", m.TooPrecise, []any{1}}, {"BadUUID", m.BadUUID, nil},
 	} {
 		if strings.Contains(fmt.Sprintf(c.msg, c.args...), "%!") {
 			return fmt.Errorf("maago: Config.Messages.%s %q does not fit its value: use the verbs of DefaultMessages.%s", c.name, c.msg, c.name)

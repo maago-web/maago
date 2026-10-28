@@ -151,7 +151,7 @@ func Write(w io.Writer, ds []Diagnostic) error          // 정렬, 중복 제거
 
 ```
 blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
-  fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin
+  fix: did you mean "max"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin
   see: maago doc model
 ```
 

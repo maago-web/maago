@@ -108,6 +108,7 @@ var (
 	}}
 	FieldTags = &List{"Field tags", []Item{
 		{"max", "The most characters of a string: max=200. VARCHAR(n) or a CHECK in the database, a rule in model forms.", nil},
+		{"decimal", "An int64 of money or another decimal, in its smallest unit: decimal=2 keeps 12.34 as 1234. Forms read 12.34; default=12.34 is written as a decimal too.", nil},
 		{"unique", "A unique constraint on the column.", nil},
 		{"index", "An index on the column. An fk gets one without it.", nil},
 		{"default", "The column's default: default='draft' for a string, default=0, default=true, default=1.5 without quotes.", nil},
@@ -135,8 +136,8 @@ var (
 		{":exec", "No rows: the number of rows changed (0 is no error).", nil},
 	}}
 	InTags = &List{"In tags (where each field of In comes from)", []Item{
-		{"path", "path=id reads {id} of the route's path: string, int64 or int32. A value that does not parse is a 404.", nil},
-		{"query", "query=page reads ?page=: string, int64, int32, bool or float64, a pointer to one when it may be missing. A value that does not parse is a 400.", nil},
+		{"path", "path=id reads {id} of the route's path: string, int64, int32 or maago.UUID. A value that does not parse is a 404.", nil},
+		{"query", "query=page reads ?page=: string, int64, int32, bool, float64 or maago.UUID, a pointer to one when it may be missing. A value that does not parse is a 400.", nil},
 		{"form", "form, with no value, reads the request's form (or JSON on an API route) into a form type of the package.", nil},
 	}}
 	RouteOptions = &List{"Route options (after the view)", []Item{
@@ -151,6 +152,7 @@ var (
 		{"float64", "A number.", nil},
 		{"bool", "A checkbox: on is true, absent is false.", nil},
 		{"time.Time", "A date or a time, in Config.TimeZone.", nil},
+		{"maago.UUID", "A UUID, as 8-4-4-4-12 hex.", nil},
 		{"maago.File", "An uploaded file, in an HTML form only (a multipart one).", nil},
 	}}
 	FormTags = &List{"Form field tags", []Item{
@@ -161,6 +163,7 @@ var (
 		{"max", "The most characters of a string: max=200.", nil},
 		{"min_value", "The smallest number: min_value=1.", nil},
 		{"max_value", "The largest number: max_value=100.", nil},
+		{"decimal", "An int64 read as a decimal into its smallest unit: decimal=2 reads 12.34 as 1234; min_value and max_value are decimals then. A model form takes the model's.", nil},
 		{"optional", "An empty value is no error (a bool never is required). A pointer field of a model is optional in its model form.", nil},
 		{"accept", "The kinds of file a maago.File field takes, split by /: accept=png/jpeg, as the content's first bytes tell: png, jpeg, gif, webp, pdf, zip (zip includes .docx and .xlsx).", nil},
 	}}
@@ -176,6 +179,8 @@ var (
 		{"string", "TEXT.", nil},
 		{"time.Time", "TIMESTAMPTZ; TEXT in SQLite.", nil},
 		{"[]byte", "BYTEA; BLOB in SQLite.", nil},
+		{"maago.UUID", "UUID; TEXT in SQLite, as 8-4-4-4-12 lowercase hex.", nil},
+		{"maago.JSON", "maago.JSON[T], T kept as JSON: JSONB; TEXT checked by json_valid in SQLite.", nil},
 	}}
 	Methods = &List{"Route methods", []Item{
 		{"GET", "maago.GET(path, name, View, options…): reads; its view cannot take maago.Tx.", nil},

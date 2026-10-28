@@ -40,7 +40,7 @@ blog/queries/q1.sql:2:12: column n is declared int32, but PostgreSQL gives bigin
 -- column: n int64
 SELECT sum(id) AS n FROM posts
 blog/queries/q1.sql:2:12: column n is declared int64, but PostgreSQL gives numeric
-  fix: cast the expression to bigint, like …::bigint
+  fix: cast the expression to bigint, like CAST(… AS bigint)
 
 -- column: n int32
 SELECT count(*) AS n FROM posts
@@ -48,7 +48,7 @@ SELECT count(*) AS n FROM posts
 -- column: n string
 SELECT sum(id) AS n FROM posts
 blog/queries/q1.sql:2:12: column n is declared string, but PostgreSQL gives numeric
-  fix: cast the expression to text, like …::text
+  fix: cast the expression to text, like CAST(… AS text)
 
 -- column: name? int64
 SELECT b.name FROM posts p LEFT JOIN boards b ON true

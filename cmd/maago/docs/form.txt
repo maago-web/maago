@@ -70,6 +70,7 @@ type ReviewForm struct {
 	Rating  maago.Field[int64]      `maago:"min_value=1,max_value=5"`
 	Weight  maago.Field[float64]    `maago:"optional,min_value=0"`
 	Count   maago.Field[int32]      `maago:"optional"`
+	Tip     maago.Field[int64]      `maago:"optional,decimal=2,min_value=0.50"` // 1.25 is 125
 	Kind    maago.Field[string]     `maago:"choices=praise/complaint"`
 	Visited maago.Field[time.Time]  `maago:"optional"`
 	Public  maago.Field[bool]       // a checkbox

@@ -276,3 +276,66 @@ func TestUnprocessable(t *testing.T) {
 		t.Errorf("%d %+v", code(err), got)
 	}
 }
+
+// A decimal= field reads a decimal into its smallest unit, in order: the
+// text, the digits after the point, the range of int64, then the bounds.
+func TestBindDecimal(t *testing.T) {
+	for _, c := range []struct {
+		raw  string
+		rule Rule
+		want int64
+		err  string
+	}{
+		{"123.45", Rule{Decimal: 2}, 12345, ""},
+		{"123.4", Rule{Decimal: 2}, 12340, ""},
+		{"5", Rule{Decimal: 2}, 500, ""},
+		{"0.5", Rule{Decimal: 2}, 50, ""},
+		{"-0.05", Rule{Decimal: 2}, -5, ""},
+		{"-0.00", Rule{Decimal: 2}, 0, ""},
+		{"1.234", Rule{Decimal: 2}, 0, "Enter at most 2 digits after the decimal point."},
+		{"92233720368547758.07", Rule{Decimal: 2}, 9223372036854775807, ""},
+		{"92233720368547758.08", Rule{Decimal: 2}, 0, "Enter 92233720368547758.07 or less."},
+		{"-92233720368547758.09", Rule{Decimal: 2}, 0, "Enter -92233720368547758.08 or more."},
+		{"1.", Rule{Decimal: 2}, 0, "Enter a number."},
+		{".5", Rule{Decimal: 2}, 0, "Enter a number."},
+		{"1e3", Rule{Decimal: 2}, 0, "Enter a number."},
+		{"+1", Rule{Decimal: 2}, 0, "Enter a number."},
+		{"1,000", Rule{Decimal: 2}, 0, "Enter a number."},
+		{"0.01", Rule{Decimal: 2, MinValue: "0.01"}, 1, ""},
+		{"0.00", Rule{Decimal: 2, MinValue: "0.01"}, 0, "Enter 0.01 or more."},
+		{"100", Rule{Decimal: 2, MaxValue: "99.99"}, 0, "Enter 99.99 or less."},
+	} {
+		var f maago.Field[int64]
+		c.rule.Name = "n"
+		BindInt64(context.Background(), url.Values{"n": {c.raw}}, &f, c.rule)
+		if f.Value != c.want || f.Error != c.err {
+			t.Errorf("%q %+v: got %d %q, want %d %q", c.raw, c.rule, f.Value, f.Error, c.want, c.err)
+		}
+	}
+	for _, n := range []int64{0, 1, -5, 12345, -12345, 9223372036854775807, -9223372036854775808} {
+		for _, places := range []int{1, 2, 18} {
+			s := FormatDecimal(n, places)
+			if back, err := rtcore.ParseDecimal(s, places); err != nil || back != n {
+				t.Errorf("FormatDecimal(%d, %d) = %q, which reads back as %d %v", n, places, s, back, err)
+			}
+		}
+	}
+	if got := FormatDecimal(-5, 2); got != "-0.05" {
+		t.Errorf("FormatDecimal(-5, 2) = %q", got)
+	}
+}
+
+func TestBindUUID(t *testing.T) {
+	for raw, want := range map[string]string{
+		"0190A5C8-0000-7000-8000-00000000000F": "",
+		"0190a5c8-0000-7000-8000-00000000000":  "Enter a UUID.",
+		"0190a5c8x0000-7000-8000-00000000000f": "Enter a UUID.",
+		"0190a5c8-0000-7000-8000-00000000000g": "Enter a UUID.",
+	} {
+		var f maago.Field[maago.UUID]
+		BindUUID(context.Background(), url.Values{"k": {raw}}, &f, Rule{Name: "k"})
+		if f.Error != want || want == "" && f.Value.String() != strings.ToLower(raw) {
+			t.Errorf("%q: got %v %q, want %q", raw, f.Value, f.Error, want)
+		}
+	}
+}

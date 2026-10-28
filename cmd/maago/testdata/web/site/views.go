@@ -319,3 +319,40 @@ func TagSave(ctx context.Context, tx maago.Tx, in TagIn) (maago.Result[TagPage],
 	}
 	return maago.Show(TagPage{f, first.Name}), nil
 }
+
+type KeyIn struct {
+	Key maago.UUID  `maago:"path=key"`
+	Ref *maago.UUID `maago:"query=ref"`
+}
+
+type KeyPage struct{ Key, Ref maago.UUID }
+
+// KeyShow reads a UUID from the path and one from the query: one that
+// does not parse is a 404 or a 400.
+func KeyShow(ctx context.Context, in KeyIn) (KeyPage, error) {
+	p := KeyPage{Key: in.Key}
+	if in.Ref != nil {
+		p.Ref = *in.Ref
+	}
+	return p, nil
+}
+
+// PriceForm reads a UUID and a price, in cents.
+type PriceForm struct {
+	maago.Form
+	Key   maago.Field[maago.UUID]
+	Price maago.Field[int64] `maago:"decimal=2,min_value=0.01"`
+}
+
+type PriceIn struct {
+	Form PriceForm `maago:"form"`
+}
+
+type Price struct {
+	Key   maago.UUID
+	Cents int64
+}
+
+func APIPrice(ctx context.Context, tx maago.Tx, in PriceIn) (Price, error) {
+	return Price{in.Form.Key.Value, in.Form.Price.Value}, nil
+}

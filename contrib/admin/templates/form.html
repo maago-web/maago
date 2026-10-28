@@ -21,6 +21,8 @@
 <input type="checkbox" id="{{.Name}}" name="{{.Name}}"{{if .Raw}} checked{{end}}{{if not $.Save}} disabled{{end}}>
 {{else if eq .Kind "datetime"}}
 <input type="text" id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}" placeholder="2006-01-02T15:04:05"{{if .Required}} required{{end}}{{if not $.Save}} disabled{{end}}>
+{{else if eq .Kind "decimal"}}
+<input type="text" inputmode="decimal" id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}"{{if .Required}} required{{end}}{{if not $.Save}} disabled{{end}}>
 {{else if eq .Kind "integer"}}
 <input type="number" id="{{.Name}}" name="{{.Name}}" value="{{.Raw}}" step="1"{{if .Required}} required{{end}}{{if not $.Save}} disabled{{end}}>
 {{else}}

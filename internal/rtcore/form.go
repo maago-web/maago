@@ -14,6 +14,7 @@ import (
 type Messages struct {
 	Required, NotNumber, TooSmall, TooLarge, TooShort, TooLong string
 	NotChoice, BadBool, BadTime, NoRow, NotKind, Taken         string
+	TooPrecise, BadUUID                                        string
 }
 
 // Default are the settings of a context with none: maago.DefaultMessages
@@ -35,6 +36,7 @@ func NewSettings(m, d Messages, tz *time.Location) *Settings {
 	m.TooLarge, m.TooShort, m.TooLong = cmp.Or(m.TooLarge, d.TooLarge), cmp.Or(m.TooShort, d.TooShort), cmp.Or(m.TooLong, d.TooLong)
 	m.NotChoice, m.BadBool, m.BadTime = cmp.Or(m.NotChoice, d.NotChoice), cmp.Or(m.BadBool, d.BadBool), cmp.Or(m.BadTime, d.BadTime)
 	m.NoRow, m.NotKind, m.Taken = cmp.Or(m.NoRow, d.NoRow), cmp.Or(m.NotKind, d.NotKind), cmp.Or(m.Taken, d.Taken)
+	m.TooPrecise, m.BadUUID = cmp.Or(m.TooPrecise, d.TooPrecise), cmp.Or(m.BadUUID, d.BadUUID)
 	return &Settings{m, cmp.Or(tz, time.UTC)}
 }
 

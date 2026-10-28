@@ -40,12 +40,13 @@ type RawModel struct {
 
 // RawField is one field of a model, other than the embedded maago.Model.
 type RawField struct {
-	Name     string // for an embedded field, the type as written
-	Pos      token.Pos
-	Embedded bool
-	Type     ast.Expr
-	TimeName string // the name its file imports "time" under, or ""
-	Options  []Option
+	Name       string // for an embedded field, the type as written
+	Pos        token.Pos
+	Embedded   bool
+	Type       ast.Expr
+	TimeName   string   // the name its file imports "time" under, or ""
+	MaagoNames []string // the names its file imports maago under
+	Options    []Option
 }
 
 // Read parses the Go files of the project, except tests, and returns the
@@ -214,11 +215,11 @@ func readModel(fset *token.FileSet, ts *ast.TypeSpec, st *ast.StructType, maagoN
 		opts, tds := ParseTag(fset, f.Tag)
 		ds = append(ds, tds...)
 		if len(f.Names) == 0 {
-			m.Fields = append(m.Fields, &RawField{Name: types.ExprString(f.Type), Pos: f.Pos(), Embedded: true, Type: f.Type, TimeName: timeName, Options: opts})
+			m.Fields = append(m.Fields, &RawField{Name: types.ExprString(f.Type), Pos: f.Pos(), Embedded: true, Type: f.Type, TimeName: timeName, MaagoNames: maagoNames, Options: opts})
 			continue
 		}
 		for _, n := range f.Names {
-			m.Fields = append(m.Fields, &RawField{Name: n.Name, Pos: n.Pos(), Type: f.Type, TimeName: timeName, Options: opts})
+			m.Fields = append(m.Fields, &RawField{Name: n.Name, Pos: n.Pos(), Type: f.Type, TimeName: timeName, MaagoNames: maagoNames, Options: opts})
 		}
 	}
 	return m, ds

@@ -148,3 +148,20 @@ func TestRefs(t *testing.T) {
 		t.Errorf("admin_gen.go:\n%s", file)
 	}
 }
+
+// A decimal's default is drawn as a decimal, and a pointer one's value
+// by its XText (D-158).
+func TestDecimalDefault(t *testing.T) {
+	cents := "150"
+	m := &model.Model{Name: "Item", Table: "items", Fields: []*model.Field{
+		{Name: "ID", Column: "id", Type: model.Int64},
+		{Name: "Price", Column: "price", Type: model.Int64, Pointer: true, Default: &cents, Decimal: 2},
+	}}
+	app := &model.App{Dir: "i", Name: "i", Models: []*model.Model{m}}
+	got := string(File(project.SQLite, app, []*model.App{app}, nil))
+	for _, want := range []string{`f.Price.Raw = "1.50"`, "f.Price.Raw = o.PriceText()", "Decimal: 2", "v.PriceText()"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("admin_gen.go lacks %s:\n%s", want, got)
+		}
+	}
+}

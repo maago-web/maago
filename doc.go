@@ -32,10 +32,13 @@
 //   - string: TEXT.
 //   - time.Time: TIMESTAMPTZ; TEXT in SQLite.
 //   - []byte: BYTEA; BLOB in SQLite.
+//   - maago.UUID: UUID; TEXT in SQLite, as 8-4-4-4-12 lowercase hex.
+//   - maago.JSON: maago.JSON[T], T kept as JSON: JSONB; TEXT checked by json_valid in SQLite.
 //
 // Field tags:
 //
 //   - max: The most characters of a string: max=200. VARCHAR(n) or a CHECK in the database, a rule in model forms.
+//   - decimal: An int64 of money or another decimal, in its smallest unit: decimal=2 keeps 12.34 as 1234. Forms read 12.34; default=12.34 is written as a decimal too.
 //   - unique: A unique constraint on the column.
 //   - index: An index on the column. An fk gets one without it.
 //   - default: The column's default: default='draft' for a string, default=0, default=true, default=1.5 without quotes.
@@ -57,7 +60,7 @@
 //   - admin_search: The string fields the admin's search box looks in: admin_search=(Title).
 //   - admin_filter: The fields the admin's list filters by, each with a few values (bool, choices, fk): admin_filter=(Status).
 //
-// Names: [Model], [Opt], [Set], [Ptr], [ErrConflict].
+// Names: [Model], [Opt], [Set], [Ptr], [ErrConflict], [UUID], [NewUUID], [ParseUUID], [JSON].
 //
 // maago doc model has the full text and an example.
 //
@@ -113,8 +116,8 @@
 //
 // In tags (where each field of In comes from):
 //
-//   - path: path=id reads {id} of the route's path: string, int64 or int32. A value that does not parse is a 404.
-//   - query: query=page reads ?page=: string, int64, int32, bool or float64, a pointer to one when it may be missing. A value that does not parse is a 400.
+//   - path: path=id reads {id} of the route's path: string, int64, int32 or maago.UUID. A value that does not parse is a 404.
+//   - query: query=page reads ?page=: string, int64, int32, bool, float64 or maago.UUID, a pointer to one when it may be missing. A value that does not parse is a 400.
 //   - form: form, with no value, reads the request's form (or JSON on an API route) into a form type of the package.
 //
 // Names: [Routes], [Route], [RouteOption], [GET], [POST], [PUT], [PATCH], [DELETE], [API], [NoTx], [Block], [Result], [Show], [SeeOther], [Status], [Tx], [WithTx], [AfterCommit], [DBFrom], [WithDB].
@@ -135,6 +138,7 @@
 //   - float64: A number.
 //   - bool: A checkbox: on is true, absent is false.
 //   - time.Time: A date or a time, in Config.TimeZone.
+//   - maago.UUID: A UUID, as 8-4-4-4-12 hex.
 //   - maago.File: An uploaded file, in an HTML form only (a multipart one).
 //
 // Form field tags:
@@ -146,6 +150,7 @@
 //   - max: The most characters of a string: max=200.
 //   - min_value: The smallest number: min_value=1.
 //   - max_value: The largest number: max_value=100.
+//   - decimal: An int64 read as a decimal into its smallest unit: decimal=2 reads 12.34 as 1234; min_value and max_value are decimals then. A model form takes the model's.
 //   - optional: An empty value is no error (a bool never is required). A pointer field of a model is optional in its model form.
 //   - accept: The kinds of file a maago.File field takes, split by /: accept=png/jpeg, as the content's first bytes tell: png, jpeg, gif, webp, pdf, zip (zip includes .docx and .xlsx).
 //

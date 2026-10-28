@@ -14,6 +14,7 @@ import (
 var types = map[model.Type]string{
 	model.Int64: "INTEGER", model.Int32: "INTEGER", model.Bool: "INTEGER",
 	model.Float64: "REAL", model.String: "TEXT", model.Time: "TEXT", model.Bytes: "BLOB",
+	model.UUID: "TEXT", model.JSON: "TEXT",
 }
 
 // DDL returns CREATE statements for every model: each table, then its
@@ -80,6 +81,8 @@ func column(f *model.Field) string {
 		s += fmt.Sprintf(" CHECK (length(%s) <= %d)", c, f.Max) // characters, not bytes
 	case f.Type == model.Bool:
 		s += fmt.Sprintf(" CHECK (%s IN (0, 1))", c)
+	case f.Type == model.JSON:
+		s += fmt.Sprintf(" CHECK (json_valid(%s))", c)
 	}
 	if len(f.Choices) > 0 {
 		quoted := make([]string, len(f.Choices))

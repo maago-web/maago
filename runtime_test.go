@@ -29,9 +29,9 @@ func TestRuntimeDependencies(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := strings.Fields(string(out))
-	want := []string{"github.com/maago-web/maago/internal/diag", "github.com/maago-web/maago/internal/ref", "github.com/maago-web/maago/internal/model", "github.com/maago-web/maago/internal/schema",
+	want := []string{"github.com/maago-web/maago/internal/diag", "github.com/maago-web/maago/internal/ref", "github.com/maago-web/maago/internal/rtcore", "github.com/maago-web/maago/internal/model", "github.com/maago-web/maago/internal/schema",
 		"github.com/maago-web/maago/internal/dialect", "github.com/maago-web/maago/internal/project", "github.com/maago-web/maago/internal/practicedb",
-		"github.com/maago-web/maago/internal/migrate", "github.com/maago-web/maago/internal/rtcore", "github.com/maago-web/maago"}
+		"github.com/maago-web/maago/internal/migrate", "github.com/maago-web/maago"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Errorf("the runtime depends on %q, want %q", got, want)
 	}

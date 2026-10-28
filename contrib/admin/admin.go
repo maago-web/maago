@@ -83,7 +83,7 @@ type Form struct {
 // Input is one field of a Form, for drawing.
 type Input struct {
 	Name, Label, Help string
-	Kind              string // text, integer, number, checkbox, select, datetime (a text input, to the microsecond), or readonly
+	Kind              string // text, integer, decimal (text that reads 12.34), number, checkbox, select, datetime (a text input, to the microsecond), or readonly
 	Raw, Error        string // the text to draw, and what is wrong with it
 	Choices           []string
 	Required          bool

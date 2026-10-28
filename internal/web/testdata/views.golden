@@ -60,17 +60,17 @@ site/urls.go:11:12: route a has no {x}, which AIn.X reads
 
 # path types
 site/urls.go:68:4: path value X cannot be read into float64
-  fix: use one of string, int64, int32
+  fix: use one of string, int64, int32, maago.UUID
 site/urls.go:69:4: path value Y cannot be read into ID
-  fix: use one of string, int64, int32
+  fix: use one of string, int64, int32, maago.UUID
 site/urls.go:70:4: path value Z cannot be read into *int64
-  fix: use one of string, int64, int32
+  fix: use one of string, int64, int32, maago.UUID
 
 # query types
 site/urls.go:66:4: query value X cannot be read into []string
-  fix: use one of string, int64, int32, bool, float64, or a pointer to one when the value may be missing
+  fix: use one of string, int64, int32, bool, float64, maago.UUID, or a pointer to one when the value may be missing
 site/urls.go:67:4: query value Y cannot be read into **int64
-  fix: use one of string, int64, int32, bool, float64, or a pointer to one when the value may be missing
+  fix: use one of string, int64, int32, bool, float64, maago.UUID, or a pointer to one when the value may be missing
 
 # two views wrong, a route name taken
 site/urls.go:11:43: route name "a" is taken by site/urls.go:11

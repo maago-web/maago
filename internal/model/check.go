@@ -13,6 +13,7 @@ import (
 
 	"github.com/maago-web/maago/internal/diag"
 	refdoc "github.com/maago-web/maago/internal/ref" // ref is this package's type
+	"github.com/maago-web/maago/internal/rtcore"
 )
 
 // Type is a column type maago supports (D-77).
@@ -26,10 +27,12 @@ const (
 	String
 	Time
 	Bytes
+	UUID
+	JSON // of the type Field.JSON names
 )
 
 func (t Type) String() string {
-	return [...]string{"", "int64", "int32", "bool", "float64", "string", "time.Time", "[]byte"}[t]
+	return [...]string{"", "int64", "int32", "bool", "float64", "string", "time.Time", "[]byte", "maago.UUID", "maago.JSON"}[t]
 }
 
 // App is a package holding models, checked.
@@ -69,6 +72,8 @@ type Field struct {
 	Pos         token.Pos
 	Type        Type
 	Pointer     bool    // NULL allowed (D-75)
+	JSON        string  // T of maago.JSON[T], as written
+	Decimal     int     // N of decimal=N: an int64 of 1/10^N; 0 if none
 	Max         int     // 0 if none
 	Default     *string // as written, quotes removed
 	Choices     []string
@@ -84,6 +89,10 @@ type Unsupported struct {
 	Pos    token.Pos
 	Reason string
 }
+
+// moneyWords end the names of fields that hold money, which a float64
+// would get wrong (D-158).
+var moneyWords = []string{"price", "amount", "total", "cost", "fee", "balance"}
 
 var tableName = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
@@ -136,7 +145,7 @@ func (c *checker) model(app *App, rm *RawModel) *Model {
 	hasID := false
 	for _, rf := range rm.Fields {
 		where := rm.Name + "." + rf.Name
-		typ, ptr, why := fieldType(rf.Type, rf.TimeName)
+		typ, ptr, elem, why := fieldType(rf)
 		switch {
 		case rf.Name == "ID" && !rf.Embedded:
 			hasID = true
@@ -155,8 +164,12 @@ func (c *checker) model(app *App, rm *RawModel) *Model {
 			m.Unsupported = append(m.Unsupported, c.unsupported(rf, where, why))
 			continue
 		}
-		f := &Field{Name: rf.Name, Column: Snake(rf.Name), Pos: rf.Pos, Type: typ, Pointer: ptr}
+		f := &Field{Name: rf.Name, Column: Snake(rf.Name), Pos: rf.Pos, Type: typ, Pointer: ptr, JSON: elem}
 		c.fieldOptions(f, rf.Options, where, app)
+		if words := strings.Split(f.Column, "_"); f.Type == Float64 && slices.Contains(moneyWords, words[len(words)-1]) {
+			c.errf(f.Pos, fmt.Sprintf(`store money as int64 in its smallest unit: %s int64 with maago:"decimal=2" reads 12.34 in forms and keeps 1234; if it is not money, rename the field`, f.Name),
+				"%s is a float64, whose sums and comparisons are not exact, but its name says money", where)
+		}
 		m.Fields = append(m.Fields, f)
 	}
 	if !hasID {
@@ -225,27 +238,62 @@ func (c *checker) unsupported(rf *RawField, where, why string) Unsupported {
 	return Unsupported{Name: rf.Name, Pos: rf.Pos, Reason: why}
 }
 
-// fieldType maps a field's type to a column type, or says why it has none.
-func fieldType(e ast.Expr, timeName string) (t Type, ptr bool, why string) {
-	e = ast.Unparen(e)
+// fieldType maps a field's type to a column type, or says why it has
+// none. For maago.JSON[T], elem is T as written.
+func fieldType(rf *RawField) (t Type, ptr bool, elem, why string) {
+	e := ast.Unparen(rf.Type)
 	if star, ok := e.(*ast.StarExpr); ok {
 		ptr, e = true, ast.Unparen(star.X)
+	}
+	maago := func(e ast.Expr, name string) bool {
+		x, ok := e.(*ast.SelectorExpr)
+		if !ok {
+			return false
+		}
+		pkg, ok := x.X.(*ast.Ident)
+		return ok && slices.Contains(rf.MaagoNames, pkg.Name) && x.Sel.Name == name
 	}
 	switch x := e.(type) {
 	case *ast.Ident:
 		if i := slices.Index([]string{"int64", "int32", "bool", "float64", "string"}, x.Name); i >= 0 {
-			return Type(i + 1), ptr, ""
+			return Type(i + 1), ptr, "", ""
 		}
 	case *ast.SelectorExpr:
-		if pkg, ok := x.X.(*ast.Ident); ok && timeName != "" && pkg.Name == timeName && x.Sel.Name == "Time" {
-			return Time, ptr, ""
+		if pkg, ok := x.X.(*ast.Ident); ok && rf.TimeName != "" && pkg.Name == rf.TimeName && x.Sel.Name == "Time" {
+			return Time, ptr, "", ""
+		}
+		if maago(x, "UUID") {
+			return UUID, ptr, "", ""
+		}
+	case *ast.IndexExpr:
+		if maago(x.X, "JSON") {
+			if !local(x.Index) {
+				return 0, false, "", "maago.JSON[" + types.ExprString(x.Index) + "] is not supported: T must be a type of this package, or a pointer, slice or map of such and Go's own types, which the generated code can name; declare a struct here for T"
+			}
+			return JSON, ptr, types.ExprString(x.Index), ""
 		}
 	case *ast.ArrayType:
 		if elt, ok := x.Elt.(*ast.Ident); ok && x.Len == nil && elt.Name == "byte" {
-			return Bytes, ptr, ""
+			return Bytes, ptr, "", ""
 		}
 	}
-	return 0, false, "type " + types.ExprString(e) + " is not supported"
+	return 0, false, "", "type " + types.ExprString(e) + " is not supported"
+}
+
+// local reports whether type e is written with names of this package and
+// Go's own alone: what the generated files, in the same package, can name.
+func local(e ast.Expr) bool {
+	switch x := e.(type) {
+	case *ast.Ident:
+		return true
+	case *ast.StarExpr:
+		return local(x.X)
+	case *ast.ArrayType:
+		return x.Len == nil && local(x.Elt)
+	case *ast.MapType:
+		return local(x.Key) && local(x.Value)
+	}
+	return false
 }
 
 var supportedTypes = strings.Join(refdoc.FieldTypes.Names(), ", ") + ", or a pointer to one"
@@ -279,6 +327,17 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, app *App) 
 				c.errf(o.KeyPos, "remove max, or make the field a string", "max applies to strings, but %s is %s", where, f.Type)
 			default:
 				f.Max = n
+			}
+		case "decimal":
+			n, err := strconv.Atoi(first(o))
+			switch {
+			case !c.shape(o, where, Bare, 1, "write the digits after the point, like decimal=2"):
+			case err != nil || n < 1 || n > 18:
+				c.errf(o.ValuePos[0], "write the digits after the point, 1 to 18, like decimal=2", "decimal in %s is %q, not 1 to 18", where, first(o))
+			case f.Type != Int64:
+				c.errf(o.KeyPos, "remove decimal, or make the field int64: decimal=2 keeps 12.34 as 1234", "decimal applies to int64, but %s is %s", where, f.Type)
+			default:
+				f.Decimal = n
 			}
 		case "unique", "index":
 			if c.shape(o, where, NoValue, 0, "write it alone, like "+o.Key) {
@@ -356,6 +415,10 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, app *App) 
 			panic("maago bug: field tag key " + o.Key + " is in refdoc.FieldTags but not handled")
 		}
 	}
+	if f.Decimal > 0 && f.FK != "" {
+		c.errf(f.Pos, "remove decimal: an fk field holds an ID", "%s has both fk and decimal", where)
+		f.Decimal = 0
+	}
 	if defaultOpt != nil {
 		c.defaultValue(f, defaultOpt, where)
 	}
@@ -393,6 +456,13 @@ func (c *checker) defaultValue(f *Field, o *Option, where string) {
 		}
 		switch f.Type {
 		case Int64:
+			if f.Decimal > 0 { // a decimal, kept as its smallest unit
+				var n int64
+				if n, err = rtcore.ParseDecimal(v, f.Decimal); err == nil {
+					v = strconv.FormatInt(n, 10)
+				}
+				break
+			}
 			_, err = strconv.ParseInt(v, 10, 64)
 		case Int32:
 			_, err = strconv.ParseInt(v, 10, 32)
@@ -407,7 +477,11 @@ func (c *checker) defaultValue(f *Field, o *Option, where string) {
 				err = strconv.ErrRange
 			}
 		}
-		if err != nil {
+		switch {
+		case err != nil && f.Decimal > 0:
+			c.errf(o.ValuePos[0], "write a decimal, like default=1.50", "default %q of %s is not a decimal with at most %d digits after the point", first(o), where, f.Decimal)
+			return
+		case err != nil:
 			c.errf(o.ValuePos[0], "write a valid "+f.Type.String()+" value", "default %q of %s is not a valid %s", v, where, f.Type)
 			return
 		}

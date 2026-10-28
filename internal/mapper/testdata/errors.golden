@@ -44,7 +44,7 @@ blog/queries/q.sql:1:17: query Q :many has no result type
 
 "-- name: Q :one r\n"
 blog/queries/q.sql:1:17: unknown result type "r"
-  fix: use one of int64, int32, bool, float64, string, time.Time for one column, or name a new type, like :one PostSummary
+  fix: use one of int64, int32, bool, float64, string, time.Time, maago.UUID for one column, or name a new type, like :one PostSummary
 
 "-- name: Q :one R S\n"
 blog/queries/q.sql:1:19: unexpected "S" after the result type
@@ -100,11 +100,11 @@ blog/queries/q.sql:2:19: unexpected "y" after the type of x
 
 "-- name: Q :many R\n-- param: x int\n"
 blog/queries/q.sql:2:13: unknown type "int"
-  fix: did you mean "int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte; or a slice of one, like []int64, or choices, like latest/amount
+  fix: did you mean "int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte, maago.UUID; or a slice of one, like []int64, or choices, like latest/amount
 
 "-- name: Q :many R\n-- param: x []int\n"
 blog/queries/q.sql:2:13: unknown type "[]int"
-  fix: did you mean "[]int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte; or a slice of one, like []int64, or choices, like latest/amount
+  fix: did you mean "[]int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte, maago.UUID; or a slice of one, like []int64, or choices, like latest/amount
 
 "-- name: Q :many R\n-- param: x *int64\n"
 blog/queries/q.sql:2:13: pointer type *int64 in a header
@@ -124,7 +124,7 @@ blog/queries/q.sql:2:11: choices cannot be optional: add a choice for none, like
 
 "-- name: Q :many R\n-- param: x latest\n"
 blog/queries/q.sql:2:13: unknown type "latest"
-  fix: allowed: int64, int32, bool, float64, string, time.Time, []byte; or a slice of one, like []int64, or choices, like latest/amount
+  fix: allowed: int64, int32, bool, float64, string, time.Time, []byte, maago.UUID; or a slice of one, like []int64, or choices, like latest/amount
 
 "-- name: Q :many R\n-- param: x a//b\n"
 blog/queries/q.sql:2:15: choice "" is not lowercase snake_case
@@ -152,11 +152,19 @@ blog/queries/q.sql:3:12: column n is declared twice
 
 "-- name: Q :many R\n-- column: n []int64\n"
 blog/queries/q.sql:2:14: unknown type "[]int64"
-  fix: did you mean "int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte; a column cannot be a slice or choices
+  fix: did you mean "int64"? allowed: int64, int32, bool, float64, string, time.Time, []byte, maago.UUID; a column cannot be a slice or choices
 
 "-- name: Q :many R\n-- column: n a/b\n"
 blog/queries/q.sql:2:14: unknown type "a/b"
-  fix: allowed: int64, int32, bool, float64, string, time.Time, []byte; a column cannot be a slice or choices
+  fix: allowed: int64, int32, bool, float64, string, time.Time, []byte, maago.UUID; a column cannot be a slice or choices
+
+"-- name: Q :many R\n-- param: m maago.JSON\n"
+blog/queries/q.sql:2:13: a header line cannot name maago.JSON
+  fix: select a model's maago.JSON column as it is, into the model or a new result type: its type comes from the model
+
+"-- name: Q :many R\n-- column: m maago.JSON\n"
+blog/queries/q.sql:2:14: a header line cannot name maago.JSON
+  fix: select a model's maago.JSON column as it is, into the model or a new result type: its type comes from the model
 
 "\t -- name: Q :mnay R\n"
 blog/queries/q.sql:1:14: unknown query kind ":mnay"

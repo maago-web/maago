@@ -137,6 +137,13 @@ func TestFormErrors(t *testing.T) {
 		{"a form as the In", "in BoardIn) (BoardPage, error) { return BoardPage{in.Form}, nil }", "f *BoardForm) (BoardPage, error) { return BoardPage{*f}, nil }", []string{`board/urls.go:49:38: view BoardNew takes form BoardForm as its In`}},
 		{"a form value as the In", "in BoardIn) (BoardPage, error) { return BoardPage{in.Form}, nil }", "f BoardForm) (BoardPage, error) { return BoardPage{f}, nil }", []string{`board/urls.go:49:38: view BoardNew takes form BoardForm as its In`}},
 		{"two forms at once", "`maago:\"min=2,", "`maago:\"mim=2,", nil}, // with the next edit too: see below
+		{"decimal on an int32", "`maago:\"min_value=1,max_value=30\"`", "`maago:\"decimal=2\"`", []string{`board/urls.go:35:40: decimal applies to int64, but form field Days is int32`}},
+		{"a decimal bound past its places", "Rate   maago.Field[float64]   `maago:\"optional\"`", "Rate   maago.Field[int64]     `maago:\"min_value=0.001,decimal=2\"`", []string{`board/urls.go:36:50: min_value of form field Rate is "0.001", not a decimal with at most 2 digits after the point`}},
+		{"a decimal bound", "Rate   maago.Field[float64]   `maago:\"optional\"`", "Rate   maago.Field[int64]     `maago:\"min_value=0.01,decimal=2\"`", nil},
+		{"a bare decimal", "`maago:\"min_value=1,max_value=30\"`", "`maago:\"decimal\"`", []string{`board/urls.go:35:40: decimal applies to int64, but form field Days is int32`}},
+		{"a bare decimal on an int64", "Rate   maago.Field[float64]   `maago:\"optional\"`", "Rate   maago.Field[int64]     `maago:\"decimal\"`", []string{`board/urls.go:36:40: decimal of form field Rate is not written as the key takes it`}},
+		{"decimal bounds swapped", "Rate   maago.Field[float64]   `maago:\"optional\"`", "Rate   maago.Field[int64]     `maago:\"decimal=2,min_value=92233720368547758.07,max_value=92233720368547758.06\"`", []string{`board/urls.go:36:2: form field Rate has min_value=92233720368547758.07 above max_value=92233720368547758.06`}},
+		{"a UUID field", "Rate   maago.Field[float64]", "Rate   maago.Field[maago.UUID]", nil},
 		{"Validate's signature", "func (f *NoticeForm) Validate() {}", "func (f *NoticeForm) Validate() error { return nil }", []string{`board/urls.go:41:22: Validate of form NoticeForm is not a method func()`}},
 	}
 	var all strings.Builder

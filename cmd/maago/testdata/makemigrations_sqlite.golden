@@ -79,3 +79,20 @@ DROP INDEX "blog_post_body_idx";
 -- ⚠ This drops column "body" of "blog_post" and its values. If that is intended, put "-- maago: allow-drop" on the line right before the DROP statement.
 ALTER TABLE "blog_post" DROP COLUMN "body";
 
+-- migrations/0006_create_blog_item_and_more.sql
+
+CREATE TABLE "blog_item" (
+    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+    "key" TEXT NOT NULL,
+    "tags" TEXT NOT NULL CHECK (json_valid("tags")),
+    "price" INTEGER NOT NULL
+) STRICT;
+
+ALTER TABLE "blog_post" ADD COLUMN "key" TEXT;
+
+ALTER TABLE "blog_post" ADD COLUMN "meta" TEXT CHECK (json_valid("meta"));
+
+ALTER TABLE "blog_post" ADD COLUMN "price" INTEGER DEFAULT 150;
+
+CREATE UNIQUE INDEX "blog_post_key_key" ON "blog_post" ("key");
+

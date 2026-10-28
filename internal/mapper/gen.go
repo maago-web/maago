@@ -14,6 +14,7 @@ import (
 	"github.com/maago-web/maago/internal/model"
 	"github.com/maago-web/maago/internal/pipeline"
 	"github.com/maago-web/maago/internal/project"
+	"github.com/maago-web/maago/internal/rtcore"
 )
 
 //go:embed templates
@@ -90,7 +91,7 @@ func (g *gen) policyGet(v *modelView, c CRUD, p *Policy, user User) {
 	v.GetBody = g.viewer(p.Params)
 	for _, prm := range p.Params { // in the order they are declared
 		if !prm.Viewer {
-			v.GetParams += ", " + lowerFirst(FieldName(prm.Name)) + " " + g.typ(prm.Type.Base, false)
+			v.GetParams += ", " + lowerFirst(FieldName(prm.Name)) + " " + g.typ(prm.Type.Base, "", false)
 		}
 	}
 	for _, a := range st.Args[1:] { // in the order of the placeholders
@@ -170,9 +171,19 @@ type modelView struct {
 	Ignoring            string // the SQL of GetXIgnoringPolicies
 	GetParams, GetArgs  string // the policy's, after id: ", now time.Time"
 	GetBody             string // code before Get reads, for the user's columns
+	Texts               []textView
 }
 
-type inputField struct{ Name, Type, Default string }
+// inputField is a field of NewXInput, with what its comment says.
+type inputField struct{ Name, Type, Default, Unit string }
+
+// textView is the XText method of a decimal= field.
+type textView struct {
+	Model, Field, Value string // Value: the field's int64, "*o.X" for a pointer
+	Example             string // what 1234 is
+	Pointer             bool
+	Places              int
+}
 
 // uniqueView is a unique constraint as rt.UniqueKey: Fields its Go
 // names, quoted and joined, Key a Go string literal.
@@ -199,14 +210,28 @@ func (g *gen) model(c CRUD) modelView {
 		case f.Default != nil:
 			lit := literal(f)
 			v.Defaults = true
-			v.Input = append(v.Input, inputField{f.Name, "maago.Opt[" + g.typ(f.Type, f.Pointer) + "]", lit})
+			shown := lit
+			if f.Decimal > 0 {
+				n, _ := strconv.ParseInt(lit, 10, 64) // checked, as the DDL writes it
+				shown = rtcore.FormatDecimal(n, f.Decimal)
+			}
+			v.Input = append(v.Input, inputField{f.Name, "maago.Opt[" + g.typ(f.Type, f.JSON, f.Pointer) + "]", shown, unit(f)})
 			if f.Pointer {
 				lit = "maago.Ptr[" + f.Type.String() + "](" + lit + ")"
 			}
 			v.Build = append(v.Build, f.Name+": in."+f.Name+".Or("+lit+")")
 		default:
-			v.Input = append(v.Input, inputField{f.Name, g.typ(f.Type, f.Pointer), ""})
+			v.Input = append(v.Input, inputField{f.Name, g.typ(f.Type, f.JSON, f.Pointer), "", unit(f)})
 			v.Build = append(v.Build, f.Name+": in."+f.Name)
+		}
+	}
+	for _, f := range m.Fields {
+		if f.Decimal > 0 {
+			x := "o." + f.Name
+			if f.Pointer {
+				x = "*" + x
+			}
+			v.Texts = append(v.Texts, textView{m.Name, f.Name, x, rtcore.FormatDecimal(1234, f.Decimal), f.Pointer, f.Decimal})
 		}
 	}
 	v.Scan = strings.Join(dests, ", ")
@@ -262,6 +287,14 @@ func literal(f *model.Field) string {
 	return dialect.Number(f.Type, *f.Default)
 }
 
+// unit is what a decimal= field's number counts, for its comment.
+func unit(f *model.Field) string {
+	if f.Decimal == 0 {
+		return ""
+	}
+	return fmt.Sprintf("in units of %s (decimal=%d): 1234 is %s", rtcore.FormatDecimal(1, f.Decimal), f.Decimal, rtcore.FormatDecimal(1234, f.Decimal))
+}
+
 type queryView struct {
 	Name, File   string
 	Choices      []choiceView
@@ -304,7 +337,7 @@ func (g *gen) query(c Checked, declared map[*Result]bool) queryView {
 	zero := "0"
 	if r := c.Result; r != nil && q.Scalar != 0 {
 		g.imports["database/sql"], g.imports["fmt"] = true, true
-		v.Row, v.Scan = g.typ(q.Scalar, false), g.dest("v", q.Scalar, false)
+		v.Row, v.Scan = g.typ(q.Scalar, "", false), g.dest("v", q.Scalar, false)
 	} else if r != nil {
 		g.imports["database/sql"], g.imports["fmt"] = true, true
 		v.Row = r.Name
@@ -312,7 +345,7 @@ func (g *gen) query(c Checked, declared map[*Result]bool) queryView {
 			declared[r] = true
 			v.Result = r.Name
 			for _, f := range r.Fields {
-				v.ResultFields = append(v.ResultFields, f.Name+" "+g.typ(f.Type, f.Pointer))
+				v.ResultFields = append(v.ResultFields, f.Name+" "+g.typ(f.Type, f.JSON, f.Pointer))
 			}
 		}
 		var dests []string
@@ -337,16 +370,16 @@ func (g *gen) query(c Checked, declared map[*Result]bool) queryView {
 }
 
 // scalarZero is the zero value of a result that is a type (:one bool).
-var scalarZero = map[model.Type]string{model.Int64: "0", model.Int32: "0", model.Float64: "0", model.Bool: "false", model.String: `""`, model.Time: "time.Time{}"}
+var scalarZero = map[model.Type]string{model.Int64: "0", model.Int32: "0", model.Float64: "0", model.Bool: "false", model.String: `""`, model.Time: "time.Time{}", model.UUID: "maago.UUID{}"}
 
 func (g *gen) paramType(q *Query, p Param) string {
 	switch {
 	case p.Type.Choices != nil:
 		return q.Name + FieldName(p.Name)
 	case p.Type.Slice:
-		return "[]" + g.typ(p.Type.Base, false)
+		return "[]" + g.typ(p.Type.Base, "", false)
 	}
-	return g.typ(p.Type.Base, p.Optional)
+	return g.typ(p.Type.Base, "", p.Optional)
 }
 
 // body is the code of a query function: it works out which combination
@@ -519,11 +552,11 @@ func (g *gen) scalars(q *Query, v Variant) []string {
 	return out
 }
 
-func (g *gen) typ(t model.Type, pointer bool) string {
+func (g *gen) typ(t model.Type, json string, pointer bool) string {
 	if t == model.Time {
 		g.imports["time"] = true
 	}
-	return fieldType(t, pointer)
+	return fieldType(t, json, pointer)
 }
 
 // arg is x as the driver takes it: SQLite keeps a time as text (D-105).

@@ -61,7 +61,7 @@ type Post struct {
 	Title string ` + "`" + `maago:"maxlen=200"` + "`" + `
 }
 `})
-	want := "blog/models.go:9:23: unknown tag key \"maxlen\" in Post.Title\n  fix: did you mean \"max\"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin\n"
+	want := "blog/models.go:9:23: unknown tag key \"maxlen\" in Post.Title\n  fix: did you mean \"max\"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin\n"
 	if errs != want {
 		t.Errorf("got:\n%s\nwant:\n%s", errs, want)
 	}
@@ -336,5 +336,93 @@ type Author struct {
 		if got := post.Field(name).Admin; got != want {
 			t.Errorf("%s: admin %q, want %q", name, got, want)
 		}
+	}
+}
+
+// UUID, JSON and decimal fields, under maago imported by another name
+// (D-158).
+func TestMoneyUUIDJSON(t *testing.T) {
+	apps, errs, _ := load(t, map[string]string{"shop/models.go": `package shop
+
+import m "github.com/maago-web/maago"
+
+type Meta struct{ W int }
+
+type Order struct {
+	m.Model
+
+	ID       int64
+	Key      m.UUID ` + "`" + `maago:"unique"` + "`" + `
+	Ref      *m.UUID
+	Meta     m.JSON[Meta]
+	Tags     *m.JSON[map[string][]*Meta]
+	Price    int64  ` + "`" + `maago:"decimal=2,default=1.50"` + "`" + `
+	Fee      *int64 ` + "`" + `maago:"decimal=3,default=1"` + "`" + `
+	Score    float64
+	TotalScore float64
+}
+`})
+	if errs != "" {
+		t.Fatal(errs)
+	}
+	got := ""
+	for _, f := range apps[0].Models[0].Fields {
+		d := ""
+		if f.Default != nil {
+			d = *f.Default
+		}
+		got += fmt.Sprintf("%s %s %v %q %d %q\n", f.Name, f.Type, f.Pointer, f.JSON, f.Decimal, d)
+	}
+	want := `ID int64 false "" 0 ""
+Key maago.UUID false "" 0 ""
+Ref maago.UUID true "" 0 ""
+Meta maago.JSON false "Meta" 0 ""
+Tags maago.JSON true "map[string][]*Meta" 0 ""
+Price int64 false "" 2 "150"
+Fee int64 true "" 3 "1000"
+Score float64 false "" 0 ""
+TotalScore float64 false "" 0 ""
+`
+	if got != want {
+		t.Errorf("got:\n%s\nwant:\n%s", got, want)
+	}
+
+	apps, errs, _ = load(t, map[string]string{"shop/models.go": `package shop
+
+import (
+	"time"
+
+	"github.com/maago-web/maago"
+)
+
+type Order struct {
+	maago.Model
+
+	ID        int64
+	Other     maago.JSON[time.Time]
+	Price     float64
+	UnitPrice *float64
+	A         int64 ` + "`" + `maago:"decimal=0"` + "`" + `
+	B         int32 ` + "`" + `maago:"decimal=2"` + "`" + `
+	C         int64 ` + "`" + `maago:"decimal=2,default=1.234"` + "`" + `
+	D         int64 ` + "`" + `maago:"decimal=2,fk=Order"` + "`" + `
+	K         maago.UUID ` + "`" + `maago:"default='x'"` + "`" + `
+}
+`})
+	for _, want := range []string{
+		`Order.Price is a float64, whose sums and comparisons are not exact, but its name says money`,
+		`Order.UnitPrice is a float64`,
+		`decimal in Order.A is "0", not 1 to 18`,
+		`decimal applies to int64, but Order.B is int32`,
+		`default "1.234" of Order.C is not a decimal with at most 2 digits after the point`,
+		`Order.D has both fk and decimal`,
+		`Order.K is maago.UUID, which cannot have a default in v0`,
+	} {
+		if !strings.Contains(errs, want) {
+			t.Errorf("no %q in:\n%s", want, errs)
+		}
+	}
+	if u := apps[0].Models[0].Unsupported; len(u) != 1 || !strings.HasPrefix(u[0].Reason, "maago.JSON[time.Time] is not supported: T must be a type of this package") {
+		t.Errorf("unsupported: %+v", u)
 	}
 }

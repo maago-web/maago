@@ -11,6 +11,15 @@
 //   - {{.}}
 {{- end}}
 {{- end}}
+{{- if .NoEdit}}
+//
+// Fields the admin shows but does not edit, as maago.JSON, which forms
+// do not read: change them in code.
+//
+{{- range .NoEdit}}
+//   - {{.}}
+{{- end}}
+{{- end}}
 
 package {{.Package}}
 
@@ -43,7 +52,7 @@ var Admin = []admin.Model{
 			}
 			rows := make([]admin.Row, len(vs))
 			for i, v := range vs {
-				rows[i] = admin.Row{ID: v.ID, Cells: []any{ {{range $i, $n := .List}}{{if $i}}, {{end}}v.{{$n}}{{end}} }}
+				rows[i] = admin.Row{ID: v.ID, Cells: []any{ {{.Cells}} }}
 			}
 			return rows, nil
 		},

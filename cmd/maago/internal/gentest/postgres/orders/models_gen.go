@@ -81,9 +81,15 @@ func scanCustomer(rows *sql.Rows) (Customer, error) {
 type NewOrderInput struct {
 	CustomerID *int64
 	Status     maago.Opt[string] // default "new"
-	Amount     int64
+	Amount     int64             // in units of 0.01 (decimal=2): 1234 is 12.34
 	Priority   maago.Opt[*int32] // default 10
 	CreatedAt  time.Time
+}
+
+// AmountText is o.Amount as a decimal, as forms read it: 1234 is
+// "12.34".
+func (o Order) AmountText() string {
+	return rt.FormatDecimal(o.Amount, 2)
 }
 
 // GetOrder reads the Order with id: sql.ErrNoRows if there is none.
@@ -158,5 +164,82 @@ func DeleteOrder(ctx context.Context, db maago.DB, id int64) error {
 func scanOrder(rows *sql.Rows) (Order, error) {
 	var v Order
 	err := rows.Scan(&v.ID, &v.CustomerID, &v.Status, &v.Amount, &v.Priority, &v.CreatedAt, &v.UpdatedAt)
+	return v, err
+}
+
+// uniqueParcel are Parcel's unique constraints, which tell the
+// maago.UniqueError of a write one refuses.
+var uniqueParcel = []rt.UniqueKey{
+	{Fields: []string{"Key"}, Key: "parcels_key_key"},
+}
+
+// NewParcelInput is what InsertParcel takes: every column but
+// the ID and the auto times.
+type NewParcelInput struct {
+	OrderID int64
+	Key     maago.UUID
+	Meta    maago.JSON[ParcelMeta]
+	Tags    *maago.JSON[[]string]
+	Ref     *maago.UUID
+}
+
+// GetParcel reads the Parcel with id: sql.ErrNoRows if there is none.
+func GetParcel(ctx context.Context, db maago.DB, id int64) (Parcel, error) {
+	return rt.One(ctx, db, scanParcel, `SELECT "id", "order_id", "key", "meta", "tags", "ref" FROM "parcels" WHERE "id" = $1`, id)
+}
+
+// InsertParcel inserts in and returns the Parcel: in's fields, with
+// the defaults, the auto times and the new ID filled in. A time goes in
+// to the microsecond; GetParcel reads what was written.
+func InsertParcel(ctx context.Context, db maago.DB, in NewParcelInput) (Parcel, error) {
+	o := Parcel{
+		OrderID: in.OrderID,
+		Key:     in.Key,
+		Meta:    in.Meta,
+		Tags:    in.Tags,
+		Ref:     in.Ref,
+	}
+	err := rt.Write(ctx, db, uniqueParcel, func() error {
+		return db.QueryRowContext(ctx, `INSERT INTO "parcels" ("order_id", "key", "meta", "tags", "ref") VALUES ($1, $2, $3, $4, $5) RETURNING "id"`, o.OrderID, o.Key, o.Meta, o.Tags, o.Ref).Scan(&o.ID)
+	})
+	if err != nil {
+		return Parcel{}, err
+	}
+	return o, nil
+}
+
+// UpdateParcel writes every column of o to the row of its ID,
+// so pass what GetParcel returned, changed: sql.ErrNoRows if there is no
+// such row.
+func UpdateParcel(ctx context.Context, db maago.DB, o *Parcel) error {
+	var n int64
+	err := rt.Write(ctx, db, uniqueParcel, func() (err error) {
+		n, err = rt.Exec(ctx, db, `UPDATE "parcels" SET "order_id" = $1, "key" = $2, "meta" = $3, "tags" = $4, "ref" = $5 WHERE "id" = $6`, o.OrderID, o.Key, o.Meta, o.Tags, o.Ref, o.ID)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// DeleteParcel deletes the Parcel with id: sql.ErrNoRows if there is none.
+func DeleteParcel(ctx context.Context, db maago.DB, id int64) error {
+	n, err := rt.Exec(ctx, db, `DELETE FROM "parcels" WHERE "id" = $1`, id)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func scanParcel(rows *sql.Rows) (Parcel, error) {
+	var v Parcel
+	err := rows.Scan(&v.ID, &v.OrderID, &v.Key, &v.Meta, &v.Tags, &v.Ref)
 	return v, err
 }

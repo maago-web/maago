@@ -25,6 +25,8 @@ var pgTypes = map[model.Type]struct {
 	model.Bool:    {[]uint32{16}, "boolean"},
 	model.Time:    {[]uint32{1184}, "timestamptz"},
 	model.Bytes:   {[]uint32{17}, "bytea"},
+	model.UUID:    {[]uint32{2950}, "uuid"},
+	model.JSON:    {[]uint32{3802}, "jsonb"}, // a model's column only: no parameter or declared column is JSON
 }
 
 // Describe prepares every variant of q on db, slices with one element and

@@ -101,7 +101,7 @@ var (
 )
 
 func init() {
-	for t := model.Int64; t <= model.Bytes; t++ {
+	for _, t := range []model.Type{model.Int64, model.Int32, model.Bool, model.Float64, model.String, model.Time, model.Bytes, model.UUID} { // not JSON, whose T no header line names
 		baseTypes[t.String()] = t
 		typeNames = append(typeNames, t.String())
 	}
@@ -542,6 +542,10 @@ func (h *header) policy(fs []field) {
 
 func (h *header) unknownType(f field, base string, slice bool, more string) {
 	fix := "allowed: " + strings.Join(typeNames, ", ") + more
+	if strings.HasPrefix(base, "maago.JSON") {
+		h.errf(f.i, "select a model's maago.JSON column as it is, into the model or a new result type: its type comes from the model", "a header line cannot name %s", f.s)
+		return
+	}
 	if s := diag.Suggest(base, typeNames); s != "" {
 		if slice {
 			s = "[]" + s

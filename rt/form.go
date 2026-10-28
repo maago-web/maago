@@ -3,6 +3,7 @@ package rt
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -42,6 +43,7 @@ type Rule struct {
 	Min, Max           int      // the length of a string, in characters; 0: none
 	MinValue, MaxValue string   // the bounds of a number, as the tag wrote them; "": none
 	Accept             []string // the kinds of file a file field takes (FileKinds); none: any
+	Decimal            int      // an int64 read as a decimal with this many digits after the point (decimal=N); 0: whole
 }
 
 // FormValues is the form r sent in its body, or nil for a GET or HEAD,
@@ -107,9 +109,53 @@ func BindString(ctx context.Context, vals url.Values, f *maago.Field[string], ru
 	}
 }
 
-// BindInt64 reads an int64 field.
+// BindInt64 reads an int64 field; with rule.Decimal, a decimal such as
+// 12.34, kept in its smallest unit, 1234.
 func BindInt64(ctx context.Context, vals url.Values, f *maago.Field[int64], rule Rule) {
-	bindInt(ctx, vals, f, rule, 64)
+	if rule.Decimal == 0 {
+		bindInt(ctx, vals, f, rule, 64)
+		return
+	}
+	if !bind(ctx, vals, f, rule) {
+		return
+	}
+	m := rtcore.SettingsFrom(ctx).Msgs
+	v, err := rtcore.ParseDecimal(f.Raw, rule.Decimal)
+	switch {
+	case errors.Is(err, rtcore.ErrPrecise):
+		f.Error = fmt.Sprintf(m.TooPrecise, rule.Decimal)
+	case isRange(err) && f.Raw[0] == '-':
+		f.Error = fmt.Sprintf(m.TooSmall, rtcore.FormatDecimal(math.MinInt64, rule.Decimal))
+	case isRange(err):
+		f.Error = fmt.Sprintf(m.TooLarge, rtcore.FormatDecimal(math.MaxInt64, rule.Decimal))
+	case err != nil:
+		f.Error = m.NotNumber
+	default:
+		if lo, err := rtcore.ParseDecimal(rule.MinValue, rule.Decimal); err == nil && v < lo {
+			f.Error = fmt.Sprintf(m.TooSmall, rule.MinValue)
+		} else if hi, err := rtcore.ParseDecimal(rule.MaxValue, rule.Decimal); err == nil && v > hi {
+			f.Error = fmt.Sprintf(m.TooLarge, rule.MaxValue)
+		} else {
+			f.Value = v
+		}
+	}
+}
+
+// FormatDecimal is n in units of 1/10^places as a decimal: 1234 with 2 is
+// "12.34". Only generated code calls it: a decimal= field's XText method.
+func FormatDecimal(n int64, places int) string { return rtcore.FormatDecimal(n, places) }
+
+// BindUUID reads a UUID field: 8-4-4-4-12 hexadecimal digits.
+func BindUUID(ctx context.Context, vals url.Values, f *maago.Field[maago.UUID], rule Rule) {
+	if !bind(ctx, vals, f, rule) {
+		return
+	}
+	v, err := maago.ParseUUID(f.Raw)
+	if err != nil {
+		f.Error = rtcore.SettingsFrom(ctx).Msgs.BadUUID
+		return
+	}
+	f.Value = v
 }
 
 // BindInt32 reads an int32 field.

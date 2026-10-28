@@ -4,6 +4,10 @@ orders/models.go:5:6: the CRUD of model Order would declare NewOrderInput, which
   fix: rename what your code declares under that name; the CRUD's names follow the model's
 orders/models.go:5:6: the CRUD of model Order would declare scanOrder, which orders/extra_test.go:3 declares already
   fix: rename what your code declares under that name; the CRUD's names follow the model's
+orders/models.go:8:2: decimal field Order.Price would declare Order.PriceText, which orders/extra.go:9 declares already
+  fix: rename your method; maago gen writes PriceText to show Price as a decimal
+orders/models.go:9:2: model Order has a field FeeText, but maago gen writes the method Order.FeeText for decimal field Fee
+  fix: rename the field FeeText
 orders/queries/bar.sql:1:10: query Bar would declare Bar, which orders/extra.go:3 declares already
   fix: rename the query, or what else declares that name
 orders/queries/foo.sql:1:10: the result type of query Foo would declare Foo, which query Foo declares too, at orders/queries/foo.sql:1

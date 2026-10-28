@@ -202,6 +202,7 @@ func File(d project.Dialect, app *model.App, apps []*model.App, guarded map[*mod
 		Name              string
 		Fields            []field
 		List              []string
+		Cells             string // the Go of a row's cells, v's fields in List
 		ListSQL, CountSQL string
 		Form              string
 		Add, Edit         bool
@@ -221,7 +222,7 @@ func File(d project.Dialect, app *model.App, apps []*model.App, guarded map[*mod
 		}
 	}
 	var ms []modelView
-	var noAdd []string
+	var noAdd, noEdit []string
 	imports := map[string]bool{}
 	for _, m := range app.Models {
 		if m.AdminHidden {
@@ -231,6 +232,11 @@ func File(d project.Dialect, app *model.App, apps []*model.App, guarded map[*mod
 		why := blocks(m)
 		if why != "" {
 			noAdd = append(noAdd, why)
+		}
+		for _, f := range m.Fields {
+			if f.Type == model.JSON && f.Admin != "hidden" {
+				noEdit = append(noEdit, m.Name+"."+f.Name)
+			}
 		}
 		v := modelView{Name: m.Name, List: m.AdminList, ListSQL: mapper.GoString(sql.List), CountSQL: mapper.GoString(sql.Count),
 			Form: formCode(m, d, models, imports, guarded[m]), Add: why == "", Edit: slices.ContainsFunc(m.Fields, editable), Row: mapper.GoString(sql.Row), Search: m.AdminSearch}
@@ -270,6 +276,11 @@ func File(d project.Dialect, app *model.App, apps []*model.App, guarded map[*mod
 				v.List = append(v.List, f.Name)
 			}
 		}
+		var cells []string
+		for _, name := range v.List {
+			cells = append(cells, shown("v", m.Field(name)))
+		}
+		v.Cells = strings.Join(cells, ", ")
 		ms = append(ms, v)
 	}
 	paths := []string{Path}
@@ -281,7 +292,7 @@ func File(d project.Dialect, app *model.App, apps []*model.App, guarded map[*mod
 		paths = append(append(append(paths, ""), pipeline.Runtime...), Path)
 	}
 	var b bytes.Buffer
-	err := tmpl.Execute(&b, map[string]any{"Marker": pipeline.Marker, "Package": app.Name, "Imports": paths, "Models": ms, "NoAdd": noAdd})
+	err := tmpl.Execute(&b, map[string]any{"Marker": pipeline.Marker, "Package": app.Name, "Imports": paths, "Models": ms, "NoAdd": noAdd, "NoEdit": noEdit})
 	if err != nil {
 		panic(err)
 	}

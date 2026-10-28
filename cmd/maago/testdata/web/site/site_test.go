@@ -600,3 +600,40 @@ func TestFormTaken(t *testing.T) {
 		}
 	}
 }
+
+// A UUID in the path and the query, and a decimal and a UUID in a form
+// (D-158).
+func TestUUIDAndDecimal(t *testing.T) {
+	h, _, _ := handler(t)
+	k := maago.NewUUID()
+	for _, c := range []struct {
+		url  string
+		code int
+		body string
+	}{
+		{KeyPageURL(k), 200, k.String() + " 00000000-0000-0000-0000-000000000000 /keys/" + k.String()},
+		{KeyPageURL(k) + "?ref=0190A5C8-0000-7000-8000-00000000000F", 200, k.String() + " 0190a5c8-0000-7000-8000-00000000000f"},
+		{"/keys/0190a5c8", 404, ""},
+		{KeyPageURL(k) + "?ref=x", 400, ""},
+	} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", c.url, nil))
+		if w.Code != c.code || !strings.Contains(w.Body.String(), c.body) {
+			t.Errorf("%s: %d %s", c.url, w.Code, w.Body)
+		}
+	}
+	for body, want := range map[string]string{
+		`{"key": "0190a5c8-0000-7000-8000-00000000000f", "price": 12.34}`: `{"Key":"0190a5c8-0000-7000-8000-00000000000f","Cents":1234}`,
+		`{"key": "0190a5c8-0000-7000-8000-00000000000f", "price": "5"}`:   `"Cents":500`,
+		`{"key": "x", "price": 1.234}`:                                    `"errors":[{"field":"key","detail":"Enter a UUID."},{"field":"price","detail":"Enter at most 2 digits after the decimal point."}]`,
+		`{"key": "0190a5c8-0000-7000-8000-00000000000f", "price": 0}`:     `"detail":"Enter 0.01 or more."`,
+	} {
+		r := httptest.NewRequest("POST", APIPriceURL(), strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("%s: %d %s, want %s", body, w.Code, w.Body, want)
+		}
+	}
+}

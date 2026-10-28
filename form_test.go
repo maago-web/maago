@@ -10,7 +10,7 @@ func TestMessagesCheck(t *testing.T) {
 	if err := Messages(rtcore.NewSettings(rtcore.Messages{TooLong: "%d자 이하로"}, rtcore.Messages(DefaultMessages), nil).Msgs).check(); err != nil {
 		t.Errorf("a fitting message: %v", err)
 	}
-	for _, m := range []Messages{{TooLong: "at most %s"}, {Required: "%d required"}, {NoRow: "%s"}, {TooSmall: "%s and %s"}} {
+	for _, m := range []Messages{{TooLong: "at most %s"}, {Required: "%d required"}, {NoRow: "%s"}, {TooSmall: "%s and %s"}, {TooPrecise: "%s places"}} {
 		if err := Messages(rtcore.NewSettings(rtcore.Messages(m), rtcore.Messages(DefaultMessages), nil).Msgs).check(); err == nil {
 			t.Errorf("%+v: no error", m)
 		}

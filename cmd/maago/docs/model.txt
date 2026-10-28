@@ -10,19 +10,28 @@ import (
 type Post struct {
 	maago.Model `maago:"table=posts,ordering=(-PublishedAt,Title),unique=(AuthorID,Slug),index=(Status,PublishedAt),admin_list=(Title,Status,PublishedAt),admin_search=(Title),admin_filter=(Status,Public)"`
 
-	ID          int64   // an int64 field named ID is the primary key
-	AuthorID    int64   `maago:"fk=Author,label='Author'"`
-	Title       string  `maago:"max=200,label='Title',help='Shown in lists'"`
-	Slug        string  `maago:"max=100,index,admin=readonly"`
-	Status      string  `maago:"max=20,choices=draft/published,default='draft'"`
-	Public      bool    `maago:"default=true"`
-	Views       int32   `maago:"default=0"`
-	Score       float64 `maago:"default=0"`
+	ID          int64                // an int64 field named ID is the primary key
+	AuthorID    int64                `maago:"fk=Author,label='Author'"`
+	Title       string               `maago:"max=200,label='Title',help='Shown in lists'"`
+	Slug        string               `maago:"max=100,index,admin=readonly"`
+	Status      string               `maago:"max=20,choices=draft/published,default='draft'"`
+	Public      bool                 `maago:"default=true"`
+	Views       int32                `maago:"default=0"`
+	Score       float64              `maago:"default=0"`
+	Price       int64                `maago:"decimal=2,default=9.99"` // money: 9.99 is 999
+	Key         maago.UUID           `maago:"unique"`
+	Meta        maago.JSON[PostMeta] // kept as JSON
 	Body        []byte
 	Secret      string     `maago:"unique,admin=hidden"`
 	PublishedAt *time.Time // a pointer allows NULL
 	CreatedAt   time.Time  `maago:"auto=create"`
 	UpdatedAt   time.Time  `maago:"auto=update"` // UpdatePost compares it: 409 on a stale copy
+}
+
+// PostMeta is what a Post keeps as JSON.
+type PostMeta struct {
+	Words int      `json:"words"`
+	Tags  []string `json:"tags"`
 }
 
 type Author struct {
@@ -43,10 +52,12 @@ import (
 
 // Publish shows the generated CRUD.
 func Publish(ctx context.Context, tx maago.Tx, authorID int64, title string) (Post, error) {
-	p, err := InsertPost(ctx, tx, NewPostInput{AuthorID: authorID, Title: title, Slug: "hello", Secret: "s", Status: maago.Set("published")})
+	p, err := InsertPost(ctx, tx, NewPostInput{AuthorID: authorID, Title: title, Slug: "hello", Secret: "s", Status: maago.Set("published"),
+		Key: maago.NewUUID(), Meta: maago.JSON[PostMeta]{V: PostMeta{Words: 2}}})
 	if err != nil {
 		return Post{}, err
 	}
-	p.Title += "!"
+	price := p.PriceText() // "9.99": the decimal a form reads, for an edit form's Raw or a page
+	p.Title += "! " + price
 	return p, UpdatePost(ctx, tx, &p)
 }

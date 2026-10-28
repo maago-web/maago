@@ -114,9 +114,28 @@ func TestMakeMigrations(t *testing.T) {
 
 			// PostgreSQL keeps the index's old name through the rename;
 			// the draft drops it by the name the database has.
-			setModels(t, root, strings.Replace(dropped, "	Body     *string~maago:\"max=500,index\"~\n", "", 1))
+			last := strings.Replace(dropped, "	Body     *string~maago:\"max=500,index\"~\n", "", 1)
+			setModels(t, root, last)
 			step("migrations/0005_drop_blog_post_body.sql", makeMigrations(t, root, ""))
 			mark(t, root, "migrations/0005_drop_blog_post_body.sql")
+			expect(t, root)
+
+			// A UUID, JSON and money, on a table with rows (pointers) and
+			// a new one: the database the migrations make is the models'.
+			typed := strings.Replace(last, "	Title    string ~maago:\"max=200\"~\n",
+				"	Title    string ~maago:\"max=200\"~\n	Key      *m.UUID ~maago:\"unique\"~\n	Meta     *m.JSON[Meta]\n	Price    *int64 ~maago:\"decimal=2,default=1.50\"~\n", 1) + `
+type Meta struct{ W int }
+
+type Item struct {
+	m.Model
+	ID    int64
+	Key   m.UUID
+	Tags  m.JSON[[]string]
+	Price int64 ~maago:"decimal=2"~
+}
+`
+			setModels(t, root, typed)
+			step("migrations/0006_create_blog_item_and_more.sql", makeMigrations(t, root, ""))
 			expect(t, root)
 
 			if written := makeMigrations(t, root, ""); written != "" {

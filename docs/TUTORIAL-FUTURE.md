@@ -105,7 +105,7 @@ maago gen
 
 ```
 blog/models.go:15:33: unknown tag key "maxlen" in Post.Title
-  fix: did you mean "max"? allowed: max, unique, index, default, choices, label, help, fk, auto, admin
+  fix: did you mean "max"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin
   see: maago doc model
 ```
 

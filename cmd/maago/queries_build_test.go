@@ -91,7 +91,7 @@ func TestQueriesGenCheck(t *testing.T) {
 func TestQueriesAfterModels(t *testing.T) {
 	root := ordersProject(t, project.SQLite)
 	models := filepath.Join(root, "models.go")
-	writeFile(t, models, strings.Replace(readFile(t, models), "\tAmount     int64\n", "\tAmount     int64\n\tNote       string\n", 1))
+	writeFile(t, models, strings.Replace(readFile(t, models), "\tAmount     int64  `maago:\"decimal=2\"`\n", "\tAmount     int64  `maago:\"decimal=2\"`\n\tNote       string\n", 1))
 	writeFile(t, filepath.Join(root, "queries", "notes.sql"), "-- name: Notes :many Order\nSELECT * FROM orders\nWHERE note <> ''\n")
 	out := text(build.Check(root))
 	if !strings.Contains(out, differ) || strings.Contains(out, "queries/") {
@@ -153,7 +153,7 @@ func TestQueriesWithoutDatabase(t *testing.T) {
 	models := filepath.Join(root, "models.go")
 	writeFile(t, models, strings.Replace(readFile(t, models), `maago:"max=100"`, `maago:"maxlen=100"`, 1))
 	writeFile(t, filepath.Join(root, "queries", "get_order.sql"), "-- nmae: X :exec\nDELETE FROM orders\n")
-	expect(t, root, `models.go:15:22: unknown tag key "maxlen" in Customer.Name`,
+	expect(t, root, `models.go:16:22: unknown tag key "maxlen" in Customer.Name`,
 		"queries/get_order.sql:1:1: query has no -- name: line", `queries/get_order.sql:1:4: unknown header key "nmae"`)
 }
 

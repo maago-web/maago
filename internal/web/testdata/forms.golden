@@ -1,14 +1,14 @@
 # unknown tag
 board/urls.go:34:40: unknown key "mim" in the tag of form field Title
-  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, optional, accept
+  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, decimal, optional, accept
 
 # not a Field
 board/urls.go:36:9: form field Rate is float64, not maago.Field[T]
-  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time, maago.File
+  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time, maago.UUID, maago.File
 
 # a type forms do not read
 board/urls.go:36:9: form field Rate is maago.Field[uint8], not maago.Field[T]
-  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time, maago.File
+  fix: use maago.Field[T] with T one of string, int64, int32, float64, bool, time.Time, maago.UUID, maago.File
 
 # unexported
 board/urls.go:36:2: form field rate is not exported
@@ -137,7 +137,31 @@ board/urls.go:49:38: view BoardNew takes form BoardForm as its In
 board/urls.go:27:27: form BoardForm names model Bord, which this package does not declare
   fix: did you mean "Board"?
 board/urls.go:34:40: unknown key "mim" in the tag of form field Title
-  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, optional, accept
+  fix: did you mean "min"? allowed: label, help, choices, min, max, min_value, max_value, decimal, optional, accept
+
+# decimal on an int32
+board/urls.go:35:40: decimal applies to int64, but form field Days is int32
+  fix: remove decimal, or make the field maago.Field[int64]: decimal=2 reads 12.34 as 1234
+
+# a decimal bound past its places
+board/urls.go:36:50: min_value of form field Rate is "0.001", not a decimal with at most 2 digits after the point
+  fix: write a decimal, like min_value=0.01
+
+# a decimal bound
+
+# a bare decimal
+board/urls.go:35:40: decimal applies to int64, but form field Days is int32
+  fix: remove decimal, or make the field maago.Field[int64]: decimal=2 reads 12.34 as 1234
+
+# a bare decimal on an int64
+board/urls.go:36:40: decimal of form field Rate is not written as the key takes it
+  fix: write the digits after the point, like decimal=2
+
+# decimal bounds swapped
+board/urls.go:36:2: form field Rate has min_value=92233720368547758.07 above max_value=92233720368547758.06
+  fix: swap them
+
+# a UUID field
 
 # Validate's signature
 board/urls.go:41:22: Validate of form NoticeForm is not a method func()
