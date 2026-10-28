@@ -258,22 +258,25 @@
 
    계획
    - **이미 된 것**(1~10번의 기록에서): `maago doc view`의 쓰는 뷰와 `func(w, r)`·`UserFrom`의 `&u`·토큰 역할(1·3·5번), `maago doc form`의 `NewX()`(2번), `maago doc model`의 돈·UUID·JSON과 ref 목록(7번). 결정은 D-41·D-140·D-157(5번), D-119(2번), D-77·D-16·D-18의 T와 admin 머리·D-158(7번), D-159와 D-153의 일꾼 한 줄(9번). 남은 것만 한다
-   - **`maago doc main`의 일꾼**(`internal/ref/topics.go`의 Main): Text의 끝("Settings of an app…" 문단 뒤: 설정 다음에 그 설정을 쓰는 일꾼)에 한 문단: 커밋 뒤에 프로세스가 죽어도 가야 하는 일(웹훅, 메일)은 outbox, `maago add outbox`가 복사하고(`go doc ./outbox`), gen은 `outbox.Admin`이 admin의 `Models`에 들어갈 때까지 거절한다. 일꾼은 main에서 `Serve` 곁에: outbox 패키지 문서·게시판 0040 main과 같은 코드 덩어리(`work, stop := context.WithCancel(ctx)` … `stop()`·`<-worked`)와 "Serve가 멈춘 뒤 일꾼은 새 일을 잡지 않고 하던 일을 끝낸다". Summary는 고치지 않는다(`doc.go`가 그대로, 목록의 한 줄은 main이 무엇을 하는지이고 일꾼은 add한 프로젝트만). 예 `cmd/maago/docs/main.txt`는 그대로: 복사본이 필요한 일꾼은 `TestAddOutbox`가 컴파일한다
-     - 결정에 없는 선택(에이전트 편의): 코드 덩어리를 `go doc ./outbox`로 미루지 않고 싣는다. main을 쓰는 에이전트가 보는 곳이 `maago doc main`이고, 멈춤의 차례(`stop()` 뒤 `<-worked`)는 틀리기 쉽다. 대가: 같은 덩어리가 세 곳(패키지 문서, 이 글, 게시판). 컴파일되는 것은 `TestAddOutbox`의 `outboxMain`과 게시판뿐
-   - **`maago doc view`의 `AfterCommit` 문장**: "a write that must not be lost is no job for it" 뒤에 outbox(maago doc main)를 가리키는 몇 마디
-   - **`maago doc model`의 UUID 한 마디**(8번이 넘긴 것): UUID에는 `default`가 없으니(붙이면 "cannot have a default" 오류) 행이 있는 표에 더하는 UUID 필드는 포인터(그 전의 행은 nil). `admin=readonly`인 값 UUID가 admin의 추가를 막는 것은 `maago doc admin`이 이미 말한다("A model has no add page if a field the form leaves out … has no default")
+   - **`maago doc main`의 일꾼**: Summary에 "after maago add outbox, runs its worker beside the server" 꼴의 한 마디(`maago doc` 목록에서 outbox가 보이는 유일한 길, `doc.go`를 `-update`로). Text의 끝("Settings of an app…" 문단 뒤)에 한 문단: 커밋 뒤에 프로세스가 죽어도 가야 하는 일(웹훅, 메일)은 outbox, `maago add outbox`가 복사한다(`go doc ./outbox`). main이 admin을 쓰면 gen은 `outbox.Admin`이 `admin.Config`의 `Models`에 들어갈 때까지 거절한다. 일꾼은 main에서 `Serve` 곁에, 아래 예처럼, Serve가 멈춘 뒤 새 일을 잡지 않고 하던 일을 끝낸다, 둘째 신호는 곧 죽인다(일은 나중에 다시 간다). 코드 덩어리는 글에 싣지 않고 **예 `cmd/maago/docs/main.txt`에**: 첫 줄 `$ maago add outbox`, `main.go`에 `deliver`와 일꾼(패키지 문서의 꼴), 두 방언에서 컴파일되고 복사본 시험까지 돈다(`TestDocExamples`)
+     - 결정에 없는 선택(에이전트 편의): 일꾼의 꼴을 `maago doc main`의 예로 보인다. main을 쓰는 에이전트가 보는 곳이고, 멈춤의 차례(`stop()` 뒤 `<-worked`)는 틀리기 쉽다. 예라서 시험이 돌린다(D-152, 계획 리뷰가 고침: 처음엔 Text의 시험 없는 덩어리였다)
+   - **`maago doc view`의 `AfterCommit`**: 문장 "a write that must not be lost is no job for it"을 outbox(maago doc main)로 가리키게, 예 `view.txt`의 `AfterCommit` 줄의 주석에 "잃어도 되는 일, 웹훅·메일은 outbox" 꼴
+   - **`maago doc model`의 default 없는 타입**(8번이 넘긴 것, 일반으로): `time.Time`·`[]byte`·`maago.UUID`·`maago.JSON`은 default가 없으니(붙이면 "cannot have a default") 행이 있는 표에 더하는 그 필드는 포인터(그 전의 행은 nil). `admin=readonly`인 값 UUID가 admin의 추가를 막는 것은 `maago doc admin`이 이미 말한다("A model has no add page if a field the form leaves out … has no default")
+   - **`maago doc admin`의 타입**(7번이 "다른 주제는 11번"으로 넘긴 것): UUID는 글로 고치고, decimal은 12.34로 읽고 보이고, JSON은 보이기만 한다는 한 문장
    - **결정 고침**(`docs/DECISIONS.md`, 새 번호 없이 각 행에 "고침(M12 n번)" 한 줄, 기록 절에 2026-10-29 (M12 11번) 한 줄)
-     - D-149: 탈출구의 차례는 D-157(결과 하나인 쓰는 뷰는 In 뒤에 `w, r`), `UserFrom`·`DBFrom`이 남는 곳은 `func(w, r)`·라이브러리·`Config.Auth`(M12 5번)
+     - D-149: 탈출구의 차례는 D-157(결과 하나인 쓰는 뷰는 In 뒤에 `w, r`), `UserFrom`·`DBFrom`이 남는 곳은 `func(w, r)`·라이브러리·`Config.Auth`·admin의 `Can`, `WithDB`도 남는다. "In은 늘 마지막"은 결과 둘인 뷰의 것(M12 5번)
      - D-150: 쓰는 뷰(D-157)는 트랜잭션이 없다(`maago.DB`만, `Tx`는 생성 오류, `NoTx`는 필요 없고 붙이면 오류, `AfterCommit`은 곧 돈다), 커밋 뒤에 프로세스가 죽어도 가야 하는 일은 outbox(D-159)
      - D-18: 폼은 JSON 칸을 받지 않는다(폼 칸은 사용자가 선언하고 JSON은 폼 칸 타입 밖이라 `form field … is …, not maago.Field[T]`의 생성 오류, 모델 폼도 같다: 빼는 칸을 생성 파일이 적을 곳이 없다): 뷰가 채운다(M12 7번)
-     - D-123: 둘째 복사 앱 `maago add outbox`(D-159), 같은 규칙(있는 파일이면 거절, `driver_test.go`의 방언), 게시판 0040이 그 복사를 쓴다(M12 9·10번)
-     - D-153: 게시판 0040의 main이 그 꼴로 일꾼을 띄우고 걷기의 `ship`이 일꾼의 전달을 본다, `maago doc main`이 그 꼴(M12 10·11번)
+     - D-123: 둘째 복사 앱 `maago add outbox`(D-159), 같은 규칙(있는 파일이면 거절, `driver_test.go`의 방언), 라이브러리 몫이 없는 첫 앱(`contrib/outbox`는 없다), 게시판 0040이 그 복사를 쓴다(M12 9·10번)
+     - D-153: 게시판 0040의 main이 그 꼴로 일꾼을 띄우고 걷기의 `ship`이 일꾼의 전달을 본다, `maago doc main`이 그 꼴, 첫 문장의 "`AfterCommit` 기다리기"는 D-150 뒤로 기다릴 것이 없다(M12 10·11번)
      - D-156: 역할에 API 클라이언트: 복사된 auth의 `SignInToken`, `maagotest.Bearer`. Bearer는 모든 라우트가 받으므로(D-129) 토큰 역할은 모든 행에 진짜 답, 게시판은 0037부터(M12 3·4번)
-     - D-158: 행이 있는 표에 더하는 UUID는 포인터(`default`가 없다), 값 UUID에 `admin=readonly`면 D-132대로 admin의 추가가 없다(M12 8번)
+     - D-158: 행이 있는 표에 더하는 UUID는 포인터(`default`가 없다), 값 UUID에 `admin=readonly`면 D-132대로 admin의 추가가 없다(M12 8번). default 없는 타입 모두 같다
+     - D-152: outbox에 주제가 없다(닫힌 목록도 루트 이름도 없다: `maago doc main`의 문단과 예, 복사된 패키지 문서)(M12 11번)
      - D-159: 게시판 0040이 보이는 쓰임(M12 10번): 웹훅 URL이 없으면 일을 쓰지 않는다, 일은 주소를 갖지 않고 보낼 때의 설정으로 간다, 4xx도 다시(0018의 "4xx는 그만"을 뒤집음: 환경에서 고친 토큰·주소가 다음 시도에 간다), 일의 id가 `Idempotency-Key`. 새 D-번호는 쓰지 않는다: 모두 outbox의 쓰임이고 틀의 새 약속이 아니다
-   - 하지 않는 것: outbox의 `maago doc` 주제(9번이 넘긴 것: auth의 주제는 main·뷰가 기대는 `Config.Auth`와 서명 때문이고, outbox는 main의 덩어리와 `Enqueue` 하나라 main 문단과 패키지 문서로 넉넉하다), `doc.go`(Summary를 고치지 않는다), README·TODO(메인), 12번
-   - 확인: `TestDocExamples`(두 방언), `TestPackageDoc`, `TestNoDecisionsInUserText`, `TestDoc`, 전체 시험(PG). 글의 코드 덩어리가 outbox 패키지 문서와 같은지 눈으로(`deliver`의 주석까지)
+   - 하지 않는 것: outbox의 `maago doc` 주제(9번이 넘긴 것: auth의 주제는 main·뷰가 기대는 `Config.Auth`와 서명 때문이고, outbox는 main의 덩어리와 `Enqueue` 하나라 main 문단과 패키지 문서로 넉넉하다), README·TODO(메인), 12번
+   - 확인: `TestDocExamples`(두 방언: main 예가 outbox와 일꾼을 컴파일하고 복사본 시험을 돌린다), `TestPackageDoc`(Summary), `TestNoDecisionsInStrings`(topics.go의 글), `TestNoDecisionsInUserText`(예), `TestDoc`, 전체 시험(PG). DECISIONS 고침은 설계 기록이라 시험이 없다
    - 계획 리뷰는 codex·fable 둘(사용자 지시)
+   - 계획 리뷰(codex·fable): 둘 다 일꾼 덩어리가 시험 없는 셋째 복사라고 → 예 `main.txt`에 `$ maago add outbox`와 일꾼(받음, Text엔 덩어리 없이). fable: gen의 `outbox.Admin` 거절은 admin을 쓸 때만(`admingen.Use`) → 조건을 붙임, 확인 셋이 이 변경을 못 본다 → `TestNoDecisionsInStrings`·예, outbox 주제 없음을 D-152에 한 줄, admin 주제의 UUID·decimal·JSON, default 없는 타입을 일반으로, D-153의 "`AfterCommit` 기다리기"가 낡음(D-150: 응답 전 동기), D-123에 "라이브러리 몫 없음", 둘째 신호, D-149에 admin의 `Can`과 In이 마지막이 아닌 쓰는 뷰. codex: `view.txt`의 `AfterCommit` 주석, Summary(fable도 목록에 outbox가 없다고), D-149에 `WithDB`가 남는다. 모두 받음
 12. **v0.3.0**(Q2): 태그, 게시판의 `go.mod`를 v0.3.0으로(0001·0013) → 확인: 빈 GOPATH에서 `go install …@v0.3.0`, 공개 판으로 걷기의 끝(`GOWORK=off`)
 13. **에이전트 게이트**: `go install …@v0.3.0`부터, 0036의 끝에서 새 단계(0037~0040) 글만 보고 서로 모르는 실행 둘. 게이트가 고칠 것을 찾으면 v0.3.1(M11과 같은 길) → 확인: 기록, 메시지와 `maago doc`만으로 씀
 14. **M12 끝**: MILESTONES의 M12 체크, README, 다음 마일스톤의 차례
