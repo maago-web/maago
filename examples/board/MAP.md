@@ -117,3 +117,4 @@ Maago 칸의 머리 말: "복사한 auth가 준다"는 0020의 `maago add auth`�
 | 0036 | 0035를 고친다: 정책을 쓰는 쿼리와 `GetPost`가 사용자를 받고 `maySee`가 간다, 남의 초안은 403이 아니라 404(D-155·D-147) | M11 |
 | 0037 | 고치기: 글 페이지의 두 폼을 생성된 `NewX()`로(0029의 손으로 쓴 이름), 권한 표에 API 토큰 역할(`auth.SignInToken`·`maagotest.Bearer`, D-119·D-156) | M12 |
 | 0038 | 고치기: 내보내기(0017)와 내려받기(0029)를 응답을 스스로 쓰는 타입 있는 뷰로(손 파싱·`panic`·`abort`·`UserFrom`·`DBFrom`과 `ServeMedia`의 손 처리가 사라진다, D-157·D-140) | M12 |
+| 0039 | 글의 열쇠와 첨부의 메타: `Post.Key *maago.UUID`(`savePost`가 `maago.NewUUID()`), API가 열쇠로 글을 읽는다(`GET /api/posts/{key}`, 정책을 쓰는 손 쿼리 `PostByKey`), `Attachment.Meta *maago.JSON[AttachmentMeta]`에 그림의 크기(D-158) | M12 |

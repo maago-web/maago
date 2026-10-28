@@ -1,0 +1,400 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Thu, 29 Oct 2026 03:15:39 +0900
+Subject: [PATCH] Give each post a key, and each image its size
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A frontend gives out links to the posts it shows. A post gets a key
+now, a maago.UUID, the address of it a frontend gives out, and the API
+reads a post by it; the id stays the board's own handle, in its pages
+and in the API's publish:
+
+    Key *maago.UUID `maago:"unique,admin=readonly"`
+
+    maago.GET("/api/posts/{key}", "api_post", APIPost, maago.API),
+
+- The key is a pointer. The posts there are have none, and a UUID has
+  no default to give them: a maago.UUID that is not a pointer would have
+  makemigrations warn of a NOT NULL column with no default. And the
+  admin does not change it (admin=readonly: a link that is out keeps
+  working), so the admin could add no post at all with a key it must
+  have and cannot write. nil is a post from before there were keys, as
+  a nil AuthorID is one from before there were accounts, or one added
+  in the admin; PostgreSQL's unique takes any number of NULLs. A new
+  model with no rows yet would take a maago.UUID and fill it in where
+  it inserts
+- savePost gives each new post one, maago.NewUUID(), so the form's
+  posts and the API's have it
+- PostByKey reads it under policy visible, as GetPost does: a key is not
+  a password, and a draft's is a 404 but to its author and staff. Its
+  Now comes from the policy, as PostDetail's does:
+
+      PostByKey(ctx, u, db, PostByKeyParams{Key: in.Key, Now: time.Now()})
+
+  A path that is not a UUID is a 404 before the view, and APIPostURL
+  takes a maago.UUID
+- JSON writes the key as its 8-4-4-4-12 text, "Key":"…". The list of
+  APIPosts has it too, for the frontend's links: post_list.sql and
+  search_posts.sql both select p.key, as they share PostSummary
+- A column added to a model is a column more for each query whose result
+  is the model: maago gen named the two that list theirs,
+  recent_posts.sql (missing "key") and post_attachments.sql (missing
+  "meta"). post_by_key.sql selects *, which has every column
+
+An attachment keeps what its file tells of itself, as JSON:
+
+    Meta *maago.JSON[AttachmentMeta]
+
+What a file tells differs by its kind, and may grow, with no migration;
+an image tells its size, which image.DecodeConfig reads before the file
+is saved. A form does not read a maago.JSON: the view fills it in, and
+the admin shows it without changing it. A template reads the value as
+.V, {{with .Meta}}{{.V.Width}}×{{.V.Height}}{{end}}, checked as any
+field is. Its JSON names are the Go names, Width and Height, as the
+API's are.
+
+The migration is makemigrations --name post_key_attachment_meta, with
+no warning: both columns allow NULL.
+
+diff --git a/board/attach_test.go b/board/attach_test.go
+index 84e9b81..2624e3f 100644
+--- a/board/attach_test.go
++++ b/board/attach_test.go
+@@ -2,6 +2,8 @@ package board
+ 
+ import (
+ 	"bytes"
++	"image"
++	"image/png"
+ 	"mime/multipart"
+ 	"net/http"
+ 	"net/http/httptest"
+@@ -71,6 +73,9 @@ func TestAttachments(t *testing.T) {
+ 		t.Fatalf("rows: %+v", as)
+ 	}
+ 	a := as[0]
++	if a.Meta != nil {
++		t.Errorf("a text file's meta: %+v", a.Meta)
++	}
+ 	if entries, _ := os.ReadDir(cfg.MediaDir); len(entries) != 1 || entries[0].Name() != a.Key {
+ 		t.Errorf("the media directory: %v", entries)
+ 	}
+@@ -102,6 +107,21 @@ func TestAttachments(t *testing.T) {
+ 	if w := upload(ann, p.ID, "big.bin", make([]byte, 10<<20+1)); w.Code != 413 {
+ 		t.Errorf("past 10MB: %d", w.Code)
+ 	}
++	// An image tells its size, which the post's page shows.
++	var img bytes.Buffer
++	if err := png.Encode(&img, image.NewGray(image.Rect(0, 0, 3, 2))); err != nil {
++		t.Fatal(err)
++	}
++	if w := upload(ann, p.ID, "dot.png", img.Bytes()); w.Code != 303 {
++		t.Fatalf("upload an image: %d %s", w.Code, w.Body)
++	}
++	as, _ = PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID})
++	if len(as) != 2 || as[1].Meta == nil || as[1].Meta.V != (AttachmentMeta{Width: 3, Height: 2}) {
++		t.Fatalf("an image's meta: %+v", as)
++	}
++	if _, page := get(h, PostDetailURL(p.ID)); !strings.Contains(page, "3×2") {
++		t.Errorf("the image's size on the post: %s", page)
++	}
+ 
+ 	// A draft's files: its author and staff only (M7's condition 6). To
+ 	// anyone else they are not there.
+diff --git a/board/models.go b/board/models.go
+index d6143a3..fe19c3e 100644
+--- a/board/models.go
++++ b/board/models.go
+@@ -37,6 +37,10 @@ type Post struct {
+ 	Hidden bool `maago:"default=false"`
+ 	// Who wrote it; nil for the posts from before there were accounts.
+ 	AuthorID *int64 `maago:"fk=auth.User"`
++	// The post's key: the address of it a frontend gives out, which stays
++	// as it is. nil for the posts from before there were keys, and those
++	// added in the admin.
++	Key *maago.UUID `maago:"unique,admin=readonly"`
+ }
+ 
+ type Comment struct {
+@@ -61,6 +65,16 @@ type Attachment struct {
+ 	Type      string
+ 	Size      int64
+ 	CreatedAt time.Time `maago:"auto=create"`
++	// What the file tells of itself; nil when it tells nothing, and for
++	// the files from before.
++	Meta *maago.JSON[AttachmentMeta]
++}
++
++// AttachmentMeta is what a file tells of itself, kept as JSON: what it
++// tells differs by the kind of file, and may grow without a migration. An
++// image tells its size in pixels.
++type AttachmentMeta struct {
++	Width, Height int
+ }
+ 
+ // media is the attachment's file, as maago.ServeMedia takes it.
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index ad87901..e460c4d 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -59,14 +59,15 @@ func TestPermissions(t *testing.T) {
+ 	if err != nil {
+ 		t.Fatal(err)
+ 	}
+-	// post is a new post of ann's on b, with a title of its own, in
+-	// status; old is one from before there were accounts, with no
++	// post is a new post of ann's on b, with a title and a key of its
++	// own, in status; old is one from before there were accounts, with no
+ 	// author.
+ 	n := 0
+ 	post := func(status string, author *int64) Post {
+ 		t.Helper()
+ 		n++
+-		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, AuthorID: author, Title: fmt.Sprintf("글 %d", n), Body: "본문", Status: maago.Set(status)})
++		key := maago.NewUUID()
++		p, err := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, AuthorID: author, Title: fmt.Sprintf("글 %d", n), Body: "본문", Status: maago.Set(status), Key: &key})
+ 		if err != nil {
+ 			t.Fatal(err)
+ 		}
+@@ -137,6 +138,7 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "post_new", URL: PostNewURL(b.ID), Want: want(303, 200, 200, 200, 200)},
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(out.ID), Want: want(200, 200, 200, 200, 200)},
+ 		maagotest.Row{Route: "api_posts", URL: APIPostsURL(b.ID), Want: want(200, 200, 200, 200, 200)},
++		maagotest.Row{Route: "api_post", URL: APIPostURL(*out.Key), Want: want(200, 200, 200, 200, 200)},
+ 		// The writes: anybody signed in.
+ 		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "bob의 게시판"), Want: want(401, 303, skip, skip, skip)},
+ 		maagotest.Row{Route: "board_create", URL: BoardCreateURL(), Body: form("name", "cat의 게시판"), Want: want(skip, skip, 303, skip, skip)},
+@@ -176,6 +178,7 @@ func TestPermissions(t *testing.T) {
+ 		// What is not out.
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(unseen.ID), Want: want(404, 404, 404, 200, 200)},
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(scheduled.ID), Want: want(404, 404, 404, 200, 200)},
++		maagotest.Row{Route: "api_post", URL: APIPostURL(*unseen.Key), Want: want(404, 404, 404, 200, 200)},
+ 		maagotest.Row{Route: "comment_create", URL: CommentCreateURL(unseen.ID), Body: form("text", "초안의 댓글"), Want: want(401, 404, 404, 303, 303)},
+ 		// Me: whoever is signed in, as their own page.
+ 		maagotest.Row{Route: "me", URL: MeURL(), Want: want(303, 200, 200, 200, 200)},
+diff --git a/board/queries/post_attachments.sql b/board/queries/post_attachments.sql
+index b591a56..1b2f9a6 100644
+--- a/board/queries/post_attachments.sql
++++ b/board/queries/post_attachments.sql
+@@ -1,7 +1,7 @@
+ -- name: PostAttachments :many Attachment
+ -- The files of a post, in the order they came.
+ -- param: post_id int64
+-SELECT id, post_id, key, name, type, size, created_at
++SELECT id, post_id, key, name, type, size, created_at, meta
+ FROM board_attachment
+ WHERE post_id = :post_id
+ ORDER BY id
+diff --git a/board/queries/post_by_key.sql b/board/queries/post_by_key.sql
+new file mode 100644
+index 0000000..7a2b05a
+--- /dev/null
++++ b/board/queries/post_by_key.sql
+@@ -0,0 +1,5 @@
++-- name: PostByKey :one Post
++-- The post of a key, if the user may read it.
++-- param: key maago.UUID
++-- policy: visible p
++SELECT * FROM board_post p WHERE p.key = :key AND visible(p)
+diff --git a/board/queries/post_list.sql b/board/queries/post_list.sql
+index 3dbbe41..989f26c 100644
+--- a/board/queries/post_list.sql
++++ b/board/queries/post_list.sql
+@@ -7,7 +7,7 @@
+ -- param: offset   int64
+ -- column: comments int64
+ -- policy: out p
+-SELECT p.id, p.title, p.created_at,
++SELECT p.id, p.key, p.title, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+ WHERE p.board_id = :board_id AND out(p)
+diff --git a/board/queries/recent_posts.sql b/board/queries/recent_posts.sql
+index 04e0327..8e7ee2c 100644
+--- a/board/queries/recent_posts.sql
++++ b/board/queries/recent_posts.sql
+@@ -3,7 +3,7 @@
+ -- param: limit int64
+ -- policy: none board_post the tests read the newest posts, drafts too
+ SELECT id, board_id, title, status, views, created_at, updated_at, body,
+-       pinned_from, pinned_until, publish_at, hidden, author_id
++       pinned_from, pinned_until, publish_at, hidden, author_id, key
+ FROM board_post
+ WHERE NOT hidden
+ ORDER BY created_at DESC, id DESC
+diff --git a/board/queries/search_posts.sql b/board/queries/search_posts.sql
+index f994f75..872f4df 100644
+--- a/board/queries/search_posts.sql
++++ b/board/queries/search_posts.sql
+@@ -5,7 +5,7 @@
+ -- param: limit    int64
+ -- column: comments int64
+ -- policy: out p
+-SELECT p.id, p.title, p.created_at,
++SELECT p.id, p.key, p.title, p.created_at,
+        (SELECT count(*) FROM board_comment c WHERE c.post_id = p.id) AS comments
+ FROM board_post p
+ WHERE p.board_id = :board_id AND out(p)
+diff --git a/board/templates/post_page.html b/board/templates/post_page.html
+index 060295b..d026f65 100644
+--- a/board/templates/post_page.html
++++ b/board/templates/post_page.html
+@@ -9,7 +9,7 @@
+ <form method="post" action="{{url "post_delete" .Post.ID}}"><button>지우기</button></form>
+ <h2>첨부</h2>
+ <ul>{{range .Attachments}}
+-<li><a href="{{url "attachment" .ID}}">{{.Name}}</a> <small>{{.Size}} bytes</small></li>{{else}}
++<li><a href="{{url "attachment" .ID}}">{{.Name}}</a> <small>{{.Size}} bytes{{with .Meta}}, {{.V.Width}}×{{.V.Height}}{{end}}</small></li>{{else}}
+ <li>첨부가 없습니다.</li>{{end}}
+ </ul>
+ <form method="post" action="{{url "attachment_add" .Post.ID}}" enctype="multipart/form-data">
+diff --git a/board/urls.go b/board/urls.go
+index f9773bb..96109a8 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -27,6 +27,7 @@ var Routes = maago.Routes{
+ 	// JSON for a frontend on another origin: main trusts it in Config.Origins.
+ 	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
+ 	maago.POST("/api/boards/{id}/posts", "api_post_create", APICreatePost, maago.API),
++	maago.GET("/api/posts/{key}", "api_post", APIPost, maago.API),
+ 	maago.POST("/api/posts/{id}/publish", "api_post_publish", APIPublish, maago.API),
+ 	maago.GET("/api/me", "api_me", Me, maago.API),
+ }
+diff --git a/board/views.go b/board/views.go
+index df40601..474fd60 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -3,6 +3,10 @@ package board
+ import (
+ 	"context"
+ 	"errors"
++	"image"
++	_ "image/gif" // the image formats fileMeta reads
++	_ "image/jpeg"
++	_ "image/png"
+ 	"log"
+ 	"net/http"
+ 	"time"
+@@ -142,11 +146,15 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
+ 		return maago.Result[PostPage]{}, err
+ 	}
+ 	if in.Form.Valid() {
++		meta, err := fileMeta(in.Form.File.Value)
++		if err != nil {
++			return maago.Result[PostPage]{}, err
++		}
+ 		m, err := maago.SaveMedia(ctx, in.Form.File.Value)
+ 		if err != nil {
+ 			return maago.Result[PostPage]{}, err
+ 		}
+-		if _, err := InsertAttachment(ctx, tx, NewAttachmentInput{PostID: post.ID, Key: m.Key, Name: m.Name, Type: m.Type, Size: m.Size}); err != nil {
++		if _, err := InsertAttachment(ctx, tx, NewAttachmentInput{PostID: post.ID, Key: m.Key, Name: m.Name, Type: m.Type, Size: m.Size, Meta: meta}); err != nil {
+ 			maago.DeleteMedia(ctx, m.Key) // no row points at it: it would stay for nothing
+ 			return maago.Result[PostPage]{}, err
+ 		}
+@@ -157,6 +165,21 @@ func Attach(ctx context.Context, u auth.User, tx maago.Tx, in AttachIn) (maago.R
+ 	return maago.Show(page), err
+ }
+ 
++// fileMeta is what f tells of itself: an image's size, for the formats
++// imported for it here. A file that is no such image tells nothing: nil.
++func fileMeta(f maago.File) (*maago.JSON[AttachmentMeta], error) {
++	r, err := f.Open()
++	if err != nil {
++		return nil, err
++	}
++	defer r.Close()
++	c, _, err := image.DecodeConfig(r)
++	if err != nil {
++		return nil, nil // not an image Go reads
++	}
++	return &maago.JSON[AttachmentMeta]{V: AttachmentMeta{Width: c.Width, Height: c.Height}}, nil
++}
++
+ // DownloadIn is the attachment DownloadAttachment sends.
+ type DownloadIn struct {
+ 	ID int64 `maago:"path=id"`
+@@ -287,9 +310,11 @@ func savePost(ctx context.Context, tx maago.Tx, u auth.User, boardID int64, f *P
+ 			return Post{}, false, nil
+ 		}
+ 	}
++	key := maago.NewUUID()
+ 	p, err := InsertPost(ctx, tx, NewPostInput{
+ 		BoardID: boardID, AuthorID: &u.ID, Title: f.Title.Value, Body: f.Body.Value,
+ 		PinnedFrom: given(f.PinnedFrom), PinnedUntil: given(f.PinnedUntil), PublishAt: given(f.PublishAt),
++		Key: &key,
+ 	})
+ 	if f.Fail(err) {
+ 		return Post{}, false, nil
+@@ -380,6 +405,17 @@ func APICreatePost(ctx context.Context, u auth.User, tx maago.Tx, in NewPostIn)
+ 	}
+ }
+ 
++type APIPostIn struct {
++	Key maago.UUID `maago:"path=key"`
++}
++
++// APIPost is the post of a key as JSON, for the link a frontend gives
++// out. A key is not a password: a draft's is not found but for its author
++// and staff (policy visible), as by its id.
++func APIPost(ctx context.Context, u *auth.User, db maago.DB, in APIPostIn) (Post, error) {
++	return PostByKey(ctx, u, db, PostByKeyParams{Key: in.Key, Now: time.Now()})
++}
++
+ // APIPublish publishes a draft for a frontend, and returns it: what
+ // APICreatePost writes is a draft too.
+ func APIPublish(ctx context.Context, u auth.User, tx maago.Tx, in PostIn) (Post, error) {
+diff --git a/board/web_test.go b/board/web_test.go
+index 072590c..80b5c35 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -441,15 +441,34 @@ func TestAPI(t *testing.T) {
+ 	if w := call("GET", APIPostsURL(b.ID), front, ""); strings.Contains(w.Body.String(), "API 글") {
+ 		t.Errorf("a draft in the list: %s", w.Body)
+ 	}
++	// Its key is the frontend's link to it; a draft's only for its author.
++	if ps[0].Key == nil {
++		t.Fatal("the API's post has no key")
++	}
++	key := *ps[0].Key
++	if w := call("GET", APIPostURL(key), front, ""); w.Code != 404 {
++		t.Errorf("a draft by its key, without a token: %d %s", w.Code, w.Body)
++	}
++	if w := call("GET", APIPostURL(key), front, "", bearer...); w.Code != 200 || !strings.Contains(w.Body.String(), `"Title":"API 글"`) {
++		t.Errorf("a draft by its key, to its author: %d %s", w.Code, w.Body)
++	}
+ 	if w := call("POST", APIPostPublishURL(ps[0].ID), front, ""); w.Code != 401 {
+ 		t.Errorf("publish without a token: %d", w.Code)
+ 	}
+-	if w := call("POST", APIPostPublishURL(ps[0].ID), front, "", bearer...); w.Code != 200 || !strings.Contains(w.Body.String(), `"Status":"published"`) {
++	if w := call("POST", APIPostPublishURL(ps[0].ID), front, "", bearer...); w.Code != 200 || !strings.Contains(w.Body.String(), `"Status":"published"`) || !strings.Contains(w.Body.String(), `"Key":"`+key.String()+`"`) {
+ 		t.Errorf("publish: %d %s", w.Code, w.Body)
+ 	}
++	if w := call("GET", APIPostURL(key), front, ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"Title":"API 글"`) {
++		t.Errorf("by its key: %d %s", w.Code, w.Body)
++	}
++	for _, path := range []string{"/api/posts/abc", APIPostURL(maago.NewUUID())} {
++		if w := call("GET", path, front, ""); w.Code != 404 {
++			t.Errorf("%s: %d %s", path, w.Code, w.Body)
++		}
++	}
+ 
+ 	w = call("GET", APIPostsURL(b.ID), front, "")
+-	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || !strings.Contains(w.Body.String(), `"Title":"API 글"`) || strings.Contains(w.Body.String(), "남의 글") {
++	if w.Code != 200 || w.Header().Get("Content-Type") != "application/json" || !strings.Contains(w.Body.String(), `"Title":"API 글"`) || !strings.Contains(w.Body.String(), `"Key":"`+key.String()+`"`) || strings.Contains(w.Body.String(), "남의 글") {
+ 		t.Errorf("list: %d %v %s", w.Code, w.Header(), w.Body)
+ 	}
+ 	if w := call("GET", APIPostsURL(b.ID+1), front, ""); w.Code != 404 {
+diff --git a/migrations/0006_post_key_attachment_meta.sql b/migrations/0006_post_key_attachment_meta.sql
+new file mode 100644
+index 0000000..245c55b
+--- /dev/null
++++ b/migrations/0006_post_key_attachment_meta.sql
+@@ -0,0 +1,5 @@
++ALTER TABLE "board_attachment" ADD COLUMN "meta" JSONB;
++
++ALTER TABLE "board_post" ADD COLUMN "key" UUID;
++
++ALTER TABLE "board_post" ADD CONSTRAINT "board_post_key_key" UNIQUE ("key");

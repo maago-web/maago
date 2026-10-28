@@ -5,6 +5,7 @@ examples/board/board/queries/my_posts.sql:7:6 board_post p
 examples/board/board/queries/my_posts.sql:8:6 board_board b
 examples/board/board/queries/pinned_overlap.sql:10:6 board_post
 examples/board/board/queries/post_attachments.sql:5:6 board_attachment
+examples/board/board/queries/post_by_key.sql:5:15 board_post p
 examples/board/board/queries/post_comments.sql:5:6 board_comment
 examples/board/board/queries/post_detail.sql:6:6 board_post p
 examples/board/board/queries/post_detail.sql:7:6 board_board b

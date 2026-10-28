@@ -110,6 +110,10 @@ func TestBoardTutorialCatches(t *testing.T) {
 		{"ServeMedia's error, dropped", "0038-Type-the-views-that-write-the-response-themselves.patch", "+\treturn maago.ServeMedia(w, r, a.media())", "+\treturn func(error) error { return nil }(maago.ServeMedia(w, r, a.media()))", "go test: "},
 		// Its response is out before any commit: no transaction (D-157).
 		{"a writing view's Tx", "0038-Type-the-views-that-write-the-response-themselves.patch", "+func ExportBoard(ctx context.Context, u *auth.User, db maago.DB, in ExportIn", "+func ExportBoard(ctx context.Context, u *auth.User, tx maago.Tx, in ExportIn", "maago gen:\nboard/export.go:30:41: view ExportBoard takes a transaction"},
+		// The API's posts get their key where every post is written.
+		{"a post without its key", "0039-Give-each-post-a-key-and-each-image-its-size.patch", "+\t\tKey: &key,", "+\t\tKey: func(*maago.UUID) *maago.UUID { return nil }(&key),", "go test: "},
+		// A template reads a maago.JSON's value as .V, checked as any field.
+		{"an image's size, misspelled", "0039-Give-each-post-a-key-and-each-image-its-size.patch", "bytes{{with .Meta}}, {{.V.Width}}", "bytes{{with .Meta}}, {{.V.Widht}}", "maago gen:\nboard/templates/post_page.html:12:97: an element of PostPage.Attachments.Meta.V has no field or method \"Widht\""},
 		// A fix: line the step quotes is maago gen's, word for word.
 		{"a misquoted fix", "0035-Write-who-may-read-a-post.patch", "each shows)", "each show)", "maago gen: the message quotes\n"},
 		// A query that reads the posts without their policy stops maago gen,
