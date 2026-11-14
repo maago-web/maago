@@ -281,6 +281,13 @@
 
    기록(2026-10-29): `maago doc main`의 Summary(`doc.go`)와 outbox 문단, 예 `main.txt`의 `$ maago add outbox`·`Enqueue`·`deliver`·`Serve` 곁의 일꾼·`TestSite`의 `RunOnce`, `maago doc view`의 `AfterCommit` 문장과 `view.txt`의 주석, `maago doc model`의 default 없는 타입, `maago doc admin`의 UUID·decimal·JSON, DECISIONS D-149·D-150·D-18·D-123·D-152·D-153·D-156·D-158·D-159와 기록 줄. 전체 시험(PG) 초록
 12. **v0.3.0**(Q2): 태그, 게시판의 `go.mod`를 v0.3.0으로(0001·0013) → 확인: 빈 GOPATH에서 `go install …@v0.3.0`, 공개 판으로 걷기의 끝(`GOWORK=off`)
+
+   **계획**(M11 9번의 길 그대로)
+   - 차례: 이 계획 커밋 → PG 전체 시험(`go test -timeout 30m ./...`, 종료 코드는 로그의 `go test exit=` 줄) → push(앞선 커밋과 함께) → 그 커밋에 `v0.3.0` 주석 태그(v0.2.0과 같은 꼴)·push(다른 태그 없음, force-push 없음) → 확인 셋: `git ls-remote --tags origin v0.3.0`, 빈 `GOPATH`·`GOMODCACHE`·`GOCACHE`·`GOWORK=off`에서 `GOPROXY=direct`와 기본 프록시 둘 다 `go install github.com/maago-web/maago/cmd/maago@v0.3.0`과 `maago help`, 바이너리의 `go version -m`이 `github.com/maago-web/maago v0.3.0`
+   - 게시판: `steps.sh unpack`, 0001의 `go.mod`·`go.sum`(require와 두 줄)과 0013의 문맥 줄을 v0.3.0으로(체크섬은 기본 프록시와 sum.golang.org가 확인한 `go mod download -json`의 것. 루트 `go.mod`는 v0.2.0 뒤 바뀌지 않아 `/go.mod` 줄의 h1은 같을 것), 그 사이 커밋은 rebase가 나르고 `pack`. 태그는 게시판 커밋보다 앞이다: 걷기는 `go.work`로 로컬 모듈을 보므로 게시판 커밋이 태그를 기다리지 않는다
+   - 공개 판으로 걷기의 끝: 마지막 단계(0040)의 사본(`git archive`)에서 `GOWORK=off`, 설치한 v0.3.0 `maago`로 새 PG 데이터베이스에 `add auth`·`add outbox`(0040의 `Maago-Run`)·`migrate`·`gen`·`check`, `go mod tidy -diff`·`go mod verify`·`go vet ./...`·`go test ./...`
+   - 하지 않는 것: 릴리스 노트·GitHub Release(v0.2.0에도 없다), 게시판 밖의 `go.mod` 고침
+   - 사람의 판단: 태그와 push는 밖으로 나가는 일이라 묻는다(WORKFLOW)
 13. **에이전트 게이트**: `go install …@v0.3.0`부터, 0036의 끝에서 새 단계(0037~0040) 글만 보고 서로 모르는 실행 둘. 게이트가 고칠 것을 찾으면 v0.3.1(M11과 같은 길) → 확인: 기록, 메시지와 `maago doc`만으로 씀
 14. **M12 끝**: MILESTONES의 M12 체크, README, 다음 마일스톤의 차례
 
