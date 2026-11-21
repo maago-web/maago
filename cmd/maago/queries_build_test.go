@@ -105,14 +105,14 @@ func TestQueriesBeforeMigration(t *testing.T) {
 			short := `queries/short.sql:2:1: result columns do not match model Customer: missing "name", "email"`
 			lines(t, root, email, short+against, typo(d)+against)
 
+			bad := filepath.Join(root, "queries", "bad.sql")
+			writeFile(t, bad, "-- nmae: Bad :exec\nDELETE FROM orders\n")
 			if makeMigrations(t, root, "") == "" {
 				t.Fatal("no migration for Email")
 			}
-			lines(t, root, short, typo(d))
-			os.Remove(filepath.Join(root, "queries", "typo.sql"))
-			os.Remove(filepath.Join(root, "queries", "short.sql"))
-			writeFile(t, filepath.Join(root, "queries", "bad.sql"), "-- nmae: Bad :exec\nDELETE FROM orders\n")
 			lines(t, root, "queries/bad.sql:1:1: query has no -- name: line", `queries/bad.sql:1:4: unknown header key "nmae"`)
+			os.Remove(bad)
+			lines(t, root, short, typo(d))
 
 			// A field dropped before the migration: the query still using
 			// its column fails now, not after makemigrations.

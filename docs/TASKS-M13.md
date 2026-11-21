@@ -107,7 +107,7 @@
       - `checkDatabase`: `Diagnose`의 진단을 먼저 계산한다(`a`를 바꾸기 전). 차이가 있으면 `append(ds, againstModels(ctx, s, a, cs, diff)...)`를 돌려준다.
       - `againstModels`는 초안을 만들어 `dialect.Split`하고 1의 함수로 적용한다. 실패하거나 차이가 남으면 nil을 준다. 아니면 사용자 쿼리를 prepare해 그 진단에 "against the models"를 붙인다.
       - `checkQueries`를 둘로 나눈다. 사용자 쿼리·`Results`·정책 probe가 한쪽이고, CRUD·admin의 prepare(maago 버그의 안전띠, `checkGenerated`)가 다른 쪽이다(Q8: 그 prepare는 같을 때만). 같을 때의 길은 지금과 같다.
-      - `stages`·`checkDatabase`·`checkQueries`의 주석을 고친다.
+      - `checkDatabase`·`checkQueries`의 주석을 고친다.
       - → 확인: 아래 시험.
    3. `internal/diag/diag.go`: `See`처럼 생긴 `Note(suffix string, ds []Diagnostic) []Diagnostic`를 둔다. 필드를 내보내지 않으므로 글 끝에 붙이는 길이 따로 필요하다. 붙는 글은 ` (checked against the models)`이고, prepare 오류, `Results`의 `missing`, 정책 probe 모두에 붙는다. "run makemigrations"가 같은 출력에 있으니 무엇과 비교한 오류인지만 말하면 된다. fix는 쿼리의 fix 그대로다.
    4. 시험 `cmd/maago/queries_build_test.go`: `TestQueriesAfterModels`를 두 방언(`ordersProject(t, d)`)으로 넓힌다. 이름은 `TestQueriesBeforeMigration`으로 바꾸고 주석도 고친다. 기대는 모두 `diagnostics(text(…))`의 줄 전체를 `slices.Equal`로 본다(`expect`는 앞머리만 맞춰 접미사의 있고 없음을 못 본다). PG에서 글이 다른 곳만 앞머리와 `HasSuffix`로. 한 프로젝트에서 차례로:
@@ -122,7 +122,7 @@
    5. 시험, 같은 파일:
       - `TestQueriesHandMigration`(두 방언): 손 마이그레이션에만 있는 이름. SQLite는 `0001_initial.sql`의 `customer_id` 인덱스 이름을 손으로 바꾸고 쿼리에 `INDEXED BY 그 이름`, PG는 `0002_kor.sql`에 `CREATE TEXT SEARCH CONFIGURATION kor (COPY = simple);`와 `to_tsvector('kor', status)`인 쿼리. 먼저 마이그레이션이 맞는 상태에서 gen이 통과함을 본다(오늘 `Read`가 받는다는 확인). 그다음 `Customer`에 nullable 필드를 더하고(초안이 `orders`를 건드리지 않아 손 이름이 그대로다) 오타 쿼리 하나를 같이 두면, 진단이 정확히 둘: 차이 줄과 오타 쿼리 + ` (checked against the models)`, 손 이름 쿼리의 줄은 없다(`slices.Equal`). 오타 줄이 있으니 쿼리를 실제로 본 갈래이고, 손 이름의 줄이 없으니 손 마이그레이션이 있는 DB에서 본 것이다: 모델 DDL만의 DB로 되돌아가는 회귀를 CI가 잡는다. codex의 "고를 수 있는 시험 seam"은 받지 않는다: 이 두 줄의 기대가 seam 없이 같은 것을 고정한다.
         → 확인: `againstModels`를 일부러 모델 DDL만의 연습 DB에 prepare하게 바꾸면 두 방언 모두 빨강임을 한 번 돌려 보고 되돌린다.
-      - `TestQueriesDraftFails`(SQLite·PG): `0002_data.sql`이 `orders`에 행 하나를 넣는다. 기본값 없는 NOT NULL 필드를 더하고, 오타 쿼리 하나를 둔다 → gen의 진단이 차이 줄 하나뿐임을 `slices.Equal`로(되돌아가는 갈래를 고정한다). 같은 상태에서 makemigrations가 "maago did not write"로 멈추는 것도 본다(실패 갈래에 실제로 들어갔다는 증명). NOT NULL의 꼴은 구현에서 방언마다 실제로 실패하는 것으로 고른다(PG `ADD COLUMN … NOT NULL`, SQLite 재구성의 `INSERT … SELECT`).
+      - `TestQueriesDraftFails`(SQLite·PG): `0002_data.sql`이 `customers`에 행 하나를 넣는다(필드를 `Customer`에 더하므로). 기본값 없는 NOT NULL 필드를 더하고, 오타 쿼리 하나를 둔다 → gen의 진단이 차이 줄 하나뿐임을 `slices.Equal`로(되돌아가는 갈래를 고정한다). 같은 상태에서 makemigrations가 "maago did not write"로 멈추는 것도 본다(실패 갈래에 실제로 들어갔다는 증명). NOT NULL의 꼴은 구현에서 방언마다 실제로 실패하는 것으로 고른다(PG `ADD COLUMN … NOT NULL`, SQLite 재구성의 `INSERT … SELECT`). 두 가드(`ApplyDraft`의 실패, 다시 읽어 남은 차이)는 함께만 고정된다: 적용은 됐는데 차이가 남는 것은 maago 버그라 seam 없이 만들 수 없다.
    6. 문서
       - `internal/ref/topics.go:140`(`maago doc query`): "a practice database built from the migrations" 뒤에 한 문장. 마이그레이션이 아직 모델과 다르면 makemigrations의 초안을 더한 DB에 prepare하고, 그 오류는 "checked against the models"라고 말한다.
       - `docs/ARCHITECTURE.md` §3의 DB 검사 줄(119): "같으면 같은 DB에서" 뒤에 "다르면 초안을 더한 DB에서 사용자 쿼리만".
@@ -134,14 +134,15 @@
 
    하지 않는 것
    - 모델 DDL만의 연습 DB에 prepare하기(위의 ★)
-   - 차이가 있을 때 CRUD·admin의 prepare(Q8)
+   - 차이가 있을 때 CRUD·admin의 prepare(Q8). 겉으로 보이는 차이가 없는 안전띠라 시험도 없다
    - 단계를 넘는 갈래(Q7, D-61 그대로)
    - `TestMaxlen`·`TUTORIAL-FUTURE.md` §3 고치기(Q7의 것이고 이 작업에 닿지 않는다)
    - makemigrations의 진단 글 바꾸기
    - `--rename`을 짐작해 초안에 넣기. 초안은 지움과 더함이고, prepare에는 같은 스키마다.
    - PG의 `search_path` 밖(예: `public`)에 만든 것(TODO "연습 PG의 `search_path`" 그대로)
 
-   계획 리뷰 codex·fable 반영: D-162와의 충돌(codex)은 리뷰가 갈렸고 Q8이 꼴을 계획에 맡긴 에이전트 편의의 결정이라 에이전트 편의로 ★를 지키고 까닭을 적음, 초안 실패 뒤 `a`를 다시 읽지 않고 닫기로 버림(따로 연결은 받지 않음), 음성 회귀를 seam 대신 오타 쿼리와 두 줄 `slices.Equal`로 CI에(codex·fable), SQLite에도 이름이 닿음(`INDEXED BY`)을 고치고 음성 시험을 두 방언에, (c)·(d)를 바꿔 지움은 새 프로젝트에서, 모든 기대를 줄 전체로, 정책 probe 접미사 시험, DraftFails의 gen도 `slices.Equal`, `kor` 쿼리는 `status`로. 글 ` (checked against the models)`는 그대로(fable 7).
+   계획 리뷰 codex·fable 반영: D-162와의 충돌(codex)은 리뷰가 갈렸고 Q8이 꼴을 계획에 맡긴 에이전트 편의의 결정이라 에이전트 편의로 ★를 지키고 까닭을 적음, 초안 실패 뒤 `a`를 다시 읽지 않고 닫기로 버림(따로 연결은 받지 않음), 음성 회귀를 seam 대신 오타 쿼리와 두 줄 `slices.Equal`로 CI에(codex·fable), SQLite에도 이름이 닿음(`INDEXED BY`)을 고치고 음성 시험을 두 방언에, (c)·(d)를 바꿔 지움은 새 프로젝트에서, 모든 기대를 줄 전체로, 정책 probe 접미사는 시험 없이 같은 길로(4e), DraftFails의 gen도 `slices.Equal`, `kor` 쿼리는 `status`로. 글 ` (checked against the models)`는 그대로(fable 7).
+   기록(2026-11-22): `checkDatabase`가 마이그레이션과 모델이 다르면 `againstModels`로 마이그레이션의 연습 DB에 makemigrations의 초안을 적용하고 사용자 쿼리·`Results`·정책 probe를 돌려 "run makemigrations"와 한 실행에 낸다(글 끝 ` (checked against the models)`, `diag.Note`). 초안이 실패하거나 차이가 남으면 차이만, CRUD·admin의 prepare(`checkGenerated`)는 같을 때만. `maago doc query`·ARCHITECTURE·D-162의 글, 패키지 문서. 시험: `TestQueriesBeforeMigration`·`TestQueriesHandMigration`·`TestQueriesDraftFails`(두 방언, 줄 전체 `slices.Equal`), `TestPackageDoc` 골든. 모델 DDL만의 DB로 되돌리는 변이에서 `HandMigration`이 두 방언 빨강. PG 전체 시험 초록. 구현 리뷰는 ponytail·codex·fable: codex 지적 없음(샌드박스로 시험은 못 돎). fable의 막는 것 하나, "makemigrations는 쿼리 파일을 읽지 않는다"의 고정이 사라짐 → `BeforeMigration`에서 머리 오류의 `bad.sql`을 makemigrations 앞에 두고 makemigrations가 통과함을 본다(makemigrations가 쿼리를 읽게 하는 변이에서 빨강을 확인). 계획 글의 어긋남 셋(반영 줄의 정책 probe 시험, DraftFails의 `customers`, `stages` 주석)과 두 가드가 함께만 고정됨, CRUD·admin 안전띠의 시험 없음을 계획에 적음. 받지 않은 것: 다시 읽어 남은 차이의 가드를 지우기(ponytail 1, 계획이 일부러 둔 안전띠이고 차이가 있을 때만 한 번 더 읽는다), 도중의 연결 실패 진단에도 붙는 접미사(fable 5, 드물고 해가 없다), `Note`·`checkGenerated`는 그대로(ponytail 2·3)
 4. **저장소 경계**(Q3): `MediaStore`와 로컬 구현(서명된 로컬 URL 포함), `OpenMedia`·`ServeMedia`를 그 위로, `WithMediaDir`의 처지(남기거나 지움, 계획에서 하나), `MediaDir`과 저장소를 함께 주면 `Handler` 오류 → 확인: 미디어 시험을 저장소를 받는 함수 하나로 만들어 로컬과 메모리 가짜 둘에(7번의 S3도 같은 함수), Range(206)·404·nosniff·attachment, 서명된 URL의 기한 지남·바뀐 서명 거절, 게시판 0029·0038·0039가 고치지 않고 걷는다
 5. **바이트로 미디어 저장**(Q2): `SaveMediaFrom`, 일꾼의 ctx에 저장소를 넣는 공개 함수 → 확인: 저장소 시험 함수에 바이트·빈 입력·형식·센 크기, 복사된 outbox 일꾼의 handle 안에서 저장이 성공(`TestAddOutbox`, 두 방언), `maago doc main` 예(`TestDocExamples`)
 6. **`contrib/s3`**: stdlib SigV4(머리 서명과 서명된 URL), Range GET, LIST(페이지 나눔), 크기 모르는 Reader → 확인: S3 문서의 예 벡터(머리 서명과 서명된 URL 둘), 4번의 저장소 시험 함수를 가짜 S3에(가짜는 서명을 다시 계산해 틀리면 403), 길이 모르는 Reader의 `Content-Length`, CI에 MinIO 서비스와 `MAAGO_TEST_S3_URL`(D-91의 꼴, 없으면 CI에서 실패), `TestRuntimeImports`
