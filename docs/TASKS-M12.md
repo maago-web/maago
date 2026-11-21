@@ -309,6 +309,8 @@
    - v0.3.1은 없다: 고친 것은 이 저장소의 단계 글뿐이고, 단계 글은 바이너리와 `maago doc`에 embed되지 않는다(v0.3.0의 모듈 zip에는 옛 글이 남는다). `gen` 진단은 TODO
 14. **M12 끝**: MILESTONES의 M12 체크, README, 다음 마일스톤의 차례
 
+   기록(2026-11-22): 완료 조건마다 시험 이름을 MILESTONES에, 69d9ddb에서 PG 전체 시험 초록(`TestBoardTutorialCatches` 포함, 13번의 글 고침 뒤 처음), DECISIONS의 기록 줄, 다음 차례는 사람의 결정(M13 초안에 TODO의 남은 것과 readmate 이전 사례를 모은다), README의 다음 작업은 `TASKS-M13.md` 초안. 구현 리뷰는 fable 하나(문서·완료 조건 정리): 시험 이름 넷(`TestViewSignature`, 0039의 Catches, `TestFormsGen`·`TestFormErrors`, 문서의 문장이 있는 자리), 이 기록 줄과 DECISIONS 줄, README의 가리킴, 체크는 `go test exit=0` 뒤. 모두 받음
+
 ## 초안 리뷰 (2026-10-23, codex와 fable)
 
 - **CSRF 토큰은 없다**(둘 다): `FinishForm`은 `Bound·OK·Settings`만 → 사실·Q3·2번에서 지움
@@ -328,7 +330,7 @@
 
 ## M12 끝
 
-- [ ] 1~14 완료
-- [ ] M12 완료 조건을 실제로 돌려 확인, 조건마다 시험 이름
-- [ ] MILESTONES.md의 M12 체크박스
+- [x] 1~14 완료
+- [x] M12 완료 조건을 실제로 돌려 확인, 조건마다 시험 이름(MILESTONES의 M12, 69d9ddb에서 PG 전체 시험 `go test exit=0`)
+- [x] MILESTONES.md의 M12 체크박스
 - [ ] push 뒤 GitHub Actions

@@ -253,15 +253,15 @@ D-148이 뒤로 미룬 것과 M10 13번 게이트가 넘긴 것([TODO.md](TODO.m
 작업 목록은 [TASKS-M12.md](TASKS-M12.md). 결정은 D-157~D-159.
 
 완료 조건
-- [ ] M11 게이트가 짚은 것이 고쳐져 있다: 규칙 6의 fix가 정책을 고르지 않는다, `UniqueError`·정책 param·`func(w, r)`의 사용자가 문서에
-- [ ] 한 페이지에 폼이 둘이어도 두 폼 모두 이름·라벨이 생성 코드에서 온다(`NewXForm`)
-- [ ] 권한 표가 API 토큰(Bearer) 역할로도 보낸다. 토큰을 만드는 도우미가 복사된 auth와 `maagotest`에 있다
-- [ ] 탈출구 뷰가 입력·사용자·DB를 서명으로 받고, 쓰기 전의 오류를 `panic` 없이 돌려준다(D-157)
-- [ ] UUID·JSON 필드와 정수의 돈(`decimal=`)이 두 방언에서 모델 → 마이그레이션 → 쿼리 → 폼·admin을 지나고, 손 SQL의 돈이 두 방언에서 같은 값이다(D-158)
-- [ ] 커밋된 일(웹훅)이 프로세스가 죽어도 최소 한 번 간다(D-159)
-- [ ] 게시판 튜토리얼이 이것들로 걷고(돈은 gentest `orders`), v0.3.0을 `go install`한 에이전트 게이트가 새 단계 글만 보고 쓴다
+- [x] M11 게이트가 짚은 것이 고쳐져 있다: 규칙 6의 fix가 정책을 고르지 않는다, `UniqueError`·정책 param·`func(w, r)`의 사용자가 문서에: `TestPolicyCheckFix`, `TestBoardTutorial`(0035의 `fix:` 인용)과 Catches의 "a misquoted fix", `TestPackageDoc`, 문서의 문장은 `query.go`의 `UniqueError` 주석과 `maago doc query`·`view`(예는 `TestDocExamples`)
+- [x] 한 페이지에 폼이 둘이어도 두 폼 모두 이름·라벨이 생성 코드에서 온다(`NewXForm`): site `TestUpload`, `TestFormValidUnread`, `TestFormsGen`·`TestFormErrors`(`forms.golden`), 게시판 0037(`TestBoardTutorial`)과 Catches의 "the comment form, unnamed"
+- [x] 권한 표가 API 토큰(Bearer) 역할로도 보낸다. 토큰을 만드는 도우미가 복사된 auth와 `maagotest`에 있다: `maagotest`의 `TestBearer`, auth 복사본의 `TestSignInRefuses`와 표의 `cat_token`(`TestAddAuth`, 두 방언), 게시판 0037의 표와 Catches의 "a token's cell"
+- [x] 탈출구 뷰가 입력·사용자·DB를 서명으로 받고, 쓰기 전의 오류를 `panic` 없이 돌려준다(D-157): `TestViewSignature`·`TestViewErrors`, `TestErrorAfterWriting`, `TestServeMedia`, site `TestWrites`·`TestExportStreams`, 게시판 0038과 Catches의 "ServeMedia's error, dropped"·"a writing view's Tx"
+- [x] UUID·JSON 필드와 정수의 돈(`decimal=`)이 두 방언에서 모델 → 마이그레이션 → 쿼리 → 폼·admin을 지나고, 손 SQL의 돈이 두 방언에서 같은 값이다(D-158): gentest `orders`의 `TestMoney`·`TestParcel`(두 방언), `TestMakeMigrations`(차이 없음), site `TestUUIDAndDecimal`, 게시판 0039와 Catches의 "a post without its key"·"an image's size, misspelled"
+- [x] 커밋된 일(웹훅)이 프로세스가 죽어도 최소 한 번 간다(D-159): 복사되는 outbox의 `TestEnqueue`·`TestDeadWorker`·`TestClaimRace`·`TestWorkers`·`TestAttempts`·`TestStop`(`TestAddOutbox`가 두 방언에서), 게시판 0040의 `TestDeliver`·`TestDrafts`(웹훅이 내려갔다 살아나도 받는다)와 걷기의 `ship`, Catches 넷
+- [x] 게시판 튜토리얼이 이것들로 걷고(돈은 gentest `orders`), v0.3.0을 `go install`한 에이전트 게이트가 새 단계 글만 보고 쓴다: `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardMap`(PG, 0037~0040), v0.3.0 태그(2026-11-22), 게이트 둘이 0036의 끝에서 0040까지([gate-logs/m12-board-1.md](gate-logs/m12-board-1.md)·[m12-board-2.md](gate-logs/m12-board-2.md))
 
-그다음(M13): 외부 미디어 저장소, 단계를 넘어 계속하는 검사(D-61을 다시 정한다)
+그다음(M13): 외부 미디어 저장소, 단계를 넘어 계속하는 검사(D-61을 다시 정한다). `TASKS-M13.md` 초안은 이 둘에 더해 [TODO.md](TODO.md)의 남은 것과 실제 이전 사례(readmate: 앱이 만든 바이트를 미디어로 저장, Google 로그인)를 모아 질문으로 묶는다(사람의 결정, 2026-11-22)
 
 ---
 
