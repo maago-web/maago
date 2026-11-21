@@ -51,9 +51,10 @@ func TestBoardTutorial(t *testing.T) {
 }
 
 // The walk stops at a step that goes wrong, whichever part of it does:
-// the queries, the expected error, or the app's tests.
+// the queries, the expected error, or the app's tests. The steps before a
+// row's are walked once: each row walks a copy of the project from there.
 func TestBoardTutorialCatches(t *testing.T) {
-	for _, c := range []struct{ name, patch, old, new, by string }{
+	rows := []struct{ name, patch, old, new, by string }{
 		{"query", "0005-Add-post-queries.patch", "p.body, p.status", "p.nope, p.status", "maago gen:\n"},
 		{"expected error", "0006-Try-a-model-result-that-misses-a-column.patch", "title, status", "title, body, status", "maago gen: expected\n"},
 		{"app test", "0005-Add-post-queries.patch", `{0, "[글 5 글 4]"}`, `{0, "[글 4 글 5]"}`, "go test: "},
@@ -127,28 +128,57 @@ func TestBoardTutorialCatches(t *testing.T) {
 		// A query that reads the posts without their policy stops maago gen,
 		// before a draft gets out (D-155).
 		{"a draft to anybody, at gen", "0036-Read-posts-under-the-policies.patch", "+-- policy: visible p\n", "+-- the policy, forgotten\n", "maago gen:\nboard/queries/post_detail.sql:6:6: query reads board_post p without a policy (rule 6)"},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			dir := t.TempDir()
-			if err := os.CopyFS(dir, os.DirFS(steps)); err != nil {
-				t.Fatal(err)
+	}
+	patches, _ := filepath.Glob(filepath.Join(steps, "*.patch"))
+	last := filepath.Base(patches[len(patches)-1])
+	w, err := newWalker(t)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := 0
+	for i, p := range patches {
+		for _, c := range rows {
+			if c.patch != filepath.Base(p) {
+				continue
 			}
-			p := filepath.Join(dir, c.patch)
-			src := readFile(t, p)
-			if !strings.Contains(src, c.old) {
-				t.Fatalf("%s has no %q", c.patch, c.old)
-			}
-			writeFile(t, p, strings.Replace(src, c.old, c.new, 1))
-			// What goes wrong in the shipped binary is the last step's (walk).
-			at := c.patch
-			if strings.HasPrefix(c.by, "serve: ") || strings.HasPrefix(c.by, "board ") {
-				patches, _ := filepath.Glob(filepath.Join(dir, "*.patch"))
-				at = filepath.Base(patches[len(patches)-1])
-			}
-			if _, err := walk(t, dir); err == nil || !strings.HasPrefix(err.Error(), at+": "+c.by) {
-				t.Errorf("walk: %v", err)
-			}
-		})
+			ran++
+			t.Run(c.name, func(t *testing.T) {
+				src := readFile(t, p)
+				if !strings.Contains(src, c.old) {
+					t.Fatalf("%s has no %q", c.patch, c.old)
+				}
+				mine := filepath.Join(t.TempDir(), c.patch)
+				writeFile(t, mine, strings.Replace(src, c.old, c.new, 1))
+				// What goes wrong in the shipped binary is the last step's
+				// (walk): only these walk on to it.
+				at, tail := c.patch, strings.HasPrefix(c.by, "serve: ") || strings.HasPrefix(c.by, "board ")
+				if tail {
+					at = last
+				}
+				cw, err := w.clone(t)
+				if err == nil {
+					err = cw.step(t, mine)
+				}
+				for _, q := range patches[i+1:] {
+					if err != nil || !tail {
+						break
+					}
+					err = cw.step(t, q)
+				}
+				if err == nil && tail {
+					err = cw.ship(t, last)
+				}
+				if err == nil || !strings.HasPrefix(err.Error(), at+": "+c.by) {
+					t.Errorf("walk: %v", err)
+				}
+			})
+		}
+		if err := w.step(t, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ran != len(rows) {
+		t.Errorf("%d of %d rows ran: a row names a patch that is not in %s", ran, len(rows), steps)
 	}
 }
 
@@ -243,51 +273,103 @@ func TestBoardTutorialPostgresTrailer(t *testing.T) {
 // is a schema of MAAGO_TEST_PG_URL's server, made for the walk (D-141).
 func walk(t *testing.T, dir string) (root string, err error) {
 	t.Helper()
-	noEnv(t) // maago reads .env, as for the reader
 	patches, _ := filepath.Glob(filepath.Join(dir, "*.patch"))
 	if len(patches) == 0 {
 		return "", fmt.Errorf("no patches in %s", dir)
 	}
-	// The go command compares go.work's directory with the real path.
-	root, err = filepath.EvalSymlinks(t.TempDir())
+	w, err := newWalker(t)
 	if err != nil {
 		return "", err
+	}
+	for _, p := range patches {
+		if err := w.step(t, p); err != nil {
+			return "", err
+		}
+	}
+	if err := w.ship(t, filepath.Base(patches[len(patches)-1])); err != nil {
+		return "", err
+	}
+	return w.root, nil
+}
+
+// A walker is a walk's project, and its PostgreSQL schema once a step
+// moved to it.
+type walker struct{ root, schema string }
+
+// newWalker makes the project a walk starts from.
+func newWalker(t *testing.T) (*walker, error) {
+	noEnv(t) // maago reads .env, as for the reader
+	// The go command compares go.work's directory with the real path.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		return nil, err
 	}
 	repo, err := filepath.EvalSymlinks("../..")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if repo, err = filepath.Abs(repo); err != nil {
-		return "", err
+		return nil, err
 	}
 	// A repository of its own, so git apply works on root and nowhere else.
 	if out, err := osexec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
-		return "", fmt.Errorf("git init: %v\n%s", err, out)
+		return nil, fmt.Errorf("git init: %v\n%s", err, out)
 	}
 	writeFile(t, filepath.Join(root, "go.work"), "go 1.25.0\n\nuse .\n\nreplace github.com/maago-web/maago => "+repo+"\n")
 	writeFile(t, filepath.Join(root, ".env"), "MAAGO_DATABASE_URL=sqlite:board.db\n")
-	schema := "" // the walk's PostgreSQL schema, once a step moved to it
-	for _, p := range patches {
-		src, err := os.ReadFile(p)
-		if err != nil {
-			return "", err
+	return &walker{root: root}, nil
+}
+
+// step walks the step of patch p; its error names the patch.
+func (w *walker) step(t *testing.T, p string) error {
+	src, err := os.ReadFile(p)
+	if err != nil {
+		return err
+	}
+	tr, err := expected(src)
+	if err == nil && tr.postgres > 0 {
+		w.schema, err = toPostgres(t, w.root, w.schema, tr.postgres)
+	}
+	if err == nil {
+		err = walkStep(w.root, p, tr)
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", filepath.Base(p), err)
+	}
+	return nil
+}
+
+// ship ships the walk's last step, last: what goes wrong past the steps
+// is the last one's, its main.
+func (w *walker) ship(t *testing.T, last string) error {
+	if err := ship(t, w.root, w.schema); err != nil {
+		return fmt.Errorf("%s: %w", last, err)
+	}
+	return nil
+}
+
+// clone copies the walk to a project of t's: its files, and on PostgreSQL
+// a schema of t's own, which the project's migrations make again (the
+// steps' database holds only what maago migrate made). t is the test the
+// copy is for: the schema is named by it.
+func (w *walker) clone(t *testing.T) (*walker, error) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		return nil, err
+	}
+	if err := os.CopyFS(root, os.DirFS(w.root)); err != nil {
+		return nil, err
+	}
+	c := &walker{root: root}
+	if w.schema != "" {
+		if c.schema, err = toPostgres(t, root, "", 1); err != nil {
+			return nil, err
 		}
-		tr, err := expected(src)
-		if err == nil && tr.postgres > 0 {
-			schema, err = toPostgres(t, root, schema, tr.postgres)
-		}
-		if err == nil {
-			err = walkStep(root, p, tr)
-		}
-		if err != nil {
-			return "", fmt.Errorf("%s: %w", filepath.Base(p), err)
+		if _, ds := build.Migrate(root); ds != nil {
+			return nil, fmt.Errorf("maago migrate:\n%s", text(ds))
 		}
 	}
-	// What goes wrong past the steps is the last one's: its main.
-	if err := ship(t, root, schema); err != nil {
-		return "", fmt.Errorf("%s: %w", filepath.Base(patches[len(patches)-1]), err)
-	}
-	return root, nil
+	return c, nil
 }
 
 // ship does with the last step what its reader does to ship it (D-142):
