@@ -52,7 +52,7 @@ and comments are its author's and staff's; the CSV and the lists show
 what is out.
 
 diff --git a/board/admin_test.go b/board/admin_test.go
-index 72dbed7..69e3048 100644
+index 902bc26..bc5dc9b 100644
 --- a/board/admin_test.go
 +++ b/board/admin_test.go
 @@ -122,14 +122,14 @@ func TestAdmin(t *testing.T) {
@@ -73,7 +73,7 @@ index 72dbed7..69e3048 100644
  	}
  
 @@ -141,14 +141,14 @@ func TestAdmin(t *testing.T) {
- 	if code, _, body := post(asBoss, "/admin/board/Post/delete/", url.Values{"id": {fmt.Sprint(p.ID)}}); code != 200 || !strings.Contains(body, "1 row of board.Comment (PostID) refers to it") {
+ 	if code, _, body := post(asBoss, "/admin/board/Post/delete/", url.Values{"id": {fmt.Sprint(p.ID)}}); code != 409 || !strings.Contains(body, "1 row of board.Comment (PostID) refers to it") {
  		t.Errorf("deleting a post with comments: %d\n%s", code, body)
  	}
 -	if _, err := GetPost(ctx, db, p.ID); err != nil {

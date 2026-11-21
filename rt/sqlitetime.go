@@ -22,27 +22,28 @@ func SQLiteNullTime(t *time.Time) any {
 	return SQLiteTime(*t)
 }
 
-// ScanSQLiteTime reads a SQLite time into dst. NULL is an error; use
-// ScanNullSQLiteTime for a column that may be NULL.
-func ScanSQLiteTime(dst *time.Time) sql.Scanner {
+// ScanTime reads a time into dst, in UTC: SQLite's text or the
+// PostgreSQL driver's time.Time. NULL is an error; use ScanNullTime for a
+// column that may be NULL.
+func ScanTime(dst *time.Time) sql.Scanner {
 	return scanner(func(src any) error {
 		if src == nil {
 			return fmt.Errorf("maago: NULL in a time column that is not a pointer")
 		}
-		t, err := parseSQLiteTime(src)
+		t, err := parseTime(src)
 		*dst = t
 		return err
 	})
 }
 
-// ScanNullSQLiteTime reads a SQLite time into dst, nil for NULL.
-func ScanNullSQLiteTime(dst **time.Time) sql.Scanner {
+// ScanNullTime reads a time into dst, in UTC, nil for NULL.
+func ScanNullTime(dst **time.Time) sql.Scanner {
 	return scanner(func(src any) error {
 		if src == nil {
 			*dst = nil
 			return nil
 		}
-		t, err := parseSQLiteTime(src)
+		t, err := parseTime(src)
 		*dst = &t
 		return err
 	})
@@ -52,12 +53,14 @@ type scanner func(any) error
 
 func (s scanner) Scan(src any) error { return s(src) }
 
-// parseSQLiteTime reads what SQLite gives: maago's own form, with any
-// number of fraction digits, read as UTC, or RFC 3339 for times written
-// by hand. The time is in UTC.
-func parseSQLiteTime(src any) (time.Time, error) {
+// parseTime reads what the driver gives: a time.Time, or SQLite's text,
+// maago's own form with any number of fraction digits, read as UTC, or
+// RFC 3339 for times written by hand. The time is in UTC.
+func parseTime(src any) (time.Time, error) {
 	var s string
 	switch v := src.(type) {
+	case time.Time:
+		return v.UTC(), nil
 	case string:
 		s = v
 	case []byte:

@@ -28,4 +28,6 @@ var Routes = maago.Routes{
 	maago.POST("/tags", "tag_save", TagSave),
 	maago.GET("/keys/{key}", "key_page", KeyShow),
 	maago.POST("/api/prices", "api_price", APIPrice, maago.API),
+	maago.POST("/api/tags", "api_tag_save", APITagSave, maago.API),
+	maago.POST("/api/tags/{name}", "api_tag_name", APITagName, maago.API, maago.NoTx),
 }

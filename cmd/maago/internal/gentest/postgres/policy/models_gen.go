@@ -27,7 +27,9 @@ func GetUser(ctx context.Context, db maago.DB, id int64) (User, error) {
 
 // InsertUser inserts in and returns the User: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; GetUser reads what was written.
+// to the microsecond; GetUser reads what was written. The auto times,
+// and every time GetUser or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func InsertUser(ctx context.Context, db maago.DB, in NewUserInput) (User, error) {
 	o := User{
 		Name:     in.Name,
@@ -76,7 +78,7 @@ func DeleteUser(ctx context.Context, db maago.DB, id int64) error {
 
 func scanUser(rows *sql.Rows) (User, error) {
 	var v User
-	err := rows.Scan(&v.ID, &v.Name, &v.IsStaff, &v.TeamID, &v.JoinedAt)
+	err := rows.Scan(&v.ID, &v.Name, &v.IsStaff, &v.TeamID, rt.ScanTime(&v.JoinedAt))
 	return v, err
 }
 
@@ -116,7 +118,9 @@ func GetPostIgnoringPolicies(ctx context.Context, db maago.DB, id int64) (Post, 
 
 // InsertPost inserts in and returns the Post: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; GetPost reads what was written.
+// to the microsecond; GetPost reads what was written. The auto times,
+// and every time GetPost or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func InsertPost(ctx context.Context, db maago.DB, in NewPostInput) (Post, error) {
 	o := Post{
 		Title:     in.Title,
@@ -167,7 +171,7 @@ func DeletePost(ctx context.Context, db maago.DB, id int64) error {
 
 func scanPost(rows *sql.Rows) (Post, error) {
 	var v Post
-	err := rows.Scan(&v.ID, &v.Title, &v.Status, &v.Hidden, &v.AuthorID, &v.TeamID, &v.PublishAt)
+	err := rows.Scan(&v.ID, &v.Title, &v.Status, &v.Hidden, &v.AuthorID, &v.TeamID, rt.ScanNullTime(&v.PublishAt))
 	return v, err
 }
 
@@ -185,7 +189,9 @@ func GetComment(ctx context.Context, db maago.DB, id int64) (Comment, error) {
 
 // InsertComment inserts in and returns the Comment: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; GetComment reads what was written.
+// to the microsecond; GetComment reads what was written. The auto times,
+// and every time GetComment or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func InsertComment(ctx context.Context, db maago.DB, in NewCommentInput) (Comment, error) {
 	o := Comment{
 		PostID: in.PostID,

@@ -111,7 +111,16 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 {{- end}}
 	})
 	if txErr != nil {
+{{- if .API}}
+{{- with .Form}}
+		if rt.Code(txErr) == http.StatusInternalServerError && in.{{.Name}}.Fail(txErr) { // a unique refusal, on the form
+			return invalid{{.Type}}(&in.{{.Name}})
+		}
+{{- end}}
+		return rt.Taken(r.Context(), txErr)
+{{- else}}
 		return txErr
+{{- end}}
 	}
 {{- if .Result}}
 	if to != "" {
@@ -123,7 +132,16 @@ func {{.Serve}}(w http.ResponseWriter, r *http.Request) error {
 {{- else}}
 	p, err := {{.View}}(r.Context(){{if .User}}, u{{end}}{{if .DB}}, maago.DBFrom(r.Context()){{end}}, in)
 	if err != nil {
+{{- if .API}}
+{{- with .Form}}
+		if rt.Code(err) == http.StatusInternalServerError && in.{{.Name}}.Fail(err) { // a unique refusal, on the form
+			return invalid{{.Type}}(&in.{{.Name}})
+		}
+{{- end}}
+		return rt.Taken(r.Context(), err)
+{{- else}}
 		return err
+{{- end}}
 	}
 {{- if .Result}}
 	page, to := p.Page()

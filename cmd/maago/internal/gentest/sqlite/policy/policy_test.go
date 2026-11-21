@@ -127,3 +127,24 @@ func TestPolicies(t *testing.T) {
 }
 
 func strconvI(n int64) string { return strconv.FormatInt(n, 10) }
+
+// A time that may be NULL reads back nil, or UTC, in both databases.
+func TestNullTimeUTC(t *testing.T) {
+	ctx, db := gentest.Open(t, "internal/testdata/policy")
+	at := time.Date(2026, 10, 22, 21, 0, 0, 0, time.FixedZone("KST", 9*60*60))
+	for _, in := range []*time.Time{nil, &at} {
+		p, err := InsertPost(ctx, db, NewPostInput{Title: "t", PublishAt: in})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := GetPostIgnoringPolicies(ctx, db, p.ID)
+		switch {
+		case err != nil:
+			t.Fatal(err)
+		case in == nil && got.PublishAt != nil:
+			t.Errorf("nil read back %v", got.PublishAt)
+		case in != nil && (got.PublishAt == nil || !got.PublishAt.Equal(at) || got.PublishAt.Location() != time.UTC):
+			t.Errorf("%v read back %v, want it in UTC", at, got.PublishAt)
+		}
+	}
+}

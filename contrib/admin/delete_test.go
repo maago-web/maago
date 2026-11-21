@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"errors"
+	"net/http/httptest"
 	"net/url"
 	"slices"
 	"strconv"
@@ -74,10 +75,11 @@ func TestDelete(t *testing.T) {
 		return v
 	}
 
-	body := get(h, "root", "/admin/blog/Post/delete/?id=1&id=2").Body.String()
-	if !strings.Contains(body, "3 rows of blog.Comment (PostID) refer to it") || !strings.Contains(body, "1 row of blog.Tag (PostID) refers to it") || strings.Contains(body, "blog.Post (ParentID)") ||
+	w := get(h, "root", "/admin/blog/Post/delete/?id=1&id=2")
+	body := w.Body.String()
+	if w.Code != 200 || !strings.Contains(body, "3 rows of blog.Comment (PostID) refer to it") || !strings.Contains(body, "1 row of blog.Tag (PostID) refers to it") || strings.Contains(body, "blog.Post (ParentID)") ||
 		strings.Contains(body, "<button") || !strings.Contains(body, "Nothing is deleted") || !slices.Contains(asked, Delete) {
-		t.Errorf("GET of a row others refer to:\n%s", body)
+		t.Errorf("GET of a row others refer to: %d\n%s", w.Code, body)
 	}
 	body = get(h, "root", "/admin/blog/Post/delete/?id=1&id=1").Body.String()
 	if strings.Count(body, `<input type="hidden" name="id" value="1">`) != 1 || !strings.Contains(body, `<button type="submit">Delete</button>`) {
@@ -87,11 +89,11 @@ func TestDelete(t *testing.T) {
 		t.Errorf("GET of no row:\n%s", body)
 	}
 
-	if w := send(h, "root", "/admin/blog/Post/delete/", ids(1, 2)); w.Code != 200 || deleted != nil || commits != 0 {
-		t.Errorf("POST with a row others refer to: %d, deleted %v", w.Code, deleted)
+	if w := send(h, "root", "/admin/blog/Post/delete/", ids(1, 2)); w.Code != 409 || !strings.Contains(w.Body.String(), "refer to it") || deleted != nil || commits != 0 {
+		t.Errorf("POST with a row others refer to: %d, deleted %v\n%s", w.Code, deleted, w.Body)
 	}
-	if w := send(h, "root", "/admin/blog/Post/delete/", ids(1, 404)); w.Code != 200 || deleted != nil {
-		t.Errorf("POST with no row: %d, deleted %v", w.Code, deleted)
+	if w := send(h, "root", "/admin/blog/Post/delete/", ids(1, 404)); w.Code != 409 || !strings.Contains(w.Body.String(), "no such row") || deleted != nil {
+		t.Errorf("POST with no row: %d, deleted %v\n%s", w.Code, deleted, w.Body)
 	}
 	if rollbacks != 2 || commits != 0 { // the POSTs above counted in a transaction, and deleted nothing
 		t.Errorf("commits %d, rollbacks %d", commits, rollbacks)
@@ -107,35 +109,37 @@ func TestDelete(t *testing.T) {
 	}
 
 	deleted = nil
+	// A 400 says why; a 500 does not.
 	for _, c := range []struct {
 		user, method, target string
 		form                 url.Values
 		code                 int
+		body                 string
 	}{
-		{"root", "GET", "/admin/blog/Post/delete/", nil, 303}, // Delete selected with nothing selected: back to the list
-		{"root", "POST", "/admin/blog/Post/delete/", url.Values{}, 400},
-		{"root", "GET", "/admin/blog/Post/delete/?id=x", nil, 400},
-		{"root", "GET", "/admin/blog/Post/delete/?id=9", nil, 500},
-		{"viewer", "GET", "/admin/blog/Post/delete/?id=1", nil, 403},
-		{"viewer", "POST", "/admin/blog/Post/delete/", ids(1), 403},
-		{"viewer", "GET", "/admin/blog/Nope/delete/?id=1", nil, 403},
-		{"root", "GET", "/admin/blog/Nope/delete/?id=1", nil, 404},
+		{"root", "GET", "/admin/blog/Post/delete/", nil, 303, ""}, // Delete selected with nothing selected: back to the list
+		{"root", "POST", "/admin/blog/Post/delete/", url.Values{}, 400, "Bad Request: admin: no row to delete"},
+		{"root", "GET", "/admin/blog/Post/delete/?id=x", nil, 400, `Bad Request: admin: id "x"`},
+		{"root", "GET", "/admin/blog/Post/delete/?id=9", nil, 500, "Internal Server Error\n"},
+		{"viewer", "GET", "/admin/blog/Post/delete/?id=1", nil, 403, "Forbidden\n"},
+		{"viewer", "POST", "/admin/blog/Post/delete/", ids(1), 403, "Forbidden\n"},
+		{"viewer", "GET", "/admin/blog/Nope/delete/?id=1", nil, 403, "Forbidden\n"},
+		{"root", "GET", "/admin/blog/Nope/delete/?id=1", nil, 404, "Not Found\n"},
 	} {
-		var code int
+		var w *httptest.ResponseRecorder
 		if c.method == "GET" {
-			code = get(h, c.user, c.target).Code
+			w = get(h, c.user, c.target)
 		} else {
-			code = send(h, c.user, c.target, c.form).Code
+			w = send(h, c.user, c.target, c.form)
 		}
-		if code != c.code {
-			t.Errorf("%s %s %s: %d, want %d", c.user, c.method, c.target, code, c.code)
+		if w.Code != c.code || c.body != "" && (!strings.HasPrefix(w.Body.String(), c.body) || c.code >= 403 && w.Body.String() != c.body) {
+			t.Errorf("%s %s %s: %d %q, want %d %q", c.user, c.method, c.target, w.Code, w.Body, c.code, c.body)
 		}
 	}
 	many := make([]int, pageSize+1)
 	for i := range many {
 		many[i] = i + 1
 	}
-	if w := send(h, "root", "/admin/blog/Post/delete/", ids(many...)); w.Code != 400 || deleted != nil {
+	if w := send(h, "root", "/admin/blog/Post/delete/", ids(many...)); w.Code != 400 || !strings.Contains(w.Body.String(), "rows to delete") || deleted != nil {
 		t.Errorf("%d rows: %d", len(many), w.Code)
 	}
 	if w := send(h, "root", "/admin/blog/Post/delete/", ids(1), "Origin", "https://evil.example", "Sec-Fetch-Site", "cross-site"); w.Code != 403 || deleted != nil {

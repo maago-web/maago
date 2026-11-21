@@ -40,9 +40,9 @@ github.com/maago-web/maago
 │                          생성 코드만 부르는 것은 M10 11번에 `rt`로 옮겼다(아래).
 │                          런타임이 기대는 내부 패키지는 TestRuntimeDependencies가 적는 것뿐(diag·ref·model·project·migrate·rtcore…)
 ├── rt/                 생성 코드(와 contrib/admin, D-131)만 부르는 것(M10 11번, D-152): One·Many·Exec·Placeholders,
-│                          SQLiteTime·SQLiteNullTime·ScanSQLiteTime·ScanNullSQLiteTime(D-105), NewApp·AppRoute·Pages·ParsePages·
+│                          SQLiteTime·SQLiteNullTime·ScanTime·ScanNullTime(D-105), NewApp·AppRoute·Pages·ParsePages·
 │                          Render·JSON·Buffer·ParseQuery·Query·Path·Parse*·Bind*·FinishForm·FormValid·FormValues·JSONValues·
-│                          MultipartValues·Unprocessable·Rule·FieldError·URLFunc·PathSegment·DateFunc·NoRow·FileKinds,
+│                          MultipartValues·Unprocessable·Taken·Code·Rule·FieldError·URLFunc·PathSegment·DateFunc·NoRow·FileKinds,
 │                          Static·StaticFiles·StaticFunc·StaticName(D-136, D-137). 생성기가 rt와 루트를 둘 다 넣고 쓰지 않는 쪽은 뺀다
 │                          (pipeline.Format). 앱 코드는 rt를 import하지 않는다(TestGeneratedCallsAppAPI)
 ├── internal/rtcore/    루트와 rt가 함께 보는 상태: 마지막 Handler의 Prefix·TimeZone·static, 폼 설정과 ctx 키, 422 오류,

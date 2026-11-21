@@ -21,7 +21,7 @@ func TestSQLiteTime(t *testing.T) {
 	}
 }
 
-func TestScanSQLiteTime(t *testing.T) {
+func TestScanTime(t *testing.T) {
 	want := time.Date(2026, 9, 27, 3, 0, 5, 250_000_000, time.UTC)
 	for _, src := range []any{
 		"2026-09-27 03:00:05.250000",
@@ -29,24 +29,28 @@ func TestScanSQLiteTime(t *testing.T) {
 		[]byte("2026-09-27 03:00:05.25"),
 		"2026-09-27T12:00:05.25+09:00",
 		"2026-09-27T03:00:05.25Z",
+		want.In(time.Local), // the PostgreSQL driver's
+		want.In(time.FixedZone("KST", 9*3600)),
 	} {
 		var got time.Time
-		if err := ScanSQLiteTime(&got).Scan(src); err != nil || !got.Equal(want) || got.Location() != time.UTC {
+		if err := ScanTime(&got).Scan(src); err != nil || !got.Equal(want) || got.Location() != time.UTC {
 			t.Errorf("%v: got %v %v, want %v in UTC", src, got, err, want)
 		}
 	}
 	for _, src := range []any{nil, "2026-09-27 12:00:05.5 +0900 KST", "yesterday", int64(5)} {
 		var got time.Time
-		if err := ScanSQLiteTime(&got).Scan(src); err == nil {
+		if err := ScanTime(&got).Scan(src); err == nil {
 			t.Errorf("%v: no error", src)
 		}
 	}
 	p := &want
-	if err := ScanNullSQLiteTime(&p).Scan(nil); err != nil || p != nil {
+	if err := ScanNullTime(&p).Scan(nil); err != nil || p != nil {
 		t.Errorf("NULL: got %v %v, want nil", p, err)
 	}
-	if err := ScanNullSQLiteTime(&p).Scan("2026-09-27 03:00:05.25"); err != nil || p == nil || !p.Equal(want) {
-		t.Errorf("got %v %v, want %v", p, err, want)
+	for _, src := range []any{"2026-09-27 03:00:05.25", want.In(time.FixedZone("KST", 9*3600))} {
+		if err := ScanNullTime(&p).Scan(src); err != nil || p == nil || !p.Equal(want) || p.Location() != time.UTC {
+			t.Errorf("%v: got %v %v, want %v in UTC", src, p, err, want)
+		}
 	}
 }
 

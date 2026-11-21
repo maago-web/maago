@@ -440,7 +440,8 @@ func modelRules(fset *token.FileSet, ff *formField, fd *ast.Field, name *ast.Ide
 		ff.label = mf.Label
 	}
 	ff.help, ff.choices, ff.max, ff.decimal = mf.Help, mf.Choices, mf.Max, mf.Decimal
-	ff.optional = ff.optional || mf.Pointer && ff.typ != "bool" // an empty input stands for NULL
+	ff.optional = ff.optional || mf.Pointer && ff.typ != "bool" || // an empty input stands for NULL,
+		mf.Type == model.String && mf.Default != nil && *mf.Default == "" // or for the default, '' (as in the admin)
 	return ds
 }
 

@@ -63,7 +63,7 @@ func serveMaybe(w http.ResponseWriter, r *http.Request) error {
 	}
 	p, err := Maybe(r.Context(), u, in)
 	if err != nil {
-		return err
+		return rt.Taken(r.Context(), err)
 	}
 	page := p
 	return rt.JSON(w, page)
@@ -129,7 +129,7 @@ func serveAPISave(w http.ResponseWriter, r *http.Request) error {
 		return rt.JSON(b, page)
 	})
 	if txErr != nil {
-		return txErr
+		return rt.Taken(r.Context(), txErr)
 	}
 	return b.Send(w)
 }
@@ -248,7 +248,7 @@ func serveAPIPost(w http.ResponseWriter, r *http.Request) error {
 	}
 	p, err := APIPost(r.Context(), in)
 	if err != nil {
-		return err
+		return rt.Taken(r.Context(), err)
 	}
 	page := p
 	return rt.JSON(w, page)

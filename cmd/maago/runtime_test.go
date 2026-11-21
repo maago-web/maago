@@ -184,7 +184,7 @@ func TestOneMany(t *testing.T) {
 	// A Scan error stops the query.
 	bad := func(r *sql.Rows) (string, error) {
 		var s time.Time
-		return "", r.Scan(rt.ScanSQLiteTime(&s))
+		return "", r.Scan(rt.ScanTime(&s))
 	}
 	if _, err := rt.Many(c, db, bad, "SELECT x FROM t"); err == nil {
 		t.Error("scan error: none")
@@ -241,8 +241,8 @@ func TestSQLiteTimes(t *testing.T) {
 	scan := func(id int) (time.Time, *time.Time, error, error) {
 		var v time.Time
 		var p *time.Time
-		err1 := db.QueryRow("SELECT at FROM times WHERE id = ?1", id).Scan(rt.ScanSQLiteTime(&v))
-		err2 := db.QueryRow("SELECT at FROM times WHERE id = ?1", id).Scan(rt.ScanNullSQLiteTime(&p))
+		err1 := db.QueryRow("SELECT at FROM times WHERE id = ?1", id).Scan(rt.ScanTime(&v))
+		err2 := db.QueryRow("SELECT at FROM times WHERE id = ?1", id).Scan(rt.ScanNullTime(&p))
 		return v, p, err1, err2
 	}
 	if v, _, err, _ := scan(1); err != nil || !v.Equal(later) {
@@ -265,7 +265,7 @@ func TestSQLiteTimes(t *testing.T) {
 }
 
 // PostgreSQL keeps the instant to the microsecond, in another location:
-// compare with Equal.
+// compare with Equal. Generated code reads it in UTC.
 func TestPostgresTime(t *testing.T) {
 	db := openDB(t, maago.DBConfig{URL: pgURL(t)})
 	in := time.Date(2026, 9, 27, 12, 0, 5, 123_456_789, time.FixedZone("KST", 9*3600))
@@ -275,6 +275,15 @@ func TestPostgresTime(t *testing.T) {
 	}
 	if !out.Equal(in.Truncate(time.Microsecond)) {
 		t.Errorf("got %v, want %v", out, in.Truncate(time.Microsecond))
+	}
+	// Generated code reads it through rt, in UTC; NULL too where it may be.
+	var v time.Time
+	var p, null *time.Time
+	if err := db.QueryRow("SELECT $1::timestamptz, $1::timestamptz, NULL::timestamptz", in).Scan(rt.ScanTime(&v), rt.ScanNullTime(&p), rt.ScanNullTime(&null)); err != nil {
+		t.Fatal(err)
+	}
+	if !v.Equal(out) || v.Location() != time.UTC || p == nil || !p.Equal(out) || p.Location() != time.UTC || null != nil {
+		t.Errorf("through rt: %v %v %v, want %v in UTC and nil", v, p, null, out)
 	}
 }
 

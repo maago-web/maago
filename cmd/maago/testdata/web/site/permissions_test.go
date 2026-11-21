@@ -49,6 +49,10 @@ func TestPermissions(t *testing.T) {
 		maagotest.Row{Route: "tag_save", URL: TagSaveURL(), Body: "name=a&kind=k&code=1", Want: both(303, maagotest.Skip)},
 		maagotest.Row{Route: "tag_save", URL: TagSaveURL(), Body: "name=b&kind=k&code=2", Want: both(maagotest.Skip, 303)},
 		maagotest.Row{Route: "key_page", URL: KeyPageURL(maago.NewUUID()), Want: both(200, 200)},
+		maagotest.Row{Route: "api_tag_save", URL: APITagSaveURL(), Body: `{"name": "x", "kind": "k", "code": "x"}`, Want: both(200, maagotest.Skip)},
+		maagotest.Row{Route: "api_tag_save", URL: APITagSaveURL(), Body: `{"name": "y", "kind": "k", "code": "y"}`, Want: both(maagotest.Skip, 200)},
+		maagotest.Row{Route: "api_tag_name", URL: APITagNameURL("z"), Want: both(200, maagotest.Skip)},
+		maagotest.Row{Route: "api_tag_name", URL: APITagNameURL("w"), Want: both(maagotest.Skip, 200)},
 		maagotest.Row{Route: "api_price", URL: APIPriceURL(), Body: `{"key": "0190a5c8-0000-7000-8000-00000000000f", "price": 1.5}`, Want: both(200, 200)},
 	)
 }

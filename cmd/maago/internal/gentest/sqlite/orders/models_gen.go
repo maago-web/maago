@@ -25,7 +25,9 @@ func GetCustomer(ctx context.Context, db maago.DB, id int64) (Customer, error) {
 
 // InsertCustomer inserts in and returns the Customer: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; GetCustomer reads what was written.
+// to the microsecond; GetCustomer reads what was written. The auto times,
+// and every time GetCustomer or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func InsertCustomer(ctx context.Context, db maago.DB, in NewCustomerInput) (Customer, error) {
 	o := Customer{
 		Name: in.Name,
@@ -99,9 +101,11 @@ func GetOrder(ctx context.Context, db maago.DB, id int64) (Order, error) {
 
 // InsertOrder inserts in and returns the Order: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; GetOrder reads what was written.
+// to the microsecond; GetOrder reads what was written. The auto times,
+// and every time GetOrder or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func InsertOrder(ctx context.Context, db maago.DB, in NewOrderInput) (Order, error) {
-	now := time.Now().Truncate(time.Microsecond)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	o := Order{
 		CustomerID: in.CustomerID,
 		Status:     in.Status.Or("new"),
@@ -126,7 +130,7 @@ func InsertOrder(ctx context.Context, db maago.DB, in NewOrderInput) (Order, err
 // maago.ErrConflict, a 409.
 // Once the row is written, o has its new auto times.
 func UpdateOrder(ctx context.Context, db maago.DB, o *Order) error {
-	now := time.Now().Truncate(time.Microsecond)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	var n int64
 	err := rt.Write(ctx, db, nil, func() (err error) {
 		n, err = rt.Exec(ctx, db, `UPDATE "orders" SET "customer_id" = ?1, "status" = ?2, "amount" = ?3, "priority" = ?4, "created_at" = ?5, "updated_at" = ?6 WHERE "id" = ?7 AND "updated_at" = ?8`, o.CustomerID, o.Status, o.Amount, o.Priority, rt.SQLiteTime(o.CreatedAt), rt.SQLiteTime(now), o.ID, rt.SQLiteTime(o.UpdatedAt))
@@ -163,7 +167,7 @@ func DeleteOrder(ctx context.Context, db maago.DB, id int64) error {
 
 func scanOrder(rows *sql.Rows) (Order, error) {
 	var v Order
-	err := rows.Scan(&v.ID, &v.CustomerID, &v.Status, &v.Amount, &v.Priority, rt.ScanSQLiteTime(&v.CreatedAt), rt.ScanSQLiteTime(&v.UpdatedAt))
+	err := rows.Scan(&v.ID, &v.CustomerID, &v.Status, &v.Amount, &v.Priority, rt.ScanTime(&v.CreatedAt), rt.ScanTime(&v.UpdatedAt))
 	return v, err
 }
 
@@ -190,7 +194,9 @@ func GetParcel(ctx context.Context, db maago.DB, id int64) (Parcel, error) {
 
 // InsertParcel inserts in and returns the Parcel: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; GetParcel reads what was written.
+// to the microsecond; GetParcel reads what was written. The auto times,
+// and every time GetParcel or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func InsertParcel(ctx context.Context, db maago.DB, in NewParcelInput) (Parcel, error) {
 	o := Parcel{
 		OrderID: in.OrderID,

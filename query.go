@@ -26,7 +26,9 @@ var ErrEmptySlice = errors.New("maago: empty slice, which IN (…) cannot take; 
 // constraint refused its row: a value, or values together, that another
 // row has. Fields are the model's fields of that constraint, nil when
 // maago cannot tell which. Fail, the method maago gen writes for each
-// form, shows it on the form; else it answers 500.
+// form, shows it on the form. An API view returns it, and maago answers
+// a 422 itself; on another route a view that does not call Fail answers
+// 500.
 type UniqueError struct {
 	Fields []string
 	Err    error // the driver's

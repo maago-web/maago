@@ -50,7 +50,9 @@ func GetPost(ctx context.Context, db maago.DB, id int64) (Post, error) {
 
 // InsertPost inserts in and returns the Post: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; GetPost reads what was written.
+// to the microsecond; GetPost reads what was written. The auto times,
+// and every time GetPost or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func InsertPost(ctx context.Context, db maago.DB, in NewPostInput) (Post, error) {
 	o := Post{
 		AuthorID:    in.AuthorID,
@@ -105,7 +107,7 @@ func DeletePost(ctx context.Context, db maago.DB, id int64) error {
 
 func scanPost(rows *sql.Rows) (Post, error) {
 	var v Post
-	err := rows.Scan(&v.ID, &v.AuthorID, &v.Title, &v.Slug, &v.Status, &v.Views, &v.Likes, &v.Score, &v.Public, &v.Body, rt.ScanNullSQLiteTime(&v.PublishedAt))
+	err := rows.Scan(&v.ID, &v.AuthorID, &v.Title, &v.Slug, &v.Status, &v.Views, &v.Likes, &v.Score, &v.Public, &v.Body, rt.ScanNullTime(&v.PublishedAt))
 	return v, err
 }
 
@@ -136,9 +138,11 @@ func GetAuthor(ctx context.Context, db maago.DB, id int64) (Author, error) {
 
 // InsertAuthor inserts in and returns the Author: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; GetAuthor reads what was written.
+// to the microsecond; GetAuthor reads what was written. The auto times,
+// and every time GetAuthor or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func InsertAuthor(ctx context.Context, db maago.DB, in NewAuthorInput) (Author, error) {
-	now := time.Now().Truncate(time.Microsecond)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	o := Author{
 		Name:       in.Name,
 		ParentID:   in.ParentID,
@@ -166,7 +170,7 @@ func InsertAuthor(ctx context.Context, db maago.DB, in NewAuthorInput) (Author, 
 // maago.ErrConflict, a 409.
 // Once the row is written, o has its new auto times.
 func UpdateAuthor(ctx context.Context, db maago.DB, o *Author) error {
-	now := time.Now().Truncate(time.Microsecond)
+	now := time.Now().UTC().Truncate(time.Microsecond)
 	var n int64
 	err := rt.Write(ctx, db, uniqueAuthor, func() (err error) {
 		n, err = rt.Exec(ctx, db, `UPDATE "people" SET "name" = ?1, "parent_id" = ?2, "editor_id" = ?3, "reviewer_id" = ?4, "code" = ?5, "order" = ?6, "admin" = ?7, "updated_at" = ?8 WHERE "id" = ?9 AND "updated_at" = ?10`, o.Name, o.ParentID, o.EditorID, o.ReviewerID, o.Code, o.Order, o.Admin, rt.SQLiteTime(now), o.ID, rt.SQLiteTime(o.UpdatedAt))
@@ -203,6 +207,6 @@ func DeleteAuthor(ctx context.Context, db maago.DB, id int64) error {
 
 func scanAuthor(rows *sql.Rows) (Author, error) {
 	var v Author
-	err := rows.Scan(&v.ID, &v.Name, &v.ParentID, &v.EditorID, &v.ReviewerID, &v.Code, &v.Order, &v.Admin, rt.ScanSQLiteTime(&v.CreatedAt), rt.ScanSQLiteTime(&v.UpdatedAt))
+	err := rows.Scan(&v.ID, &v.Name, &v.ParentID, &v.EditorID, &v.ReviewerID, &v.Code, &v.Order, &v.Admin, rt.ScanTime(&v.CreatedAt), rt.ScanTime(&v.UpdatedAt))
 	return v, err
 }

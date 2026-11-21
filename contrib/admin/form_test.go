@@ -163,8 +163,8 @@ func TestForms(t *testing.T) {
 		!strings.Contains(body, "Enter a number.") || p.saved != nil {
 		t.Errorf("add with errors: %d\n%s", w.Code, body)
 	}
-	if w := send(h, "root", "/admin/blog/Post/add/", url.Values{"title": {"hi", "evil"}}); w.Code != http.StatusBadRequest || p.saved != nil {
-		t.Errorf("a key sent twice: %d %v", w.Code, p.saved)
+	if w := send(h, "root", "/admin/blog/Post/add/", url.Values{"title": {"hi", "evil"}}); w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "given 2 times") || p.saved != nil {
+		t.Errorf("a key sent twice: %d %v %s", w.Code, p.saved, w.Body)
 	}
 	w = send(h, "root", "/admin/blog/Post/add/", url.Values{"title": {"hi"}})
 	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/admin/blog/Post/" || p.saved["title"] != "hi" {

@@ -50,7 +50,7 @@ ORDER BY p.id`, p.AuthorID, rt.SQLiteTime(p.Now), viewerID, viewerTeamID, viewer
 
 func scanMyPosts(rows *sql.Rows) (Post, error) {
 	var v Post
-	if err := rows.Scan(&v.ID, &v.Title, &v.Status, &v.Hidden, &v.AuthorID, &v.TeamID, rt.ScanNullSQLiteTime(&v.PublishAt)); err != nil {
+	if err := rows.Scan(&v.ID, &v.Title, &v.Status, &v.Hidden, &v.AuthorID, &v.TeamID, rt.ScanNullTime(&v.PublishAt)); err != nil {
 		return v, fmt.Errorf("MyPosts: %w", err)
 	}
 	return v, nil

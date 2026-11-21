@@ -407,9 +407,9 @@ func TestAdmin(t *testing.T) {
 	if _, err := auth.GetUser(ctx, db, gone.ID); err == nil {
 		t.Error("boss did not delete gone")
 	}
-	// A user who signed in has sessions: not even a superuser deletes it.
+	// A user who signed in has sessions: not even a superuser deletes it (409).
 	w := do(sessions["boss"], "POST", "/admin/auth/User/delete/", url.Values{"id": {fmt.Sprint(ann.ID)}})
-	if body := w.Body.String(); w.Code != 200 || !strings.Contains(body, "rows of auth.Session (UserID) refer to it") {
+	if body := w.Body.String(); w.Code != 409 || !strings.Contains(body, "rows of auth.Session (UserID) refer to it") {
 		t.Errorf("deleting a user with sessions: %d\n%s", w.Code, body)
 	}
 

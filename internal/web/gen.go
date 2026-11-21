@@ -99,8 +99,12 @@ func ViewsFile(app *App, apps []*App) []byte {
 		}
 		var fields []map[string]any
 		query := false
+		var form map[string]any // the form In reads, one at most
 		for _, f := range v.fields {
 			query = query || f.source == "query"
+			if f.source == "form" {
+				form = map[string]any{"Name": f.name, "Type": f.typ}
+			}
 			fields = append(fields, map[string]any{"Name": f.name, "Source": f.source, "Key": f.key, "Pointer": f.pointer,
 				"Parser": parserOf(f.typ), "Form": f.typ, "Keys": keysOf(app.forms[f.typ]), "Multipart": app.forms[f.typ] != nil && app.forms[f.typ].hasFile()})
 		}
@@ -109,7 +113,7 @@ func ViewsFile(app *App, apps []*App) []byte {
 		rs = append(rs, map[string]any{
 			"Name": r.Name, "View": r.View, "Serve": "serve" + mapper.FieldName(r.Name), "Escape": v.escape, "Writes": v.writes,
 			"In": in, "Fields": fields, "Query": query, "Result": v.result, "API": api, "Template": v.template, "Block": blockOf(&r),
-			"User": v.userType, "UserPtr": v.userPtr, "DB": v.db, "Tx": v.tx,
+			"User": v.userType, "UserPtr": v.userPtr, "DB": v.db, "Tx": v.tx, "Form": form,
 		})
 		imports["context"] = imports["context"] || v.tx // the transaction's func
 		userImport = cmp.Or(userImport, v.userImport)   // one user type in the project
