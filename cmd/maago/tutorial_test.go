@@ -131,17 +131,20 @@ func TestBoardTutorialCatches(t *testing.T) {
 	}
 	patches, _ := filepath.Glob(filepath.Join(steps, "*.patch"))
 	last := filepath.Base(patches[len(patches)-1])
+	for _, c := range rows {
+		if !slices.Contains(patches, filepath.Join(steps, c.patch)) {
+			t.Fatalf("%s: no %s in %s", c.name, c.patch, steps)
+		}
+	}
 	w, err := newWalker(t)
 	if err != nil {
 		t.Fatal(err)
 	}
-	ran := 0
 	for i, p := range patches {
 		for _, c := range rows {
 			if c.patch != filepath.Base(p) {
 				continue
 			}
-			ran++
 			t.Run(c.name, func(t *testing.T) {
 				src := readFile(t, p)
 				if !strings.Contains(src, c.old) {
@@ -159,14 +162,15 @@ func TestBoardTutorialCatches(t *testing.T) {
 				if err == nil {
 					err = cw.step(t, mine)
 				}
-				for _, q := range patches[i+1:] {
-					if err != nil || !tail {
-						break
+				if tail {
+					for _, q := range patches[i+1:] {
+						if err == nil {
+							err = cw.step(t, q)
+						}
 					}
-					err = cw.step(t, q)
-				}
-				if err == nil && tail {
-					err = cw.ship(t, last)
+					if err == nil {
+						err = cw.ship(t, last)
+					}
 				}
 				if err == nil || !strings.HasPrefix(err.Error(), at+": "+c.by) {
 					t.Errorf("walk: %v", err)
@@ -176,9 +180,6 @@ func TestBoardTutorialCatches(t *testing.T) {
 		if err := w.step(t, p); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if ran != len(rows) {
-		t.Errorf("%d of %d rows ran: a row names a patch that is not in %s", ran, len(rows), steps)
 	}
 }
 
@@ -349,9 +350,8 @@ func (w *walker) ship(t *testing.T, last string) error {
 }
 
 // clone copies the walk to a project of t's: its files, and on PostgreSQL
-// a schema of t's own, which the project's migrations make again (the
-// steps' database holds only what maago migrate made). t is the test the
-// copy is for: the schema is named by it.
+// an empty schema of t's own, which the row's step migrates. t is the
+// test the copy is for: the schema is named by it.
 func (w *walker) clone(t *testing.T) (*walker, error) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -364,9 +364,6 @@ func (w *walker) clone(t *testing.T) (*walker, error) {
 	if w.schema != "" {
 		if c.schema, err = toPostgres(t, root, "", 1); err != nil {
 			return nil, err
-		}
-		if _, ds := build.Migrate(root); ds != nil {
-			return nil, fmt.Errorf("maago migrate:\n%s", text(ds))
 		}
 	}
 	return c, nil
