@@ -75,10 +75,11 @@ func TestDelete(t *testing.T) {
 		return v
 	}
 
-	body := get(h, "root", "/admin/blog/Post/delete/?id=1&id=2").Body.String()
-	if !strings.Contains(body, "3 rows of blog.Comment (PostID) refer to it") || !strings.Contains(body, "1 row of blog.Tag (PostID) refers to it") || strings.Contains(body, "blog.Post (ParentID)") ||
+	w := get(h, "root", "/admin/blog/Post/delete/?id=1&id=2")
+	body := w.Body.String()
+	if w.Code != 200 || !strings.Contains(body, "3 rows of blog.Comment (PostID) refer to it") || !strings.Contains(body, "1 row of blog.Tag (PostID) refers to it") || strings.Contains(body, "blog.Post (ParentID)") ||
 		strings.Contains(body, "<button") || !strings.Contains(body, "Nothing is deleted") || !slices.Contains(asked, Delete) {
-		t.Errorf("GET of a row others refer to:\n%s", body)
+		t.Errorf("GET of a row others refer to: %d\n%s", w.Code, body)
 	}
 	body = get(h, "root", "/admin/blog/Post/delete/?id=1&id=1").Body.String()
 	if strings.Count(body, `<input type="hidden" name="id" value="1">`) != 1 || !strings.Contains(body, `<button type="submit">Delete</button>`) {
@@ -119,10 +120,10 @@ func TestDelete(t *testing.T) {
 		{"root", "POST", "/admin/blog/Post/delete/", url.Values{}, 400, "Bad Request: admin: no row to delete"},
 		{"root", "GET", "/admin/blog/Post/delete/?id=x", nil, 400, `Bad Request: admin: id "x"`},
 		{"root", "GET", "/admin/blog/Post/delete/?id=9", nil, 500, "Internal Server Error\n"},
-		{"viewer", "GET", "/admin/blog/Post/delete/?id=1", nil, 403, ""},
-		{"viewer", "POST", "/admin/blog/Post/delete/", ids(1), 403, ""},
-		{"viewer", "GET", "/admin/blog/Nope/delete/?id=1", nil, 403, ""},
-		{"root", "GET", "/admin/blog/Nope/delete/?id=1", nil, 404, ""},
+		{"viewer", "GET", "/admin/blog/Post/delete/?id=1", nil, 403, "Forbidden\n"},
+		{"viewer", "POST", "/admin/blog/Post/delete/", ids(1), 403, "Forbidden\n"},
+		{"viewer", "GET", "/admin/blog/Nope/delete/?id=1", nil, 403, "Forbidden\n"},
+		{"root", "GET", "/admin/blog/Nope/delete/?id=1", nil, 404, "Not Found\n"},
 	} {
 		var w *httptest.ResponseRecorder
 		if c.method == "GET" {
@@ -130,7 +131,7 @@ func TestDelete(t *testing.T) {
 		} else {
 			w = send(h, c.user, c.target, c.form)
 		}
-		if w.Code != c.code || c.body != "" && (!strings.HasPrefix(w.Body.String(), c.body) || c.code == 500 && w.Body.String() != c.body) {
+		if w.Code != c.code || c.body != "" && (!strings.HasPrefix(w.Body.String(), c.body) || c.code >= 403 && w.Body.String() != c.body) {
 			t.Errorf("%s %s %s: %d %q, want %d %q", c.user, c.method, c.target, w.Code, w.Body, c.code, c.body)
 		}
 	}

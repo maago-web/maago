@@ -129,9 +129,9 @@ auto=update field it writes only the row it read: a row changed since is
 maago.ErrConflict, a 409. The auto times, and every time GetPost or a
 query reads, are UTC (date shows them in Config.TimeZone); a time given
 to InsertPost stays as it was, so compare times with Equal. Do not name
-your own functions or types after these. maago doc query has the queries beyond them, and the read policies:
-the GetX of a model with them takes the user and the policy's params,
-and GetXIgnoringPolicies reads any row.`,
+your own functions or types after these. maago doc query has the queries
+beyond them, and the read policies: the GetX of a model with them takes
+the user and the policy's params, and GetXIgnoringPolicies reads any row.`,
 		Lists: []*List{FieldTypes, FieldTags, ModelTags},
 		API:   []string{"Model", "Opt", "Set", "Ptr", "ErrConflict", "UUID", "NewUUID", "ParseUUID", "JSON"},
 	},
