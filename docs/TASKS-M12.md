@@ -294,6 +294,11 @@
 
    기록(2026-11-22): 3cb553e(`-timeout 60m`)에서 GitHub Actions 초록(실행 44922403611), 그 앞 3ffe25a에서 로컬 PG 전체 시험(`go test exit=0`, ci.yml·문서만 다르다). `v0.3.0`(주석 태그, v0.2.0과 같은 꼴)을 3cb553e에 달아 push, `git ls-remote --tags origin`의 `v0.3.0^{}`가 3cb553e. sum.golang.org는 태그 직후 404였다가 프록시가 가져간 뒤 200. 빈 `GOPATH`·`GOMODCACHE`·`GOCACHE`·`GOWORK=off`에서 `GOPROXY=direct`와 기본 프록시 둘 다 `go install github.com/maago-web/maago/cmd/maago@v0.3.0`, `maago help`, `go version -m`이 `v0.3.0 h1:H5tqpDOB…`(sum.golang.org와 같다, `/go.mod`는 v0.2.0과 같은 `WRj2…`). 게시판: `unpack`, 0001을 고치고 0013의 충돌은 0013의 판에 v0.3.0 줄로, `pack` 뒤 `git diff --stat`이 0001·0013 다섯 줄씩. 공개 판으로 걷기의 끝: 0040의 `git archive` 사본(`go.work`·`auth/`·`outbox/` 없음)에서 `go list -m`이 `v0.3.0 <nil>`과 모듈 캐시, 설치한 `maago`의 절대 경로로 새 PG 데이터베이스에 `add auth`·`add outbox`·`migrate`·`gen`·`check`, `go mod tidy -diff`·`go mod verify`·`go vet ./...`·`gofmt -l`·`go test ./...` 초록. `pack` 뒤 PG 전체 시험(`go test exit=0`, `cmd/maago` 1747초)
 13. **에이전트 게이트**: `go install …@v0.3.0`부터, 0036의 끝에서 새 단계(0037~0040) 글만 보고 서로 모르는 실행 둘. 게이트가 고칠 것을 찾으면 v0.3.1(M11과 같은 길) → 확인: 기록, 메시지와 `maago doc`만으로 씀
+
+   방법(2026-11-22). 계획 리뷰 없음(M11 10번의 방법 그대로)
+   - 디렉터리 둘(`m12gate1`·`m12gate2`, 스크래치): 게시판 0036의 끝(v0.3.0으로 고친 단계의 `git archive`, `go.work`·생성 파일 없이, `go.mod`는 공개된 v0.3.0, 설치한 `maago add auth`가 쓴 `auth/` 포함), `bin/maago`는 빈 `GOPATH`에서 `go install …@v0.3.0`한 것, `STEPS.md`는 0037~0040의 단계 글(`git mailinfo`의 제목·본문, 트레일러 포함: 0040의 `Maago-Run: maago add outbox`)만, PG 데이터베이스 `m12gate1`·`m12gate2`. 시작 상태는 따로 사본(`m12gatecheck`)에서 `migrate`·`gen`·`check`·`vet`·`test`가 초록임을 확인했다
+   - 프롬프트는 M11의 것: 단계 글은 영어, 참조는 `maago doc`과 `go doc`, 이 저장소와 모듈 캐시의 maago 소스는 읽지 않는다, `GATE-LOG.md`에 단계마다 명령·실패와 오류 글·고친 것과 무엇이 알려 줬는지·헷갈린 곳·뜻밖의 실패. 서로 모르는 일반 서브에이전트 둘
+   - 끝 확인은 내가: `go version -m`이 v0.3.0, `go.mod`에 `replace` 없음, `maago check`·`go vet`·`go test ./...`, 단계 글이 말한 것(0037의 `NewCommentForm`·`NewAttachmentForm`과 손 `name=` 없음·`SignInToken`, 0038의 새 서명과 `panic` 없음, 0039의 UUID 열쇠·JSON 메타, 0040의 outbox와 `main`의 일꾼)이 쓰였는지
 14. **M12 끝**: MILESTONES의 M12 체크, README, 다음 마일스톤의 차례
 
 ## 초안 리뷰 (2026-10-23, codex와 fable)
