@@ -291,6 +291,8 @@
    - 하지 않는 것: 릴리스 노트·GitHub Release(v0.2.0에도 없다), 게시판 밖의 `go.mod` 고침
    - **사람의 결정(2026-11-15)**: main push와 `v0.3.0` 태그 push 승인(다른 태그 없음, force-push 없음)
    - CI가 3ffe25a에서(앞서 89d5726에서도) `cmd/maago` 30분 제한에 걸렸다(실패가 아니라 `TestBoardTutorialCatches` 도중 시간 끝, 로컬 약 27분). **사람의 결정(2026-11-22)**: CI의 `-timeout 60m`, 빠르게 하는 것은 TODO
+
+   기록(2026-11-22): 3cb553e(`-timeout 60m`)에서 GitHub Actions 초록(실행 44922403611), 그 앞 3ffe25a에서 로컬 PG 전체 시험(`go test exit=0`, ci.yml·문서만 다르다). `v0.3.0`(주석 태그, v0.2.0과 같은 꼴)을 3cb553e에 달아 push, `git ls-remote --tags origin`의 `v0.3.0^{}`가 3cb553e. sum.golang.org는 태그 직후 404였다가 프록시가 가져간 뒤 200. 빈 `GOPATH`·`GOMODCACHE`·`GOCACHE`·`GOWORK=off`에서 `GOPROXY=direct`와 기본 프록시 둘 다 `go install github.com/maago-web/maago/cmd/maago@v0.3.0`, `maago help`, `go version -m`이 `v0.3.0 h1:H5tqpDOB…`(sum.golang.org와 같다, `/go.mod`는 v0.2.0과 같은 `WRj2…`). 게시판: `unpack`, 0001을 고치고 0013의 충돌은 0013의 판에 v0.3.0 줄로, `pack` 뒤 `git diff --stat`이 0001·0013 다섯 줄씩. 공개 판으로 걷기의 끝: 0040의 `git archive` 사본(`go.work`·`auth/`·`outbox/` 없음)에서 `go list -m`이 `v0.3.0 <nil>`과 모듈 캐시, 설치한 `maago`의 절대 경로로 새 PG 데이터베이스에 `add auth`·`add outbox`·`migrate`·`gen`·`check`, `go mod tidy -diff`·`go mod verify`·`go vet ./...`·`gofmt -l`·`go test ./...` 초록. `pack` 뒤 PG 전체 시험(`go test exit=0`, `cmd/maago` 1747초)
 13. **에이전트 게이트**: `go install …@v0.3.0`부터, 0036의 끝에서 새 단계(0037~0040) 글만 보고 서로 모르는 실행 둘. 게이트가 고칠 것을 찾으면 v0.3.1(M11과 같은 길) → 확인: 기록, 메시지와 `maago doc`만으로 씀
 14. **M12 끝**: MILESTONES의 M12 체크, README, 다음 마일스톤의 차례
 
