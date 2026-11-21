@@ -82,6 +82,30 @@
 병렬로 할 수 있는 묶음(각자의 worktree, 루프마다 계획 → 계획 리뷰 → 구현 → 구현 리뷰): **가** 1번, **나** 2번, **다** 3번, **라** 4~7번(차례대로). 8번은 모두 뒤, 9~12번은 차례대로.
 
 1. **걷기 시험 시간**: `TestBoardTutorialCatches`의 줄을 병렬로, 또는 같은 단계까지의 걷기를 한 번 만들어 나눠 쓴다(단계를 더하기 전에) → 확인: Catches의 줄 수와 줄마다의 기대 메시지가 고치기 전과 같다(시험이 센다), 한 줄을 헛것으로 만들면 실패, 로컬 `cmd/maago`와 CI의 시간이 기준(계획에서 N분) 아래
+
+   계획
+   - 잰 것(2026-11-22, 로컬 M-시리즈 12코어, PG 55432): 걷기 한 번(`TestBoardTutorial`, 0001~0040과 ship) 82초, `cmd/maago`에서 Catches를 뺀 것 142초, Catches는 약 27분(이 문서 사실 절의 `cmd/maago` 약 29분에서 142초를 뺀 값. TODO 81줄의 약 27분은 M12 때 `cmd/maago` 전체). CI의 `cmd/maago`는 2492초(약 41.5분, 실행 44934297161). 까닭은 TODO 그대로: Catches의 34줄이 저마다 0001부터 걸어 줄 수 × 단계 수로 자란다
+   - **같은 앞부분을 한 번 걷고 나눠 쓴다**(병렬이 아니라): Catches가 고치지 않은 단계를 0001부터 한 번 걷고, 단계 k를 적용하기 **전에** 그 단계를 고치는 줄마다 지금의 프로젝트를 복사해 서브시험에서 고친 k를 걷는다. 각 복사본은 고친 k의 오류를 보고 끝내며(`walkStep`은 오류에서 돌아온다, 지금도 k에서 실패하지 않으면 그 줄은 실패), ship에서 실패하는 꼬리 줄만 k 뒤 원래 단계와 ship까지 이어 걷는다. 걷기가 실패하는 자리와 메시지(`at+": "+c.by`)는 그대로이고, 줄마다 앞부분이 고치기 전과 같은 상태라 뜻이 같다. 가늠: 걷기 한 번 + 34줄 × 한 단계(몇 초) + ship까지 가는 넷의 꼬리(0033에서 둘, 0040에서 둘)로 약 5분(잰 값: Catches 229초, `cmd/maago` 446초). 단계를 더해도 단계 수 + 줄 수로 자란다
+   - `cmd/maago/tutorial_test.go`만 바꾼다(새 파일 없음):
+     - `walk`를 셋으로 가른다: 프로젝트를 만드는 부분(`git init`·`go.work`·`.env`·`noEnv`), 단계 하나(트레일러 읽기·`toPostgres`·`walkStep`, 오류에 패치 이름), 끝(`ship`, 오류에 마지막 패치 이름). 루트와 스키마를 담는 작은 구조체 `walker{root, schema string}`. `walk(t, dir)`은 그 셋을 차례로 부르는 지금의 함수로 남아 `TestBoardTutorial`·`TestBoardTutorialPostgresTrailer`는 그대로
+     - `clone(t)`: 새 `t.TempDir()`(go.work 때문에 `EvalSymlinks`)에 `os.CopyFS`로 루트를 통째로(`.git`, SQLite의 `board.db`, `.env`). 스키마가 있으면(0013 뒤) 서브시험의 이름으로 `toPostgres(t, root, "", 1)`가 빈 새 스키마와 `.env`를 만든다(PG에는 스키마 복사가 없다. 단계가 공유하는 DB에는 `maago migrate`가 만든 것뿐이라 줄의 단계가 스스로 Migrate하면 같은 상태가 된다: gen·check는 연습 DB만 쓰고, 통과 단계는 `walkStep`이 앱 시험 앞에서 Migrate하고, Expect 단계는 DB를 보기 전에 돌아오고, 꼬리의 ship은 스키마를 비운다. 구현 리뷰 fable 1로 `build.Migrate`를 뺐다). `clone`은 서브시험의 `t`만 받는다(스키마 이름이 `t.Name()`에서 나와, 부모의 `t`면 부모의 스키마를 지운다). 부모의 스키마는 건드리지 않는다
+     - `TestBoardTutorialCatches`: 줄의 표(리터럴)는 한 글자도 바꾸지 않는다. 고친 패치는 서브시험의 TempDir에 같은 이름으로 쓴다(오류의 패치 이름과 `git apply`). 부모가 단계마다 그 단계를 고치는 줄을 `t.Run`으로 돌린 뒤 원래 단계를 적용한다. 걷기 전에 줄마다 패치 이름이 `steps/`에 있는지 보고 없으면 실패(없는 패치 이름을 적은 줄이 조용히 빠지지 않게: 지금은 `readFile`이 실패시키던 것. PG 없는 로컬에서도 돈다, 구현 리뷰 fable 2)
+     - 주석: Catches 위에 "앞부분은 한 번 걷고 줄마다 복사한다"
+   - 단계와 확인
+     1. 고치기 전 줄 이름 34개를 표에서 `grep`해 정렬해 둔다 → 확인: 고친 뒤 `MAAGO_TEST_PG_URL=… go test -run TestBoardTutorialCatches -v ./cmd/maago`의 `--- PASS` 서브시험 이름을 정렬해 그것과 `diff`가 비어 있다, `git diff`에 표의 줄이 없다
+     2. 헛것 여섯 → 확인: 각각 실패하고 되돌린다. (a) 0013 앞 줄 하나("query")의 `new`를 `old`로 (b) 0013 뒤, 복사본이 부모보다 마이그레이션 하나를 먼저 가진 줄("no permission table", 0021) (c) 꼬리 줄 하나("no worker"): (a)(b)(c)는 실패 메시지가 `walk: <nil>`인 것을 본다(고치지 않은 복사본이 k를, 꼬리는 끝의 ship까지 걷는다는 뜻. 다른 오류면 복사가 틀린 것) (d) 한 줄의 패치 이름을 없는 이름으로(걷기 전의 검사) (e) 한 줄의 `by`를 다른 접두로("author check"의 `go test: ` → `maago gen:\n`) (f) 꼬리의 `at`이 마지막 패치인지: `by`를 바꾸면 꼬리가 아니게 되어(접두가 꼬리를 정한다) `walk: <nil>`로 끝나므로, 대신 시험 코드의 `at = last`를 빼면 "no migrations at the start"(0033)가 실패. 복사를 단계 **뒤**에 하는 실수는 고친 패치의 `git apply`가 실패해 모든 줄의 접두가 틀리므로 따로 잡을 것이 없다
+     3. PG 없이 로컬 → 확인: 0012까지의 줄은 돌고 그 뒤는 부모가 0013에서 skip(지금도 그 줄들은 skip), `CI=1`이면 0013에서 실패(D-91, `TestBoardTutorialPostgresTrailer` 그대로)
+     4. 시간 → 확인: 로컬 Catches **8분** 아래, 로컬 `cmd/maago` **12분** 아래(PG와 함께, 로그의 `go test exit=` 줄). CI의 `cmd/maago` **20분** 아래는 push한 뒤 GitHub Actions에서(push는 묻고 하므로 M13 끝의 "push 뒤 GitHub Actions" 항목에 적어 두고 거기서 잰다). 기준은 가늠(5분)에 넉넉한 위 한계라 먼저 재지 않고, 잰 값을 TODO에 적는다
+     5. 전체 → 확인: `go mod tidy -diff && go vet ./... && go test -timeout 60m ./...`(PG와 함께)와 `gofmt -l .` 비어 있음, TODO 81줄에 잰 로컬 시간을 적는다(체크는 CI를 잰 뒤에)
+   - ★ → 에이전트 편의로 결정: **병렬 대신 나눠 쓰기.** 에이전트가 단계를 더할 때마다 Catches가 줄 × 단계로 자라는 것을 막는 쪽은 나눠 쓰기뿐이다(병렬은 코어 수로 나눌 뿐이고, 걷기의 `go test ./...`가 이미 코어를 쓴다: 걷기 한 번 192% CPU). 병렬에는 걸림도 둘: `walk`의 `noEnv`가 `t.Setenv`라 병렬 서브시험에서 panic, 그리고 0013 뒤 걷기들의 앱 시험이 같은 `maagotest_*` 스키마(패키지 경로·시험 이름·차례의 해시라 걷기마다 같다)를 서로 지운다
+   - ★ → 에이전트 편의로 결정: 줄 수는 고정 숫자(34)가 아니라 줄마다 패치가 있는지로 본다(줄은 제 패치에서 반드시 돈다). 8번이 줄을 더할 때 숫자를 따라 고칠 일이 없고, 줄이 조용히 빠지는 길(없는 패치 이름)은 막힌다. 표가 그대로인 것은 이 작업의 `git diff`가 보인다
+   - ★ → 에이전트 편의로 결정: PG 줄의 복사는 빈 새 스키마(위). `pg_dump` 따위 새 외부 도구를 걷기에 들이지 않는다
+   - 결정 기록 없음: 시험 안의 구조이고 D-103(패치를 하나씩 적용하며 gen·check·migrate·앱 시험)의 뜻은 그대로
+   - 하지 않는 것: 서브시험 병렬(위), `TestBoardTutorial`의 걷기를 Catches와 나눠 쓰기(82초를 아끼지만 두 시험의 실패가 엉킨다), CI의 `-timeout 60m`을 되돌리기(M12 12번 사람의 결정, CI 시간을 재기 전에는 근거가 없다), `TestShortTutorial`(이 작업의 범위 밖)
+   - 받지 않음: 줄 이름의 골든 상수(codex): 표를 한 번 더 적는 것이라 8번이 줄을 더할 때 두 곳을 고친다. 이름이 같은지는 단계 1이 이 작업에서 한 번 `diff`로 보고, 그 뒤에는 표가 이름의 출처이며 돈 줄 = 표의 줄을 시험이 센다. 기준을 먼저 재기(codex): 8·12·20분은 가늠의 두 배 넘는 위 한계라 잰 뒤 정해도 바뀌지 않는다, 잰 값은 단계 4에서 적는다
+   - 계획 리뷰 codex·fable 반영: 복사본은 고친 k에서 끝내고 꼬리 줄만 ship까지(codex 1), 이름은 정렬해 `diff`(codex 2의 반), 헛것 (a)(b)(c)는 `walk: <nil>`을 보고 (b)를 0021로, `by`를 바꾸는 헛것과 `at`을 지키는 헛것(fable 1·4·5, 꼬리의 `by`를 바꾸는 꼴은 꼬리가 아니게 되어 `at = last`를 빼는 꼴로), CI 20분을 M13 끝 항목에 걸고 TODO 체크는 그 뒤(fable 2), 36 → 34(fable 3), 29분의 출처와 해시의 재료(fable 6), `clone`은 서브시험의 `t`만(fable 7)
+   - 받지 않음(구현 리뷰): `(*walker).ship`을 지우고 두 곳에서 직접 감싸기(ponytail nit 2: nil 가드가 하나 더 들어 지금 꼴이 짧다)
+   기록(2026-11-22): `cmd/maago/tutorial_test.go`의 `walker`(`newWalker`·`step`·`ship`·`clone`)와 `walk`, Catches는 앞부분을 한 번 걷고 단계 k 앞에서 그 단계를 고치는 줄마다 복사해 고친 k를 걷는다(꼬리 줄만 뒤 단계와 ship까지), 줄의 표는 그대로(`for … range` → `rows :=` 한 줄). 시험: 서브시험 이름 34개가 고치기 전과 같다(정렬 `diff`), 헛것 여섯이 모두 실패(fable이 따로 다시 돌려 확인, `at = last`를 빼면 0033의 꼬리 둘), PG 없이 0012까지 돌고 0013에서 skip·`CI=1`이면 실패, `GOTOOLCHAIN=go1.25.14`로도 통과(fable). 로컬 Catches 229초(기준 8분), `cmd/maago` 369초(기준 12분, 리뷰 반영 뒤 PG 전체 시험 `go test exit=0`, 따로 만든 DB). CI의 `cmd/maago` 20분 아래는 M13 끝의 push 뒤에 잰다. 구현 리뷰는 ponytail·codex·fable: 막는 것 없음. `clone`의 `build.Migrate`는 지키는 줄이 없어 뺐다(fable 1, 줄의 단계가 스스로 Migrate), 패치 이름 검사를 걷기 전으로 옮겨 PG 없는 로컬에서도 돌게 하고 `ran` 세기를 지웠다(fable 2, 없는 이름이 PG 없이 실패함을 확인), 꼬리 루프를 `if tail`로 묶었다(ponytail nit 1), CI 시간은 M13 끝에서(fable 3). codex는 지적 없음(쓰기 금지 환경이라 실행은 못 함). 두 리뷰어의 첫 실행이 같은 PG에서 겹쳐 실패한 것은 TODO의 스키마 겹침 항목 그대로
 2. **조용한 런타임 묶음**(Q9): `InsertX`·`UpdateX`·`GetX`의 시각을 두 방언 모두 UTC로(보고된 것, 먼저 재현), API 뷰의 unique 위반 422, admin의 거절된 삭제를 4xx와 이유로·잘못된 POST의 이유, 사용자 폼의 `default=''` → 확인: 고치기 전 SQLite에서 빨강인 시각 시험과 PG의 `Location() == time.UTC`, API unique 위반의 422(필드 있음·없음), `contrib/admin`의 거절 상태, `internal/web/forms_test.go`의 빈 입력. D-105·D-111·D-154·D-120·D-132 고침
 3. **DB 단계의 쿼리 계속**(Q8) → 확인: 두 방언에서 모델에 열을 더하고 makemigrations 없이 gen하면 "run makemigrations"와 쿼리의 "missing" 진단이 모두 위치와 함께 한 실행에(모든 쿼리를 본다), 새 열을 맞게 쓴 쿼리는 "run makemigrations" 하나뿐, 손 마이그레이션에만 있는 것을 쓰는 쿼리는 이 길에서 오류가 없다. 게시판 0012·0039 글의 "먼저 makemigrations"를 다시 봄
 4. **저장소 경계**(Q3): `MediaStore`와 로컬 구현(서명된 로컬 URL 포함), `OpenMedia`·`ServeMedia`를 그 위로, `WithMediaDir`의 처지(남기거나 지움, 계획에서 하나), `MediaDir`과 저장소를 함께 주면 `Handler` 오류 → 확인: 미디어 시험을 저장소를 받는 함수 하나로 만들어 로컬과 메모리 가짜 둘에(7번의 S3도 같은 함수), Range(206)·404·nosniff·attachment, 서명된 URL의 기한 지남·바뀐 서명 거절, 게시판 0029·0038·0039가 고치지 않고 걷는다
@@ -116,4 +140,4 @@ M14로 간 셋(그 마일스톤의 초안에서 다시 본다): `contrib/auth/oi
 - [ ] 1~12 완료
 - [ ] M13 완료 조건을 실제로 돌려 확인, 조건마다 시험 이름
 - [ ] MILESTONES.md의 M13 체크박스
-- [ ] push 뒤 GitHub Actions
+- [ ] push 뒤 GitHub Actions(1번: `cmd/maago` 20분 아래, TODO 81줄에 잰 값을 적고 체크)
