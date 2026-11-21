@@ -55,6 +55,15 @@ func See(topic string, ds []Diagnostic) []Diagnostic {
 	return ds
 }
 
+// Note returns ds with suffix at the end of each message, to say what
+// they were checked against. It modifies ds.
+func Note(suffix string, ds []Diagnostic) []Diagnostic {
+	for i := range ds {
+		ds[i].msg += suffix
+	}
+	return ds
+}
+
 // Write prints ds sorted by position, then message, with duplicates
 // removed. Diagnostics without a position come first. ds is not modified.
 func Write(w io.Writer, ds []Diagnostic) error {

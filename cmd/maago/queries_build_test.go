@@ -86,25 +86,126 @@ func TestQueriesGenCheck(t *testing.T) {
 	}
 }
 
-// The queries are prepared only on a database that matches the models,
-// and makemigrations reads no query file.
-func TestQueriesAfterModels(t *testing.T) {
-	root := ordersProject(t, project.SQLite)
-	models := filepath.Join(root, "models.go")
-	writeFile(t, models, strings.Replace(readFile(t, models), "\tAmount     int64  `maago:\"decimal=2\"`\n", "\tAmount     int64  `maago:\"decimal=2\"`\n\tNote       string\n", 1))
-	writeFile(t, filepath.Join(root, "queries", "notes.sql"), "-- name: Notes :many Order\nSELECT * FROM orders\nWHERE note <> ''\n")
-	out := text(build.Check(root))
-	if !strings.Contains(out, differ) || strings.Contains(out, "queries/") {
-		t.Errorf("check before the migration:\n%s", out)
-	}
+// Before the migration, the queries are prepared on the migrations plus
+// makemigrations' draft, the schema the next run sees: the "run
+// makemigrations" line and the queries' errors come out in one run, and
+// those say what they were checked against. makemigrations reads no
+// query file, and after it the same errors come without the note.
+func TestQueriesBeforeMigration(t *testing.T) {
+	for _, d := range []project.Dialect{project.SQLite, project.Postgres} {
+		t.Run(string(d), func(t *testing.T) {
+			root := ordersProject(t, d)
+			withEmail(t, root, "string")
+			writeFile(t, filepath.Join(root, "queries", "emails.sql"), "-- name: Emails :many Customer\nSELECT * FROM customers\nWHERE email <> ''\n")
+			email := `models.go:17:2: ` + differ + `column "email" of "customers" is missing`
+			lines(t, root, email)
 
-	writeFile(t, filepath.Join(root, "queries", "bad.sql"), "-- nmae: Bad :exec\nDELETE FROM orders\n")
-	if makeMigrations(t, root, "") == "" {
-		t.Fatal("no migration for Note")
+			writeFile(t, filepath.Join(root, "queries", "typo.sql"), typoSQL)
+			writeFile(t, filepath.Join(root, "queries", "short.sql"), "-- name: Short :many Customer\nSELECT id FROM customers\n")
+			short := `queries/short.sql:2:1: result columns do not match model Customer: missing "name", "email"`
+			lines(t, root, email, short+against, typo(d)+against)
+
+			bad := filepath.Join(root, "queries", "bad.sql")
+			writeFile(t, bad, "-- nmae: Bad :exec\nDELETE FROM orders\n")
+			if makeMigrations(t, root, "") == "" {
+				t.Fatal("no migration for Email")
+			}
+			lines(t, root, "queries/bad.sql:1:1: query has no -- name: line", `queries/bad.sql:1:4: unknown header key "nmae"`)
+			os.Remove(bad)
+			lines(t, root, short, typo(d))
+
+			// A field dropped before the migration: the query still using
+			// its column fails now, not after makemigrations.
+			root = ordersProject(t, d)
+			models := filepath.Join(root, "models.go")
+			writeFile(t, models, regexp.MustCompile("\tPriority .*\n").ReplaceAllString(readFile(t, models), ""))
+			priority := map[project.Dialect]string{
+				project.SQLite:   `queries/order_by_amount.sql:1:10: SQL logic error: no such column: priority (1)`,
+				project.Postgres: `queries/order_by_amount.sql:4:65: ERROR: column "priority" does not exist (SQLSTATE 42703)`,
+			}[d]
+			lines(t, root, `models.go:19:6: `+differ+`column "priority" of "orders" is not in the models`, priority+against)
+		})
 	}
-	if got := diagnostics(text(build.Check(root))); !slices.Equal(got, []string{
-		"queries/bad.sql:1:1: query has no -- name: line", `queries/bad.sql:1:4: unknown header key "nmae"`}) {
-		t.Errorf("check after the migration: %q", got)
+}
+
+// against ends a query's error found before the migration.
+const against = " (checked against the models)"
+
+// typoSQL is a query with a typo for column email, and typo its error.
+const typoSQL = "-- name: Typo :exec\nDELETE FROM customers\nWHERE emial = ''\n"
+
+func typo(d project.Dialect) string {
+	if d == project.Postgres {
+		return `queries/typo.sql:3:7: ERROR: column "emial" does not exist (SQLSTATE 42703)`
+	}
+	return `queries/typo.sql:1:10: SQL logic error: no such column: emial (1)`
+}
+
+// withEmail adds field Email of typ to model Customer, at models.go:17,
+// which no query of the fixture returns.
+func withEmail(t *testing.T, root, typ string) {
+	t.Helper()
+	models := filepath.Join(root, "models.go")
+	writeFile(t, models, strings.Replace(readFile(t, models), "\tName string `maago:\"max=100\"`\n", "\tName string `maago:\"max=100\"`\n\tEmail "+typ+"\n", 1))
+}
+
+// lines checks that check on root reports exactly want, whole lines in
+// order, without their fix and see lines.
+func lines(t *testing.T, root string, want ...string) {
+	t.Helper()
+	if got := diagnostics(text(build.Check(root))); !slices.Equal(got, want) {
+		t.Errorf("got:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+// What only a migration written by hand has, a name the models do not
+// give, is in the database the queries are checked on before the
+// migration too: a query using it has no error, and a typo beside it
+// has, so the queries were checked, and on the migrations.
+func TestQueriesHandMigration(t *testing.T) {
+	for _, d := range []project.Dialect{project.SQLite, project.Postgres} {
+		t.Run(string(d), func(t *testing.T) {
+			root := ordersProject(t, d)
+			hand := "-- name: ByCustomer :many Count\n-- column: n int64\nSELECT count(*) AS n FROM orders INDEXED BY orders_by_customer WHERE customer_id = 1\n"
+			if d == project.SQLite {
+				initial := filepath.Join(root, "migrations", "0001_initial.sql")
+				src := readFile(t, initial)
+				m := regexp.MustCompile(`CREATE INDEX "[^"]+" ON "orders" \("customer_id"\)`).FindString(src)
+				if m == "" {
+					t.Fatalf("no index on customer_id in:\n%s", src)
+				}
+				writeFile(t, initial, strings.Replace(src, m, `CREATE INDEX "orders_by_customer" ON "orders" ("customer_id")`, 1))
+			} else {
+				writeFile(t, filepath.Join(root, "migrations", "0002_kor.sql"), "CREATE TEXT SEARCH CONFIGURATION kor (COPY = simple);\n")
+				hand = "-- name: ByWord :many Count\n-- column: n int64\nSELECT count(*) AS n FROM orders WHERE to_tsvector('kor', status) @@ to_tsquery('kor', 'new')\n"
+			}
+			writeFile(t, filepath.Join(root, "queries", "hand.sql"), hand)
+			if _, ds := build.Gen(root); len(ds) > 0 {
+				t.Fatalf("gen with the migrations matching:\n%s", text(ds))
+			}
+
+			withEmail(t, root, "*string")
+			writeFile(t, filepath.Join(root, "queries", "typo.sql"), typoSQL)
+			lines(t, root, `models.go:17:2: `+differ+`column "email" of "customers" is missing`, typo(d)+against)
+		})
+	}
+}
+
+// A draft that fails in the practice database, a NOT NULL column without
+// a default on a table with rows, leaves the queries for the next run:
+// check says only that the migrations differ, as makemigrations stops.
+func TestQueriesDraftFails(t *testing.T) {
+	for _, d := range []project.Dialect{project.SQLite, project.Postgres} {
+		t.Run(string(d), func(t *testing.T) {
+			root := ordersProject(t, d)
+			writeFile(t, filepath.Join(root, "migrations", "0002_data.sql"), "INSERT INTO customers (name) VALUES ('a');\n")
+			withEmail(t, root, "string")
+			writeFile(t, filepath.Join(root, "queries", "typo.sql"), typoSQL)
+			lines(t, root, `models.go:17:2: `+differ+`column "email" of "customers" is missing`)
+			if _, ds := build.MakeMigrations(root, "", nil); !strings.Contains(text(ds), "maago did not write") {
+				t.Errorf("makemigrations:\n%s", text(ds))
+			}
+		})
 	}
 }
 
