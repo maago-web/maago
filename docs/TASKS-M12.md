@@ -333,4 +333,4 @@
 - [x] 1~14 완료
 - [x] M12 완료 조건을 실제로 돌려 확인, 조건마다 시험 이름(MILESTONES의 M12, 69d9ddb에서 PG 전체 시험 `go test exit=0`)
 - [x] MILESTONES.md의 M12 체크박스
-- [ ] push 뒤 GitHub Actions
+- [x] push 뒤 GitHub Actions(1ee6e46, 실행 44934297161)

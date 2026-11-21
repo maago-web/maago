@@ -1,13 +1,13 @@
-# M13 작업 목록 — 미디어 저장소, Google 로그인, 맞음의 나머지
+# M13 작업 목록 — 미디어 저장소와 조용한 맞음
 
 [MILESTONES.md](MILESTONES.md)의 M13을 작업 단위로 쪼갠 것이다. 위에서부터 순서대로 한다.
 각 작업은 `→ 확인:`이 통과해야 끝난다. 작업마다 [구현 루프](WORKFLOW.md)를 한 번 돈다.
 설계의 갈림길은 "Claude·Codex가 Maago로 서비스를 만들 때 편한가"로 정한다(사람의 결정, 2026-10-13).
 범위는 사람의 결정(2026-11-22, M12 끝): 외부 미디어 저장소, 단계를 넘어 계속하는 검사, TODO의 남은 것, 실제 이전 사례(readmate: Django에서 옮기는 서비스)를 모아 질문으로 묶는다.
 
-**초안이다.** 아래 Q1(범위)·Q6(계정 연결)에 사람이 답하기 전에는 작업 목록이 확정되지 않는다.
+차례와 범위는 사람의 결정(2026-11-22, Q1): M13은 미디어와 조용한 맞음, Google 로그인·진단 묶음·단계 글은 M14. 결정은 D-160~D-163.
 
-**M13 완료 조건**(초안, Q1 (a)라면)
+**M13 완료 조건** (MILESTONES)
 - 앱이 만든 바이트(백그라운드 일꾼의 것도)를 미디어로 저장한다. 인스턴스가 둘이어도 미디어가 깨지지 않는 저장소(S3 호환)가 있고, 고아 파일을 치우는 길이 있다
 - 마이그레이션이 모델과 달라도 쿼리의 오류가 같은 실행에 나온다
 - 조용히 틀리는 런타임 넷(시각의 Location, API의 unique 위반, admin의 거절된 삭제, 폼의 `default=''`)이 고쳐져 있다
@@ -15,7 +15,7 @@
 
 **앞에서 넘어온 것**
 - MILESTONES "그다음(M13)": 외부 미디어 저장소, 단계를 넘어 계속하는 검사(D-61)
-- readmate의 이전에서: OCR 일꾼이 만든 이미지 바이트를 미디어로, Google 로그인(allauth의 `socialaccount`)
+- readmate의 이전에서: OCR 일꾼이 만든 이미지 바이트를 미디어로. Google 로그인(allauth의 `socialaccount`)은 M14(D-163)
 - TODO(아래 "먼저 확인한 사실"의 훑기): M12 게이트 셋(import 빠진 `outbox.Admin` 진단, 단계 글의 남은 빈틈, 0040 시험의 `adminApp()`), M10의 시각 Location·admin 상태·`Maago-Expect` 줄:열·버전 칸 fix, M11의 API unique 위반, M4의 `default=''`, M3의 결과 타입 fix 예 이름, M2의 `maago_` 테이블 이름, M12의 걷기 시험 시간
 
 **이번에 하지 않는 것**(TODO 그대로): `Normalize`의 따옴표 이름, 연습 PG의 `search_path`, FK 고리의 DROP 순서, 테이블 `--rename`, 태그 값의 `"`, 빌드 제약 파일, 권한 표의 런타임 검사, 정책 셋(앱을 넘는 정책, auth 모델의 정책, dot import), UUID·JSON의 남은 것(채우는 태그, default, JSON param, `int32` decimal, 옛 행 채우기), `maago doc main` 예의 멈춤, 롤백, T3, JSON 필드의 `default`(앱이 Insert에서 채운다고 문서에). 다른 소셜 제공자와 MFA는 v1(D-50)
@@ -56,28 +56,28 @@
 - 걷기 시험: 로컬 `cmd/maago` 약 29분, CI 60분 제한(M12 12번). M13이 단계를 더하면 넘을 수 있다
 - 지움 권함: Django 대응표(에이전트 편의와 무관)
 
-## 질문 (초안 리뷰 뒤, 사람의 결정을 기다리는 것은 Q1·Q6)
+## 질문과 답 (초안 리뷰 뒤, 2026-11-22)
 
-초안 리뷰(아래)로 고친 추천이다. 모두 에이전트 편의로 골랐다. Q1(범위)과 Q6(계정 연결, readmate의 이전 모양을 바꾼다)은 사람에게 묻고, 나머지는 리뷰 둘이 막지 않아 추천대로 정한다(에이전트 편의로 결정, 2026-10-13의 사람의 결정).
+초안 리뷰(아래)로 고친 추천이다. 모두 에이전트 편의로 골랐다. Q1(범위)과 Q6(계정 연결)은 사람이 답했고(Q1은 추천대로, Q6은 (b)), 나머지는 리뷰 둘이 막지 않아 추천대로 정했다(에이전트 편의로 결정). 결정은 D-160~D-163.
 
-- **Q1 범위**: 리뷰가 고친 작업은 미디어 다섯, Google 셋, 그 밖 다섯과 게시판·릴리스·게이트로 약 18개. 5~10번이 모두 새 API·보안·파일 지우기라 리뷰어 둘을 부르는 작업이다(WORKFLOW 3).
+- **Q1 범위**(사람의 결정: (a)): 리뷰가 고친 작업은 미디어 다섯, Google 셋, 그 밖 다섯과 게시판·릴리스·게이트로 약 18개. 5~10번이 모두 새 API·보안·파일 지우기라 리뷰어 둘을 부르는 작업이다(WORKFLOW 3).
   (a, 추천) **둘로 자른다.** M13 = 걷기 시험 시간, 조용한 런타임, DB 단계의 쿼리 계속(Q8), 미디어(경계·바이트·S3·청소), 게시판 단계, v0.4.0, 게이트. M14 = Google 로그인, 진단 묶음, 단계 글의 빈틈. 한 게이트가 보는 새 주제를 줄이고, readmate의 첫 막힘(일꾼의 바이트)을 먼저 푼다. 대가: readmate의 Google 로그인은 M14까지 기다리거나 그동안 이메일 로그인으로
   (b) 모두 M13(Google을 미디어와 함께). 게시판 단계를 미디어 뒤·Google 뒤 둘로 쪼갠다. 대가: 마일스톤이 길고 게이트 한 번이 새 주제 다섯을 본다
   (c) M13 = Google과 조용한 런타임(readmate의 두 막힘 중 로그인을 먼저), 미디어는 M14
 - **Q2 앱이 만든 바이트의 저장**(정함): `maago.SaveMediaFrom(ctx, name string, r io.Reader) (Media, error)`. 실제로 복사한 바이트 수를 `Size`로, 형식은 읽은 첫 512바이트의 `http.DetectContentType`(업로드와 같은 뜻), 상한은 앱의 몫(`io.LimitReader`를 문서에). `SaveMedia(ctx, File)`은 이것을 부르는 얇은 함수. 일꾼의 ctx에 저장소를 넣는 공개 함수는 경계(Q3) 뒤에 한 번만 이름 짓는다. 기각: `NewFile([]byte)`(폼 값의 뜻이 흐려지고 통째로 메모리), `SaveMedia`의 서명 바꾸기(폼 경로마다 `Open`·`Close`)
 - **Q3 외부 저장소의 경계**(정함): 런타임에 작은 `maago.MediaStore`: Put(이름·형식·Reader → 크기), Open(크기·시각·Range 읽기를 주는 `io.ReadSeeker`꼴), Delete, List(페이지 나눔), URL(Media, ttl). 로컬 디스크가 기본이고 **단일 인스턴스용**이라고 문서에, `Config.MediaDir`은 그 줄임이며 저장소와 함께 주면 `Handler` 오류(PHILOSOPHY 6). S3 호환은 `contrib/s3`(stdlib SigV4): 크기를 모르는 Reader는 임시 파일에 받아 센 뒤 PUT. **서명된 URL**은 기한이 필수이고 `response-content-disposition=attachment`를 강제하며, 권한을 본 뷰나 일꾼만 부른다(D-140 고침: 기한부 공개 하나). 로컬 저장소도 같은 `URL`을 HMAC으로 서명한 기한부 라우트로 준다(로컬 개발에서 같은 코드가 돈다, readmate의 OCR이 PDF를 URL로 받는다). `OpenMedia`의 `*os.File` 반환이 깨진다: 릴리스 글에 적는다. 기각: 인터페이스만 두고 SDK 어댑터는 앱이(프로젝트마다 이음새), 공유 파일시스템 문서만(서명된 URL 없음)
 - **Q4 고아 청소**(정함, 리뷰가 바꾼 추천): 열쇠 열에 필드 태그 `media`를 붙이면 생성기가 모든 앱의 그 열을 읽는 "쓰는 중" 쿼리를 만들고, `maago.SweepMedia(ctx, olderThan)`가 저장소의 오래된 열쇠(기본 여유 24시간) 중 쓰이지 않는 것과 남은 `.tmp-*`를 지운다. 태그 없는 프로젝트에서 `SweepMedia`는 오류. 손으로 쓴 `inUse`는 기각: 열쇠 열을 가진 둘째 모델을 나중에 더하면 쓰는 파일을 조용히 지운다(MISSION의 데이터 보존, PHILOSOPHY 2). 타입 있는 `maago.Media` 필드는 기각: 모델·폼·admin을 걸치고 게시판 `Attachment`를 다시 쓴다
-- **Q5 Google 로그인의 꼴**(Q1이 M13에 넣을 때, 정함): `maago add google`이 이미 있는 `auth/`에 `google.go`(뷰 둘, `OAuthAccount`)·`google_test.go`·`queries/oauth_*.sql`을 덧쓴다(`auth/`가 없거나 그 파일이 있으면 거절). 복사된 `google_test.go`는 두 라우트와 권한 표 행이 없으면 실패하고, 넣을 줄은 출력이 짚는다. 보안 부품(PKCE, state·nonce, 코드 교환, claims 검사)은 stdlib로 `contrib/auth/oidc.go`. **서명 검증 생략은 고정된 Google 토큰 엔드포인트에서 HTTPS로 직접 받은 id_token에만**: `contrib/auth`의 공개 API에 id_token 글을 받는 함수가 없고(코드 교환만 claims를 준다), iss·aud·azp·nonce·exp를 본다, `http://`와 다른 엔드포인트는 거절. state·nonce·verifier는 HttpOnly·Secure·SameSite=Lax의 짧은(10분) 쿠키 하나에, 콜백이 성공이든 실패든 지워 재사용을 거절한다. 비밀번호를 다시 묻는 넷(`recheck`·`VerifySubmit`)은 새 `add auth` 원본에서 고치고, 이미 복사한 프로젝트에는 출력이 짚는다. 기각: `add auth`에 처음부터(이미 복사한 프로젝트가 손으로 합침), `x/oauth2`(의존과 fixture, 아끼는 것 약 30줄)
-- **Q6 Google 계정의 연결**(사람에게 묻는다, 리뷰가 바꾼 추천):
+- **Q5 Google 로그인의 꼴**(M14, 정함): `maago add google`이 이미 있는 `auth/`에 `google.go`(뷰 둘, `OAuthAccount`)·`google_test.go`·`queries/oauth_*.sql`을 덧쓴다(`auth/`가 없거나 그 파일이 있으면 거절). 복사된 `google_test.go`는 두 라우트와 권한 표 행이 없으면 실패하고, 넣을 줄은 출력이 짚는다. 보안 부품(PKCE, state·nonce, 코드 교환, claims 검사)은 stdlib로 `contrib/auth/oidc.go`. **서명 검증 생략은 고정된 Google 토큰 엔드포인트에서 HTTPS로 직접 받은 id_token에만**: `contrib/auth`의 공개 API에 id_token 글을 받는 함수가 없고(코드 교환만 claims를 준다), iss·aud·azp·nonce·exp를 본다, `http://`와 다른 엔드포인트는 거절. state·nonce·verifier는 HttpOnly·Secure·SameSite=Lax의 짧은(10분) 쿠키 하나에, 콜백이 성공이든 실패든 지워 재사용을 거절한다. 비밀번호를 다시 묻는 넷(`recheck`·`VerifySubmit`)은 새 `add auth` 원본에서 고치고, 이미 복사한 프로젝트에는 출력이 짚는다. 기각: `add auth`에 처음부터(이미 복사한 프로젝트가 손으로 합침), `x/oauth2`(의존과 fixture, 아끼는 것 약 30줄)
+- **Q6 Google 계정의 연결**(M14, 사람의 결정: (b). 리뷰가 고친 추천은 (a)였다):
   (a, 추천) **자동 연결·넘겨받기 없음.** (google, sub)가 있으면 로그인(`!IsActive`면 거절). 없고 `email_verified`가 false면 거절. 정규화한 이메일(`normalizeEmail`)의 User가 있으면 연결하지 않고 "이 이메일의 계정이 있다: 비밀번호로 로그인한 뒤 연결하거나 비밀번호를 재설정하라"로 돌려보낸다(재설정 메일은 이메일 주인에게 가므로 남의 이메일로 먼저 가입한 사람이 남지 못한다). 로그인한 사용자의 "Google 연결" 뷰가 연결한다. 없으면 비밀번호 없는 User를 만든다. 쓰기는 `WithTx` 하나에서, unique (Provider, Subject). readmate의 `socialaccount(provider, uid, user_id)`는 uid가 sub라 그대로 옮기므로 이미 연결된 사용자는 막히지 않는다. 대가: 처음 연결하는 사람은 한 번 더(로그인 뒤 연결), 뷰와 권한 표 행 하나
-  (b) 같은 이메일의 인증된 User면 자동 연결(allauth의 email authentication), 인증 안 된 User는 넘겨받기(`VerifiedAt`을 지금, 비밀번호·세션·토큰을 지움), 탈퇴(`!IsActive`)는 어느 갈래에서도 거절. 대가: Google의 `email_verified`를 믿고, 비밀번호 계정이 다시 인증 없이 Google로 열린다(codex가 막자고 함)
+  **(b, 사람의 결정)** 같은 정규화 이메일(`normalizeEmail`)의 인증된 User면 자동 연결(allauth의 email authentication), 인증 안 된 User는 넘겨받기(`VerifiedAt`을 지금, 비밀번호·세션·토큰을 지움), 탈퇴(`!IsActive`)는 어느 갈래에서도 거절, `email_verified`가 false면 거절. 쓰기는 `WithTx` 하나에서(넘겨받기 중간 실패는 아무것도 바꾸지 않는다), unique (Provider, Subject). 대가: Google의 `email_verified`를 믿고, 비밀번호 계정이 다시 인증 없이 Google로 열린다(codex가 막자고 했다: M14 계획에서 대가를 문서에)
   (c) `OAuthAccount` 없이 이메일로만. 대가: Google 이메일이 바뀌면 계정을 잃는다
 - **Q7 단계를 넘어 계속하는 검사(갈래)**(정함): 나누지 않고 D-61을 그대로 둔다. 실측 효과가 작고(12 실행에 3~4번, 한 번에 몇 초), 갈래를 나누면 D-61의 뒤 절(연쇄 오류는 뺀다)에서 새는 자리가 는다. 가장 잦은 것(makemigrations → 쿼리 열)은 Q8이 덮는다. D-148의 목록에서 지우고 까닭을 적는다
 - **Q8 DB 단계 안의 쿼리 계속**(정함): 마이그레이션이 모델과 다를 때 쿼리를 모델 DDL의 연습 DB에 prepare해 "run makemigrations"와 쿼리 오류를 한 실행에, 그 진단은 "against the models"라고 말한다. 손 마이그레이션에만 있는 것(인덱스·뷰·확장)을 쓰는 쿼리가 거짓 오류를 받지 않게: 모델 DB에서 실패하고 그 실패가 마이그레이션의 차이와 닿지 않으면 내지 않는다(계획에서 꼴). CRUD·admin의 prepare는 지금처럼 같을 때만. D-23·D-34·D-32 고침
 - **Q9 API 뷰의 unique 위반**(정함): 422 problem+json. `UniqueError.Fields`가 있으면 생성된 `invalidX`의 꼴로 `errors`에, nil이면 필드 없는 422. 409는 이미 `ErrConflict`(버전 충돌)의 것. HTML 뷰는 `Fail`을 안 부르면 지금처럼 500(`query.go`의 주석을 고친다). 같은 묶음: 사용자 모델 폼도 `default=''`인 문자열 칸의 빈 입력을 받는다(admin과 같게, D-132), admin의 잘못된 POST에 이유를 보인다
 - **Q10 끝의 릴리스**(정함): M13의 끝에 v0.4.0 태그와 그 판을 `go install`한 에이전트 게이트(M11·M12의 길). `OpenMedia`의 반환이 바뀌므로 태그의 글에 깨지는 API를 적는다
 
-## 작업 (초안 리뷰 뒤, Q1 (a)라면)
+## 작업 (초안 리뷰 뒤)
 
 병렬로 할 수 있는 묶음(각자의 worktree, 루프마다 계획 → 계획 리뷰 → 구현 → 구현 리뷰): **가** 1번, **나** 2번, **다** 3번, **라** 4~7번(차례대로). 8번은 모두 뒤, 9~12번은 차례대로.
 
@@ -94,7 +94,7 @@
 11. **에이전트 게이트**: `go install …@v0.4.0`부터, 0040의 끝에서 새 단계 글만 보고 서로 모르는 실행 둘 → 확인: 기록, 메시지와 `maago doc`만으로 씀
 12. **M13 끝**: MILESTONES의 M13 체크, README, 다음 마일스톤(M14: Google 로그인, 진단 묶음, 단계 글의 빈틈)의 차례
 
-Q1 (b)라면 M14의 셋이 8번 앞에 들어온다: `contrib/auth/oidc.go`(확인: `TestOIDC*`의 틀린 nonce·aud·azp·iss·지난 exp·`email_verified` false·`http://` 엔드포인트 거절), `maago add google`(확인: `TestAddGoogle` 두 방언·User에 필드를 더한 `auth/` 위에서도, 복사본의 `TestGoogle*`가 가짜 제공자와 진짜 쿠키를 왕복해 state·nonce·verifier 재사용·쿠키 속성·탈퇴 계정 거절·Q6의 갈래마다·넘겨받기 중간 실패의 원자성·같은 sub의 동시 콜백 둘), 진단 묶음(import 빠진 `outbox.Admin`·`.App`, 결과 타입 fix의 `<Query>Row`, 버전 칸 fix, `table=maago_…`), 그리고 게시판 단계를 미디어 뒤·Google 뒤 둘로.
+M14로 간 셋(그 마일스톤의 초안에서 다시 본다): `contrib/auth/oidc.go`(확인: `TestOIDC*`의 틀린 nonce·aud·azp·iss·지난 exp·`email_verified` false·`http://` 엔드포인트 거절), `maago add google`(확인: `TestAddGoogle` 두 방언·User에 필드를 더한 `auth/` 위에서도, 복사본의 `TestGoogle*`가 가짜 제공자와 진짜 쿠키를 왕복해 state·nonce·verifier 재사용·쿠키 속성·탈퇴 계정의 이메일로 온 Google 거절·Q6 (b)의 갈래마다·넘겨받기 중간 실패의 원자성·같은 sub의 동시 콜백 둘), 진단 묶음(import 빠진 `outbox.Admin`·`.App`, 결과 타입 fix의 `<Query>Row`, 버전 칸 fix, `table=maago_…`), 단계 글의 빈틈(0038~0040의 남은 것, 0040 시험의 `adminApp()`, `Maago-Expect` 줄:열).
 
 ## 초안 리뷰 (2026-11-22, codex와 fable)
 
