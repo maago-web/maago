@@ -35,6 +35,10 @@ and in the API's publish:
 
   A path that is not a UUID is a 404 before the view, and APIPostURL
   takes a maago.UUID
+- TestPermissions has rows for api_post, as it has for each route: a
+  post that is out is a 200 to all by its key, a draft a 404 but to its
+  author and staff, as post_detail's rows are. Its helper gives every
+  post a key, maago.NewUUID(), as it inserts it: APIPostURL takes one
 - JSON writes the key as its 8-4-4-4-12 text, "Key":"…". The list of
   APIPosts has it too, for the frontend's links: post_list.sql and
   search_posts.sql both select p.key, as they share PostSummary

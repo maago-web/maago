@@ -24,7 +24,8 @@ again.
 
       outbox.Enqueue(ctx, tx, postPublished, map[string]any{"id": p.ID, "key": p.Key, "title": p.Title, "path": PostDetailURL(p.ID)})
 
-  A rollback takes the job with it, as AfterCommit dropped its call.
+  postPublished is the job's Kind, "post_published". A rollback takes
+  the job with it, as AfterCommit dropped its call.
   The payload is the webhook's body as it is. It has the post's key
   now (0039), the address a receiver reads it by from the API; null for
   a post with none. With no webhook URL, there is no job
@@ -42,13 +43,15 @@ again.
 - AfterCommit stays where deletePost removes the files: short, and what
   a missed call leaves is a file, not a lost notice
 
-The test runs the worker one step at a time, outbox.RunOnce, at a time
-of its own, and sleeps not at all. With no webhook, publishing writes
-no job. Then the webhook is down at first: the job is taken, fails, and
-is not due again at once. It is up again: at the job's RunAt, read from
-the database, the webhook hears of the post, its id, key, title and
-path, under the same Idempotency-Key, and the job is gone. The draft
-has a key of its own, so that the body's key is checked.
+TestNotify is TestDeliver now: one try of a job, its answer or none
+within notifyWithin. TestDrafts runs the worker one step at a time,
+outbox.RunOnce, at a time of its own, and sleeps not at all. With no
+webhook, publishing writes no job. Then the webhook is down at first:
+the job is taken, fails, and is not due again at once. It is up again:
+at the job's RunAt, read from the database, the webhook hears of the
+post, its id, key, title and path, under the same Idempotency-Key, and
+the job is gone. The draft has a key of its own, so that the body's key
+is checked.
 
 Maago-Run: maago add outbox
 

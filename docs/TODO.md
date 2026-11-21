@@ -79,6 +79,9 @@
 - [ ] `maago doc main`의 예는 일꾼의 멈춤 차례(`<-worked`)를 컴파일만 본다: `TestDocExamples`의 PG 가지는 gen·check만 하고 go test는 돌리지 않는다(모든 주제가 같다). 진짜 검사는 게시판 0040의 ship(M12 11번)
 - [ ] outbox의 Kind가 여럿이 되면 `main`의 일꾼 함수가 Kind로 가르는 꼴(게시판 0040은 하나, M12 10번)
 - [ ] `TestBoardTutorialCatches`가 줄마다 걷기를 처음부터 돌아 단계가 늘수록 길어진다: 로컬 `cmd/maago` 약 27분, CI가 30분을 넘어(89d5726·3ffe25a) `-timeout 60m`으로 올림(M12 12번, 사람의 결정). 줄을 병렬로 돌리거나 같은 단계까지의 걷기를 나눠 쓴다
+- [ ] `maago gen`의 "app outbox has models, but no package uses outbox.Admin"이 main이 컴파일되지 않을 때(`outbox` import가 빠짐) 엉뚱한 쪽을 가리킨다: 풀리지 않은 이름이라고 하거나 `go build`에 맡긴다(M12 게이트 2번)
+- [ ] 게시판 단계 글의 남은 빈틈(M12 게이트): 0040의 시험이 일을 찾는 길(목록 쿼리가 없어 `Idempotency-Key`와 `outbox.GetJob`, 1번), 웹훅 주소가 없을 때의 `Deliver`(2번), "Set its Attempts to 0"에 RunAt이 지나야 한다는 말(2번), 0038의 "main's comment on OnError says so now"(2번), 0039의 `{{with .Meta}}`를 둘 자리(둘 다 " · "로 씀, 패치는 ", ", 짚은 것은 1번), 0039에 Go가 읽지 못하는 파일의 Meta는 nil이라는 말이 없다(둘 다 짐작, 맞음)
+- [ ] 0040의 시험 `adminApp()`에 `outbox.Admin`이 없다: 두 게이트 모두 0025의 "main's admin"이라는 주석을 보고 넣었다. 패치를 맞추거나 글에 한 줄(M12 게이트, fable)
 
 ## 언젠가
 
