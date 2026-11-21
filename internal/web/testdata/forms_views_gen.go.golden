@@ -98,7 +98,10 @@ func serveAPINoticeCreate(w http.ResponseWriter, r *http.Request) error {
 	}
 	p, err := APINotice(r.Context(), in)
 	if err != nil {
-		return err
+		if rt.Code(err) == http.StatusInternalServerError && in.Form.Fail(err) { // a unique refusal, on the form
+			return invalidNoticeForm(&in.Form)
+		}
+		return rt.Taken(r.Context(), err)
 	}
 	page := p
 	return rt.JSON(w, page)

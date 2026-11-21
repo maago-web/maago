@@ -570,15 +570,16 @@ func (g *gen) arg(x string, t model.Type, pointer bool) string {
 	return "rt.SQLiteTime(" + x + ")"
 }
 
-// dest is where Scan puts a column into x.
+// dest is where Scan puts a column into x: a time through rt, which
+// makes it UTC in both databases.
 func (g *gen) dest(x string, t model.Type, pointer bool) string {
 	switch {
-	case g.d != project.SQLite || t != model.Time:
+	case t != model.Time:
 		return "&" + x
 	case pointer:
-		return "rt.ScanNullSQLiteTime(&" + x + ")"
+		return "rt.ScanNullTime(&" + x + ")"
 	}
-	return "rt.ScanSQLiteTime(&" + x + ")"
+	return "rt.ScanTime(&" + x + ")"
 }
 
 // GoString is a Go literal of s: a raw string, which keeps SQL readable,

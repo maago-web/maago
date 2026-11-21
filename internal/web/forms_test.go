@@ -179,6 +179,25 @@ func TestFormValidUnread(t *testing.T) {
 	}
 }
 
+// A model form's string field whose model field defaults to empty is
+// optional without saying so; one with another default is not.
+func TestModelFormDefaultEmpty(t *testing.T) {
+	files := boardFiles("\tCreated time.Time", "\tNote    string `maago:\"max=200,default=''\"`\n\tCreated time.Time")
+	files["board/urls.go"] = strings.Replace(files["board/urls.go"], "\tKind       maago.Field[string] `maago:\"optional\"`\n", "\tKind       maago.Field[string]\n\tNote       maago.Field[string]\n", 1)
+	out, gen := generate(t, files)
+	if out != "" {
+		t.Fatalf("errors:\n%s", out)
+	}
+	views := string(gen["board/views_gen.go"])
+	if want := `rt.Rule{Name: "note", Label: "Note", Optional: true, Max: 200}`; !strings.Contains(views, want) {
+		t.Errorf("no %s in\n%s", want, views)
+	}
+	_, kind, _ := strings.Cut(views, `rt.Rule{Name: "kind"`)
+	if kind, _, _ = strings.Cut(kind, "\n"); kind == "" || strings.Contains(kind, "Optional") {
+		t.Errorf("kind, default 'free': want no Optional in\n%s", views)
+	}
+}
+
 // A model form's field whose model field is a pointer, which may be NULL,
 // is optional without saying so.
 func TestModelFormPointerOptional(t *testing.T) {

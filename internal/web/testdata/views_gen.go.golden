@@ -122,7 +122,7 @@ func serveAPIPost(w http.ResponseWriter, r *http.Request) error {
 	}
 	p, err := APIPost(r.Context(), in)
 	if err != nil {
-		return err
+		return rt.Taken(r.Context(), err)
 	}
 	page := p
 	return rt.JSON(w, page)

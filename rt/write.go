@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 
 	"github.com/maago-web/maago"
@@ -102,4 +103,19 @@ func Fail(f *maago.Form, err error, fields map[string]*string) bool {
 		f.AddError(s.Msgs.Taken)
 	}
 	return true
+}
+
+// Code is the response's code for err, as the handler answers it: a
+// view's maago.Status, 404 for sql.ErrNoRows, else 500.
+func Code(err error) int { return rtcore.Code(err) }
+
+// Taken is what an API route answers for its view's err: a 422 with
+// Config.Messages.Taken when err is a *maago.UniqueError the view gave no
+// code of its own, else err. Only generated code calls it.
+func Taken(ctx context.Context, err error) error {
+	var u *maago.UniqueError
+	if Code(err) != http.StatusInternalServerError || !errors.As(err, &u) {
+		return err
+	}
+	return rtcore.Invalid(rtcore.FieldError{Detail: rtcore.SettingsFrom(ctx).Msgs.Taken})
 }

@@ -126,8 +126,10 @@ A missing row is sql.ErrNoRows (a view's 404). NewPostInput has the fields
 without a default as they are and those with one as maago.Opt (maago.Set(v)
 gives one). UpdatePost writes every column but auto=create ones; with an
 auto=update field it writes only the row it read: a row changed since is
-maago.ErrConflict, a 409. Do not name your own functions or types after
-these. maago doc query has the queries beyond them, and the read policies:
+maago.ErrConflict, a 409. The auto times, and every time GetPost or a
+query reads, are UTC (date shows them in Config.TimeZone); a time given
+to InsertPost stays as it was, so compare times with Equal. Do not name
+your own functions or types after these. maago doc query has the queries beyond them, and the read policies:
 the GetX of a model with them takes the user and the policy's params,
 and GetXIgnoringPolicies reads any row.`,
 		Lists: []*List{FieldTypes, FieldTags, ModelTags},
@@ -307,7 +309,8 @@ A view's signature says what it uses, in this order:
 maago.Show(page) renders the page (and commits); maago.SeeOther[Page](url)
 commits and sends a 303. An error rolls back: sql.ErrNoRows is a 404,
 maago.Status(code, err) is that code, maago.ErrConflict a 409, a form's
-error on an API route a 422, any other a 500 that Config.OnError hears.
+error on an API route a 422, and so is a generated Insert's or Update's
+unique refusal there; any other a 500 that Config.OnError hears.
 maago.AfterCommit(ctx, f) runs f after the commit, before the response,
 and never after a rollback; work that must not be lost goes through an
 outbox instead (maago doc main).
@@ -373,8 +376,8 @@ writes the code that reads and checks each field.`,
 	}
 
 model=Post takes each field named after a field of the model with its
-rules: required unless the model field is a pointer, max, choices, label,
-help. Such a field may add optional and nothing else. The form key is the field's name in
+rules: required unless the model field is a pointer or a string whose
+default is '', max, choices, label, help. Such a field may add optional and nothing else. The form key is the field's name in
 snake_case.
 
 A GET view and a POST view take the same In: the GET draws the empty form,
@@ -445,8 +448,8 @@ puts Config.Messages.Taken on the one field of the form the constraint is
 over (the form's field of the model field's name), else on the form; the
 transaction goes on. Any other error, nil too, it leaves: false. A model
 with one unique constraint has every refusal on it, even a unique index
-a migration made by hand. An API view has no page to draw: it takes the
-error with errors.As and returns maago.Invalid or maago.InvalidForm.`,
+a migration made by hand. An API view has no page to draw: it returns
+the error, and maago answers a 422, on the field as Fail would put it.`,
 		Lists: []*List{FormTypes, FormTags},
 		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "UniqueError", "File", "Media", "SaveMedia", "OpenMedia", "DeleteMedia", "ServeMedia", "WithMediaDir"},
 	},
@@ -569,7 +572,9 @@ The URLs, under /admin/:
 in snake_case (author_id); an fk takes the row's number, and a time is
 2006-01-02T15:04:05 in Config.TimeZone. A
 row saved meanwhile by someone else is a 409 when the model has an
-auto=update field. The admin saves through the model form's rules only: the
+auto=update field, and so is a delete that cannot be, as something refers
+to a row or it is gone: the page says which. A bad request is a 400 that
+says why. The admin saves through the model form's rules only: the
 work of the app's views does not happen. It reads every row, read
 policies or not: its form reads a row with GetXIgnoringPolicies.`,
 	},

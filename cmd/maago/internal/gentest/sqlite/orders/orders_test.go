@@ -587,3 +587,42 @@ func TestParcel(t *testing.T) {
 		t.Errorf("after the save: %+v %v", got, err)
 	}
 }
+
+// Insert's auto times and every time read back are UTC, in both
+// databases, so == holds between them; a time given goes in as it is.
+func TestTimesUTC(t *testing.T) {
+	ctx, db := gentest.Open(t, fixture)
+	in := t0.In(time.FixedZone("KST", 9*60*60))
+	o, err := InsertOrder(ctx, db, NewOrderInput{Amount: 100, CreatedAt: in})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o.CreatedAt != in || o.UpdatedAt.Location() != time.UTC {
+		t.Errorf("Insert: CreatedAt %v, want %v as given; UpdatedAt %v, want UTC", o.CreatedAt, in, o.UpdatedAt)
+	}
+	got, err := GetOrder(ctx, db, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.CreatedAt.Equal(in) || got.CreatedAt.Location() != time.UTC || got.UpdatedAt != o.UpdatedAt {
+		t.Errorf("Get: %v %v, want %v in UTC and %v", got.CreatedAt, got.UpdatedAt, in, o.UpdatedAt)
+	}
+	if err := UpdateOrder(ctx, db, &got); err != nil {
+		t.Fatal(err)
+	}
+	again, err := GetOrder(ctx, db, o.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.UpdatedAt.Location() != time.UTC || again.UpdatedAt != got.UpdatedAt || again.CreatedAt != got.CreatedAt {
+		t.Errorf("Update: %v, read back %v %v", got.UpdatedAt, again.UpdatedAt, again.CreatedAt)
+	}
+	row, err := OrderByAmount(ctx, db, OrderByAmountParams{Amount: 100})
+	if err != nil || row.CreatedAt != again.CreatedAt || row.UpdatedAt != again.UpdatedAt {
+		t.Errorf("a query's row: %v %v %v", row.CreatedAt, row.UpdatedAt, err)
+	}
+	created, err := OrderCreated(ctx, db, OrderCreatedParams{IDs: []int64{o.ID}})
+	if err != nil || created != again.CreatedAt {
+		t.Errorf("a query's time: %v %v", created, err)
+	}
+}

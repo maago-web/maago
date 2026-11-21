@@ -40,7 +40,7 @@
 
 - [x] 탈출구 뷰(D-41)의 경로 값은 URL 함수에서 `string`이라 템플릿 검사가 정수를 거절한다(런타임 `URLFunc`은 정수도 받는다). M8에서 튜토리얼을 PG로 다시 묶을 때 검사기를 고치고 0016(지금 0017)의 `{{url "board_export" (print .Board.ID)}}`에서 `print`를 지운다(M4 12·13번, 사람의 결정) → M8 1번: 템플릿 검사는 탈출구 라우트의 값을 `string or int`로 본다(`TestTemplatesPass`의 `feed`)
 
-- [ ] `web`의 모델 폼은 `default=''`를 보지 않아 그 문자열 칸의 빈 입력을 거절한다. admin은 받는다(D-132, M6 5번). 사용자 폼도 받을지
+- [x] `web`의 모델 폼은 `default=''`를 보지 않아 그 문자열 칸의 빈 입력을 거절한다. admin은 받는다(D-132, M6 5번). 사용자 폼도 받을지 → M13 2번: 받는다(`TestModelFormDefaultEmpty`)
 
 ## M8
 
@@ -53,14 +53,14 @@
 - [x] 한 페이지에 폼 둘(게시판 글 페이지의 댓글과 첨부): In은 폼 하나만 읽어, 다른 폼의 `Field`는 이름·라벨이 비고 템플릿에 손으로 쓴다. 묶지 않은 폼을 기술하는 길이나 예(M10 13번 게시판 둘 다) → M12 2번: 폼마다 생성된 `NewX()`, 게시판은 4번
 - [ ] 권한 표가 admin을 빼면 그 라우트가 안 보이는 빈틈: 런타임으로 막는 길(마지막 Handler가 서빙한 앱 중 `Permissions`의 apps에 없는 것을 알린다), D-156
 - [x] auth를 쓰는 시험의 API 토큰 도우미(Bearer 역할). 로그인한 쿠키는 M11 3번의 `auth.SignIn`·`maagotest.As`, 확인된 계정은 `SignIn`의 Go 문서 → M12 3번: 복사된 auth의 `SignInToken`, `maagotest.Bearer`
-- [ ] 생성된 `InsertX`가 돌려주는 시각은 Local, `GetX`는 UTC라 구조체를 `==`로 비교하면 틀린다(게시판 1번의 보고, 아직 확인하지 않음). 맞으면 같은 위치로
+- [x] 생성된 `InsertX`가 돌려주는 시각은 Local, `GetX`는 UTC라 구조체를 `==`로 비교하면 틀린다(게시판 1번의 보고, 아직 확인하지 않음). 맞으면 같은 위치로 → M13 2번: 재현(PG는 읽기도 Local이었다), auto 시각과 모든 읽기를 두 방언 모두 UTC로(`TestTimesUTC`·`TestNullTimeUTC`), 준 시각은 그대로
 - [ ] 게시판의 `Maago-Expect` 줄:열이 튜토리얼이 보이지 않는 파일 모양에 기댄다(0006·0009·0024·0027, 둘 다 줄을 맞춰 넣었다). 단계 글이 머리 줄을 보이거나 확인이 줄:열 없이
-- [ ] admin: 거절된 삭제(참조가 있는 행)가 200, 잘못된 POST가 글 없는 400. 이유가 보이는 응답으로
+- [x] admin: 거절된 삭제(참조가 있는 행)가 200, 잘못된 POST가 글 없는 400. 이유가 보이는 응답으로 → M13 2번: 막힌 삭제는 같은 페이지의 409, 400은 이유를 쓴다
 - [ ] `maago doc`을 주제 없이 부르면 목록을 보이고 exit 1. `go doc contrib/admin`은 main이 import하기 전에는 패키지를 찾지 못한다
 
 ## M11
 
-- [ ] API 뷰의 unique 위반: `f.Fail(err)`는 칸에 문구를 쓰지만 API 뷰는 그것을 422로 돌려줄 길이 없다(생성된 `invalidX`는 생성 코드만 부른다, D-120). 지금 쓸 길은 `var ue *maago.UniqueError; errors.As(err, &ue)` 뒤 `maago.Invalid(&f.Title, "…")`나 `maago.InvalidForm("…")`(M11 1번 fable)
+- [x] API 뷰의 unique 위반: `f.Fail(err)`는 칸에 문구를 쓰지만 API 뷰는 그것을 422로 돌려줄 길이 없다(생성된 `invalidX`는 생성 코드만 부른다, D-120). 지금 쓸 길은 `var ue *maago.UniqueError; errors.As(err, &ue)` 뒤 `maago.Invalid(&f.Title, "…")`나 `maago.InvalidForm("…")`(M11 1번 fable) → M13 2번: 뷰가 오류를 돌려주면 생성 어댑터가 422(폼이 있으면 `Fail`의 자리, 없으면 필드 없는 422, 뷰가 준 상태가 이긴다)
 
 - [ ] 앱을 넘는 정책 사용: 다른 앱의 쿼리가 정책 모델을 읽으면 지금은 오류(정책은 쿼리 앱의 `policies.sql`에서만 찾는다, M11 6번)
 - [ ] 복사된 auth의 모델에 정책을 걸면 auth의 쿼리가 `-- policy:`가 없어 실패한다. 표 함수가 읽는 표는 규칙 6이 보지 않는다(규칙 글에 한 줄)

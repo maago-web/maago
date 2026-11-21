@@ -51,7 +51,8 @@ The test has the superuser make an editor in the admin, and sees what
 the editor may and may not do (rows of a user who is not staff, the
 editor's auth rows of permission), the list's columns, a list with the
 search and filters at once, a search in the body, a late save from a
-form opened first, and the two cases of deleting.
+form opened first, and the two cases of deleting: the refused one is a
+409.
 
 The admin's routes are made when main calls admin.App, so maago gen
 does not see them, and no URL function makes their paths. The tests
@@ -64,7 +65,7 @@ does not see its routes: nothing else will say so.
 
 diff --git a/board/admin_test.go b/board/admin_test.go
 new file mode 100644
-index 0000000..72dbed7
+index 0000000..902bc26
 --- /dev/null
 +++ b/board/admin_test.go
 @@ -0,0 +1,154 @@
@@ -208,7 +209,7 @@ index 0000000..72dbed7
 +	if _, err := InsertComment(ctx, db, NewCommentInput{PostID: p.ID, Text: "댓글"}); err != nil {
 +		t.Fatal(err)
 +	}
-+	if code, _, body := post(asBoss, "/admin/board/Post/delete/", url.Values{"id": {fmt.Sprint(p.ID)}}); code != 200 || !strings.Contains(body, "1 row of board.Comment (PostID) refers to it") {
++	if code, _, body := post(asBoss, "/admin/board/Post/delete/", url.Values{"id": {fmt.Sprint(p.ID)}}); code != 409 || !strings.Contains(body, "1 row of board.Comment (PostID) refers to it") {
 +		t.Errorf("deleting a post with comments: %d\n%s", code, body)
 +	}
 +	if _, err := GetPost(ctx, db, p.ID); err != nil {

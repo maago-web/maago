@@ -23,7 +23,9 @@ func GetNote(ctx context.Context, db maago.DB, id int64) (Note, error) {
 
 // InsertNote inserts in and returns the Note: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; GetNote reads what was written.
+// to the microsecond; GetNote reads what was written. The auto times,
+// and every time GetNote or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func InsertNote(ctx context.Context, db maago.DB, in NewNoteInput) (Note, error) {
 	o := Note{
 		Body: in.Body,

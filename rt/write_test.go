@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"testing"
 
@@ -99,5 +100,32 @@ func TestFail(t *testing.T) {
 		if ok != c.ok || title != c.title || body != "" || form != c.form || len(f.Errors) > 1 {
 			t.Errorf("%s: %v %q %q %q", c.name, ok, title, body, f.Errors)
 		}
+	}
+}
+
+// On an API route a unique refusal the view gave no code is a 422 with
+// the Taken message; any other error, or one with a code, is itself.
+func TestTaken(t *testing.T) {
+	ctx := rtcore.WithSettings(context.Background(), rtcore.NewSettings(rtcore.Messages{Taken: "이미 있습니다"}, rtcore.Messages(maago.DefaultMessages), nil))
+	u := &maago.UniqueError{Fields: []string{"Title"}}
+	other := errors.New("disk full")
+	refused := maago.Status(http.StatusConflict, u)
+	for _, c := range []struct {
+		name string
+		err  error
+		code int
+	}{
+		{"unique", u, 422},
+		{"wrapped", fmt.Errorf("save: %w", u), 422},
+		{"in a Status", refused, 409},
+		{"another error", other, 500},
+	} {
+		got := Taken(ctx, c.err)
+		if Code(got) != c.code || c.code == 422 && fmt.Sprint(rtcore.FieldErrors(got)) != "[{ 이미 있습니다}]" || c.code != 422 && got != c.err {
+			t.Errorf("%s: %v (%d) %v", c.name, got, Code(got), rtcore.FieldErrors(got))
+		}
+	}
+	if Taken(ctx, nil) != nil {
+		t.Error("nil: not nil")
 	}
 }

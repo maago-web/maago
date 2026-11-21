@@ -84,7 +84,14 @@ func App(cfg Config) maago.App {
 		panic("admin: Config.Models has no model; add each app's Admin, such as board.Admin (a model with admin=hidden is not there)")
 	}
 	route := func(method, path, name string, serve func(http.ResponseWriter, *http.Request) error) rt.AppRoute {
-		return rt.AppRoute{Method: method, Path: Prefix + path, Name: name, LoginRequired: true, Serve: serve}
+		return rt.AppRoute{Method: method, Path: Prefix + path, Name: name, LoginRequired: true, Serve: func(w http.ResponseWriter, r *http.Request) error {
+			err := serve(w, r)
+			if rt.Code(err) == http.StatusBadRequest { // says why: the admin's words, or the form parser's
+				http.Error(w, "Bad Request: "+err.Error(), http.StatusBadRequest)
+				return nil
+			}
+			return err
+		}}
 	}
 	return rt.NewApp("admin", nil,
 		route("GET", "{$}", "admin_index", s.index),
@@ -414,7 +421,8 @@ func (s *site) form(w http.ResponseWriter, r *http.Request, m *Model, id int64, 
 	})
 }
 
-// conflicted is w for a form whose row changed since it was opened: a 409.
+// conflicted is w for a form whose row changed since it was opened, or a
+// delete that cannot be: a 409.
 type conflicted struct {
 	http.ResponseWriter
 	wrote bool
@@ -431,7 +439,7 @@ func (w *conflicted) Write(p []byte) (int, error) {
 // delete deletes the rows of the ids, all of them or none: a GET
 // shows each row, and what refers to it; a POST counts again, and
 // deletes them, in the transaction it counted in, only if nothing refers
-// to any and all are there, else shows the same page.
+// to any and all are there, else shows the same page, a 409.
 func (s *site) delete(w http.ResponseWriter, r *http.Request) error {
 	m, err := s.model(r, Delete)
 	if err != nil {
@@ -491,6 +499,9 @@ func (s *site) delete(w http.ResponseWriter, r *http.Request) error {
 		}
 		http.Redirect(w, r, listURL(m), http.StatusSeeOther)
 		return nil
+	}
+	if tx != nil {
+		w = &conflicted{ResponseWriter: w}
 	}
 	return rt.Render(w, pages, "delete.html", "", map[string]any{
 		"Home": home(), "App": m.App, "Name": m.Name, "List": listURL(m), "Rows": rows, "OK": ok,

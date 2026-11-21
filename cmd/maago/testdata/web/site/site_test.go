@@ -599,6 +599,32 @@ func TestFormTaken(t *testing.T) {
 			t.Errorf("%s: %d\n%s", c.name, w.Code, body)
 		}
 	}
+	// On an API route the view returns the refusal, and maago answers a
+	// 422 as Fail would put it, with a form (in a transaction) or without
+	// (in none); a code the view gave wins.
+	for _, c := range []struct {
+		name, url, body string
+		code            int
+		has             string
+	}{
+		{"the name", APITagSaveURL(), `{"name": "a", "kind": "k", "code": "9"}`, 422, `"errors":[{"field":"name","detail":"이미 있습니다."}]`},
+		{"the kind and code", APITagSaveURL(), `{"name": "c", "kind": "k", "code": "1"}`, 422, `"errors":[{"detail":"이미 있습니다."}]`},
+		{"saved", APITagSaveURL(), `{"name": "409", "kind": "k", "code": "409"}`, 200, `"Name":"409"`},
+		{"the view's code", APITagSaveURL(), `{"name": "409", "kind": "k", "code": "8"}`, 409, `"status":409`},
+		{"no form", APITagNameURL("a"), "", 422, `"errors":[{"detail":"이미 있습니다."}]`},
+		{"no form, saved", APITagNameURL("d"), "", 200, `"Name":"d"`},
+		{"no form, the view's code", APITagNameURL("409"), "", 409, `"status":409`},
+	} {
+		r := httptest.NewRequest("POST", c.url, strings.NewReader(c.body))
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		body := w.Body.String()
+		if w.Code != c.code || !strings.Contains(body, c.has) || c.code == 422 && (w.Header().Get("Content-Type") != "application/problem+json" ||
+			strings.Contains(body, "UNIQUE") || strings.Contains(body, "duplicate") || strings.Contains(body, "Fail")) {
+			t.Errorf("API, %s: %d %s\n%s", c.name, w.Code, w.Header().Get("Content-Type"), body)
+		}
+	}
 }
 
 // A UUID in the path and the query, and a decimal and a UUID in a form

@@ -320,6 +320,34 @@ func TagSave(ctx context.Context, tx maago.Tx, in TagIn) (maago.Result[TagPage],
 	return maago.Show(TagPage{f, first.Name}), nil
 }
 
+// APITagSave inserts a tag from JSON, in a transaction, and returns the
+// error as it is: a unique refusal is maago's 422. A tag named 409 gives
+// its own code instead.
+func APITagSave(ctx context.Context, tx maago.Tx, in TagIn) (Tag, error) {
+	f := in.Form
+	t, err := InsertTag(ctx, tx, NewTagInput{Name: f.Name.Value, Kind: f.Kind.Value, Code: f.Code.Value})
+	return t, conflict(f.Name.Value, err)
+}
+
+type TagNameIn struct {
+	Name string `maago:"path=name"`
+}
+
+// APITagName inserts a tag of the name in the path, with no form and no
+// transaction: a taken name is maago's 422 all the same.
+func APITagName(ctx context.Context, db maago.DB, in TagNameIn) (Tag, error) {
+	t, err := InsertTag(ctx, db, NewTagInput{Name: in.Name, Kind: "path", Code: in.Name})
+	return t, conflict(in.Name, err)
+}
+
+// conflict is err, as a 409 for a tag named 409.
+func conflict(name string, err error) error {
+	if err != nil && name == "409" {
+		return maago.Status(http.StatusConflict, err)
+	}
+	return err
+}
+
 type KeyIn struct {
 	Key maago.UUID  `maago:"path=key"`
 	Ref *maago.UUID `maago:"query=ref"`

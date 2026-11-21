@@ -59,9 +59,11 @@ func Get{{.Name}}(ctx context.Context, db maago.DB, id int64) ({{.Name}}, error)
 
 // Insert{{.Name}} inserts in and returns the {{.Name}}: in's fields, with
 // the defaults, the auto times and the new ID filled in. A time goes in
-// to the microsecond; Get{{.Name}} reads what was written.
+// to the microsecond; Get{{.Name}} reads what was written. The auto times,
+// and every time Get{{.Name}} or a query reads, are UTC; a time in stays
+// as given, so compare it with what is read by Equal.
 func Insert{{.Name}}(ctx context.Context, db maago.DB, in New{{.Name}}Input) ({{.Name}}, error) {
-{{if .InsertNow}}	now := time.Now().Truncate(time.Microsecond)
+{{if .InsertNow}}	now := time.Now().UTC().Truncate(time.Microsecond)
 {{end}}	o := {{.Name}}{
 {{range .Build}}		{{.}},
 {{end}}	}
@@ -81,7 +83,7 @@ func Insert{{.Name}}(ctx context.Context, db maago.DB, in New{{.Name}}Input) ({{
 // maago.ErrConflict, a 409.{{end}}{{if .UpdateNow}}
 // Once the row is written, o has its new auto times.{{end}}
 func Update{{.Name}}(ctx context.Context, db maago.DB, o *{{.Name}}) error {
-{{if .UpdateNow}}	now := time.Now().Truncate(time.Microsecond)
+{{if .UpdateNow}}	now := time.Now().UTC().Truncate(time.Microsecond)
 {{end}}	var n int64
 	err := rt.Write(ctx, db, {{.Keys}}, func() (err error) {
 		n, err = rt.Exec(ctx, db, {{.Update}}{{range .UpdateArgs}}, {{.}}{{end}})

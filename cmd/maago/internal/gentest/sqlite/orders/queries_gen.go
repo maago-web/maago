@@ -115,7 +115,7 @@ WHERE amount = ?1`, p.Amount)
 
 func scanOrderByAmount(rows *sql.Rows) (Order, error) {
 	var v Order
-	if err := rows.Scan(&v.Amount, &v.Status, &v.ID, rt.ScanSQLiteTime(&v.UpdatedAt), &v.CustomerID, rt.ScanSQLiteTime(&v.CreatedAt), &v.Priority); err != nil {
+	if err := rows.Scan(&v.Amount, &v.Status, &v.ID, rt.ScanTime(&v.UpdatedAt), &v.CustomerID, rt.ScanTime(&v.CreatedAt), &v.Priority); err != nil {
 		return v, fmt.Errorf("OrderByAmount: %w", err)
 	}
 	return v, nil
@@ -142,7 +142,7 @@ func OrderCreated(ctx context.Context, db maago.DB, p OrderCreatedParams) (time.
 
 func scanOrderCreated(rows *sql.Rows) (time.Time, error) {
 	var v time.Time
-	if err := rows.Scan(rt.ScanSQLiteTime(&v)); err != nil {
+	if err := rows.Scan(rt.ScanTime(&v)); err != nil {
 		return v, fmt.Errorf("OrderCreated: %w", err)
 	}
 	return v, nil
@@ -419,7 +419,7 @@ LIMIT ?4`
 
 func scanSearchOrders(rows *sql.Rows) (OrderSummary, error) {
 	var v OrderSummary
-	if err := rows.Scan(&v.ID, &v.Status, &v.Amount, rt.ScanSQLiteTime(&v.CreatedAt)); err != nil {
+	if err := rows.Scan(&v.ID, &v.Status, &v.Amount, rt.ScanTime(&v.CreatedAt)); err != nil {
 		return v, fmt.Errorf("SearchOrders: %w", err)
 	}
 	return v, nil
