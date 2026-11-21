@@ -20,7 +20,7 @@ type AppRoute struct {
 	API                bool
 	LoginRequired      bool // a request without a user does not reach Serve
 	User               bool // its view takes the user: Config.Auth is needed
-	Files              bool // it reads a form with a file: Config.MediaDir is needed
+	Files              bool // it reads a form with a file: a media store is needed
 	Serve              func(w http.ResponseWriter, r *http.Request) error
 }
 

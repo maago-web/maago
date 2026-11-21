@@ -34,6 +34,12 @@ blog/urls.go:16:12: route path "/static/x" is under /static/, where maago serves
 blog/urls.go:17:12: route path "/static" is under /static/, where maago serves the apps' static files
   fix: move the route to another path
 
+# routes under /maago/
+blog/urls.go:16:12: route path "/maago/x" is under /maago/, where maago serves signed media URLs
+  fix: move the route to another path
+blog/urls.go:17:12: route path "/maago" is under /maago/, where maago serves signed media URLs
+  fix: move the route to another path
+
 # a route the static files' pattern conflicts with
 blog/urls.go:16:12: route GET /{x}/blog/a.css conflicts with /static/blog/{name}, where maago serves static files: a request could match both
   fix: make the route more specific than the static files' pattern, or move it

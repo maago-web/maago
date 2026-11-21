@@ -37,6 +37,8 @@ github.com/maago-web/maago
 │                          M5가 더한 것: SetCookie(D-125), RemoteAddrFrom(D-128).
 │                          M7이 더한 것: Config.MaxBody·MediaDir(D-139, D-140), File(D-139),
 │                          Media·SaveMedia·OpenMedia·DeleteMedia·ServeMedia·WithMediaDir(D-140).
+│                          M13이 더한 것: Config.Media·MediaStore·MediaFile·LocalMedia·WithMedia·MediaURL
+│                          (WithMediaDir를 지움, D-160).
 │                          생성 코드만 부르는 것은 M10 11번에 `rt`로 옮겼다(아래).
 │                          런타임이 기대는 내부 패키지는 TestRuntimeDependencies가 적는 것뿐(diag·ref·model·project·migrate·rtcore…)
 ├── rt/                 생성 코드(와 contrib/admin, D-131)만 부르는 것(M10 11번, D-152): One·Many·Exec·Placeholders,

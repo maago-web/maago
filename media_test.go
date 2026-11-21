@@ -9,10 +9,12 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/maago-web/maago/internal/rtcore"
 )
@@ -37,7 +39,7 @@ func sentFile(t *testing.T, name string, body []byte) File {
 // nowhere (D-140, M7's condition 5). A key of another shape opens nothing.
 func TestMedia(t *testing.T) {
 	dir := t.TempDir()
-	ctx := WithMediaDir(context.Background(), dir)
+	ctx := WithMedia(context.Background(), LocalMedia{Dir: dir})
 	m, err := SaveMedia(ctx, sentFile(t, "../../evil.png", pngBytes))
 	if err != nil {
 		t.Fatal(err)
@@ -76,8 +78,8 @@ func TestMedia(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, m.Key)); !os.IsNotExist(err) {
 		t.Errorf("not deleted: %v", err)
 	}
-	if _, err := SaveMedia(context.Background(), sentFile(t, "a.png", pngBytes)); err == nil || !strings.Contains(err.Error(), "maago.WithMediaDir") {
-		t.Errorf("no directory: %v", err)
+	if _, err := SaveMedia(context.Background(), sentFile(t, "a.png", pngBytes)); err == nil || !strings.Contains(err.Error(), "maago.WithMedia") {
+		t.Errorf("no store: %v", err)
 	}
 	// A link inside the directory does not lead out of it.
 	outside := filepath.Join(t.TempDir(), "secret")
@@ -89,70 +91,88 @@ func TestMedia(t *testing.T) {
 	if _, err := OpenMedia(ctx, link); err == nil {
 		t.Error("a link out of the directory opens")
 	}
+	// The store takes one file's name, never a path.
+	l := LocalMedia{Dir: dir}
+	for _, name := range []string{"", ".", "..", "a/b", `a\b`, "../" + m.Key} {
+		if _, err := l.Put(ctx, name, "", strings.NewReader("x")); err == nil {
+			t.Errorf("put %q", name)
+		}
+		if _, err := l.Open(ctx, name); err == nil {
+			t.Errorf("open %q", name)
+		}
+		if err := l.Delete(ctx, name); err == nil {
+			t.Errorf("delete %q", name)
+		}
+	}
 }
 
-// A file goes down to download, never as a page of the site, under the
-// name it came with; none is 404 (D-140).
-func TestServeMedia(t *testing.T) {
+// List gives every file, keys or not, but no directory; Delete takes
+// what List gave.
+func TestLocalMediaList(t *testing.T) {
 	dir := t.TempDir()
-	ctx := WithMediaDir(context.Background(), dir)
-	m, err := SaveMedia(ctx, sentFile(t, "a.png", pngBytes))
-	if err != nil {
-		t.Fatal(err)
+	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*"), 0o600)
+	os.WriteFile(filepath.Join(dir, ".tmp-x"), []byte("xy"), 0o600)
+	os.Mkdir(filepath.Join(dir, "sub"), 0o700)
+	l := LocalMedia{Dir: dir}
+	infos, err := l.List(context.Background(), "")
+	if err != nil || len(infos) != 2 || infos[0].Name() != ".gitignore" || infos[1].Name() != ".tmp-x" || infos[1].Size() != 2 {
+		t.Fatalf("listed %v, %v", infos, err)
 	}
-	serveMedia := func(method string, m Media, header ...string) *httptest.ResponseRecorder {
-		r := httptest.NewRequest(method, "/m", nil).WithContext(ctx)
-		for i := 0; i < len(header); i += 2 {
-			r.Header.Set(header[i], header[i+1])
-		}
-		w := httptest.NewRecorder()
-		if err := ServeMedia(w, r, m); err != nil {
-			t.Fatalf("%s %s: %v", method, m.Key, err)
-		}
-		return w
+	if infos, _ := l.List(context.Background(), ".tmp-x"); len(infos) != 0 {
+		t.Errorf("after the last: %v", infos)
 	}
-	w := serveMedia("GET", m)
-	if h := w.Header(); w.Code != 200 || w.Body.String() != string(pngBytes) || h.Get("Content-Type") != "image/png" || h.Get("X-Content-Type-Options") != "nosniff" ||
-		h.Get("Content-Disposition") != `attachment; filename=a.png` || h.Get("Cache-Control") != "private" || h.Get("Last-Modified") == "" {
-		t.Errorf("GET: %d %v", w.Code, h)
+	if err := l.Delete(context.Background(), ".tmp-x"); err != nil {
+		t.Error(err)
 	}
-	if w = serveMedia("GET", m, "Range", "bytes=1-3"); w.Code != 206 || w.Body.String() != "PNG" {
-		t.Errorf("Range: %d %q", w.Code, w.Body)
+	if _, err := os.Stat(filepath.Join(dir, ".tmp-x")); !os.IsNotExist(err) {
+		t.Errorf("not deleted: %v", err)
 	}
-	if w = serveMedia("HEAD", m); w.Code != 200 || w.Body.Len() != 0 {
-		t.Errorf("HEAD: %d %q", w.Code, w.Body)
+}
+
+// A local URL needs the site's address, and is signed whole: values of
+// two URLs do not mix, and what is no time is refused however signed.
+func TestLocalMediaURL(t *testing.T) {
+	key := strings.Repeat("a", 32)
+	m := Media{Key: key, Name: "a.png", Type: "image/png"}
+	if _, err := (LocalMedia{Dir: t.TempDir()}).URL(m, time.Minute); err == nil || !strings.HasPrefix(err.Error(), "maago: a local media store makes URLs only with its SiteURL: set Config.Media to maago.LocalMedia{") {
+		t.Errorf("no SiteURL: %v", err)
 	}
-	for name, want := range map[string]string{
-		`say "hi".png`:   `attachment; filename="say \"hi\".png"`,
-		`a\b.png`:        `attachment; filename="a\\b.png"`,
-		"사진.png":         `attachment; filename*=utf-8''%EC%82%AC%EC%A7%84.png`,
-		"a\r\nX-Evil: 1": `attachment; filename*=utf-8''a%0D%0AX-Evil%3A%201`,
-		"":               `attachment`,
-	} {
-		n := m
-		n.Name = name
-		if got := serveMedia("GET", n).Header().Get("Content-Disposition"); got != want {
-			t.Errorf("%q: %s, want %s", name, got, want)
+	l := LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com/app/"}
+	if _, err := l.URL(Media{Key: "../x"}, time.Minute); err == nil {
+		t.Error("a URL of ../x")
+	}
+	for _, site := range []string{"/app", "example.com", "ftp://example.com", "https://u:p@example.com", "https://example.com/?a=1", "https://example.com/#a", "https://"} {
+		if _, err := (LocalMedia{SiteURL: site}).URL(m, time.Minute); err == nil {
+			t.Errorf("SiteURL %q: no error", site)
 		}
 	}
-	for typ, want := range map[string]string{"": "application/octet-stream", "not a type": "application/octet-stream", "text/html; charset=utf-8": "text/html; charset=utf-8"} {
-		n := m
-		n.Type = typ
-		if got := serveMedia("GET", n).Header().Get("Content-Type"); got != want {
-			t.Errorf("type %q: %s, want %s", typ, got, want)
-		}
+	a, _ := l.URL(m, time.Minute)
+	n := m
+	n.Name = "b.png"
+	b, _ := l.URL(n, time.Minute)
+	if !strings.HasPrefix(a, "https://example.com/app/maago/media?") {
+		t.Errorf("URL %s", a)
 	}
-	// None is a 404 the view returns, with nothing written.
-	for _, key := range []string{"../x", strings.Repeat("0", 32)} {
-		w := httptest.NewRecorder()
-		err := ServeMedia(w, httptest.NewRequest("GET", "/m", nil).WithContext(ctx), Media{Key: key})
-		if rtcore.Code(err) != 404 || !errors.Is(err, fs.ErrNotExist) || len(w.Header()) > 0 || w.Body.Len() > 0 {
-			t.Errorf("%s: %v %v", key, err, w.Header())
+	ua, _ := url.Parse(a)
+	ub, _ := url.Parse(b)
+	qa, qb := ua.Query(), ub.Query()
+	qa.Set("sig", qb.Get("sig"))
+	notTime := url.Values{"key": {key}, "name": {"a.png"}, "type": {"image/png"}, "expires": {"soon"}}
+	notTime.Set("sig", sign(notTime))
+	ok := ua.Query()
+	for _, c := range []struct {
+		q    url.Values
+		code int
+	}{{ok, 0}, {qa, 403}, {notTime, 403}} {
+		r := httptest.NewRequest("GET", "/maago/media?"+c.q.Encode(), nil).WithContext(WithMedia(context.Background(), l))
+		if err := serveSigned(httptest.NewRecorder(), r); c.code == 0 && rtcore.Code(err) != 404 || c.code != 0 && rtcore.Code(err) != c.code {
+			t.Errorf("%v: %v", c.q, err) // the file is none: a signed URL reaches the store
 		}
 	}
 }
 
-// Forms that take files need Config.MediaDir, a directory that exists.
+// Forms that take files need a media store: Config.MediaDir, a directory
+// that exists, or Config.Media, not both.
 func TestMediaDirConfig(t *testing.T) {
 	up := route("POST", "/up", false, ok)
 	up.Files = true
@@ -166,6 +186,18 @@ func TestMediaDirConfig(t *testing.T) {
 		{Config{Apps: []App{NewApp("a", up)}, MediaDir: filepath.Join(t.TempDir(), "none")}, "maago: Config.MediaDir: "},
 		{Config{Apps: []App{NewApp("a", route("GET", "/x", false, ok))}, MediaDir: file}, "maago: Config.MediaDir " + `"` + file + `" is not a directory`},
 		{Config{Apps: []App{NewApp("a", up)}, MediaDir: t.TempDir()}, ""},
+		{Config{Apps: []App{NewApp("a", up)}, MediaDir: t.TempDir(), Media: LocalMedia{Dir: t.TempDir()}}, "maago: Config.Media and Config.MediaDir are both set; MediaDir is short for Media: maago.LocalMedia{Dir: MediaDir}: keep one"},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{}}, "maago: Config.Media's Dir is empty"},
+		{Config{Apps: []App{NewApp("a", up)}, Media: &LocalMedia{}}, "maago: Config.Media's Dir is empty"},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: filepath.Join(t.TempDir(), "none")}}, "maago: Config.Media's Dir: "},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: file}}, "maago: Config.Media's Dir " + `"` + file + `" is not a directory`},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "/app"}}, "maago: LocalMedia.SiteURL \"/app\" is not"},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com?a=1"}}, "maago: LocalMedia.SiteURL"},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://u@example.com"}}, "maago: LocalMedia.SiteURL"},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com"}, Prefix: "/app"}, "maago: Config.Media's SiteURL \"https://example.com\" has path \"\", not Config.Prefix \"/app\""},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com/app"}}, "maago: Config.Media's SiteURL"},
+		{Config{Apps: []App{NewApp("a", up)}, Media: &LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com/app/"}, Prefix: "/app"}, ""},
+		{Config{Apps: []App{NewApp("a", up)}, Media: struct{ MediaStore }{}}, ""},
 	} {
 		c.cfg.DB = testDB
 		_, err := Handler(c.cfg)
@@ -173,16 +205,24 @@ func TestMediaDirConfig(t *testing.T) {
 			t.Errorf("got %v, want %q", err, c.want)
 		}
 	}
-	// Handler gives each request the directory.
+	// Handler gives each request the store, MediaDir's a local one.
 	dir := t.TempDir()
-	var got string
+	var got MediaStore
 	see := func(w http.ResponseWriter, r *http.Request) error {
-		got, _ = r.Context().Value(mediaKey{}).(string)
+		got, _ = mediaStore(r.Context())
 		return nil
 	}
 	serve(t, Config{Apps: []App{NewApp("a", route("GET", "/x", false, see))}, MediaDir: dir}, httptest.NewRequest("GET", "/x", nil))
-	if got != dir {
-		t.Errorf("the request's directory: %q", got)
+	if got != (LocalMedia{Dir: dir}) {
+		t.Errorf("the request's store: %#v", got)
+	}
+	// Only a local store's URLs lead to Handler.
+	other := struct{ MediaStore }{}
+	if w, _ := serve(t, Config{Apps: []App{NewApp("a", route("GET", "/x", false, see))}, Media: other}, httptest.NewRequest("GET", "/maago/media", nil)); w.Code != 404 {
+		t.Errorf("a bucket's site: %d", w.Code)
+	}
+	if w, _ := serve(t, Config{Apps: []App{NewApp("a", route("GET", "/x", false, see))}, MediaDir: dir}, httptest.NewRequest("GET", "/maago/media", nil)); w.Code != 403 {
+		t.Errorf("a local store's site, no signature: %d", w.Code)
 	}
 }
 
