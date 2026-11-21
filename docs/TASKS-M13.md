@@ -328,6 +328,80 @@
    구현 리뷰 반영(ponytail·codex·fable): 런타임의 열쇠 검사를 `Store`에서 고정(`DeleteMedia(".gitignore")`·`MediaURL(Key "x")`가 오류, fable 1), `Put`이 실패하면 `SaveMedia`가 오류와 빈 `Media`(`TestMedia`의 `fullStore`, fable 2), 메모리 가짜가 `Put`의 형식을 `MapFile.Sys`에 두어 URL의 `Content-Type`으로 주고(형식은 쿼리에서 뺌) 초 단위가 아닌 ttl을 오류로 하며 `Store`가 1.5초의 `MediaURL`을 부른다(fable 3), `TestLocalMediaList`에 링크(fable 4), `Config.Media: (*LocalMedia)(nil)`은 panic 대신 `Dir is empty` 오류(fable 5), `MediaStore.URL` 주석에 "whole seconds from one to 7 days, as MediaURL checks first"(위 API 글도, fable 6), `TestLocalMediaURL`에 덧붙인 `x=1`이 403(fable 7)과 표의 `{ok, 404}` 한 갈래(ponytail 2). 받지 않은 것: `expires`의 `>=`(codex): `expires`는 유닉스 초로 내림이라 `>=`면 1초 URL이 만들자마자 죽을 수 있다, `>`는 ttl보다 짧지 않고 길어야 1초 더. `LocalMedia.URL`의 `validKey`를 지우기(ponytail 1, 계획 리뷰 codex 1이 일부러 넣은 것이고 `URL`을 직접 부르는 6번의 시험에도 안전띠). 아직 받는 곳 없는 `Put`의 n·`List`·`Delete(name)`(ponytail 3, 5번·7번이 쓴다, TODO), 두 벌의 `sentFile`·`pngBytes`(ponytail 4, `package maago`의 시험은 `mediatest`를 import하면 순환)
    기록(2026-11-22): `MediaStore`·`MediaFile`·`LocalMedia{Dir, SiteURL}`·`WithMedia`·`MediaURL`·`Config.Media`(`WithMediaDir`를 지움), `Handler`의 검사(`handler.media`: 둘 다 오류, 로컬이면 Dir 셋과 `SiteURL`의 꼴·Prefix, 로컬 저장소면 `GET /maago/media`를 단다), 생성기의 `/maago` 예약, 문서(`maago doc` form·main, `doc.go` 골든, ARCHITECTURE, `rt/app.go`, D-160 고침). 시험: `internal/mediatest.Store`를 로컬(`TestLocalMediaStore`, Handler가 URL을 받음)과 메모리 가짜(`TestMemory`, `fstest.MapFS`, 한 쪽에 하나)에, `TestLocalMediaURLServed`(Prefix와 끝 `/`, 줄임 Handler와 일꾼의 `LocalMedia`), `TestMedia`·`TestLocalMediaList`·`TestLocalMediaURL`·`TestMediaDirConfig`, `TestStaticDiags`의 줄과 골든. 헛것 (a)~(i) 모두 이름 붙인 시험이 빨강(되돌린 뒤 diff가 같음): (d)·(h)는 가짜를 바꾼 것이고 (h)는 `>=`로도 쪽 상한에 걸림. `GOTOOLCHAIN=go1.25.14`로 새 시험 초록. 게시판은 고치지 않음(`examples/` diff 없음). 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 373초, 게시판 걷기 포함). 구현 리뷰는 ponytail·codex·fable: 막는 것 없음. 반영은 위 줄: fable 표의 살아남은 변이 일곱과 nil `*LocalMedia`의 panic을 시험 줄로(변이마다 다시 넣어 `TestLocalMediaStore`·`TestMemory`·`TestMedia`·`TestLocalMediaList`·`TestLocalMediaURL`·`TestMediaDirConfig` 중 하나가 빨강을 확인), ponytail 2의 표. codex의 `>=`와 ponytail 1·3·4는 받지 않음(까닭은 위 줄). 반영 뒤 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, PG 전체 시험 `go test exit=0`(cmd/maago 367초)
 5. **바이트로 미디어 저장**(Q2): `SaveMediaFrom`, 일꾼의 ctx에 저장소를 넣는 공개 함수 → 확인: 저장소 시험 함수에 바이트·빈 입력·형식·센 크기, 복사된 outbox 일꾼의 handle 안에서 저장이 성공(`TestAddOutbox`, 두 방언), `maago doc main` 예(`TestDocExamples`)
+
+   계획
+
+   따라가 본 길: 일꾼의 ctx에 저장소를 넣는 공개 함수는 4번이 이미 지었다(`WithMedia(ctx, MediaStore)`, D-160 고침: "Q2의 한 함수"). 그래서 이 작업의 새 공개 이름은 `SaveMediaFrom` 하나이고, 일꾼 쪽은 쓰임(문서·시험)만 더한다. `SaveMedia`는 지금 `mediaStore` → `f.Open()` → 열쇠 → `s.Put(ctx, key, f.Type, in)`이고 `Size`는 `f.Size`(`Put`의 n은 버린다, TODO 90줄). 업로드의 형식은 `rt/file.go:81~83`: 첫 512바이트를 `io.ReadFull`, `mime.ParseMediaType(http.DetectContentType(head[:n]))`로 매개변수를 뗀다(글은 `text/plain`이지 `; charset=utf-8`이 아니다). `rt`는 `maago`를 import하므로 `maago`가 `rt`의 것을 부를 수 없다. outbox의 `RunOnce`는 `context.WithoutCancel`·`WithTimeout`으로 ctx를 감싸는데 둘 다 값을 지키므로, `main`이 `outbox.Run`에 준 ctx의 저장소가 `handle`의 ctx에 그대로 온다: 복사되는 `outbox.go`의 코드는 고칠 것이 없다. `Handler`는 파일 폼이 없어도 `Config.Media`를 받고 로컬이면 `Dir`을 `Stat`한다(`http.go:200`). `rtcore.NewFile`로 `File`을 만드는 시험(`media_test.go`·`mediatest`)은 모두 PNG 바이트에 `image/png`라 형식을 다시 정해도 같다. site fixture의 `Upload`(`testdata/web/site/upload.go`)도 PNG만 받는다. 게시판 0029·0039는 `SaveMedia`의 `Name`·`Type`·`Size`만 쓰고, 끝까지 읽은 업로드에서 센 크기는 `f.Size`와 같다. 복사되는 outbox 원본은 `internal/scaffold/testdata/outbox`이고 걷기(0040)는 `maago add outbox`를 실행하므로 패치에 `outbox.go`가 없다.
+
+   공개 API(루트, 새 것과 바뀌는 것 그대로)
+
+   ```go
+   // SaveMediaFrom keeps r's bytes, read to its end, in the media store
+   // under a random key, as name, and returns what to keep in a row: Size
+   // is how many bytes it read, Type what the first 512 tell, as a form's
+   // File. A worker's ctx needs the store: maago.WithMedia. Nothing bounds
+   // r here: to bound it, pass io.LimitReader(r, max+1) and, when Size is
+   // over max, DeleteMedia the file and refuse it.
+   // If the row is not written after, delete the file with DeleteMedia.
+   func SaveMediaFrom(ctx context.Context, name string, r io.Reader) (Media, error)
+
+   // 그대로(서명): SaveMedia(ctx context.Context, f File) (Media, error), 몸만 SaveMediaFrom(ctx, f.Name, f.Open()의 것)
+   ```
+
+   바꿀 파일과 새 파일
+   1. `media.go`
+      - `SaveMediaFrom`: 먼저 `mediaStore(ctx)`(없으면 r을 한 바이트도 읽지 않고 지금의 "no media store … maago.WithMedia" 오류). `head := make([]byte, 512)`, `n, err := io.ReadFull(r, head)`: `io.EOF`·`io.ErrUnexpectedEOF`는 짧은 입력이라 받고 다른 오류는 `maago: saving %q: %w`. `typ, _, _ := mime.ParseMediaType(http.DetectContentType(head[:n]))`(`rt/file.go:83`과 같은 식). 열쇠를 만들고(지금 `SaveMedia`의 세 줄을 옮김) `size, err := s.Put(ctx, key, typ, io.MultiReader(bytes.NewReader(head[:n]), r))`, 오류면 `maago: saving %q: %w`와 빈 `Media`. 돌려주는 것 `Media{Key: key, Name: name, Type: typ, Size: size}`
+      - `SaveMedia`: `f.Open()`(오류 글 그대로) → `defer in.Close()` → `return SaveMediaFrom(ctx, f.Name, in)`. `Size`는 이제 센 값, `Type`은 같은 식으로 다시 정한 값(업로드 때 `f.Type`을 정한 바로 그 식이라 같다)
+      - 주석: `Media`의 "a file SaveMedia kept" → "SaveMedia or SaveMediaFrom", `Media.Type`의 "(File.Type)" → "as its first 512 bytes tell". `File.Type`의 주석(`file.go`)은 그대로
+      - → 확인: 아래 시험
+   2. `internal/mediatest/mediatest.go`: `Store`에 `saveFrom(t, ctx, s)` 하나를 더한다(런타임 함수로 부르고 결과를 `OpenMedia`로 읽어 본다)
+      - 길이 0, 100, 512, 1000바이트의 고르지 않은 바이트(바이트 i가 `byte(i*7)`꼴, 앞 512와 뒤가 다르다)를 `iotest.OneByteReader`에 감싸 저장: `Size`가 길이, 읽은 내용이 같다(머리를 버리거나 뒤를 버리거나 머리를 두 번 쓰면 빨강, 한 바이트씩 읽는 Reader라 `Read` 한 번으로 머리를 채우는 구현도 빨강), 이름이 준 그대로
+      - 형식(모두 `iotest.OneByteReader`에 감싸): PNG 바이트 → `image/png`, 글(`"hello\n"` 되풀이) → `text/plain`(매개변수 없음: 업로드와 같은 뜻), 빈 입력 → `text/plain`이고 `Size` 0이며 연 파일이 비었다(아래 ★)
+      - 실패: 머리 안에서 오류를 내는 Reader(10바이트를 준 뒤 오류를 **한 번** 내고 그다음은 `io.EOF`: 늘 오류인 `iotest.ErrReader`면 머리의 오류를 버리는 구현도 `Put`에서 다시 걸려 헛것이 된다, 이 Reader면 그 구현은 10바이트 파일로 성공해 빨강)와 머리 뒤(600바이트 뒤)에서 오류를 내는 Reader → 둘 다 오류, 빈 `Media`, `List`의 이름이 저장 전과 같다(실패한 저장은 열쇠를 돌려주지 않으므로 "남김 없음"을 이름 모음으로 본다)
+      - 이것으로 로컬(`TestLocalMediaStore`)과 메모리 가짜(`TestMemory`) 둘에 돌고, 6번의 S3도 같은 함수로 받는다
+   3. `media_test.go`(package `maago`): `TestMedia`의 "저장소 없는 ctx" 줄 옆에 `SaveMediaFrom`도 같은 오류(`maago.WithMedia`를 말함)이고, 그때 Reader를 읽지 않았다(읽으면 실패하는 Reader로) 한 줄
+   4. 새 시험은 복사본이 아니라 `cmd/maago/add_test.go`의 `TestAddOutbox`가 쓴다: `addProject` 뒤 `outbox/media_test.go`에 상수 `outboxMediaTest`를 쓰고 `goTest`(두 방언). 내용: `db := maagotest.DB(t)`, `ctx := maago.WithMedia(t.Context(), maago.LocalMedia{Dir: t.TempDir()})`, 복사본의 `job(t, db)`로 일 하나, `RunOnce(ctx, db, time.Now(), handle)`의 `handle`은 **제 인자 `ctx`로** `maago.SaveMediaFrom(ctx, "export.txt", strings.NewReader("done"))`를 부르고(바깥 ctx를 잡으면 헛것 (d)가 빨강이 될 수 없다) 그 오류를 닫힘 밖 변수에 둔다. `RunOnce`는 `handle`이 실패해도 `(true, nil)`(기록하고 다시 돌림)이므로 시험은 `found`·오류 없음에 더해 그 변수가 nil인지를 먼저 보고(헛것 (d)의 메시지가 "no media store"), 그다음 `maago.OpenMedia(ctx, m.Key)`의 내용이 `done`. `RunOnce`를 지나므로 복사본이 ctx를 `context.Background()`로 갈아 끼우면 빨강(아래 헛것 (d))
+   5. `internal/scaffold/testdata/outbox/outbox.go`의 패키지 문서: "Once Serve has stopped" 문단 앞에 한 문장, "deliver's ctx carries what Run's carries: to keep files from deliver with maago.SaveMediaFrom, give Run maago.WithMedia(work, store), the store Config.Media has." 예의 코드는 그대로라 `outboxMain`도 그대로(`go doc ./outbox`를 읽는 에이전트가 길을 안다)
+   6. `cmd/maago/docs/main.txt`(`maago doc main`의 예, `TestDocExamples`): 
+      - `notes/models.go`의 `Note`에 `Export string // the key of the note's file, once the worker kept it`
+      - `main.go`: `media := maago.LocalMedia{Dir: "media"} // the directory must exist` 하나를 `handler(db, media)`의 `Config.Media`와 일꾼의 `outbox.Run(maago.WithMedia(work, media), db, deliver(db))`에 같이 준다(값 하나: 둘을 따로 쓰면 디렉터리가 갈라지는 실수를 예가 보이지 않게). `handler(db *sql.DB, media maago.MediaStore)`
+      - `deliver(db maago.DB) func(context.Context, outbox.Job) error`(일꾼이 행을 쓰려면 db가 필요하다): Kind 검사 그대로, 페이로드의 `ID`로 `notes.GetNote`, `maago.SaveMediaFrom(ctx, fmt.Sprintf("note-%d.txt", n.ID), strings.NewReader(n.Text))`, `n.Export = m.Key`, `notes.UpdateNote`이 실패하면 `maago.DeleteMedia(ctx, m.Key)` 뒤 오류(어느 행도 가리키지 않는 파일을 남기지 않는다). 다시 도는 일이 남긴 앞 파일은 청소(7번)의 몫이라는 주석 한 줄
+      - `main_test.go`: `media := maago.LocalMedia{Dir: t.TempDir()}`를 `handler(db, media)`와 `outbox.RunOnce(maago.WithMedia(ctx, media), db, time.Now(), deliver(db))`에. 그 뒤 `notes.AllNotes`의 첫 행의 `Export`가 비지 않고 `maago.OpenMedia(maago.WithMedia(ctx, media), n.Export)`의 내용이 `hello`. 두 번째 `RunOnce`(한 시간 뒤 없음)는 그대로
+   7. 문서: `internal/ref/topics.go`
+      - form 절: "maago.SaveMedia keeps the file." 뒤에 "maago.SaveMediaFrom keeps bytes the app made, such as a worker's (maago doc main)." `API`에 `SaveMedia` 다음 `SaveMediaFrom`(`TestPackageDoc`이 모든 공개 이름을 한 주제에)
+      - main 절: outbox 문단 끝에 "Its deliver keeps files with maago.SaveMediaFrom once main gives the worker's ctx the media store, maago.WithMedia(work, media), the one in Config.Media, as the example's main does." 미디어 문단(단일 인스턴스·서명된 URL·청소)과 Kind 둘의 다시 쓰기는 9번
+      - `doc.go`는 `-update`(PG 주소와 함께, `TestPackageDoc`)
+      - `docs/ARCHITECTURE.md` 40줄의 "M13이 더한 것"에 `SaveMediaFrom`
+      - `docs/TODO.md` 90줄: `Put`의 n은 `SaveMediaFrom`이 쓰므로 그 절을 지우고 `List`·`Delete(name)`(7번)만 남긴다
+      - `docs/DECISIONS.md` D-160에 고침 한 줄(M13 5번: 아래 ★들)과 끝의 기록 줄
+      - → 확인: `TestPackageDoc`, `TestDocExamples`, `TestNoDecisionsInUserText`
+   8. 게시판: 고치지 않는다 → 확인: `TestBoardTutorial`(PG)·`TestBoardTutorialCatches`·`TestBoardMap`, `git diff --stat examples/`가 비어 있다
+
+   단계와 확인
+   1. 시험 먼저: `mediatest`의 `saveFrom`, `media_test.go`의 줄, `outboxMediaTest` → 확인: `go vet ./...`가 없는 이름 `SaveMediaFrom`으로 실패(빨강)
+   2. `media.go` → 확인: `go test . ./internal/mediatest`, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4 go test -run 'TestAddOutbox' ./cmd/maago`(두 방언)
+   3. `outbox.go` 문서, `main.txt`, `topics.go`, 골든 → 확인: `go test -run 'TestDocExamples|TestDoc$|TestPackageDoc' ./cmd/maago .`(`-update`는 PG 주소와 함께)
+   4. 헛것(하나씩 넣고 실패를 보고 되돌린다): (a) `Put`에 머리를 빼고 r만 → `Store`의 내용(512·1000바이트) (b) `Size`를 `int64(n)`(머리의 길이)으로 → `Store`의 1000바이트 크기 (c) `ParseMediaType`을 빼고 `DetectContentType` 그대로 → `Store`의 `text/plain` (d) 복사 원본 `RunOnce`의 `context.WithoutCancel(ctx)`를 `context.Background()`로 → `TestAddOutbox`의 `outboxMediaTest`("no media store") (e) `ReadFull`의 다른 오류를 버림 → `Store`의 머리 안 실패 (f) `main_test.go`의 `RunOnce`에서 `WithMedia`를 뺌 → `TestDocExamples/main` (g) `ReadFull` 대신 `r.Read` 한 번 → `Store`의 형식(한 바이트 Reader에서 `image/png`가 아니게 된다) (h) `SaveMediaFrom`이 `mediaStore`보다 먼저 읽음 → `TestMedia`의 읽으면 실패하는 Reader
+   5. 끝 확인: 루트에서 `go mod tidy -diff && go vet ./... && go test ./...`, `gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4`로 전체(`-timeout 60m`, 앞에서 끝까지 기다려 로그의 `go test exit=` 줄), 게시판 걷기 포함. 새 시험은 `GOTOOLCHAIN=go1.25.14`로도
+
+   ★ → 에이전트 편의로 결정
+   - **일꾼의 함수는 새로 짓지 않고 4번의 `WithMedia`.** 같은 일에 이름이 둘이면 에이전트가 고른다. 이 작업은 그 쓰임을 셋에 박는다: `maago doc main`의 예(`TestDocExamples`), outbox 패키지 문서의 한 문장, `TestAddOutbox`의 `RunOnce` 안 저장
+   - **빈 입력은 받는다**(`Size` 0, 형식 `text/plain`: 업로드의 빈 파일과 같은 식의 결과). 일꾼이 만든 빈 내보내기는 오류가 아니고, 오류로 하면 outbox가 12번 다시 돌린 뒤 일을 남긴다. 업로드와 뜻이 하나다(빈 파일 칸도 같은 결과). 빈 것을 막을 앱은 `Size == 0`을 본다
+   - **형식은 업로드와 같은 식 한 줄을 `media.go`에 다시 쓴다**(새 공용 함수 없이). `rt`는 `maago`를 import해 `maago`가 `rt`의 것을 부를 수 없고, 한 줄을 위한 `rtcore` 함수는 이름만 는다. 두 곳이 갈라지지 않음은 `Store`의 `text/plain`(매개변수 없음)이 고정한다
+   - **상한의 문서는 `io.LimitReader(r, max+1)`과 `Size > max`면 `DeleteMedia`.** Q2의 "`io.LimitReader`를 문서에"를 그대로 `LimitReader(r, max)`로 적으면 넘친 파일이 잘린 채 성공한다(PHILOSOPHY 7: 조용히 버리지 않는다). `max+1`이면 넘침이 `Size`에 보인다
+   - **`SaveMedia`의 `Size`도 센 값**(Q2의 "얇은 함수"). 끝까지 읽은 업로드에서 `f.Size`와 같고, 크기의 출처가 `Put` 하나가 된다. 4번 ★("`SaveMedia`의 `Size`는 그대로 `f.Size`, 센 값은 5번에서")를 여기서 닫는다
+   - **저장소를 먼저 찾고 r을 읽는다.** 저장소 없는 ctx에서 일꾼이 Reader(네트워크 응답 따위)를 반쯤 먹고 실패하지 않게
+   - **일꾼 시험은 복사본이 아니라 `TestAddOutbox`가 쓰는 파일.** 미디어를 쓰지 않는 outbox 사용자의 복사본을 무겁게 하지 않고, 길은 패키지 문서 한 문장이 알린다. 두 방언은 `TestAddOutbox`의 두 줄이 이미 돈다
+   - **`Put`은 업로드에서도 길이를 모르는 Reader를 받는다**(얇은 `SaveMedia`가 seek하는 `multipart.File` 대신 `MultiReader`를 준다). Q2·Q3 그대로이고, 6번의 `contrib/s3`는 seek를 기대하지 말고 늘 Q3의 임시 파일 길로 센다(6번 계획에서 이 줄을 본다)
+   - **`main.txt`의 저장소 값은 하나를 `Config.Media`와 `WithMedia`에 같이.** 에이전트가 따라 쓸 꼴이므로 디렉터리가 갈라질 자리를 두지 않는다. `deliver(db)`는 일꾼이 행을 쓰는 가장 짧은 꼴(닫힘 하나)이다
+
+   하지 않는 것
+   - `SweepMedia`·태그 `media`(7번: 예의 `Export` 열에 태그는 7번이 단다), `contrib/s3`(6번), `maago doc`의 미디어 문단·main의 Kind 둘 다시 쓰기와 D-140 고침(9번), 게시판 0041~(8번)
+   - 크기 상한 인자나 `MaxBytes` 칸(Q2: 상한은 앱의 몫)
+   - `SaveMediaFrom`이 형식을 받는 인자(Q2: 첫 512바이트, 업로드와 같은 뜻)
+   - outbox 원본의 코드 바꾸기(값이 이미 지나간다), 복사본에 미디어 시험 넣기(위 ★)
+   - `File`을 바이트로 만드는 길(Q2가 기각한 `NewFile`)
+
 6. **`contrib/s3`**: stdlib SigV4(머리 서명과 서명된 URL), Range GET, LIST(페이지 나눔), 크기 모르는 Reader → 확인: S3 문서의 예 벡터(머리 서명과 서명된 URL 둘), 4번의 저장소 시험 함수를 가짜 S3에(가짜는 서명을 다시 계산해 틀리면 403), 길이 모르는 Reader의 `Content-Length`, CI에 MinIO 서비스와 `MAAGO_TEST_S3_URL`(D-91의 꼴, 없으면 CI에서 실패), `TestRuntimeImports`
 7. **고아 청소**(Q4): 태그 `media`, 생성된 "쓰는 중" 쿼리, `SweepMedia` → 확인: 오래된 고아만 지움, 여유 안의 새 것과 `.tmp-`, 태그 없는 프로젝트의 오류, 열쇠 열이 둘인 모델·두 앱에서 둘 다 쓰는 중으로 봄, 로컬과 가짜 S3 둘(LIST 페이지 둘 이상)
 8. **게시판 0041~**: 일꾼이 만든 파일 여럿(내보내기 따위, 이미지 처리 아님: D-72)을 이름 → 열쇠 행으로 저장하고 뷰가 이름으로 찾아 준다(readmate의 `media/marked/<id>/` 꼴), 저장소를 환경으로 고름, 서명된 URL로 밖에 건넴, 청소(태그), outbox의 Kind 둘(웹훅과 이 일: `main`의 일꾼이 Kind로 가름), lease를 넘어 다시 도는 일이 남긴 파일은 청소가 치운다 → 확인: `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardMap`, Catches(일꾼 ctx에 저장소 없음, 태그 빠뜨림 따위)
