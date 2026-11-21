@@ -211,7 +211,9 @@ func (h *handler) media(files bool) error {
 	case LocalMedia:
 		local = s
 	case *LocalMedia:
-		local = *s
+		if s != nil { // a nil one's Dir is empty
+			local = *s
+		}
 	case nil:
 		if cfg.MediaDir == "" {
 			return nil

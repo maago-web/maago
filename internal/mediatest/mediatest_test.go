@@ -44,7 +44,7 @@ func (s *memory) Put(ctx context.Context, key, typ string, r io.Reader) (int64, 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.files[key] = &fstest.MapFile{Data: b, ModTime: time.Now()}
+	s.files[key] = &fstest.MapFile{Data: b, ModTime: time.Now(), Sys: typ}
 	return int64(len(b)), nil
 }
 
@@ -82,15 +82,19 @@ func (s *memory) List(ctx context.Context, after string) ([]fs.FileInfo, error) 
 	return nil, nil
 }
 
+// URL takes whole seconds, as a bucket's does.
 func (s *memory) URL(m maago.Media, ttl time.Duration) (string, error) {
-	q := url.Values{"name": {m.Name}, "type": {m.Type}, "exp": {strconv.FormatInt(time.Now().Add(ttl).Unix(), 10)}}
+	if ttl%time.Second != 0 {
+		return "", fmt.Errorf("ttl %v is not whole seconds", ttl)
+	}
+	q := url.Values{"name": {m.Name}, "exp": {strconv.FormatInt(time.Now().Add(ttl).Unix(), 10)}}
 	q.Set("sig", sign(m.Key, q))
 	return s.srv.URL + "/" + m.Key + "?" + q.Encode(), nil
 }
 
 func sign(key string, q url.Values) string {
 	mac := hmac.New(sha256.New, []byte("memory"))
-	fmt.Fprintf(mac, "%s\n%s\n%s\n%s", key, q.Get("name"), q.Get("type"), q.Get("exp"))
+	fmt.Fprintf(mac, "%s\n%s\n%s", key, q.Get("name"), q.Get("exp"))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -108,7 +112,12 @@ func (s *memory) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	w.Header().Set("Content-Type", q.Get("type"))
+	info, err := f.Stat()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header()["Content-Type"] = []string{info.Sys().(string)} // Put's type, never sniffed
 	w.Header().Set("Content-Disposition", "attachment")
 	io.Copy(w, f)
 }

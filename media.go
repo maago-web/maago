@@ -46,7 +46,7 @@ type MediaStore interface {
 	// keys or not (a half-written one's .tmp- name, a .gitignore).
 	List(ctx context.Context, after string) ([]fs.FileInfo, error)
 	// URL is a link to m's file, to download, that anyone may follow
-	// for ttl, whole seconds.
+	// for ttl: whole seconds from one to 7 days, as MediaURL checks first.
 	URL(m Media, ttl time.Duration) (string, error)
 }
 

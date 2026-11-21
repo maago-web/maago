@@ -358,3 +358,4 @@ LIMIT :limit
 - **2026-11-22 (M13 초안)** — D-160~D-163(사람의 결정: 범위는 미디어와 조용한 맞음, Google은 M14, Google 계정은 인증된 이메일이면 자동 연결)
 - **2026-11-22 (M13 2번)** — D-162의 조용한 런타임: D-105(읽는 시각은 두 방언 모두 UTC, `rt.ScanTime`), D-111(auto 시각은 UTC, 입력은 그대로), D-120·D-154(API의 unique 위반은 어댑터의 422, 뷰가 준 상태가 이긴다), D-132(사용자 모델 폼의 `default=''`, 막힌 삭제 409, 400의 이유)
 - **2026-11-22 (M13 3번)** — D-162(쿼리는 마이그레이션에 makemigrations의 초안을 더한 연습 DB에: 모델 DDL만의 DB는 손 마이그레이션의 것에 거짓 오류, 초안이 실패하면 차이만, CRUD·admin의 prepare는 같을 때만)
+- **2026-11-22 (M13 4번)** — D-160 고침(저장소 경계: `MediaStore`·`MediaFile`·`LocalMedia{Dir, SiteURL}`·`WithMedia`·`MediaURL`·`Config.Media`, `WithMediaDir`를 지움, 서명된 로컬 라우트 `GET /maago/media`와 생성기의 `/maago` 예약, 시험 함수 `internal/mediatest.Store`). 서명된 URL의 기한은 `expires`(유닉스 초) 그 초까지 받는다: ttl보다 짧지 않고 길어야 1초 더

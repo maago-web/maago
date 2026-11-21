@@ -62,6 +62,13 @@ func Store(t *testing.T, s maago.MediaStore) {
 	if err := maago.DeleteMedia(ctx, key); err != nil {
 		t.Error(err)
 	}
+	// The runtime checks keys before the store sees one.
+	if err := maago.DeleteMedia(ctx, ".gitignore"); err == nil {
+		t.Error("delete of a name that is no key: no error")
+	}
+	if _, err := maago.MediaURL(ctx, maago.Media{Key: "x"}, time.Hour); err == nil {
+		t.Error("a URL of a key SaveMedia does not make: no error")
+	}
 
 	serveMedia(t, ctx, m)
 
@@ -208,6 +215,9 @@ func signedURLs(t *testing.T, ctx context.Context, m, m2 maago.Media, other []by
 		if _, err := maago.MediaURL(ctx, m, ttl); err == nil {
 			t.Errorf("a URL for %v: no error", ttl)
 		}
+	}
+	if _, err := maago.MediaURL(ctx, m, 1500*time.Millisecond); err != nil { // the store gets whole seconds
+		t.Error(err)
 	}
 }
 

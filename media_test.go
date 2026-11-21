@@ -81,6 +81,9 @@ func TestMedia(t *testing.T) {
 	if _, err := SaveMedia(context.Background(), sentFile(t, "a.png", pngBytes)); err == nil || !strings.Contains(err.Error(), "maago.WithMedia") {
 		t.Errorf("no store: %v", err)
 	}
+	if m, err := SaveMedia(WithMedia(ctx, fullStore{}), sentFile(t, "a.png", pngBytes)); err == nil || m != (Media{}) {
+		t.Errorf("a failed put: %+v, %v", m, err)
+	}
 	// A link inside the directory does not lead out of it.
 	outside := filepath.Join(t.TempDir(), "secret")
 	os.WriteFile(outside, []byte("secret"), 0o600)
@@ -106,13 +109,16 @@ func TestMedia(t *testing.T) {
 	}
 }
 
-// List gives every file, keys or not, but no directory; Delete takes
+// List gives every file, keys or not, but no directory or link; Delete takes
 // what List gave.
 func TestLocalMediaList(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("*"), 0o600)
 	os.WriteFile(filepath.Join(dir, ".tmp-x"), []byte("xy"), 0o600)
 	os.Mkdir(filepath.Join(dir, "sub"), 0o700)
+	if err := os.Symlink(filepath.Join(dir, ".gitignore"), filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
 	l := LocalMedia{Dir: dir}
 	infos, err := l.List(context.Background(), "")
 	if err != nil || len(infos) != 2 || infos[0].Name() != ".gitignore" || infos[1].Name() != ".tmp-x" || infos[1].Size() != 2 {
@@ -130,7 +136,8 @@ func TestLocalMediaList(t *testing.T) {
 }
 
 // A local URL needs the site's address, and is signed whole: values of
-// two URLs do not mix, and what is no time is refused however signed.
+// two URLs do not mix, nor is one added, and what is no time is refused
+// however signed.
 func TestLocalMediaURL(t *testing.T) {
 	key := strings.Repeat("a", 32)
 	m := Media{Key: key, Name: "a.png", Type: "image/png"}
@@ -160,13 +167,15 @@ func TestLocalMediaURL(t *testing.T) {
 	notTime := url.Values{"key": {key}, "name": {"a.png"}, "type": {"image/png"}, "expires": {"soon"}}
 	notTime.Set("sig", sign(notTime))
 	ok := ua.Query()
+	added := ua.Query()
+	added.Set("x", "1")
 	for _, c := range []struct {
 		q    url.Values
 		code int
-	}{{ok, 0}, {qa, 403}, {notTime, 403}} {
+	}{{ok, 404}, {qa, 403}, {notTime, 403}, {added, 403}} { // ok's file is none: a signed URL reaches the store
 		r := httptest.NewRequest("GET", "/maago/media?"+c.q.Encode(), nil).WithContext(WithMedia(context.Background(), l))
-		if err := serveSigned(httptest.NewRecorder(), r); c.code == 0 && rtcore.Code(err) != 404 || c.code != 0 && rtcore.Code(err) != c.code {
-			t.Errorf("%v: %v", c.q, err) // the file is none: a signed URL reaches the store
+		if err := serveSigned(httptest.NewRecorder(), r); rtcore.Code(err) != c.code {
+			t.Errorf("%v: %v", c.q, err)
 		}
 	}
 }
@@ -189,6 +198,7 @@ func TestMediaDirConfig(t *testing.T) {
 		{Config{Apps: []App{NewApp("a", up)}, MediaDir: t.TempDir(), Media: LocalMedia{Dir: t.TempDir()}}, "maago: Config.Media and Config.MediaDir are both set; MediaDir is short for Media: maago.LocalMedia{Dir: MediaDir}: keep one"},
 		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{}}, "maago: Config.Media's Dir is empty"},
 		{Config{Apps: []App{NewApp("a", up)}, Media: &LocalMedia{}}, "maago: Config.Media's Dir is empty"},
+		{Config{Apps: []App{NewApp("a", up)}, Media: (*LocalMedia)(nil)}, "maago: Config.Media's Dir is empty"},
 		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: filepath.Join(t.TempDir(), "none")}}, "maago: Config.Media's Dir: "},
 		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: file}}, "maago: Config.Media's Dir " + `"` + file + `" is not a directory`},
 		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "/app"}}, "maago: LocalMedia.SiteURL \"/app\" is not"},
@@ -224,6 +234,13 @@ func TestMediaDirConfig(t *testing.T) {
 	if w, _ := serve(t, Config{Apps: []App{NewApp("a", route("GET", "/x", false, see))}, MediaDir: dir}, httptest.NewRequest("GET", "/maago/media", nil)); w.Code != 403 {
 		t.Errorf("a local store's site, no signature: %d", w.Code)
 	}
+}
+
+// fullStore keeps nothing.
+type fullStore struct{ MediaStore }
+
+func (fullStore) Put(context.Context, string, string, io.Reader) (int64, error) {
+	return 0, errors.New("full")
 }
 
 var pngBytes = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 100)...)
