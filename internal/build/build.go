@@ -312,6 +312,7 @@ var dialects = map[project.Dialect]struct {
 
 // checkDatabase applies the migrations to one practice database and the
 // models' DDL to another, and reports how the two differ (D-34, D-64).
+// If they do, it checks the queries against the models as well (D-162).
 func checkDatabase(s *state) []diag.Diagnostic {
 	ctx := context.Background()
 	a, diff, ds := compared(ctx, s)
@@ -324,17 +325,33 @@ func checkDatabase(s *state) []diag.Diagnostic {
 		return ds
 	}
 	if ds := migrate.Diagnose(cs, positions(s.fset, s.apps)); len(ds) > 0 {
-		return ds // the queries would fail on what differs
+		return append(ds, againstModels(ctx, s, a, cs, diff)...)
 	}
-	return checkQueries(ctx, s, a)
+	if ds := checkQueries(ctx, s, a); len(ds) > 0 {
+		return ds
+	}
+	return checkGenerated(ctx, s, a)
 }
 
-// checkQueries prepares every query on a, the practice database that
-// matches the models, and works out the result types (rule 5, D-23).
-// Each query's errors are its own, so all of them are reported, unless
-// the connection fails. Then the SQL of the CRUD and of the
-// admin (D-134) is prepared: it fails only through a bug of maago, which
-// TestCRUDPrepares and the gentest tests pin down, so this is a seat belt.
+// againstModels applies makemigrations' draft of cs to a, the practice
+// database of the migrations, and checks the queries on it: the schema
+// of the models with what only a migration written by hand has, which
+// is what the next run sees. A draft that fails or leaves a difference
+// leaves the queries for that run, and a for its caller to close.
+func againstModels(ctx context.Context, s *state, a *practicedb.DB, cs []migrate.Change, read func() ([]migrate.Change, []diag.Diagnostic)) []diag.Diagnostic {
+	stmts, ds := dialect.Split("", dialects[s.d].draft(s.apps, cs))
+	if len(ds) > 0 || len(migrate.ApplyDraft(ctx, a, s.d, migrate.File{Stmts: stmts})) > 0 {
+		return nil
+	}
+	if left, ds := read(); len(left) > 0 || len(ds) > 0 {
+		return nil
+	}
+	return diag.Note(" (checked against the models)", checkQueries(ctx, s, a))
+}
+
+// checkQueries prepares every query on a and works out the result types
+// (rule 5, D-23), then prepares each policy's probe. Each query's errors
+// are its own, so all of them are reported, unless the connection fails.
 func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagnostic {
 	var ds []diag.Diagnostic
 	for dir, checked := range s.checked {
@@ -367,9 +384,14 @@ func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagno
 			ds = append(ds, diag.See(ref.Query, pds)...)
 		}
 	}
-	if len(ds) > 0 {
-		return ds
-	}
+	return ds
+}
+
+// checkGenerated prepares the SQL of the CRUD and of the admin (D-134) on
+// a, the practice database that matches the models: it fails only
+// through a bug of maago, which TestCRUDPrepares and the gentest tests
+// pin down, so this is a seat belt.
+func checkGenerated(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagnostic {
 	var sqls []string
 	for _, app := range s.apps {
 		for _, c := range mapper.CRUDs(app, s.d) {

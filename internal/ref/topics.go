@@ -139,7 +139,9 @@ and GetXIgnoringPolicies reads any row.`,
 		Summary: `A query is a file of SQL, queries/name.sql in an app, with a header that names
 the Go function, its result and its parameters. maago gen prepares every
 form of it on a practice database built from the migrations, and writes
-queries_gen.go.`,
+queries_gen.go. While the migrations still differ from the models, it
+prepares them on that database with makemigrations' draft added, and
+their errors end in "(checked against the models)".`,
 		Text: `A query file:
 
 	-- name: SearchPosts :many PostSummary

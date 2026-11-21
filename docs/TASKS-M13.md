@@ -95,31 +95,34 @@
      - 모델에서 뺐는데 쿼리가 아직 쓰는 열 → 오류(`TestQueriesDroppedField`가 makemigrations 뒤에야 보던 것)
      - 손 마이그레이션에만 있는 것 → 통과
 
-     모델 DDL만의 DB에 prepare하면 넷째가 거짓 오류다. "a에서도 실패할 때만 낸다"는 꼴은 셋째를 놓친다. 오류 글을 차이와 맞춰 보는 꼴은 방언마다 깨지기 쉽다. D-162의 "모델 DDL의 연습 DB에"라는 글을 이 꼴로 고친다(이 작업에서, D-162는 이 작업의 결정이다).
-   - **손 마이그레이션에만 있는 것이 실제로 무엇인가.** `sqlite.Read`는 view·trigger·virtual table을, `postgres.Read`는 extension·view·sequence·function·type·rule·trigger를 "not supported"로 거절한다. 남는 표·열·인덱스·FK·CHECK는 `Diff`가 차이로 낸다. `Diff`가 보지 않는 것(인덱스·FK·PK 이름, 열 순서)은 prepare에 닿지 않는다. 그래서 **SQLite에는 없다.** PostgreSQL에는 `Read`가 묻지 않는 catalog가 남는다: text search configuration, collation, operator 따위. `to_tsvector('kor', …)`는 prepare에서 이름을 푼다: 연습 스키마에 `kor`가 없으면 `text search configuration "kor" does not exist`(psql로 확인함, 2026-11-22). 음성 시험은 이것으로 PG에서만 한다.
-   - **초안이 적용되지 않으면 지금처럼 "run makemigrations"만 낸다.** 데이터 마이그레이션이 넣은 행 위에 기본값 없는 NOT NULL 열을 더하는 경우가 그렇다. 이때는 makemigrations도 "write this migration by hand"로 멈춘다. 초안이 비었거나, 적용 뒤 다시 읽어 차이가 남는 경우도 같다. 쿼리 오류는 나중 실행으로 미뤄질 뿐 거짓으로 나오지 않는다. PG에서 실패한 문장은 연습 트랜잭션을 깨므로 거기서 바로 돌려준다.
+     모델 DDL만의 DB에 prepare하면 넷째가 거짓 오류다. "a에서도 실패할 때만 낸다"는 꼴은 셋째를 놓친다. 오류 글을 차이와 맞춰 보는 꼴은 방언마다 깨지기 쉽다. D-162의 "모델 DDL의 연습 DB에"라는 글을 이 꼴로 고친다(이 작업에서, D-162는 이 작업의 결정이다). 사람에게 묻지 않는 까닭: Q8은 사람이 아니라 에이전트 편의로 정했고 꼴을 "(계획에서 꼴)"로 이 계획에 맡겼으며, D-162의 두 목표(한 실행, 손 마이그레이션에 거짓 오류 없음)는 그대로다. 바뀌는 것은 "어느 DB에"라는 수단의 글뿐이다.
+   - **손 마이그레이션에만 있는 것이 실제로 무엇인가.** `sqlite.Read`는 view·trigger·virtual table을, `postgres.Read`는 extension·view·sequence·function·type·rule·trigger를 "not supported"로 거절한다. 남는 표·열·인덱스·FK·CHECK는 `Diff`가 차이로 낸다. `Diff`가 보지 않는 것 중 이름은 prepare에 닿는다(`indexKey`는 이름을 보지 않는다, `diff.go:168`): SQLite의 `INDEXED BY 이름`, PG의 `ON CONFLICT ON CONSTRAINT 이름`. 그래서 SQLite에도 있다. 초안이 표를 재구성해 인덱스 이름을 모델의 것으로 바꾸면 그 오류는 makemigrations 뒤에도 같은 오류라 거짓이 아니다. PostgreSQL에는 이름 말고도 `Read`가 묻지 않는 catalog가 남는다: text search configuration, collation, operator 따위. `to_tsvector('kor', …)`는 prepare에서 이름을 푼다: 연습 스키마에 `kor`가 없으면 `text search configuration "kor" does not exist`(psql로 확인함, 2026-11-22). 음성 시험은 SQLite에서 손으로 이름 지은 인덱스와 `INDEXED BY`(재구성 없는 ADD COLUMN 차이로), PG에서 `kor`로 한다.
+   - **초안이 적용되지 않으면 지금처럼 "run makemigrations"만 낸다.** 데이터 마이그레이션이 넣은 행 위에 기본값 없는 NOT NULL 열을 더하는 경우가 그렇다. 이때는 makemigrations도 "write this migration by hand"로 멈춘다. 초안이 비었거나, 적용 뒤 다시 읽어 차이가 남는 경우도 같다. 쿼리 오류는 나중 실행으로 미뤄질 뿐 거짓으로 나오지 않는다. 초안의 적용이 실패하거나 차이가 남으면 `a`를 다시 읽지 않는다: `checkDatabase`는 차이의 진단만 돌려주고 이미 있는 `defer a.Close()`가 `a`를 버린다(PG는 늘 롤백되는 트랜잭션, SQLite는 메모리 DB라 남는 것이 없다). 따로 연결을 여는 길은 받지 않는다(codex): 버리는 경계가 이미 `a`의 닫기이고, 연결을 하나 더 여는 것은 PG에서 연습 스키마를 하나 더 만들 뿐이다.
 
    바꿀 파일
    1. `internal/build/makemigrations.go`
-      - `draftDatabase`에서 "문장을 `ApplyDraft`로 적용하고 `read()`로 다시 읽어 남은 차이를 돌려주는" 부분을 함수 하나로 뺀다(예: `applyDraft(ctx, a, d, file, read) (left []migrate.Change, ds)`). makemigrations의 진단 글(`maago did not write …`, `the draft leaves …`)은 그대로 둔다.
+      - 고치지 않는다(구현에서 바꿈): 둘이 같이 쓰는 것은 `ApplyDraft`와 `read()`의 두 호출뿐이고, makemigrations는 두 실패를 다른 글로 가르므로 뺀 함수가 둘을 다시 갈라 돌려줘야 한다. `againstModels`가 두 호출을 직접 한다.
       - → 확인: makemigrations의 시험이 그대로 초록이다(`TestMakeMigrations*`, `TestCheckDraft`, `draft_test.go`, 두 방언).
    2. `internal/build/build.go`
       - `checkDatabase`: `Diagnose`의 진단을 먼저 계산한다(`a`를 바꾸기 전). 차이가 있으면 `append(ds, againstModels(ctx, s, a, cs, diff)...)`를 돌려준다.
       - `againstModels`는 초안을 만들어 `dialect.Split`하고 1의 함수로 적용한다. 실패하거나 차이가 남으면 nil을 준다. 아니면 사용자 쿼리를 prepare해 그 진단에 "against the models"를 붙인다.
-      - `checkQueries`를 둘로 나눈다. 사용자 쿼리·`Results`·정책 probe가 한쪽이고, CRUD·admin의 prepare(maago 버그의 안전띠)가 다른 쪽이다(Q8: 그 prepare는 같을 때만). 같을 때의 길은 지금과 같다.
+      - `checkQueries`를 둘로 나눈다. 사용자 쿼리·`Results`·정책 probe가 한쪽이고, CRUD·admin의 prepare(maago 버그의 안전띠, `checkGenerated`)가 다른 쪽이다(Q8: 그 prepare는 같을 때만). 같을 때의 길은 지금과 같다.
       - `stages`·`checkDatabase`·`checkQueries`의 주석을 고친다.
       - → 확인: 아래 시험.
    3. `internal/diag/diag.go`: `See`처럼 생긴 `Note(suffix string, ds []Diagnostic) []Diagnostic`를 둔다. 필드를 내보내지 않으므로 글 끝에 붙이는 길이 따로 필요하다. 붙는 글은 ` (checked against the models)`이고, prepare 오류, `Results`의 `missing`, 정책 probe 모두에 붙는다. "run makemigrations"가 같은 출력에 있으니 무엇과 비교한 오류인지만 말하면 된다. fix는 쿼리의 fix 그대로다.
-   4. 시험 `cmd/maago/queries_build_test.go`: `TestQueriesAfterModels`를 두 방언(`ordersProject(t, d)`)으로 넓힌다. 이름은 `TestQueriesBeforeMigration`으로 바꾸고 주석도 고친다. 한 프로젝트에서 차례로:
-      - (a) 필드 `Note string`을 더하고, `note`를 맞게 쓴 `Notes :many Order`를 둔다 → 진단 줄이 정확히 하나: `models.go:…: migrations do not match models: column "note" of "orders" is missing`
-      - (b) 같은 상태에 둘을 더한다. `notee` 오타 쿼리, 그리고 `SELECT id, amount`인 `Order` 결과(`missing "customer_id", …, "note"`, 열 목록 전체를 본다) → 한 실행에 세 줄(차이 하나와 두 쿼리). 쿼리 둘은 파일:줄:열과 ` (checked against the models)`까지 본다. 다른 쿼리(`search_orders` 따위)에는 진단이 없다.
-      - (c) makemigrations 없이 `Priority`를 지운다 → 차이 줄과 `queries/order_by_amount.sql:…: … priority … (checked against the models)`가 한 실행에. `TestQueriesDroppedField`(makemigrations 뒤의 길)는 그대로 둔다.
-      - (d) 끝에 makemigrations를 하면 (b)의 두 쿼리 오류만 남고, 그때는 ` (checked against the models)`가 없다(같은 줄과 열).
+   4. 시험 `cmd/maago/queries_build_test.go`: `TestQueriesAfterModels`를 두 방언(`ordersProject(t, d)`)으로 넓힌다. 이름은 `TestQueriesBeforeMigration`으로 바꾸고 주석도 고친다. 기대는 모두 `diagnostics(text(…))`의 줄 전체를 `slices.Equal`로 본다(`expect`는 앞머리만 맞춰 접미사의 있고 없음을 못 본다). PG에서 글이 다른 곳만 앞머리와 `HasSuffix`로. 한 프로젝트에서 차례로:
+      - (a) `Customer`에 필드 `Email string`을 더하고, `email`을 맞게 쓴 `Emails :many Customer`를 둔다 → 진단 줄이 정확히 하나: `models.go:17:2: migrations do not match models: column "email" of "customers" is missing`
+      - (b) 같은 상태에 둘을 더한다. `emial` 오타 쿼리, 그리고 `SELECT id`인 `Customer` 결과(`missing "name", "email"`) → 한 실행에 세 줄(차이 하나와 두 쿼리). 쿼리 둘은 파일:줄:열과 ` (checked against the models)`까지 본다. 다른 쿼리(`search_orders` 따위)에는 진단이 없다.
+      - (c) makemigrations를 하면 (b)의 두 쿼리 오류만 남고, 그때는 ` (checked against the models)`가 없다(같은 줄과 열).
       - 끝의 `bad.sql`(머리 오류) 확인은 그대로 둔다.
+      - (d) 새 `ordersProject`에서 makemigrations 없이 `Priority`를 지운다 → 차이 줄과 `queries/order_by_amount.sql:…: … priority … (checked against the models)`가 한 실행에, 줄 전체를 방언마다 `slices.Equal`로. `TestQueriesDroppedField`(makemigrations 뒤의 길)는 그대로 둔다. (fable: 같은 프로젝트에서 (b) 뒤에 지우면 (b)의 쿼리와 allow-drop 없는 DROP이 섞인다.)
+      - (e) 정책 probe의 접미사는 시험 없음: 정책은 사용자의 타입(사용자를 받는 뷰)을 요구하고 모든 쿼리를 규칙 6 아래로 옮겨야 해서 orders 위에서 길어진다. 접미사는 `checkQueries`의 결과 전체에 붙으므로 probe의 줄도 같은 길로 받는다.
+      - 쿼리가 돌려주지 않는 모델(`Customer`)에 필드 `Email`을 더한다(구현에서 바꿈): `Order`에 더하면 열을 고르는 `order_by_amount.sql`이 맞게 `missing "note"`를 받아 "하나뿐"의 확인이 흐려진다.
+      - → 확인: 이 시험을 구현 전에 돌려 빨강을 본다.
    5. 시험, 같은 파일:
-      - `TestQueriesHandMigration`(PG만): `0002_kor.sql`에 `CREATE TEXT SEARCH CONFIGURATION kor (COPY = simple);`, 쿼리는 `to_tsvector('kor', note)`. 먼저 마이그레이션이 맞는 상태에서 gen이 통과함을 본다. 이것이 오늘 `Read`가 받는다는 확인이다. 그다음 필드를 하나 더하고 gen하면 진단이 "run makemigrations" 하나뿐이다.
-        → 확인: `againstModels`를 일부러 모델 DDL만의 연습 DB(`modelSchema`가 만드는 것)에 prepare하게 바꾸면 이 시험이 빨강이다. 돌려 보고 되돌린다.
-      - `TestQueriesDraftFails`(SQLite·PG): `0002_data.sql`이 `orders`에 행 하나를 넣는다. 기본값 없는 NOT NULL 필드를 더하고, 오타 쿼리 하나를 둔다 → gen은 차이 줄만 내고 오타 쿼리는 내지 않는다(되돌아가는 갈래를 고정한다). 같은 상태에서 makemigrations가 "maago did not write"로 멈추는 것도 본다. NOT NULL의 꼴은 구현에서 방언마다 실제로 실패하는 것으로 고른다(PG `ADD COLUMN … NOT NULL`, SQLite 재구성의 `INSERT … SELECT`).
+      - `TestQueriesHandMigration`(두 방언): 손 마이그레이션에만 있는 이름. SQLite는 `0001_initial.sql`의 `customer_id` 인덱스 이름을 손으로 바꾸고 쿼리에 `INDEXED BY 그 이름`, PG는 `0002_kor.sql`에 `CREATE TEXT SEARCH CONFIGURATION kor (COPY = simple);`와 `to_tsvector('kor', status)`인 쿼리. 먼저 마이그레이션이 맞는 상태에서 gen이 통과함을 본다(오늘 `Read`가 받는다는 확인). 그다음 `Customer`에 nullable 필드를 더하고(초안이 `orders`를 건드리지 않아 손 이름이 그대로다) 오타 쿼리 하나를 같이 두면, 진단이 정확히 둘: 차이 줄과 오타 쿼리 + ` (checked against the models)`, 손 이름 쿼리의 줄은 없다(`slices.Equal`). 오타 줄이 있으니 쿼리를 실제로 본 갈래이고, 손 이름의 줄이 없으니 손 마이그레이션이 있는 DB에서 본 것이다: 모델 DDL만의 DB로 되돌아가는 회귀를 CI가 잡는다. codex의 "고를 수 있는 시험 seam"은 받지 않는다: 이 두 줄의 기대가 seam 없이 같은 것을 고정한다.
+        → 확인: `againstModels`를 일부러 모델 DDL만의 연습 DB에 prepare하게 바꾸면 두 방언 모두 빨강임을 한 번 돌려 보고 되돌린다.
+      - `TestQueriesDraftFails`(SQLite·PG): `0002_data.sql`이 `orders`에 행 하나를 넣는다. 기본값 없는 NOT NULL 필드를 더하고, 오타 쿼리 하나를 둔다 → gen의 진단이 차이 줄 하나뿐임을 `slices.Equal`로(되돌아가는 갈래를 고정한다). 같은 상태에서 makemigrations가 "maago did not write"로 멈추는 것도 본다(실패 갈래에 실제로 들어갔다는 증명). NOT NULL의 꼴은 구현에서 방언마다 실제로 실패하는 것으로 고른다(PG `ADD COLUMN … NOT NULL`, SQLite 재구성의 `INSERT … SELECT`).
    6. 문서
       - `internal/ref/topics.go:140`(`maago doc query`): "a practice database built from the migrations" 뒤에 한 문장. 마이그레이션이 아직 모델과 다르면 makemigrations의 초안을 더한 DB에 prepare하고, 그 오류는 "checked against the models"라고 말한다.
       - `docs/ARCHITECTURE.md` §3의 DB 검사 줄(119): "같으면 같은 DB에서" 뒤에 "다르면 초안을 더한 DB에서 사용자 쿼리만".
@@ -137,6 +140,8 @@
    - makemigrations의 진단 글 바꾸기
    - `--rename`을 짐작해 초안에 넣기. 초안은 지움과 더함이고, prepare에는 같은 스키마다.
    - PG의 `search_path` 밖(예: `public`)에 만든 것(TODO "연습 PG의 `search_path`" 그대로)
+
+   계획 리뷰 codex·fable 반영: D-162와의 충돌(codex)은 리뷰가 갈렸고 Q8이 꼴을 계획에 맡긴 에이전트 편의의 결정이라 에이전트 편의로 ★를 지키고 까닭을 적음, 초안 실패 뒤 `a`를 다시 읽지 않고 닫기로 버림(따로 연결은 받지 않음), 음성 회귀를 seam 대신 오타 쿼리와 두 줄 `slices.Equal`로 CI에(codex·fable), SQLite에도 이름이 닿음(`INDEXED BY`)을 고치고 음성 시험을 두 방언에, (c)·(d)를 바꿔 지움은 새 프로젝트에서, 모든 기대를 줄 전체로, 정책 probe 접미사 시험, DraftFails의 gen도 `slices.Equal`, `kor` 쿼리는 `status`로. 글 ` (checked against the models)`는 그대로(fable 7).
 4. **저장소 경계**(Q3): `MediaStore`와 로컬 구현(서명된 로컬 URL 포함), `OpenMedia`·`ServeMedia`를 그 위로, `WithMediaDir`의 처지(남기거나 지움, 계획에서 하나), `MediaDir`과 저장소를 함께 주면 `Handler` 오류 → 확인: 미디어 시험을 저장소를 받는 함수 하나로 만들어 로컬과 메모리 가짜 둘에(7번의 S3도 같은 함수), Range(206)·404·nosniff·attachment, 서명된 URL의 기한 지남·바뀐 서명 거절, 게시판 0029·0038·0039가 고치지 않고 걷는다
 5. **바이트로 미디어 저장**(Q2): `SaveMediaFrom`, 일꾼의 ctx에 저장소를 넣는 공개 함수 → 확인: 저장소 시험 함수에 바이트·빈 입력·형식·센 크기, 복사된 outbox 일꾼의 handle 안에서 저장이 성공(`TestAddOutbox`, 두 방언), `maago doc main` 예(`TestDocExamples`)
 6. **`contrib/s3`**: stdlib SigV4(머리 서명과 서명된 URL), Range GET, LIST(페이지 나눔), 크기 모르는 Reader → 확인: S3 문서의 예 벡터(머리 서명과 서명된 URL 둘), 4번의 저장소 시험 함수를 가짜 S3에(가짜는 서명을 다시 계산해 틀리면 403), 길이 모르는 Reader의 `Content-Length`, CI에 MinIO 서비스와 `MAAGO_TEST_S3_URL`(D-91의 꼴, 없으면 CI에서 실패), `TestRuntimeImports`
