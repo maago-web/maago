@@ -290,6 +290,7 @@
    - 계획 리뷰 codex·fable 반영: CI 초록 뒤 태그(fable), `^{}`로 태그의 sha(둘 다), `pack` 뒤 다시 시험(둘 다), `/go.mod` h1의 조건(codex), 공개 판임을 `go list -m`과 절대 경로로(fable), `outbox/`가 없는 사본(codex)
    - 하지 않는 것: 릴리스 노트·GitHub Release(v0.2.0에도 없다), 게시판 밖의 `go.mod` 고침
    - **사람의 결정(2026-11-15)**: main push와 `v0.3.0` 태그 push 승인(다른 태그 없음, force-push 없음)
+   - CI가 3ffe25a에서(앞서 89d5726에서도) `cmd/maago` 30분 제한에 걸렸다(실패가 아니라 `TestBoardTutorialCatches` 도중 시간 끝, 로컬 약 27분). **사람의 결정(2026-11-22)**: CI의 `-timeout 60m`, 빠르게 하는 것은 TODO
 13. **에이전트 게이트**: `go install …@v0.3.0`부터, 0036의 끝에서 새 단계(0037~0040) 글만 보고 서로 모르는 실행 둘. 게이트가 고칠 것을 찾으면 v0.3.1(M11과 같은 길) → 확인: 기록, 메시지와 `maago doc`만으로 씀
 14. **M12 끝**: MILESTONES의 M12 체크, README, 다음 마일스톤의 차례
 
