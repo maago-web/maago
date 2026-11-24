@@ -1,0 +1,216 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Wed, 25 Nov 2026 01:21:13 +0900
+Subject: [PATCH] Sweep the files no row keeps
+
+A file is kept before its row is written: an upload whose transaction
+rolls back after maago.SaveMedia, or a process that stops in between,
+leaves a file no row has. Attach deletes its file when the row fails,
+and deletePost when the post goes, but a crash between the two misses
+both. maago.SweepMedia deletes such files, once they are a day old.
+
+- The key column says it keeps media keys, with the tag media:
+
+      Key string `maago:"unique,media"`
+
+  maago gen writes the query of every column so tagged, of every app,
+  and SweepMedia keeps what it finds there. No migration: the tag is
+  not the table's. A column that holds keys and has no tag has its files
+  deleted, a day after they were written: tag each one
+- main runs the sweep beside the worker, as the server starts and each
+  day after, on the worker's context, so it stops with it. Its error
+  goes to the log. SweepMedia finds the store in its context, as
+  SaveMediaFrom does: maago.WithMedia(work, media). So main makes the
+  store itself now, maago.LocalMedia{Dir: "media"}, and gives the same
+  one to Config.Media, where MediaDir was
+- The store is the database's alone: a copy of the site on a database
+  of its own, pointed at another's media, deletes that one's files, as
+  their rows are not in its database
+
+TestSweep uploads an attachment and keeps a file of no row with
+maago.SaveMediaFrom, makes both two days old, and sweeps: the
+attachment still downloads, the other file is gone. The tests' config
+has Config.Media now too, and reads its directory back.
+
+diff --git a/board/attach_test.go b/board/attach_test.go
+index 2624e3f..c543ef9 100644
+--- a/board/attach_test.go
++++ b/board/attach_test.go
+@@ -11,6 +11,7 @@ import (
+ 	"path/filepath"
+ 	"strings"
+ 	"testing"
++	"time"
+ 
+ 	"github.com/maago-web/maago"
+ 	"github.com/maago-web/maago/maagotest"
+@@ -41,6 +42,7 @@ func upload(h http.Handler, id int64, name string, file []byte) *httptest.Respon
+ func TestAttachments(t *testing.T) {
+ 	db := maagotest.DB(t)
+ 	cfg := config(t, db)
++	dir := cfg.Media.(maago.LocalMedia).Dir
+ 	h, err := maago.Handler(cfg)
+ 	if err != nil {
+ 		t.Fatal(err)
+@@ -76,7 +78,7 @@ func TestAttachments(t *testing.T) {
+ 	if a.Meta != nil {
+ 		t.Errorf("a text file's meta: %+v", a.Meta)
+ 	}
+-	if entries, _ := os.ReadDir(cfg.MediaDir); len(entries) != 1 || entries[0].Name() != a.Key {
++	if entries, _ := os.ReadDir(dir); len(entries) != 1 || entries[0].Name() != a.Key {
+ 		t.Errorf("the media directory: %v", entries)
+ 	}
+ 	if code, page := get(h, PostDetailURL(p.ID)); code != 200 || !strings.Contains(page, `href="`+AttachmentURL(a.ID)+`"`) || !strings.Contains(page, `<label>파일 <input type="file" name="file"></label>`) {
+@@ -94,7 +96,7 @@ func TestAttachments(t *testing.T) {
+ 		t.Errorf("no attachment: %d", code)
+ 	}
+ 	// A row whose file is gone is a 404 too, not an empty 200.
+-	file := filepath.Join(cfg.MediaDir, a.Key)
++	file := filepath.Join(dir, a.Key)
+ 	if err := os.Rename(file, file+".away"); err != nil {
+ 		t.Fatal(err)
+ 	}
+@@ -145,7 +147,7 @@ func TestAttachments(t *testing.T) {
+ 	if as, _ := PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID}); len(as) != 0 {
+ 		t.Errorf("rows left: %+v", as)
+ 	}
+-	if entries, _ := os.ReadDir(cfg.MediaDir); len(entries) != 0 {
++	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+ 		t.Errorf("files left: %v", entries)
+ 	}
+ }
+@@ -176,3 +178,43 @@ func TestHiddenAttachments(t *testing.T) {
+ 		t.Errorf("a file to a hidden post: %d", w.Code)
+ 	}
+ }
++
++// The sweep deletes a day-old file no row keeps, and keeps an
++// attachment's however old.
++func TestSweep(t *testing.T) {
++	db := maagotest.DB(t)
++	cfg := config(t, db)
++	dir := cfg.Media.(maago.LocalMedia).Dir
++	h, err := maago.Handler(cfg)
++	if err != nil {
++		t.Fatal(err)
++	}
++	ctx := maago.WithMedia(t.Context(), cfg.Media)
++	ann, annUser := signedIn(t, h, db, "ann@example.com")
++	b, _ := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	p, _ := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "첨부", Status: maago.Set("published"), AuthorID: &annUser.ID})
++	if w := upload(ann, p.ID, "a.txt", []byte("결과표")); w.Code != 303 {
++		t.Fatalf("upload: %d %s", w.Code, w.Body)
++	}
++	orphan, err := maago.SaveMediaFrom(ctx, "lost.txt", strings.NewReader("no row"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	old := time.Now().Add(-48 * time.Hour)
++	entries, _ := os.ReadDir(dir)
++	for _, e := range entries {
++		if err := os.Chtimes(filepath.Join(dir, e.Name()), old, old); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := maago.SweepMedia(ctx, db, 0); err != nil {
++		t.Fatal(err)
++	}
++	as, _ := PostAttachments(ctx, db, PostAttachmentsParams{PostID: p.ID})
++	if code, _ := get(h, AttachmentURL(as[0].ID)); code != 200 {
++		t.Errorf("the attachment after the sweep: %d", code)
++	}
++	if _, err := os.Stat(filepath.Join(dir, orphan.Key)); !os.IsNotExist(err) {
++		t.Errorf("the orphan after the sweep: %v", err)
++	}
++}
+diff --git a/board/models.go b/board/models.go
+index fe19c3e..93352e3 100644
+--- a/board/models.go
++++ b/board/models.go
+@@ -54,13 +54,13 @@ type Comment struct {
+ 
+ // Attachment is a file kept with a post: what maago.SaveMedia returns,
+ // field by field, and when it came. The file itself is in the media
+-// directory under Key.
++// store under Key; the tag media keeps it from maago.SweepMedia.
+ type Attachment struct {
+ 	maago.Model `maago:"admin_list=(PostID,Name,Type,Size,CreatedAt),admin_search=(Name)"`
+ 
+ 	ID        int64
+ 	PostID    int64  `maago:"fk=Post"`
+-	Key       string `maago:"unique"`
++	Key       string `maago:"unique,media"`
+ 	Name      string
+ 	Type      string
+ 	Size      int64
+diff --git a/board/web_test.go b/board/web_test.go
+index 062b9eb..07d3878 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -36,7 +36,7 @@ const front = "http://localhost:5173"
+ 
+ // config is main's, on db, with a media directory of the test's.
+ func config(t *testing.T, db *sql.DB) maago.Config {
+-	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp()}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login", MediaDir: t.TempDir()}
++	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp()}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login", Media: maago.LocalMedia{Dir: t.TempDir()}}
+ }
+ 
+ // adminApp is main's admin: config serves it, and TestPermissions has its
+diff --git a/main.go b/main.go
+index 6a3f1a3..b693cec 100644
+--- a/main.go
++++ b/main.go
+@@ -9,6 +9,7 @@ import (
+ 	"log"
+ 	"net/http"
+ 	"os"
++	"time"
+ 
+ 	"github.com/maago-web/maago"
+ 	"github.com/maago-web/maago/contrib/admin"
+@@ -73,6 +74,10 @@ func main() {
+ 	// package variables, filled in here. With no URL, nothing is announced.
+ 	board.Webhook.URL = os.Getenv("BOARD_WEBHOOK_URL")
+ 	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")
++	// Where the files are kept, under names maago makes: a directory
++	// beside the binary, which the server does not serve as it is. The
++	// view that sends one down checks who asks.
++	media := maago.LocalMedia{Dir: "media"}
+ 	// The admin, at /app/admin/: the models of the apps it is given, to
+ 	// those auth.Can lets see them. The outbox's jobs too: one whose last
+ 	// attempt failed stays there, with its error.
+@@ -90,10 +95,7 @@ func main() {
+ 		// The site is under /app, beside what else the server serves. Links
+ 		// and URL functions start with it.
+ 		Prefix: "/app",
+-		// Where the attachments' files are kept, under names maago makes:
+-		// a directory beside the binary, which the server does not serve
+-		// as it is. The view that sends one down checks who asks.
+-		MediaDir: "media",
++		Media:  media,
+ 		// Every 5xx, a view's error or a panic, and any error after a view
+ 		// began writing. Send it where you watch errors; the log will do
+ 		// here.
+@@ -115,6 +117,22 @@ func main() {
+ 		outbox.Run(work, db, board.Deliver)
+ 		close(worked)
+ 	}()
++	// The sweep, as the server starts and each day after: it deletes the
++	// files no row keeps, a day old, such as an upload whose row was never
++	// committed. The store is this database's alone: never point a copy
++	// of the site at another's media.
++	go func() {
++		for {
++			if err := maago.SweepMedia(maago.WithMedia(work, media), db, 0); err != nil {
++				log.Printf("sweep: %v", err)
++			}
++			select {
++			case <-work.Done():
++				return
++			case <-time.After(24 * time.Hour):
++			}
++		}
++	}()
+ 	// Serve stops on SIGTERM, as a platform stops a container: it takes no
+ 	// new connections and lets the running requests finish, for up to 30s.
+ 	// Then the worker takes no more jobs, and finishes the one in hand.

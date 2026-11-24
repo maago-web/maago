@@ -1,0 +1,608 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Wed, 25 Nov 2026 01:23:29 +0900
+Subject: [PATCH] Export a board in the background
+
+Staff asks for a board's files: a Markdown file for each post, and an
+index. Writing them is the outbox's worker's, not the request's: a long
+board takes a while, and a job that fails goes again.
+
+    maago makemigrations --name export_files
+
+- A model ExportFile (table board_export_file): a file of a board's
+  latest export, by name, unique on (BoardID, Name). Its Key is tagged
+  media, as the attachments' is: what a row keeps, the sweep keeps
+- A second kind of job, ExportFiles, "export_files". postPublished is
+  PostPublished now: main tells the kinds apart, so both are exported,
+  and Deliver, the webhook's, no longer asks the kind.
+  The handle is main's deliver(db, media): it puts the store in the
+  job's context, maago.WithMedia(ctx, media), where maago.SaveMediaFrom
+  finds it, and goes by the job's Kind. A kind it does not know is an
+  error: the job stays, and the admin shows it
+- WriteExportFiles reads the posts out to everybody, whoever asked: the
+  files go out of the site, and a draft must not. It keeps each file
+  with maago.SaveMediaFrom first, then, in one transaction, deletes the
+  board's rows and writes the new ones. No code deletes a file: the
+  export before, a run that stopped halfway, and a run again past its
+  lease leave files no row keeps, and the sweep deletes them
+- Routes, staff only: board_files lists the files with a button to
+  export again, board_files_export writes the job in the request's
+  transaction, board_file sends a file down by its name, with
+  maago.ServeMedia, as the attachments go
+
+TestWriteExportFiles runs a job twice, a post a page, makes the files
+two days old and sweeps: the store holds the rows' files, and they read as they should;
+the draft is in none. TestFiles asks as staff, runs the job as main
+does with outbox.RunOnce, by its kind, and gets index.md by its name. TestPermissions
+has the three routes' rows.
+
+diff --git a/board/files.go b/board/files.go
+new file mode 100644
+index 0000000..677fa0a
+--- /dev/null
++++ b/board/files.go
+@@ -0,0 +1,142 @@
++package board
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"net/http"
++	"strings"
++	"time"
++
++	"github.com/maago-web/maago"
++
++	"example.com/board/auth"
++	"example.com/board/outbox"
++)
++
++// ExportFiles is the kind of the outbox's jobs that write a board's files.
++const ExportFiles = "export_files"
++
++// WriteExportFiles writes the files of the board of job j: a post-ID.md
++// for each post out to everybody, and index.md, which lists them. Out to
++// everybody, whoever asked: the files go out by URL. It keeps the files
++// first, then swaps the board's rows for theirs in one transaction. The
++// files of the export before, and of a run that stopped halfway, no row
++// keeps: the sweep deletes them.
++func WriteExportFiles(ctx context.Context, db maago.DB, j outbox.Job) error {
++	var in struct{ ID int64 }
++	if err := json.Unmarshal([]byte(j.Payload), &in); err != nil {
++		return err
++	}
++	b, err := GetBoard(ctx, db, in.ID)
++	if err != nil {
++		return err
++	}
++	now := time.Now()
++	var files []maago.Media
++	var index strings.Builder
++	fmt.Fprintf(&index, "# %s\n\n", b.Name)
++	var after int64
++	for {
++		rows, err := ExportRows(ctx, nil, db, ExportRowsParams{BoardID: b.ID, Now: now, After: after, Limit: exportPage})
++		if err != nil {
++			return err
++		}
++		for _, r := range rows {
++			p, err := GetPost(ctx, nil, db, r.ID, now)
++			if err != nil {
++				return err
++			}
++			name := fmt.Sprintf("post-%d.md", p.ID)
++			m, err := maago.SaveMediaFrom(ctx, name, strings.NewReader("# "+p.Title+"\n\n"+p.Body+"\n"))
++			if err != nil {
++				return err
++			}
++			files = append(files, m)
++			fmt.Fprintf(&index, "- [%s](%s)\n", p.Title, name)
++		}
++		if int64(len(rows)) < exportPage {
++			break
++		}
++		after = rows[len(rows)-1].ID
++	}
++	m, err := maago.SaveMediaFrom(ctx, "index.md", strings.NewReader(index.String()))
++	if err != nil {
++		return err
++	}
++	files = append(files, m)
++	return maago.WithTx(ctx, db, func(ctx context.Context, tx maago.Tx) error {
++		if _, err := DeleteBoardFiles(ctx, tx, DeleteBoardFilesParams{BoardID: b.ID}); err != nil {
++			return err
++		}
++		for _, m := range files {
++			if _, err := InsertExportFile(ctx, tx, NewExportFileInput{BoardID: b.ID, Name: m.Name, Key: m.Key, Type: m.Type, Size: m.Size}); err != nil {
++				return err
++			}
++		}
++		return nil
++	})
++}
++
++type FilesIn struct {
++	ID int64 `maago:"path=id"`
++}
++
++type FilesPage struct {
++	Board Board
++	Files []ExportFile
++}
++
++// ShowFiles lists a board's files, to staff.
++func ShowFiles(ctx context.Context, u auth.User, db maago.DB, in FilesIn) (FilesPage, error) {
++	if err := staffOnly(u); err != nil {
++		return FilesPage{}, err
++	}
++	b, err := GetBoard(ctx, db, in.ID)
++	if err != nil {
++		return FilesPage{}, err
++	}
++	fs, err := BoardFiles(ctx, db, BoardFilesParams{BoardID: b.ID})
++	return FilesPage{Board: b, Files: fs}, err
++}
++
++// ExportFilesAgain asks the outbox's worker for the board's files, in
++// the request's transaction: they are there once the job has run.
++func ExportFilesAgain(ctx context.Context, u auth.User, tx maago.Tx, in FilesIn) (maago.Result[FilesPage], error) {
++	if err := staffOnly(u); err != nil {
++		return maago.Result[FilesPage]{}, err
++	}
++	if _, err := GetBoard(ctx, tx, in.ID); err != nil {
++		return maago.Result[FilesPage]{}, err
++	}
++	if _, err := outbox.Enqueue(ctx, tx, ExportFiles, map[string]any{"id": in.ID}); err != nil {
++		return maago.Result[FilesPage]{}, err
++	}
++	return maago.SeeOther[FilesPage](BoardFilesURL(in.ID)), nil
++}
++
++type FileIn struct {
++	ID   int64  `maago:"path=id"`
++	Name string `maago:"path=name"`
++}
++
++// DownloadFile sends a board's file down by its name, to staff.
++func DownloadFile(ctx context.Context, u auth.User, db maago.DB, in FileIn, w http.ResponseWriter, r *http.Request) error {
++	if err := staffOnly(u); err != nil {
++		return err
++	}
++	f, err := BoardFile(ctx, db, BoardFileParams{BoardID: in.ID, Name: in.Name})
++	if err != nil {
++		return err
++	}
++	return maago.ServeMedia(w, r, f.media())
++}
++
++// staffOnly refuses with 403 whoever is not staff.
++func staffOnly(u auth.User) error {
++	if !u.IsStaff {
++		return maago.Status(http.StatusForbidden, errors.New("only staff get a board's files"))
++	}
++	return nil
++}
+diff --git a/board/files_test.go b/board/files_test.go
+new file mode 100644
+index 0000000..936aa8b
+--- /dev/null
++++ b/board/files_test.go
+@@ -0,0 +1,131 @@
++package board
++
++import (
++	"context"
++	"fmt"
++	"io"
++	"net/http/httptest"
++	"os"
++	"path/filepath"
++	"slices"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/maago-web/maago"
++	"github.com/maago-web/maago/maagotest"
++
++	"example.com/board/auth"
++	"example.com/board/outbox"
++)
++
++// An export is a file for each post out to everybody, and index.md, a
++// page of posts at a time. Run again, as a job past its lease is, it
++// swaps the rows: the files of the run before no row keeps, and the
++// sweep deletes them.
++func TestWriteExportFiles(t *testing.T) {
++	defer func(n int64) { exportPage = n }(exportPage)
++	exportPage = 1 // two posts: two full pages, then an empty one
++	db := maagotest.DB(t)
++	dir := t.TempDir()
++	ctx := maago.WithMedia(t.Context(), maago.LocalMedia{Dir: dir})
++	b, _ := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	p, _ := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "공개", Body: "본문", Status: maago.Set("published")})
++	InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "초안", Body: "비밀"})
++	p2, _ := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "둘째", Body: "본문 둘", Status: maago.Set("published")})
++	j := outbox.Job{Kind: ExportFiles, Payload: fmt.Sprintf(`{"id":%d}`, b.ID)}
++	for range 2 {
++		if err := WriteExportFiles(ctx, db, j); err != nil {
++			t.Fatal(err)
++		}
++	}
++	fs, err := BoardFiles(ctx, db, BoardFilesParams{BoardID: b.ID})
++	if err != nil || len(fs) != 3 || fs[0].Name != "index.md" || fs[1].Name != fmt.Sprintf("post-%d.md", p.ID) || fs[2].Name != fmt.Sprintf("post-%d.md", p2.ID) {
++		t.Fatalf("files: %+v %v", fs, err)
++	}
++	old := time.Now().Add(-48 * time.Hour)
++	entries, _ := os.ReadDir(dir)
++	if len(entries) != 6 {
++		t.Fatalf("%d files in the store, want two runs' three", len(entries))
++	}
++	for _, e := range entries {
++		os.Chtimes(filepath.Join(dir, e.Name()), old, old)
++	}
++	if err := maago.SweepMedia(ctx, db, 0); err != nil {
++		t.Fatal(err)
++	}
++	var names, keys []string
++	entries, _ = os.ReadDir(dir)
++	for _, e := range entries {
++		names = append(names, e.Name())
++	}
++	for _, f := range fs {
++		keys = append(keys, f.Key)
++	}
++	slices.Sort(keys)
++	if !slices.Equal(names, keys) {
++		t.Errorf("after the sweep: %v, want the rows' %v", names, keys)
++	}
++	for _, c := range []struct{ file, want string }{{fs[0].Key, "# 자유\n\n- [공개](" + fs[1].Name + ")\n- [둘째](" + fs[2].Name + ")\n"}, {fs[1].Key, "# 공개\n\n본문\n"}, {fs[2].Key, "# 둘째\n\n본문 둘\n"}} {
++		f, err := maago.OpenMedia(ctx, c.file)
++		if err != nil {
++			t.Fatal(err)
++		}
++		body, _ := io.ReadAll(f)
++		f.Close()
++		if string(body) != c.want {
++			t.Errorf("file: %q, want %q", body, c.want)
++		}
++	}
++}
++
++// Staff asks for the files; the worker writes them; staff gets them by
++// name.
++func TestFiles(t *testing.T) {
++	db := maagotest.DB(t)
++	cfg := config(t, db)
++	h, err := maago.Handler(cfg)
++	if err != nil {
++		t.Fatal(err)
++	}
++	ctx := t.Context()
++	boss, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password)
++	if err != nil {
++		t.Fatal(err)
++	}
++	session, err := auth.SignIn(ctx, db, boss)
++	if err != nil {
++		t.Fatal(err)
++	}
++	staff := maagotest.As(h, session)
++	b, _ := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++
++	if code, body := get(staff, BoardFilesURL(b.ID)); code != 200 || !strings.Contains(body, "아직 내보낸 파일이 없습니다.") {
++		t.Errorf("no files yet: %d %s", code, body)
++	}
++	if code, loc, _ := post(staff, BoardFilesExportURL(b.ID), nil); code != 303 || loc != BoardFilesURL(b.ID) {
++		t.Fatalf("export: %d %q", code, loc)
++	}
++	// The worker, as main runs it: the store in its context.
++	handle := func(ctx context.Context, j outbox.Job) error {
++		if j.Kind != ExportFiles {
++			return fmt.Errorf("a job of kind %q", j.Kind)
++		}
++		return WriteExportFiles(maago.WithMedia(ctx, cfg.Media), db, j)
++	}
++	if found, err := outbox.RunOnce(ctx, db, time.Now(), handle); !found || err != nil {
++		t.Fatalf("the job: %v %v", found, err)
++	}
++	if code, body := get(staff, BoardFilesURL(b.ID)); code != 200 || !strings.Contains(body, `href="`+BoardFileURL(b.ID, "index.md")+`"`) {
++		t.Errorf("the files: %d %s", code, body)
++	}
++	r := httptest.NewRequest("GET", BoardFileURL(b.ID, "index.md"), nil)
++	w := httptest.NewRecorder()
++	staff.ServeHTTP(w, r)
++	if w.Code != 200 || w.Body.String() != "# 자유\n\n" || !strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") {
++		t.Errorf("index.md: %d %v %q", w.Code, w.Header(), w.Body)
++	}
++	if code, _ := get(staff, BoardFileURL(b.ID, "nope.md")); code != 404 {
++		t.Errorf("no such file: %d", code)
++	}
++}
+diff --git a/board/models.go b/board/models.go
+index 93352e3..0172ca8 100644
+--- a/board/models.go
++++ b/board/models.go
+@@ -93,3 +93,23 @@ func (p Post) Next(to string) error {
+ 	}
+ 	return nil
+ }
++
++// ExportFile is a file of a board's export, which the outbox's worker
++// writes: the board's latest, by name. The file itself is in the media
++// store under Key.
++type ExportFile struct {
++	maago.Model `maago:"unique=(BoardID,Name)"`
++
++	ID        int64
++	BoardID   int64 `maago:"fk=Board"`
++	Name      string
++	Key       string `maago:"unique,media"`
++	Type      string
++	Size      int64
++	CreatedAt time.Time `maago:"auto=create"`
++}
++
++// media is the file of f, as maago.ServeMedia takes it.
++func (f ExportFile) media() maago.Media {
++	return maago.Media{Key: f.Key, Name: f.Name, Type: f.Type, Size: f.Size}
++}
+diff --git a/board/notify.go b/board/notify.go
+index 604b069..03dce0c 100644
+--- a/board/notify.go
++++ b/board/notify.go
+@@ -18,23 +18,20 @@ type Hook struct{ URL, Token string }
+ // environment. With no URL, nothing is announced.
+ var Webhook Hook
+ 
+-// postPublished is the kind of the outbox's jobs that announce a post.
+-const postPublished = "post_published"
++// PostPublished is the kind of the outbox's jobs that announce a post.
++const PostPublished = "post_published"
+ 
+ // notifyWithin bounds one try of Deliver. The worker waits for the job
+ // in hand as the server stops, so a webhook that never answers holds the
+ // stop up by no more than this.
+ var notifyWithin = 10 * time.Second
+ 
+-// Deliver is the outbox's worker's: it posts the payload of a job of
++// Deliver is the webhook's job's: it posts the payload of a job of
+ // moveTo's to Webhook. An error, a 4xx or 5xx or no answer, has the
+ // outbox try the job again later: a wrong token fixed in the
+ // environment gets it through. The job's id goes as the Idempotency-Key
+ // header, the same on each try, so the webhook can drop a repeat.
+ func Deliver(ctx context.Context, j outbox.Job) error {
+-	if j.Kind != postPublished {
+-		return fmt.Errorf("board: no job of kind %q", j.Kind)
+-	}
+ 	ctx, cancel := context.WithTimeout(ctx, notifyWithin)
+ 	defer cancel()
+ 	r, err := http.NewRequestWithContext(ctx, "POST", Webhook.URL, strings.NewReader(j.Payload))
+diff --git a/board/notify_test.go b/board/notify_test.go
+index faf86e9..ca0dacc 100644
+--- a/board/notify_test.go
++++ b/board/notify_test.go
+@@ -12,7 +12,7 @@ import (
+ 
+ func TestDeliver(t *testing.T) {
+ 	defer func(w Hook) { Webhook = w }(Webhook)
+-	job := outbox.Job{ID: 7, Kind: postPublished, Payload: `{"id":3,"key":null,"path":"/posts/3","title":"새 글"}`}
++	job := outbox.Job{ID: 7, Kind: PostPublished, Payload: `{"id":3,"key":null,"path":"/posts/3","title":"새 글"}`}
+ 
+ 	for _, c := range []struct {
+ 		answer int
+@@ -35,16 +35,7 @@ func TestDeliver(t *testing.T) {
+ 		}
+ 	}
+ 
+-	// A job of another kind is not the webhook's.
+-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+-		t.Error("another kind went to the webhook")
+-	}))
+-	Webhook = Hook{srv.URL, "s3cret"}
+-	if err := Deliver(t.Context(), outbox.Job{ID: 8, Kind: "mail", Payload: "{}"}); err == nil {
+-		t.Error("another kind: no error")
+-	}
+-	// No answer at all.
+-	srv.Close()
++	// No answer at all: Webhook is the last server's, closed.
+ 	if err := Deliver(t.Context(), job); err == nil {
+ 		t.Error("no server: no error")
+ 	}
+@@ -53,7 +44,7 @@ func TestDeliver(t *testing.T) {
+ 	defer func(d time.Duration) { notifyWithin = d }(notifyWithin)
+ 	notifyWithin = 50 * time.Millisecond
+ 	block := make(chan struct{})
+-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
+ 	Webhook.URL = srv.URL
+ 	start := time.Now()
+ 	err := Deliver(t.Context(), job)
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index e460c4d..a339148 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -15,6 +15,7 @@ import (
+ 	"github.com/maago-web/maago/maagotest"
+ 
+ 	"example.com/board/auth"
++	"example.com/board/outbox"
+ )
+ 
+ // Who may ask each page: a row for each route, a status for each role.
+@@ -22,8 +23,13 @@ import (
+ // what the next role sees, so each role that succeeds writes its own
+ // post or board, and the others Skip that row.
+ func TestPermissions(t *testing.T) {
+-	h, db := app(t)
+-	ctx := t.Context()
++	db := maagotest.DB(t)
++	cfg := config(t, db)
++	h, err := maago.Handler(cfg)
++	if err != nil {
++		t.Fatal(err)
++	}
++	ctx := maago.WithMedia(t.Context(), cfg.Media) // the store's, as the worker has it
+ 	asBob, _ := signedIn(t, h, db, "bob@example.com")
+ 	asAnn, ann := signedIn(t, h, db, "ann@example.com")
+ 	boss, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password)
+@@ -111,6 +117,10 @@ func TestPermissions(t *testing.T) {
+ 		}
+ 		files = append(files, as[0])
+ 	}
++	// The board's files, as the outbox's worker writes them.
++	if err := WriteExportFiles(ctx, db, outbox.Job{Kind: ExportFiles, Payload: fmt.Sprintf(`{"id":%d}`, b.ID)}); err != nil {
++		t.Fatal(err)
++	}
+ 	// A form with a file, as attachment_add takes it: multipart, its
+ 	// Content-Type naming the boundary.
+ 	var file bytes.Buffer
+@@ -175,6 +185,10 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "attachment", URL: AttachmentURL(files[0].ID), Want: want(200, 200, 200, 200, 200)},
+ 		maagotest.Row{Route: "attachment", URL: AttachmentURL(files[1].ID), Want: want(404, 404, 404, 200, 200)},
+ 		maagotest.Row{Route: "attachment", URL: AttachmentURL(files[2].ID), Want: want(404, 404, 404, 200, 200)},
++		// A board's files: staff only.
++		maagotest.Row{Route: "board_files", URL: BoardFilesURL(b.ID), Want: want(303, 403, 403, 403, 200)},
++		maagotest.Row{Route: "board_files_export", URL: BoardFilesExportURL(b.ID), Want: want(401, 403, 403, 403, 303)},
++		maagotest.Row{Route: "board_file", URL: BoardFileURL(b.ID, "index.md"), Want: want(303, 403, 403, 403, 200)},
+ 		// What is not out.
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(unseen.ID), Want: want(404, 404, 404, 200, 200)},
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(scheduled.ID), Want: want(404, 404, 404, 200, 200)},
+diff --git a/board/queries/board_file.sql b/board/queries/board_file.sql
+new file mode 100644
+index 0000000..3923407
+--- /dev/null
++++ b/board/queries/board_file.sql
+@@ -0,0 +1,5 @@
++-- name: BoardFile :one ExportFile
++-- A file of a board's export, by its name.
++-- param: board_id int64
++-- param: name     string
++SELECT * FROM board_export_file WHERE board_id = :board_id AND name = :name
+diff --git a/board/queries/board_files.sql b/board/queries/board_files.sql
+new file mode 100644
+index 0000000..7abaf9b
+--- /dev/null
++++ b/board/queries/board_files.sql
+@@ -0,0 +1,4 @@
++-- name: BoardFiles :many ExportFile
++-- The files of a board's export, by name.
++-- param: board_id int64
++SELECT * FROM board_export_file WHERE board_id = :board_id ORDER BY name
+diff --git a/board/queries/delete_board_files.sql b/board/queries/delete_board_files.sql
+new file mode 100644
+index 0000000..3aaff25
+--- /dev/null
++++ b/board/queries/delete_board_files.sql
+@@ -0,0 +1,4 @@
++-- name: DeleteBoardFiles :exec
++-- The rows of a board's export, before the next one's.
++-- param: board_id int64
++DELETE FROM board_export_file WHERE board_id = :board_id
+diff --git a/board/templates/files_page.html b/board/templates/files_page.html
+new file mode 100644
+index 0000000..6289250
+--- /dev/null
++++ b/board/templates/files_page.html
+@@ -0,0 +1,8 @@
++{{define "content"}}
++<h1>{{.Board.Name}}의 파일</h1>
++<ul>{{range .Files}}
++<li><a href="{{url "board_file" .BoardID .Name}}">{{.Name}}</a> <small>{{.Size}} bytes · {{date "2006-01-02 15:04" .CreatedAt}}</small></li>{{else}}
++<li>아직 내보낸 파일이 없습니다.</li>{{end}}
++</ul>
++<form method="post" action="{{url "board_files_export" .Board.ID}}"><button>다시 내보내기</button></form>
++{{end}}
+diff --git a/board/urls.go b/board/urls.go
+index 96109a8..75cf28b 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -23,6 +23,10 @@ var Routes = maago.Routes{
+ 	maago.POST("/posts/{id}/attachments", "attachment_add", Attach),
+ 	maago.GET("/attachments/{id}", "attachment", DownloadAttachment),
+ 	maago.GET("/me", "me", Me),
++	// A board's files, which the outbox's worker writes: staff only.
++	maago.GET("/boards/{id}/files", "board_files", ShowFiles),
++	maago.POST("/boards/{id}/files", "board_files_export", ExportFilesAgain),
++	maago.GET("/boards/{id}/files/{name}", "board_file", DownloadFile),
+ 
+ 	// JSON for a frontend on another origin: main trusts it in Config.Origins.
+ 	maago.GET("/api/boards/{id}/posts", "api_posts", APIPosts, maago.API),
+diff --git a/board/views.go b/board/views.go
+index 7bd2309..045ef02 100644
+--- a/board/views.go
++++ b/board/views.go
+@@ -365,7 +365,7 @@ func moveTo(ctx context.Context, tx maago.Tx, u auth.User, id int64, to string)
+ 	}
+ 	if to == "published" && Webhook.URL != "" {
+ 		// What the webhook gets, as it is: Deliver sends the payload.
+-		if _, err := outbox.Enqueue(ctx, tx, postPublished, map[string]any{"id": p.ID, "key": p.Key, "title": p.Title, "path": PostDetailURL(p.ID)}); err != nil {
++		if _, err := outbox.Enqueue(ctx, tx, PostPublished, map[string]any{"id": p.ID, "key": p.Key, "title": p.Title, "path": PostDetailURL(p.ID)}); err != nil {
+ 			return Post{}, err
+ 		}
+ 	}
+diff --git a/main.go b/main.go
+index b693cec..3619b3c 100644
+--- a/main.go
++++ b/main.go
+@@ -6,6 +6,7 @@ import (
+ 	"context"
+ 	"embed"
+ 	"flag"
++	"fmt"
+ 	"log"
+ 	"net/http"
+ 	"os"
+@@ -114,7 +115,7 @@ func main() {
+ 	work, stop := context.WithCancel(ctx)
+ 	worked := make(chan struct{})
+ 	go func() {
+-		outbox.Run(work, db, board.Deliver)
++		outbox.Run(work, db, deliver(db, media))
+ 		close(worked)
+ 	}()
+ 	// The sweep, as the server starts and each day after: it deletes the
+@@ -143,3 +144,20 @@ func main() {
+ 		log.Fatal(err)
+ 	}
+ }
++
++// deliver is the outbox's worker's handle: each job by its kind, with the
++// media store in its context, which maago.SaveMediaFrom finds there. A
++// kind it does not know is an error: the job stays, and shows in the
++// admin with it.
++func deliver(db maago.DB, media maago.MediaStore) func(context.Context, outbox.Job) error {
++	return func(ctx context.Context, j outbox.Job) error {
++		ctx = maago.WithMedia(ctx, media)
++		switch j.Kind {
++		case board.PostPublished:
++			return board.Deliver(ctx, j)
++		case board.ExportFiles:
++			return board.WriteExportFiles(ctx, db, j)
++		}
++		return fmt.Errorf("no job of kind %q", j.Kind)
++	}
++}
+diff --git a/migrations/0008_export_files.sql b/migrations/0008_export_files.sql
+new file mode 100644
+index 0000000..42d60ee
+--- /dev/null
++++ b/migrations/0008_export_files.sql
+@@ -0,0 +1,15 @@
++CREATE TABLE "board_export_file" (
++    "id" BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
++    "board_id" BIGINT NOT NULL,
++    "name" TEXT NOT NULL,
++    "key" TEXT NOT NULL,
++    "type" TEXT NOT NULL,
++    "size" BIGINT NOT NULL,
++    "created_at" TIMESTAMPTZ NOT NULL,
++    CONSTRAINT "board_export_file_key_key" UNIQUE ("key"),
++    CONSTRAINT "board_export_file_board_id_name_key" UNIQUE ("board_id", "name")
++);
++
++CREATE INDEX "board_export_file_board_id_idx" ON "board_export_file" ("board_id");
++
++ALTER TABLE "board_export_file" ADD CONSTRAINT "board_export_file_board_id_fkey" FOREIGN KEY ("board_id") REFERENCES "board_board" ("id") ON DELETE NO ACTION;

@@ -44,9 +44,15 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	media := maago.LocalMedia{Dir: "media"} // the directory must exist
+	// One store, for the site, the worker and the sweep alike.
+	media := maago.LocalMedia{Dir: "media"}
 	h, err := handler(db, media)
 	if err != nil {
+		log.Fatal(err)
+	}
+	// Handler checks a directory; with a bucket instead, this stops on an
+	// empty field, a wrong key or no such bucket, not at the first file.
+	if _, err := media.List(ctx, ""); err != nil {
 		log.Fatal(err)
 	}
 	port := cmp.Or(os.Getenv("PORT"), "8000")
@@ -58,6 +64,20 @@ func main() {
 		outbox.Run(work, db, deliver(db, media))
 		close(worked)
 	}()
+	// The sweep, as the server starts and each day after: it deletes the
+	// files no row keeps, a day old. The store is this database's alone.
+	go func() {
+		for {
+			if err := maago.SweepMedia(maago.WithMedia(work, media), db, 0); err != nil {
+				log.Printf("sweep: %v", err)
+			}
+			select {
+			case <-work.Done():
+				return
+			case <-time.After(24 * time.Hour):
+			}
+		}
+	}()
 	// Serve stops on SIGINT or SIGTERM and lets running requests finish.
 	// Then the worker takes no more jobs, and finishes the one in hand.
 	err = maago.Serve(ctx, ":"+port, h)
@@ -68,38 +88,43 @@ func main() {
 	}
 }
 
-// deliver does the work of a job the outbox's worker hands it, by its
-// Kind: here, it keeps a note's text as a file, and the note its key. An
-// error, and the job goes again later: a kind it does not know stays, for
-// the admin to show, rather than being dropped.
+// deliver does the work of a job the outbox's worker hands it, a case for
+// each Kind. An error, and the job goes again later: a kind it does not
+// know stays, for the admin to show, rather than being dropped.
 func deliver(db maago.DB, media maago.MediaStore) func(context.Context, outbox.Job) error {
 	return func(ctx context.Context, j outbox.Job) error {
 		ctx = maago.WithMedia(ctx, media) // the store Config.Media has
-		if j.Kind != "note_created" {
-			return fmt.Errorf("no job of kind %q", j.Kind)
+		switch j.Kind {
+		case notes.NoteCreated:
+			return keepText(ctx, db, j)
 		}
-		var created notes.Note
-		if err := json.Unmarshal([]byte(j.Payload), &created); err != nil {
-			return err
-		}
-		n, err := notes.GetNote(ctx, db, created.ID)
-		if err != nil {
-			return err
-		}
-		m, err := maago.SaveMediaFrom(ctx, fmt.Sprintf("note-%d.txt", n.ID), strings.NewReader(n.Text))
-		if err != nil {
-			return err
-		}
-		old := n.Export // a file of a job that went before, if any
-		n.Export = m.Key
-		if err := notes.UpdateNote(ctx, db, &n); err != nil {
-			return errors.Join(err, maago.DeleteMedia(ctx, m.Key)) // no row points at it
-		}
-		if old != "" {
-			return maago.DeleteMedia(ctx, old)
-		}
-		return nil
+		return fmt.Errorf("no job of kind %q", j.Kind)
 	}
+}
+
+// keepText keeps a note's text as a file, and the note its key.
+func keepText(ctx context.Context, db maago.DB, j outbox.Job) error {
+	var created notes.Note
+	if err := json.Unmarshal([]byte(j.Payload), &created); err != nil {
+		return err
+	}
+	n, err := notes.GetNote(ctx, db, created.ID)
+	if err != nil {
+		return err
+	}
+	m, err := maago.SaveMediaFrom(ctx, fmt.Sprintf("note-%d.txt", n.ID), strings.NewReader(n.Text))
+	if err != nil {
+		return err
+	}
+	old := n.Export // a file of a job that went before, if any
+	n.Export = m.Key
+	if err := notes.UpdateNote(ctx, db, &n); err != nil {
+		return errors.Join(err, maago.DeleteMedia(ctx, m.Key)) // no row points at it
+	}
+	if old != "" {
+		return maago.DeleteMedia(ctx, old)
+	}
+	return nil
 }
 
 // handler puts the apps together, apart from main so that a test serves
@@ -179,6 +204,9 @@ func TestSite(t *testing.T) {
 	if found, err := outbox.RunOnce(ctx, db, time.Now().Add(time.Hour), deliver(db, media)); found || err != nil {
 		t.Errorf("worker again: %v %v", found, err)
 	}
+	if err := deliver(db, media)(ctx, outbox.Job{Kind: "nope"}); err == nil {
+		t.Error("a kind deliver does not know: no error")
+	}
 	// The worker kept the note's text as a file, which the sweep keeps:
 	// a row has its key.
 	all, err := notes.AllNotes(ctx, db)
@@ -248,6 +276,10 @@ import (
 	"example.com/app/outbox"
 )
 
+// NoteCreated is the Kind of the job a new note enqueues, which main's
+// deliver goes by.
+const NoteCreated = "note_created"
+
 type NoteListIn struct {
 	Form NoteForm `maago:"form"`
 }
@@ -272,7 +304,7 @@ func CreateNote(ctx context.Context, tx maago.Tx, in NoteListIn) (maago.Result[N
 		return maago.Result[NoteListPage]{}, err
 	}
 	// In the same transaction: with no note, no job.
-	if _, err := outbox.Enqueue(ctx, tx, "note_created", n); err != nil {
+	if _, err := outbox.Enqueue(ctx, tx, NoteCreated, n); err != nil {
 		return maago.Result[NoteListPage]{}, err
 	}
 	return maago.SeeOther[NoteListPage](NoteListURL()), nil

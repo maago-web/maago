@@ -223,6 +223,9 @@ func TestDoc(t *testing.T) {
 		if !strings.Contains(out.String(), "\n-- ") {
 			t.Errorf("maago doc %s has no example", topic.Name)
 		}
+		if d := regexp.MustCompile(`D-\d+`).FindString(out.String()); d != "" {
+			t.Errorf("maago doc %s says %s: decisions are the design's record", topic.Name, d)
+		}
 	}
 	errOut.Reset()
 	if code := run([]string{"doc", "modle"}, &out, &errOut); code != 2 || !strings.Contains(errOut.String(), `did you mean "model"?`) {

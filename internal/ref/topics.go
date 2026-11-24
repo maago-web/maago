@@ -50,7 +50,9 @@ sqlite:app.db or postgres://….
     forms' errors; maago.DefaultMessages has the English ones), TimeZone
     (where people's times are; nil is UTC), Prefix (the path the site is
     under, such as /app), MaxBody (0 is 10MB), MediaDir or Media (where
-    media is kept).
+    media is kept, maago doc form). MediaDir is a short form for an app
+    with no worker or sweep: the example's main makes one store and gives
+    the same one to Config.Media, the worker and the sweep.
   - Serve stops on SIGINT or SIGTERM: no new connections, the running
     requests finish within 30 seconds. TLS is a proxy's in front, or an
     http.Server of main's.
@@ -67,9 +69,21 @@ admin.Config's Models. The outbox's worker runs in main beside the server,
 as the example's main does: once Serve has stopped, it takes no more jobs
 and finishes the one in hand, for up to its lease (5 minutes). A second
 signal, during Serve's stop or after it, kills the process at once, and
-the job goes again later. Its deliver keeps files with
-maago.SaveMediaFrom once its ctx has the media store Config.Media has,
-maago.WithMedia(ctx, media), as the example's deliver does.`,
+the job goes again later. Its deliver puts the store Config.Media has in
+ctx with maago.WithMedia, where maago.SaveMediaFrom finds it, and goes by
+j.Kind: a case for each kind, which the app names as a constant its views
+enqueue; a kind it does not know is an error, so the job stays and the
+admin shows it.
+
+A project with media sweeps it in main beside the worker, as the
+example's main does: maago.SweepMedia(maago.WithMedia(work, media), db, 0)
+as the server starts and each day after, which deletes the files over a
+day old that no row keeps. The store is that database's alone: a staging
+site pointed at the live bucket deletes the live files. A deploy that
+tags a new field media rebuilds every binary that sweeps: an old one does
+not know the new column, and deletes that column's files once they are a
+day old. main checks a bucket's store as it starts, after Handler (the
+example's comment).`,
 		API: []string{"Handler", "Config", "App", "DBConfig", "OpenDB", "Migrate", "Serve", "Messages", "DefaultMessages", "Prefix"},
 	},
 	{
@@ -116,7 +130,9 @@ is uuid in PostgreSQL and its text in SQLite; maago.NewUUID() makes one
 keeps T as JSON, with T a type of the app's package (or a map or slice of
 such and Go's own types); the value is its V, and forms do not read it.
 time.Time, []byte, maago.UUID and maago.JSON have no default: such a
-field added to a table with rows is a pointer, nil in those rows.
+field added to a table with rows is a pointer, nil in those rows. A JSON
+field's first value, such as an empty map, is the app's to give in
+NewPostInput.
 
 maago gen writes models_gen.go with, for a model Post:
 
@@ -416,12 +432,24 @@ made, such as a worker's (maago doc main). A field takes one file, from
 an HTML form: an API route takes none. Its kind is what the content's
 first bytes say, not its name; zip includes .docx and .xlsx. The File lives as long as the request.
 
-Media stays in Config.MediaDir, on this machine. A file no row points at
-is deleted by maago.SweepMedia(ctx, db, 0), run now and then, once the
-fields that keep keys are tagged media (maago doc model);
-maago.DeleteMedia deletes a row's file at once. No route serves the
-directory: a view checks who asks, then
-calls maago.ServeMedia, which sends a download.
+Config.MediaDir, or Config.Media set to a maago.LocalMedia, keeps media
+on the server's disk: for one instance of the site. With more than one,
+or a container whose disk goes away, Config.Media is a bucket's store:
+s3.Store of github.com/maago-web/maago/contrib/s3, for S3, R2 or MinIO
+(go doc github.com/maago-web/maago/contrib/s3).
+
+A file no row points at is deleted by maago.SweepMedia(ctx, db, 0), which
+main runs now and then (maago doc main), once the fields that keep keys
+are tagged media (maago doc model); maago.DeleteMedia deletes a row's file
+at once. No route serves the directory: a view checks who asks, then
+calls maago.ServeMedia, which sends a download. Or, once a view or worker
+has checked, maago.MediaURL(ctx, m, ttl) is a link to download the file,
+which anyone who holds it may follow for ttl, from a second to 7 days. A
+LocalMedia makes one only with its SiteURL, the site's address with
+Config.Prefix (https://example.com/app), and Handler serves it at
+/maago/media: only the process that made it, so a restart answers 403. A
+URL that must outlast a restart, or that another instance or service
+follows, is a bucket's.
 
 A field has Value, Raw (what was sent, to draw back), Error, and Name,
 Label, Help and Choices for the template. An empty value, one that does

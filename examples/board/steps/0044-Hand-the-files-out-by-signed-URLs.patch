@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Wed, 25 Nov 2026 01:24:44 +0900
+Subject: [PATCH] Hand the files out by signed URLs
+
+Another service takes the board's files: a frontend's download links, or
+a service that reads them. Through board_file, each request comes
+through the app, with a sign-in. A signed URL serves one file to
+whoever has it, until it ends, with no sign-in: on S3 straight from the
+bucket.
+
+- api_board_files, GET /api/boards/{id}/files, staff only: each file's
+  Name, Type, Size and URL. The URL is maago.MediaURL(ctx, f.media(),
+  time.Hour), made after the check: whoever gets it gets the file, so
+  the view checks who asks before it makes any. An hour is enough for
+  one download, and it ends long before the 7 days a URL may last
+- A local store makes its URLs from its SiteURL, the site's address
+  with the prefix: main gives LocalMedia SiteURL:
+  strings.TrimSuffix(auth.SiteURL, "/") + "/app", as auth.SiteURL may
+  end in a slash. Handler refuses a SiteURL whose path is not
+  Config.Prefix, //app too. A local URL is served by the process that
+  made it, and no longer once it starts again: one machine's files, one
+  process's URLs. A bucket's URLs are the bucket's
+
+TestFileURLs serves the app on an httptest server whose address is the
+store's SiteURL, asks for the list with staff's token, and downloads
+the file by its URL with no sign-in; a board that is not there is a
+404. The tests' store has a SiteURL now; TestUnderApp's has /app in
+it, as its Prefix.
+
+diff --git a/board/files.go b/board/files.go
+index 677fa0a..e0f5ea9 100644
+--- a/board/files.go
++++ b/board/files.go
+@@ -133,6 +133,39 @@ func DownloadFile(ctx context.Context, u auth.User, db maago.DB, in FileIn, w ht
+ 	return maago.ServeMedia(w, r, f.media())
+ }
+ 
++// FileLink is a file of a board's export, with a URL that serves it.
++type FileLink struct {
++	Name, Type string
++	Size       int64
++	URL        string
++}
++
++// APIFiles lists a board's files for another service, to staff, each
++// with a signed URL: for an hour, it serves the file to whoever has it,
++// without the app's check, and on S3 straight from the bucket. So the
++// check is here, before any URL is made.
++func APIFiles(ctx context.Context, u auth.User, db maago.DB, in FilesIn) ([]FileLink, error) {
++	if err := staffOnly(u); err != nil {
++		return nil, err
++	}
++	if _, err := GetBoard(ctx, db, in.ID); err != nil {
++		return nil, err
++	}
++	fs, err := BoardFiles(ctx, db, BoardFilesParams{BoardID: in.ID})
++	if err != nil {
++		return nil, err
++	}
++	links := []FileLink{}
++	for _, f := range fs {
++		url, err := maago.MediaURL(ctx, f.media(), time.Hour)
++		if err != nil {
++			return nil, err
++		}
++		links = append(links, FileLink{Name: f.Name, Type: f.Type, Size: f.Size, URL: url})
++	}
++	return links, nil
++}
++
+ // staffOnly refuses with 403 whoever is not staff.
+ func staffOnly(u auth.User) error {
+ 	if !u.IsStaff {
+diff --git a/board/files_test.go b/board/files_test.go
+index 936aa8b..7a5bc87 100644
+--- a/board/files_test.go
++++ b/board/files_test.go
+@@ -2,8 +2,10 @@ package board
+ 
+ import (
+ 	"context"
++	"encoding/json"
+ 	"fmt"
+ 	"io"
++	"net/http"
+ 	"net/http/httptest"
+ 	"os"
+ 	"path/filepath"
+@@ -129,3 +131,55 @@ func TestFiles(t *testing.T) {
+ 		t.Errorf("no such file: %d", code)
+ 	}
+ }
++
++// Another service gets the files by the URLs the API gives staff: from
++// the app's address, without a sign-in.
++func TestFileURLs(t *testing.T) {
++	db := maagotest.DB(t)
++	srv := httptest.NewServer(nil)
++	defer srv.Close()
++	cfg := config(t, db)
++	cfg.Media = maago.LocalMedia{Dir: t.TempDir(), SiteURL: srv.URL}
++	h, err := maago.Handler(cfg)
++	if err != nil {
++		t.Fatal(err)
++	}
++	srv.Config.Handler = h
++	ctx := maago.WithMedia(t.Context(), cfg.Media)
++	b, _ := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
++	if err := WriteExportFiles(ctx, db, outbox.Job{Kind: ExportFiles, Payload: fmt.Sprintf(`{"id":%d}`, b.ID)}); err != nil {
++		t.Fatal(err)
++	}
++	boss, err := auth.CreateSuperuser(ctx, db, "boss@example.com", password)
++	if err != nil {
++		t.Fatal(err)
++	}
++	token, err := auth.SignInToken(ctx, db, boss)
++	if err != nil {
++		t.Fatal(err)
++	}
++	r, _ := http.NewRequest("GET", srv.URL+APIBoardFilesURL(b.ID), nil)
++	r.Header.Set("Authorization", "Bearer "+token)
++	resp, err := http.DefaultClient.Do(r)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var links []FileLink
++	err = json.NewDecoder(resp.Body).Decode(&links)
++	resp.Body.Close()
++	if err != nil || resp.StatusCode != 200 || len(links) != 1 || links[0].Name != "index.md" || !strings.HasPrefix(links[0].URL, srv.URL+"/") {
++		t.Fatalf("the list: %d %+v %v", resp.StatusCode, links, err)
++	}
++	if code, _ := get(maagotest.Bearer(h, token), APIBoardFilesURL(b.ID+1)); code != 404 {
++		t.Errorf("no such board: %d", code)
++	}
++	resp, err = http.Get(links[0].URL)
++	if err != nil {
++		t.Fatal(err)
++	}
++	body, _ := io.ReadAll(resp.Body)
++	resp.Body.Close()
++	if resp.StatusCode != 200 || string(body) != "# 자유\n\n" || !strings.HasPrefix(resp.Header.Get("Content-Disposition"), "attachment") {
++		t.Errorf("%s: %d %v %q", links[0].URL, resp.StatusCode, resp.Header, body)
++	}
++}
+diff --git a/board/permissions_test.go b/board/permissions_test.go
+index a339148..277ad26 100644
+--- a/board/permissions_test.go
++++ b/board/permissions_test.go
+@@ -189,6 +189,7 @@ func TestPermissions(t *testing.T) {
+ 		maagotest.Row{Route: "board_files", URL: BoardFilesURL(b.ID), Want: want(303, 403, 403, 403, 200)},
+ 		maagotest.Row{Route: "board_files_export", URL: BoardFilesExportURL(b.ID), Want: want(401, 403, 403, 403, 303)},
+ 		maagotest.Row{Route: "board_file", URL: BoardFileURL(b.ID, "index.md"), Want: want(303, 403, 403, 403, 200)},
++		maagotest.Row{Route: "api_board_files", URL: APIBoardFilesURL(b.ID), Want: want(401, 403, 403, 403, 200)},
+ 		// What is not out.
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(unseen.ID), Want: want(404, 404, 404, 200, 200)},
+ 		maagotest.Row{Route: "post_detail", URL: PostDetailURL(scheduled.ID), Want: want(404, 404, 404, 200, 200)},
+diff --git a/board/urls.go b/board/urls.go
+index 75cf28b..92cc1f8 100644
+--- a/board/urls.go
++++ b/board/urls.go
+@@ -34,4 +34,5 @@ var Routes = maago.Routes{
+ 	maago.GET("/api/posts/{key}", "api_post", APIPost, maago.API),
+ 	maago.POST("/api/posts/{id}/publish", "api_post_publish", APIPublish, maago.API),
+ 	maago.GET("/api/me", "api_me", Me, maago.API),
++	maago.GET("/api/boards/{id}/files", "api_board_files", APIFiles, maago.API),
+ }
+diff --git a/board/web_test.go b/board/web_test.go
+index 07d3878..9a97a02 100644
+--- a/board/web_test.go
++++ b/board/web_test.go
+@@ -36,7 +36,7 @@ const front = "http://localhost:5173"
+ 
+ // config is main's, on db, with a media directory of the test's.
+ func config(t *testing.T, db *sql.DB) maago.Config {
+-	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp()}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login", Media: maago.LocalMedia{Dir: t.TempDir()}}
++	return maago.Config{DB: db, Apps: []maago.App{App, auth.App, adminApp()}, Origins: []string{front}, Auth: auth.Current, LoginURL: "/login", Media: maago.LocalMedia{Dir: t.TempDir(), SiteURL: "http://example.com"}}
+ }
+ 
+ // adminApp is main's admin: config serves it, and TestPermissions has its
+@@ -545,6 +545,8 @@ func TestUnderApp(t *testing.T) {
+ 	db := maagotest.DB(t)
+ 	cfg := config(t, db)
+ 	cfg.Prefix, cfg.LoginURL = "/app", "/app/login"
++	// The signed URLs' address has the prefix too.
++	cfg.Media = maago.LocalMedia{Dir: t.TempDir(), SiteURL: "http://example.com/app"}
+ 	h, err := maago.Handler(cfg)
+ 	if err != nil {
+ 		t.Fatal(err)
+diff --git a/main.go b/main.go
+index 8e2bfc5..b495053 100644
+--- a/main.go
++++ b/main.go
+@@ -10,6 +10,7 @@ import (
+ 	"log"
+ 	"net/http"
+ 	"os"
++	"strings"
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
+@@ -78,8 +79,10 @@ func main() {
+ 	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")
+ 	// Where the files are kept, under names maago makes: a directory
+ 	// beside the binary, which the server does not serve as it is. The
+-	// view that sends one down checks who asks.
+-	var media maago.MediaStore = maago.LocalMedia{Dir: "media"}
++	// view that sends one down checks who asks. Its signed URLs start
++	// with SiteURL, the site's address with the prefix; auth.SiteURL may
++	// end in a slash.
++	var media maago.MediaStore = maago.LocalMedia{Dir: "media", SiteURL: strings.TrimSuffix(auth.SiteURL, "/") + "/app"}
+ 	where := "media/"
+ 	// A bucket instead, when BOARD_S3_BUCKET is set: a disk is one
+ 	// machine's, a bucket every copy of the server's. Any S3 API will do,

@@ -86,7 +86,9 @@ type Config struct {
 	// MediaDir is the directory SaveMedia keeps files in, relative
 	// to the working directory if not absolute. A project whose forms take
 	// files must set it or Media, and it must exist: Handler does not make
-	// it. It is short for Media: maago.LocalMedia{Dir: MediaDir}.
+	// it. It is short for Media: maago.LocalMedia{Dir: MediaDir}. A worker
+	// or SweepMedia needs the store too: then make one, set Media to it in
+	// place of MediaDir, and give the same one to maago.WithMedia.
 	MediaDir string
 
 	// Media is where media is kept, given to each request: a
