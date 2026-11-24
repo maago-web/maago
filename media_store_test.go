@@ -14,14 +14,14 @@ import (
 	"github.com/maago-web/maago/rt"
 )
 
-// site serves a Handler made of cfg once the site's address is known:
-// cfg makes it from that address.
+// site serves a Handler made of cfg, under prefix, once the site's
+// address is known: cfg makes it from that address.
 func site(t *testing.T, prefix string, cfg func(siteURL string) maago.Config) string {
 	t.Helper()
 	var h http.Handler
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }))
 	t.Cleanup(srv.Close)
-	c := cfg(srv.URL + prefix)
+	c := cfg(srv.URL)
 	c.DB = sql.OpenDB(nil) // no driver: the media route asks no database
 	c.Apps = []maago.App{rt.NewApp("a", nil, rt.AppRoute{Method: "GET", Path: "/x", Name: "x", Serve: func(w http.ResponseWriter, r *http.Request) error { return nil }})}
 	c.Prefix = prefix
@@ -47,7 +47,7 @@ func TestLocalMediaStore(t *testing.T) {
 
 // A URL leads to the file under Config.Prefix, and from a worker's own
 // LocalMedia when Handler has the shorthand MediaDir: the same process
-// signs both.
+// signs both. A URL has the prefix of the last Handler when it was made.
 func TestLocalMediaURLServed(t *testing.T) {
 	dir := t.TempDir()
 	put := func(media maago.LocalMedia) string {
@@ -68,8 +68,9 @@ func TestLocalMediaURLServed(t *testing.T) {
 		prefixed = maago.LocalMedia{Dir: dir, SiteURL: siteURL + "/"} // a last / is no matter
 		return maago.Config{Media: prefixed}
 	})
+	under := put(prefixed)
 	short := site(t, "", func(string) maago.Config { return maago.Config{MediaDir: dir} })
-	for _, u := range []string{put(prefixed), put(maago.LocalMedia{Dir: dir, SiteURL: short})} {
+	for _, u := range []string{under, put(maago.LocalMedia{Dir: dir, SiteURL: short})} {
 		resp, err := http.Get(u)
 		if err != nil {
 			t.Fatal(err)

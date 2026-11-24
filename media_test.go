@@ -140,31 +140,52 @@ func TestLocalMediaList(t *testing.T) {
 	}
 }
 
-// A local URL needs the site's address, and is signed whole: values of
-// two URLs do not mix, nor is one added, and what is no time is refused
-// however signed.
+// A local URL needs the site's address and the last Handler serving the
+// local route, whose Prefix goes after the address; it is signed whole:
+// values of two URLs do not mix, nor is one added, and what is no time is
+// refused however signed.
 func TestLocalMediaURL(t *testing.T) {
+	defer func(p *rtcore.Process) { rtcore.Current.Store(p) }(rtcore.Current.Load())
 	key := strings.Repeat("a", 32)
 	m := Media{Key: key, Name: "a.png", Type: "image/png"}
 	if _, err := (LocalMedia{Dir: t.TempDir()}).URL(m, time.Minute); err == nil || !strings.HasPrefix(err.Error(), "maago: a local media store makes URLs only with its SiteURL: set Config.Media to maago.LocalMedia{") {
 		t.Errorf("no SiteURL: %v", err)
 	}
-	l := LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com/app/"}
+	l := LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com/"}
 	if _, err := l.URL(Media{Key: "../x"}, time.Minute); err == nil {
 		t.Error("a URL of ../x")
 	}
-	for _, site := range []string{"/app", "example.com", "ftp://example.com", "https://u:p@example.com", "https://example.com/?a=1", "https://example.com/#a", "https://"} {
-		if _, err := (LocalMedia{SiteURL: site}).URL(m, time.Minute); err == nil {
-			t.Errorf("SiteURL %q: no error", site)
+	for _, site := range []string{"/app", "example.com", "ftp://example.com", "https://u:p@example.com", "https://example.com/?a=1", "https://example.com?", "https://example.com/#a", "https://", "https://example.com/app", "https://example.com//"} {
+		if _, err := (LocalMedia{SiteURL: site}).URL(m, time.Minute); err == nil || !strings.HasPrefix(err.Error(), "maago: LocalMedia.SiteURL") {
+			t.Errorf("SiteURL %q: %v", site, err)
 		}
+	}
+	noHandler := func(when string) {
+		t.Helper()
+		if _, err := l.URL(m, time.Minute); err == nil || !strings.HasPrefix(err.Error(), "maago: no Handler serves this process's local media URLs yet") {
+			t.Errorf("%s: %v", when, err)
+		}
+	}
+	rtcore.Current.Store(nil)
+	noHandler("no Handler")
+	apps := []App{NewApp("a", route("GET", "/x", false, ok))}
+	if _, err := Handler(Config{DB: testDB, Apps: apps, Media: l, Prefix: "/app"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Handler(Config{DB: testDB, Apps: apps, Media: l, Prefix: "/b", MaxBody: -1}); err == nil {
+		t.Error("MaxBody -1: no error")
 	}
 	a, _ := l.URL(m, time.Minute)
 	n := m
 	n.Name = "b.png"
 	b, _ := l.URL(n, time.Minute)
-	if !strings.HasPrefix(a, "https://example.com/app/maago/media?") {
+	if !strings.HasPrefix(a, "https://example.com/app/maago/media?") { // the failed Handler leaves the last one's
 		t.Errorf("URL %s", a)
 	}
+	if _, err := Handler(Config{DB: testDB, Apps: apps, Media: struct{ MediaStore }{}}); err != nil {
+		t.Fatal(err)
+	}
+	noHandler("a bucket's Handler last")
 	ua, _ := url.Parse(a)
 	ub, _ := url.Parse(b)
 	qa, qb := ua.Query(), ub.Query()
@@ -209,9 +230,9 @@ func TestMediaDirConfig(t *testing.T) {
 		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "/app"}}, "maago: LocalMedia.SiteURL \"/app\" is not"},
 		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com?a=1"}}, "maago: LocalMedia.SiteURL"},
 		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://u@example.com"}}, "maago: LocalMedia.SiteURL"},
-		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com"}, Prefix: "/app"}, "maago: Config.Media's SiteURL \"https://example.com\" has path \"\", not Config.Prefix \"/app\""},
-		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com/app"}}, "maago: Config.Media's SiteURL"},
-		{Config{Apps: []App{NewApp("a", up)}, Media: &LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com/app/"}, Prefix: "/app"}, ""},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com"}, Prefix: "/app"}, ""},
+		{Config{Apps: []App{NewApp("a", up)}, Media: LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com/app"}, Prefix: "/app"}, "maago: LocalMedia.SiteURL \"https://example.com/app\" is not"},
+		{Config{Apps: []App{NewApp("a", up)}, Media: &LocalMedia{Dir: t.TempDir(), SiteURL: "https://example.com/"}, Prefix: "/app"}, ""},
 		{Config{Apps: []App{NewApp("a", up)}, Media: struct{ MediaStore }{}}, ""},
 	} {
 		c.cfg.DB = testDB

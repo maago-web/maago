@@ -445,11 +445,12 @@ at once. No route serves the directory: a view checks who asks, then
 calls maago.ServeMedia, which sends a download. Or, once a view or worker
 has checked, maago.MediaURL(ctx, m, ttl) is a link to download the file,
 which anyone who holds it may follow for ttl, from a second to 7 days. A
-LocalMedia makes one only with its SiteURL, the site's address with
-Config.Prefix (https://example.com/app), and Handler serves it at
-/maago/media: only the process that made it, so a restart answers 403. A
-URL that must outlast a restart, or that another instance or service
-follows, is a bucket's.
+LocalMedia makes one only with its SiteURL, the site's scheme and host as
+auth.SiteURL (https://example.com); Handler's Config.Prefix goes after
+it, and Handler serves it at /maago/media. Only the process that made it
+serves it, after its Handler: one made before is an error, a restart
+answers 403. A URL that must outlast a restart, or that another instance
+or service follows, is a bucket's.
 
 A field has Value, Raw (what was sent, to draw back), Error, and Name,
 Label, Help and Choices for the template. An empty value, one that does

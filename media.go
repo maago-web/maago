@@ -240,7 +240,8 @@ func SweepMedia(ctx context.Context, db DB, olderThan time.Duration) error {
 // for ttl: from a second to 7 days, cut to whole seconds. Hand it to
 // another service, or to a browser, once the view or worker has checked
 // that the user may have the file: until it expires, whoever holds the
-// URL may download the file.
+// URL may download the file. A LocalMedia's needs this process's Handler
+// first, in a test too.
 func MediaURL(ctx context.Context, m Media, ttl time.Duration) (string, error) {
 	if !validKey(m.Key) {
 		return "", fmt.Errorf("maago: media key %q is not one SaveMedia makes", m.Key)
@@ -296,7 +297,7 @@ func ServeMedia(w http.ResponseWriter, r *http.Request, m Media) error {
 // instance, since another machine does not see the files.
 type LocalMedia struct {
 	Dir     string // the directory, which must exist
-	SiteURL string // the site's address as browsers and other services reach it, Config.Prefix included: https://example.com/app; URL needs it
+	SiteURL string // the site's scheme and host as browsers and other services reach it, as auth.SiteURL: https://example.com; Handler's Config.Prefix goes after it; URL needs it
 }
 
 // root opens l.Dir once name is a file's name in it, no path: what it
@@ -386,8 +387,9 @@ func (l LocalMedia) List(ctx context.Context, after string) ([]fs.FileInfo, erro
 }
 
 // URL is a link to the route Handler serves signed media at, under
-// SiteURL. Only the process that made a URL serves it, and not after a
-// restart: the signing key is the process's own.
+// SiteURL and the last Handler's Config.Prefix. Only the process that made
+// a URL serves it, and not after a restart: the signing key is the
+// process's own.
 func (l LocalMedia) URL(m Media, ttl time.Duration) (string, error) {
 	if !validKey(m.Key) {
 		return "", fmt.Errorf("maago: media key %q is not one SaveMedia makes", m.Key)
@@ -399,21 +401,27 @@ func (l LocalMedia) URL(m Media, ttl time.Duration) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	p := rtcore.Current.Load()
+	if p == nil || !p.LocalMedia {
+		return "", errors.New("maago: no Handler serves this process's local media URLs yet: make maago.Handler, with this store in Config.Media or Config.MediaDir, before a URL; a process that serves no HTTP needs a bucket's URLs")
+	}
 	q := url.Values{"key": {m.Key}, "name": {m.Name}, "type": {m.Type}, "expires": {strconv.FormatInt(time.Now().Add(ttl).Unix(), 10)}}
 	q.Set("sig", sign(q))
-	u = u.JoinPath("maago", "media")
+	u.Path = p.Prefix + "/maago/media"
 	u.RawQuery = q.Encode()
 	return u.String(), nil
 }
 
-// site is SiteURL without a last /, once it is a site's address.
+// site is SiteURL without a last /, once it is a site's address: a
+// scheme and host and nothing else, as auth.SiteURL.
 func (l LocalMedia) site() (*url.URL, error) {
-	u, err := url.Parse(strings.TrimSuffix(l.SiteURL, "/"))
+	site := strings.TrimSuffix(l.SiteURL, "/")
+	u, err := url.Parse(site)
 	if err != nil {
 		return nil, fmt.Errorf("maago: LocalMedia.SiteURL: %w", err)
 	}
-	if u.Scheme != "http" && u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
-		return nil, fmt.Errorf("maago: LocalMedia.SiteURL %q is not a site's address such as https://example.com/app: http or https, a host, and no user, query or fragment", l.SiteURL)
+	if u.Scheme != "http" && u.Scheme != "https" || u.Host == "" || u.Scheme+"://"+u.Host != site {
+		return nil, fmt.Errorf("maago: LocalMedia.SiteURL %q is not a site's address such as https://example.com: http or https and a host, no path (Config.Prefix is added), user, query or fragment", l.SiteURL)
 	}
 	return u, nil
 }
