@@ -708,7 +708,7 @@
 
    따라가 본 길: `maago doc TOPIC`은 `ref.Print`(제목·요약·Text·목록)를 찍고 `cmd/maago/docs/TOPIC.txt`의 예를 붙인다. `TestDocExamples`가 그 예를 두 방언에서 makemigrations·gen·check하고, SQLite에서는 `go vet`과 예의 시험까지 돌린다. `doc.go`(`TestPackageDoc`의 골든)에는 요약·목록·API 이름만 들어가고 **Text는 들어가지 않는다**(`packagedoc_test.go`의 `packageDoc`). 그래서 아래의 글 고침은 `TestPackageDoc`이 물지 않는다. 문 것은 `main.txt`의 예(`TestDocExamples/main`)와 D 번호 없음(`TestNoDecisionsInUserText`: `go doc -all`과 `docs/*.txt`)뿐이다. 요약·목록 항목은 바꾸지 않는다. 그러니 `-update`도 필요 없다(바뀌면 PG 주소와 함께 `-update`). 지금 글의 낡은 곳은 이렇다. form 절 `topics.go:419`의 "Media stays in Config.MediaDir, on this machine"(버킷이면 틀림). main 절은 일꾼의 저장소를 한 문장으로만 말하고 청소·기동 때 `List`·Kind 가르기가 없다. `main.txt`의 `deliver`는 `if j.Kind != "note_created"` 하나이고 청소 고루틴이 없다. 게시판 0041~0044의 글은 `maago doc`을 가리키지 않는다(grep). 그래서 게이트(11번)가 보는 이름은 0041 `SweepMedia`·태그 `media`·`WithMedia`, 0042 Kind 가르기, 0043 `contrib/s3`·기동 `List`, 0044 `MediaURL`·`SiteURL`이다. 이 이름들을 `maago doc`이 설명하는지 아래에서 맞춘다. 9번으로 미룬 것: 3번(D-23·D-34·D-32), 4번(D-140, 재시작·다른 프로세스의 한계, fable 6), 5번(main의 Kind 둘), 6번(D-123의 셈), 7번(청소를 주기적으로 부르는 main), 초안 리뷰(JSON 필드의 `default`), TODO 93·94·96.
 
-   - ★ → 에이전트 편의로 결정: **`main.txt`의 Kind는 진짜 일 하나와 모르는 Kind의 오류로 보인다. 둘째 일을 지어내지 않는다.** 노트 예에는 일이 하나뿐이다. 둘째 일을 지으면 라우트와 Enqueue를 더해 약 15줄이 늘지만 새 API를 가르치지 않는다. 대신 이렇게 쓴다:
+   - ★ → 에이전트 편의로 결정: **`main.txt`의 Kind는 진짜 일 하나와 모르는 Kind의 오류로 보인다. 둘째 일을 지어내지 않는다.** 작업 줄의 "Kind 둘"과 8번 계획("9번이 Kind 둘로 다시 쓴다")에서 물러선다. 에이전트가 이 예에서 가져갈 것은 둘째 일의 몸이 아니라 Kind를 가르는 자리다. 일을 하나 더할 때 바꿀 곳이 `case` 한 줄과 앱의 상수 하나로 보이면 충분하다. 노트 예에는 일이 하나뿐이라, 둘째 일을 지으면 라우트와 Enqueue를 더해 약 15줄이 는다. 그런데도 새 API는 가르치지 않고, 에이전트가 베낄 글에 지어낸 일이 섞인다. 둘인 꼴은 게시판 0042가 실제로 보인다. `case` 하나인 `switch`를 `if`로 줄이지 않는 까닭은 7번 ponytail 5의 빈 `case`와 다르다는 데 있다. 이 `switch`는 일을 더하는 자리이고, `if`로 두면 둘째 Kind를 더할 때 꼴을 바꿔야 한다. 대신 이렇게 쓴다:
      - Kind 값은 앱의 공개 상수 `notes.NoteCreated = "note_created"`이다. 뷰의 `Enqueue`와 main의 `switch`가 같은 이름을 쓴다. 게시판 0042의 `board.PostPublished`·`ExportFiles`와 같은 꼴이다.
      - `deliver`는 첫 줄에서 `WithMedia`를 한 뒤 `switch j.Kind { case notes.NoteCreated: return keepText(ctx, db, j) }`로 가르고, 그 밖은 `fmt.Errorf("no job of kind %q", …)`이다. `deliver(db, media)`의 꼴은 게시판과 같다.
      - 일의 몸은 `main.go`의 `keepText`로 옮긴다.
@@ -722,7 +722,7 @@
 
    바꿀 파일
    1. `cmd/maago/docs/main.txt`
-      - `main.go`: 저장소를 한 값으로 둔다(`media := maago.LocalMedia{Dir: "media"}`). 주석 "the directory must exist"를 기동 때의 `if _, err := media.List(ctx, ""); err != nil { log.Fatal(err) }`로 바꾼다. 빈 칸·없는 디렉터리·틀린 열쇠를 첫 파일이 아니라 기동에서 잡는다(게시판 0043).
+      - `main.go`: 저장소를 한 값으로 둔다(`media := maago.LocalMedia{Dir: "media"}`). 주석 "the directory must exist"를 기동 때의 `if _, err := media.List(ctx, ""); err != nil { log.Fatal(err) }`로 바꾼다. `LocalMedia.List`는 `os.ReadDir`이라 없는 디렉터리를 오류로 낸다. S3라면 빈 칸·틀린 열쇠·없는 버킷이다. 이런 것을 첫 파일이 아니라 기동에서 잡는다(게시판 0043).
       - 일꾼 곁에 청소 고루틴을 둔다(게시판 0041과 같은 꼴, 약 12줄). `work`의 ctx에서 `maago.SweepMedia(maago.WithMedia(work, media), db, 0)`을 부르고, 오류는 로그에 남긴 뒤 24시간마다 다시 돈다. `work.Done()`이면 끝난다. 주석은 "the store is this database's alone"이다.
       - `deliver`는 위 ★의 꼴로 쓰고 `keepText`를 둔다.
       - `notes/views.go`: `const NoteCreated = "note_created"`를 두고 `Enqueue`가 그것을 쓴다.
@@ -734,7 +734,7 @@
         기동 `List`와 청소 고루틴은 `main()` 안이라 시험이 돌리지 않는다. gofmt·`go vet`·컴파일만 이들을 문다. 같은 꼴을 실제로 도는 것은 게시판 `ship`(0041·0043)이다.
    2. `internal/ref/topics.go` main 절 Text
       - Config 목록의 "MediaDir or Media (where media is kept)"에 ★의 한 문장(저장소 하나를 셋에, `MediaDir`은 요청만의 줄임)을 붙인다.
-      - outbox 문단의 끝 문장(`WithMedia`)을 Kind 가르기와 저장소로 다시 쓴다: "deliver puts the store in ctx with maago.WithMedia, where SaveMediaFrom and SweepMedia find it, and goes by j.Kind: a case for each kind, which the app names as a constant its views enqueue; a kind it does not know is an error, so the job stays and the admin shows it."
+      - outbox 문단의 끝 문장(`WithMedia`)을 Kind 가르기와 저장소로 다시 쓴다: "deliver puts the store in ctx with maago.WithMedia, where SaveMediaFrom finds it (the sweep gets its own, maago.WithMedia(work, media)), and goes by j.Kind: a case for each kind, which the app names as a constant its views enqueue; a kind it does not know is an error, so the job stays and the admin shows it."
       - 새 문단을 둔다: 청소는 main이 일꾼 곁에서 기동 때와 하루마다 `SweepMedia`(예의 main처럼), 저장소는 이 DB만의 것(스테이징이 운영 버킷을 가리키면 운영 파일을 지운다), 태그를 더한 배포는 청소하는 모든 바이너리를 다시 빌드(옛 바이너리는 새 열의 열쇠를 모르고 그 파일을 지운다, TODO 93), 기동 때 `media.List(ctx, "")`로 칸·버킷을 첫 요청 전에 본다.
       - 요약은 그대로 둔다.
    3. `internal/ref/topics.go` form 절의 미디어 문단(`topics.go:419~424`). 다시 쓰는 줄거리:
@@ -745,7 +745,7 @@
       - **청소**: 지금 글(태그 `media`, `SweepMedia(ctx, db, 0)`, `DeleteMedia`)은 그대로 두고, 부르는 자리는 maago doc main이라고 가리킨다.
       - **라우트 없음**: 지금 글을 그대로 둔다. 디렉터리를 서빙하는 라우트는 없다. 서명된 URL 말고는 뷰가 권한을 본 뒤 `ServeMedia`로 준다.
       - 글의 근거는 이렇다: 403·기한·ttl 범위는 `mediatest`·`TestLocalMediaURL`이 문다. "다시 시작하면 403"은 시험이 없고 `signKey`가 프로세스마다 무작위라는 데서 온 글이며, `LocalMedia.URL` 주석과 같다.
-   4. `internal/ref/topics.go` model 절(초안 리뷰 fable, 723줄): "time.Time, []byte, maago.UUID and maago.JSON have no default" 뒤에 한 문장을 둔다. JSON 필드의 시작값(빈 map 따위)은 앱이 `InsertPost`의 입력에 준다. 태그 `media`는 7번이 `FieldTags`와 `model.txt`의 `Cover`에 이미 실었다(`TestDocKeysAreRead`·`TestDocExamplesUseEveryKey`가 문다). 그래서 model 절 Text에는 더하지 않는다.
+   4. `internal/ref/topics.go` model 절(아래 "초안 리뷰" 절의 readmate, fable): "time.Time, []byte, maago.UUID and maago.JSON have no default" 뒤에 한 문장을 둔다. JSON 필드의 시작값(빈 map 따위)은 앱이 `InsertPost`의 입력에 준다. 태그 `media`는 7번이 `FieldTags`와 `model.txt`의 `Cover`에 이미 실었다(`TestDocKeysAreRead`·`TestDocExamplesUseEveryKey`가 문다). 그래서 model 절 Text에는 더하지 않는다.
    5. `http.go`의 `Config.MediaDir` 주석(go doc): "It is short for Media: …" 뒤에 한 문장을 붙인다: "A worker or SweepMedia needs the store too: make one, give it to Media and to maago.WithMedia." 동작은 바꾸지 않는다.
       - → 확인(2~5): `go test ./cmd/maago -run 'TestDoc$|TestDocExamples|TestNoDecisionsInUserText'`와 루트 `go test -run TestPackageDoc .` 초록, `maago doc main`·`form`·`model`을 찍어 읽는다(줄바꿈·낡은 글).
    6. `docs/DECISIONS.md`
@@ -772,7 +772,7 @@
       - 끝의 기록에 "**2026-11-2x (M13 9번)** — D-09·D-23·D-32·D-34·D-61·D-72·D-91·D-123·D-140·D-148·D-153·D-159·D-160 고침(문서), D-105·D-111·D-120·D-132·D-154는 2번에서"를 단다.
    7. `docs/MILESTONES.md`
       - 145줄 "외부 저장소는 v1" 뒤에 "(M13으로, D-160)"를 붙인다.
-      - v1 목록 288줄 "미디어의 외부 저장소(S3 등)와 고아 파일 청소 (D-140)"를 지운다(M13의 완료 조건에 있다). 소셜 로그인 줄은 M14의 것이라 두지 않는다.
+      - v1 목록 288줄 "미디어의 외부 저장소(S3 등)와 고아 파일 청소 (D-140)"를 지운다(M13의 완료 조건에 있다). 소셜 로그인 줄은 M14의 것이라 건드리지 않는다.
    8. `docs/TODO.md`
       - 93·96을 체크하고 "→ M13 9번: …"을 단다.
       - 94(`SiteURL` 둘의 뜻)는 열린 채 둔다. 글에 "M13 9번: 지금 계약(Prefix 포함)을 `maago doc`에 적음, 바꿀지는 사람에게, v0.4.0 태그(10번) 전이면 깨는 값이 싸다"를 덧붙인다.
