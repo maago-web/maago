@@ -793,6 +793,84 @@
    - ARCHITECTURE 트리 고치기: 40·41·58·103줄이 이미 M13의 것이다.
    - 열쇠 열 모델의 `media()`·칸 복사 생성(TODO 97, M14).
    - 없는 표의 did you mean(TODO 95, M14).
+
+   **고침(SiteURL)** (10번 v0.4.0 전, TODO의 "`SiteURL` 둘의 뜻이 다르다")
+
+   결정(메인 세션이 codex·fable의 의견을 듣고 에이전트 편의로 정함, 2026-11-25): **B**. `LocalMedia.SiteURL`은 주소만(scheme과 host, 경로 없음, 끝 `/` 하나는 뗀다)이고 `auth.SiteURL`과 같은 뜻이다. 경로가 있으면 오류다. 로컬 URL의 접두어는 런타임이 붙인다: `SiteURL + Prefix + /maago/media?…`(D-122의 "접두어는 경로를 만드는 자리에서 한 번"). `Handler`의 "`SiteURL`의 경로 == `Config.Prefix`" 검사는 지우고 꼴 검사만 남긴다. 기각: A(지금 그대로, codex 추천. 일꾼이 완성 URL을 들고 있다는 근거는 서명 열쇠가 프로세스마다라 약하다), `LocalMedia.Prefix` 칸(맞출 값 둘이 남는다). v0.4.0 전이라 깨지는 사용자가 없다. 위 "하지 않는 것"의 첫 줄(계약 바꾸기는 문서 작업 밖)은 이 절이 받는다. 그 줄은 9번 본문의 기록이라 고치지 않는다.
+
+   계획
+
+   따라가 본 길:
+   - `LocalMedia.URL`(`media.go:391`)은 열쇠 → `SiteURL`이 빔 → `l.site()` → 서명 → `u.JoinPath("maago", "media")` 차례다. `site()`(`media.go:410`)는 끝 `/` 하나를 떼고 parse한 뒤 scheme·host·user·query·fragment를 본다. 경로는 보지 않는다.
+   - 경로 검사는 `Handler`에만 있다. `handler.media`(`http.go:236~243`)가 `local.SiteURL != ""`이면 `site()`를 부르고 `u.Path != cfg.Prefix`면 오류를 낸다. 그 뒤 로컬 저장소(`LocalMedia`·`*LocalMedia`·`MediaDir`)일 때만 `GET /maago/media`를 단다. 버킷이나 남의 저장소면 그 전에 `return nil`이다.
+   - 접두어는 프로세스 값이다. `Handler`의 맨 끝(`http.go:187`)이 `rtcore.Current.Store(&rtcore.Process{Prefix, TZ, Static})`를 한다(D-122, 마지막 `Handler`가 이긴다). `h.media`는 그보다 앞에서 불리므로 `media` 뒤의 검사(`MaxBody`·`Prefix`·`LoginURL`·`Origins`)가 실패하면 라우트는 달렸어도 `Current`는 그대로다. `rtcore.Prefix()`는 `Handler`가 없을 때와 접두어가 없을 때 둘 다 `""`라 가드에 쓸 수 없다.
+   - 복사된 auth의 `siteURL`(`internal/scaffold/testdata/auth/auth.go:162`)은 `url.Parse(SiteURL)` 뒤 `(scheme이 http|https) && Host != "" && u.Scheme+"://"+u.Host == strings.TrimSuffix(SiteURL, "/")`이다. 이 한 비교가 경로·user·query(`?`만 있는 것 포함)·fragment를 모두 거절한다. 거절 목록 시험은 `auth_test.go:524`의 `"", "example.com", "https://", "ftp://example.com", "https://example.com/app", "https://ann@example.com", "https://example.com?x=1"`와 532줄의 끝 `/` 받음이다. 런타임은 복사본을 import할 수 없으니 같은 식을 `site()`에 쓴다.
+   - `MediaURL`을 부르는 곳은 루트 시험(`TestLocalMediaURLServed`), `internal/mediatest`(`Store`의 `signedURLs`, `TestLocalMediaStore`가 `site()` 뒤에 부른다), `contrib/s3`(제 `URL`, 상관없음), 게시판 0044의 `APIFiles`(뷰, 요청 안이라 `Handler` 뒤)이다. `maago doc main`의 예(`cmd/maago/docs/main.txt`)와 게시판 0040~0043의 일꾼은 `MediaURL`을 부르지 않는다(grep). 그래서 "Handler 전에 URL" 길에 걸리는 코드는 시험 말고는 없다.
+   - 시험이 기대는 프로세스 값: 루트 패키지 시험은 `t.Parallel`이 없고 `process_test.go`가 끝에 `Current.Store(nil)`을 한다. `TestLocalMediaURL`은 `Handler` 없이 `l.URL`을 부른다(가드가 생기면 빨강). `TestLocalMediaURLServed`는 `/app` 사이트와 줄임 사이트의 `Handler`를 둘 다 만든 **뒤** `put(prefixed)`를 부른다. B에서는 마지막 `Handler`(접두어 `""`)의 값이 붙어 `/app` 서버에 접두어 없는 URL이 가고 404가 된다. `site()` 도우미는 `cfg(srv.URL + prefix)`로 경로를 넣어 준다.
+   - 게시판 0044: main이 `strings.TrimSuffix(auth.SiteURL, "/") + "/app"`(`strings` import는 0044가 이 줄 때문에 더했다), `web_test.go`의 `config`는 `SiteURL: "http://example.com"`, `TestUnderApp`은 `/app`을 담은 `SiteURL`로 바꾼 덩어리가 있다(`MediaURL`은 부르지 않는다). `TestFileURLs`는 접두어 없는 `config`라 `srv.URL`이 그대로 맞다. 걷기의 `ship`(`tutorial_test.go:440`)은 버킷 없이 `BOARD_SITE_URL=http://localhost:8000/`로 띄운다. Catches의 "another port"·"no graceful stop"의 `by`가 그 `serve`(`board with no bucket: serve: `)에 기댄다. MAP 125줄은 "로컬 저장소의 `SiteURL`은 Prefix까지(D-160)"다.
+   - 글: `topics.go:447~451`(form 절, "the site's address with Config.Prefix (https://example.com/app)"), `media.go:299`(`SiteURL` 주석), `media.go:388~390`(`URL` 주석), `media.go:416`(오류 글의 "such as https://example.com/app"), `http.go:236~243`의 오류 글. `http.go`의 `Config.Prefix` 주석(65~74줄)과 `rtcore.Process` 주석은 접두어를 붙이는 자리를 센다. `Config.Media` 주석(`http.go:94~97`)은 그대로 맞다. `cmd/maago/docs/*.txt`에는 `LocalMedia`의 `SiteURL`이 없고(auth의 것뿐), `doc.go` 골든에는 Text가 들어가지 않으며 요약·목록은 바꾸지 않는다. 그래서 fable이 짐작한 "cmd/maago/docs 골든"은 바꿀 것이 없고 `-update`도 필요 없다(바뀌면 PG 주소와 함께).
+
+   ★ → 에이전트 편의로 결정: **가드는 `rtcore.Process`의 새 칸 하나다.** `Process{…, LocalMedia bool}`이고 `Handler`가 로컬 라우트를 달았을 때 참으로 `Store`한다. `LocalMedia.URL`은 `p := rtcore.Current.Load()`가 nil이거나 `!p.LocalMedia`면 오류를 내고, 아니면 `p.Prefix`를 붙인다. 까닭:
+   - `Current != nil`(Handler가 돌았음)만 보면 새 상태가 없지만, 마지막 `Handler`가 버킷이나 저장소 없음이면 `/maago/media`가 없어 URL이 조용히 404가 된다. 결정의 말("서명된 로컬 라우트를 걸기 전")은 라우트를 본다.
+   - 접두어와 같은 `Store`에 실려 "마지막 `Handler`가 이긴다"(D-122)가 그대로다. `h.media`가 라우트를 단 뒤 `Handler`가 실패해도 칸은 서지 않는다.
+   - 표시는 `handler`에 칸 하나(`local bool`, `media`가 `Handle` 줄에서 세운다)이고 `Store` 줄에서 옮긴다. `media`의 반환 꼴은 바꾸지 않는다.
+   - 대가: `Handler` 없이 뷰나 일꾼을 시험하며 `MediaURL`을 `LocalMedia`에 부르면 이제 오류다(`WithMedia` 주석의 "a view tested without HTTP"). 그런 시험은 먼저 `Handler`를 만든다. 오류 글이 그렇게 말한다. 다른 프로세스의 일꾼은 서명 열쇠가 달라 원래도 그 URL이 403이었다. 이제는 URL을 만들 때 오류다(그 프로세스가 `Handler`를 만들지 않았다면). 글에는 "만든 프로세스만 준다, 다시 시작하면 403"을 그대로 둔다.
+
+   ★ → 에이전트 편의로 결정: **`URL`의 차례는 열쇠 → `SiteURL` 빔 → `site()`(꼴) → 가드 → 서명이다.** 입력의 잘못이 프로세스 상태보다 먼저 나와 `TestLocalMediaURL`의 오류 줄이 시험 순서와 상관없이 같다.
+
+   ★ → 에이전트 편의로 결정: **D-122에도 고침 한 줄을 단다.** "접두어는 경로를 만드는 자리에서 한 번"의 목록에 로컬 미디어 URL이 붙고, 그 자리만은 `Handler`가 없으면 접두어 없는 값이 아니라 오류다(서명 라우트가 없으면 URL이 쓸모없다). D-160만 고치면 D-122의 목록이 하나 모자란다.
+
+   바꿀 파일
+   1. `internal/rtcore/process.go`: `Process`에 `LocalMedia bool`(주석: 마지막 `Handler`가 `/maago/media`에서 `LocalMedia`의 URL을 준다), 타입 주석의 "the generated URL functions and the template functions"에 `LocalMedia.URL`을 더한다.
+   2. `http.go`
+      - `handler`에 `local bool`. `media()`의 `h.mux.Handle("GET /maago/media", …)` 줄 곁에서 `h.local = true`. `Store` 줄에 `LocalMedia: h.local`.
+      - `media()`의 `if local.SiteURL != ""` 덩어리에서 경로 비교를 지우고 `site()`의 오류만 돌려준다.
+      - `Config.Prefix` 주석의 "It goes before the paths the generated URL functions, {{url}} and the login page's next make"에 "and a LocalMedia's URLs"를 더한다.
+   3. `media.go`
+      - `SiteURL` 주석: "the site's scheme and host as browsers and other services reach it, as auth.SiteURL: https://example.com; Handler's Config.Prefix goes after it; URL needs it".
+      - `site()`: 복사된 auth의 식 그대로(parse한 값의 `Scheme+"://"+Host`가 끝 `/` 하나를 뗀 `SiteURL`과 같아야 한다). 오류 글은 "is not a site's address such as https://example.com: http or https and a host, no path (Config.Prefix is added), user, query or fragment".
+      - `URL`: 위 차례로 가드를 두고 `u.Path = p.Prefix + "/maago/media"`. 가드의 오류 글: "maago: no Handler serves this process's local media URLs yet: make maago.Handler, with this store in Config.Media or Config.MediaDir, before a URL". 주석은 "under SiteURL and the last Handler's Config.Prefix. Only the process that made a URL serves it…"로 고친다.
+   4. 시험 (`media_test.go`, `media_store_test.go`), 먼저 써서 빨강을 본다:
+      - `TestLocalMediaURL`: `defer`로 `Current`를 되돌리는 꼴(`maagotest/permissions_test.go:148`). `SiteURL` 없음 오류는 그대로. `Current.Store(nil)`에서 맞는 `SiteURL`의 `URL`이 가드 오류. `Handler(Config{DB: testDB, Media: l, Prefix: "/app", Apps: …})` 뒤 `https://example.com/maago/media?`가 아니라 `https://example.com/app/maago/media?`로 시작. `l`의 `SiteURL`은 끝 `/`가 있는 `https://example.com/`. 거절 목록에 auth와 같은 것을 맞춘다: 지금 목록 + `https://example.com/app`·`https://example.com//`·`https://example.com?`(auth의 목록 `auth_test.go:524`와 같은 뜻, 꼴 검사는 가드보다 앞이라 `Current`와 상관없다). 저장소가 버킷인 `Handler`(`Media: struct{ MediaStore }{}`) 뒤에도 가드 오류.
+      - `TestMediaDirConfig`: 212줄(`https://example.com`과 `Prefix: "/app"`)은 받음(""), 213줄(`https://example.com/app`)은 `maago: LocalMedia.SiteURL "https://example.com/app" is not`, 214줄은 `https://example.com/`와 `/app`으로 받음.
+      - `media_store_test.go`: `site()`가 `cfg(srv.URL)`(주소만)을 넘긴다. `TestLocalMediaURLServed`는 `/app` 사이트를 만들고 **바로** `put(prefixed)`, 그다음 줄임 사이트와 `put`, 그리고 둘을 받는다(URL은 만든 때의 마지막 `Handler`를 따른다는 것을 주석 한 줄로). `prefixed`의 `SiteURL`은 `srv.URL + "/"`(끝 `/`는 상관없다).
+      - → 확인: 고치기 전에 바꾼 시험이 빨강(`TestLocalMediaURL`의 접두어·가드·경로 거절, `TestMediaDirConfig`의 세 줄, `TestLocalMediaURLServed`의 `/app` 404). 고친 뒤 `go test -run 'TestLocalMedia|TestMediaDirConfig|TestMedia$|TestSweepMedia' .`과 `go test ./internal/mediatest/... ./internal/rtcore/... ./rt/... ./maagotest/...` 초록. 헛것을 하나씩 넣고 이름 붙인 시험의 빨강을 본 뒤 되돌린다(되돌린 뒤 diff 같음):
+        - (a) `URL`이 접두어를 붙이지 않음 → `TestLocalMediaURL`, `TestLocalMediaURLServed`
+        - (b) 가드를 지움 → `TestLocalMediaURL`(nil과 버킷 `Handler` 줄)
+        - (c) `site()`가 경로를 받음(옛 검사) → `TestLocalMediaURL`·`TestMediaDirConfig` 213줄
+        - (d) `site()`가 끝 `/`를 떼지 않음 → `TestLocalMediaURL`·`TestMediaDirConfig` 214줄·`TestLocalMediaURLServed`
+        - (e) `Handler`에 옛 `Path != Prefix` 검사를 남김 → `TestMediaDirConfig` 212줄
+        - (f) `h.local`을 세우지 않음(늘 거짓) → `TestLocalMediaStore`·`TestLocalMediaURLServed`
+   5. 글: `internal/ref/topics.go` form 절 447~451줄. "A LocalMedia makes one only with its SiteURL, the site's scheme and host as auth.SiteURL (https://example.com); Handler's Config.Prefix goes after it, and Handler serves it at /maago/media. Only the process that made it serves it, after its Handler: one made before is an error, a restart answers 403." 줄바꿈은 지금 너비로.
+      - → 확인: `go test ./cmd/maago -run 'TestDoc$|TestNoDecisionsInUserText|TestNoDecisionsInStrings'`, 루트 `go test -run TestPackageDoc .` 초록(골든 그대로), `maago doc form`을 찍어 읽고 `grep -n 'D-[0-9]\|example.com/app'`이 비어 있음.
+   6. 게시판 0044(`examples/board/steps.sh unpack` → 풀린 저장소에서 0044 커밋을 `git rebase`로 고침 → `pack`):
+      - `main.go`: `maago.LocalMedia{Dir: "media", SiteURL: auth.SiteURL}`, 0044가 더한 `strings` import 덩어리를 뺀다. 주석은 "Its signed URLs start with SiteURL, the site's scheme and host, and Handler adds the prefix."
+      - `web_test.go`: `TestUnderApp`의 `cfg.Media` 덩어리를 뺀다(`config`의 `http://example.com`이 `/app` 아래에서도 맞다). `config`의 줄은 그대로.
+      - 커밋 글의 둘째 항목: "A local store makes its URLs from its SiteURL, the site's scheme and host as auth.SiteURL: main gives it auth.SiteURL, and Handler puts the prefix after it, as it does for every path it makes. Handler refuses a SiteURL with a path. …(만든 프로세스만·다시 시작하면 그만·버킷은 버킷의 것은 그대로)". 끝 문단의 "TestUnderApp's has /app in it, as its Prefix."를 지운다.
+      - 트레일러(`Maago-Run`·`Maago-Expect`)가 있으면 그대로 둔다.
+      - `examples/board/MAP.md` 125줄: "로컬 저장소의 `SiteURL`은 주소만, 접두어는 런타임이(D-160)".
+      - → 확인: `go test ./cmd/maago -run 'TestBoardTutorial$|TestBoardMap'`(PG, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_9b`) 초록, 그다음 `TestBoardTutorialCatches` 초록(`by` 글 그대로: `ship`의 끝 `/` `serve`는 바꾸지 않는다). 헛것 (g): 풀린 저장소의 main을 `auth.SiteURL + "/app"`로 바꿔 `TestBoardTutorial`이 빨강(`board with no bucket: serve: …`, `Handler`의 경로 거절)인 것을 한 번 보고 되돌린다. 풀린 게시판의 `go test ./...`(PG)도 초록.
+   7. `docs/DECISIONS.md`
+      - D-160: 결정 칸의 "고침(M13 6번)" 덩어리 끝에 "고침(M13 9번 고침): `LocalMedia.SiteURL`은 `auth.SiteURL`과 같은 뜻(scheme과 host, 끝 `/` 하나는 뗀다, 경로가 있으면 오류)이고 로컬 URL은 `SiteURL` + 마지막 `Handler`의 `Prefix` + `/maago/media`다. `Handler`는 꼴만 본다. 로컬 라우트를 단 `Handler`가 없으면 `URL`은 오류(접두어 없는 링크가 조용히 나오지 않는다). 기각: 지금 그대로(일꾼이 완성 URL을 든다는 근거는 열쇠가 프로세스마다라 약하다), `LocalMedia.Prefix` 칸(맞출 값 둘)". 4번 고침의 "경로는 `Config.Prefix`와 같아야"는 원문이라 그대로 두고 이 고침이 뒤집는다.
+      - D-122: "고침(M13 9번 고침, D-160): 로컬 미디어 URL도 접두어를 그 자리에서 붙인다. `Handler` 없이는 접두어 없는 값이 아니라 오류다."
+      - 끝의 기록에 "**2026-11-25 (M13 9번 고침)** — D-160·D-122 고침(`LocalMedia.SiteURL`은 주소만, 접두어는 런타임이, 로컬 라우트를 단 `Handler` 전의 `URL`은 오류). 에이전트 편의로 결정(codex·fable 의견)"을 단다.
+   8. `docs/TODO.md` 94줄: 체크하고 "→ M13 9번 고침: B(주소만, 접두어는 런타임, `Handler` 전의 URL은 오류), 게시판 0044는 `SiteURL: auth.SiteURL`".
+   9. 끝 확인과 기록
+      - 루트에서 `go mod tidy -diff && go vet ./... && go test ./...`, `gofmt -l .`이 비어 있음.
+      - PG 전체 시험: `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_9b go test -timeout 60m ./... 2>&1 | tee 로그; echo "go test exit=$?"`를 앞에서 끝까지 기다린다(약 10분, 명령 timeout 넉넉히). 로그의 `go test exit=` 줄로만 판단한다.
+      - 새 시험은 `GOTOOLCHAIN=go1.25.14`로도 돌린다(CI의 Go).
+      - 이 절에 기록 줄, README 8줄의 다음 작업을 "10번"으로(고침을 지움).
+      - 구현 리뷰는 ponytail·codex·fable. 까닭: 공개 계약(`SiteURL`의 뜻)과 프로세스 상태의 가드, 서명된 URL(보안) 경로를 바꾼다.
+
+   계획 리뷰는 codex·fable 둘(공개 API의 뜻과 뒤 작업 v0.4.0이 기대는 약속).
+
+   하지 않는 것
+   - `LocalMedia.Prefix` 칸이나 `SiteURL`에 경로를 받는 꼴(기각, 위).
+   - 다른 프로세스의 일꾼이 쓸 URL(서명 열쇠를 나누기 따위): 열쇠는 프로세스마다이고(D-160) 그런 URL은 버킷의 것이다. 글은 그대로 둔다.
+   - Catches에 0044 main의 `SiteURL` 줄을 더하기: 걷기 하나가 수 분이고 같은 꼴은 `ship`의 끝 `/` `serve`와 헛것 (g)가 본다.
+   - `ship`이 서명된 URL을 실제로 받아 보기: 접두어 아래의 받기는 루트 `TestLocalMediaURLServed`(`StripPrefix("/app")`의 진짜 HTTP)가, 게시판의 받기는 `TestFileURLs`가 문다.
+   - 복사된 auth의 `siteURL`과 식을 한 곳에 모으기: 복사본은 런타임을 import하지만 이 검사는 런타임의 공개 API가 아니다. 같은 거절 목록을 시험이 양쪽에서 문다.
+   - `cmd/maago/docs/*.txt`·`doc.go` 골든: 바꿀 것이 없다(위 따라가 본 길).
 10. **v0.4.0**(Q10): 태그(깨지는 API를 태그 글에), 게시판의 `go.mod`(0001·0013) → 확인: 빈 GOPATH에서 `go install …@v0.4.0`, 공개 판으로 걷기의 끝(`GOWORK=off`)
 11. **에이전트 게이트**: `go install …@v0.4.0`부터, 0040의 끝에서 새 단계 글만 보고 서로 모르는 실행 둘 → 확인: 기록, 메시지와 `maago doc`만으로 씀
 12. **M13 끝**: MILESTONES의 M13 체크, README, 다음 마일스톤(M14: Google 로그인, 진단 묶음, 단계 글의 빈틈)의 차례
