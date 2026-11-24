@@ -6,11 +6,13 @@ import (
 )
 
 // Process is what the last Handler set for the code that no request
-// reaches (D-122): the generated URL functions and the template functions.
+// reaches (D-122): the generated URL functions, the template functions and
+// LocalMedia.URL.
 type Process struct {
-	Prefix string
-	TZ     *time.Location
-	Static map[string]*StaticFiles // by package name, for {{static}}
+	Prefix     string
+	TZ         *time.Location
+	Static     map[string]*StaticFiles // by package name, for {{static}}
+	LocalMedia bool                    // it serves a LocalMedia's URLs, at /maago/media
 }
 
 // Current is the last Handler's.

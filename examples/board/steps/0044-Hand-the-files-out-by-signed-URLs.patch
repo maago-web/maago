@@ -14,19 +14,17 @@ bucket.
   time.Hour), made after the check: whoever gets it gets the file, so
   the view checks who asks before it makes any. An hour is enough for
   one download, and it ends long before the 7 days a URL may last
-- A local store makes its URLs from its SiteURL, the site's address
-  with the prefix: main gives LocalMedia SiteURL:
-  strings.TrimSuffix(auth.SiteURL, "/") + "/app", as auth.SiteURL may
-  end in a slash. Handler refuses a SiteURL whose path is not
-  Config.Prefix, //app too. A local URL is served by the process that
+- A local store makes its URLs from its SiteURL, the site's scheme and
+  host as auth.SiteURL: main gives it auth.SiteURL, and Handler puts the
+  prefix after it, as it does for every path it makes. Handler refuses
+  a SiteURL with a path. A local URL is served by the process that
   made it, and no longer once it starts again: one machine's files, one
   process's URLs. A bucket's URLs are the bucket's
 
 TestFileURLs serves the app on an httptest server whose address is the
 store's SiteURL, asks for the list with staff's token, and downloads
 the file by its URL with no sign-in; a board that is not there is a
-404. The tests' store has a SiteURL now; TestUnderApp's has /app in
-it, as its Prefix.
+404. The tests' store has a SiteURL now.
 
 diff --git a/board/files.go b/board/files.go
 index 677fa0a..e0f5ea9 100644
@@ -166,7 +164,7 @@ index 75cf28b..92cc1f8 100644
 +	maago.GET("/api/boards/{id}/files", "api_board_files", APIFiles, maago.API),
  }
 diff --git a/board/web_test.go b/board/web_test.go
-index 07d3878..9a97a02 100644
+index 07d3878..ccf2bb9 100644
 --- a/board/web_test.go
 +++ b/board/web_test.go
 @@ -36,7 +36,7 @@ const front = "http://localhost:5173"
@@ -178,37 +176,20 @@ index 07d3878..9a97a02 100644
  }
  
  // adminApp is main's admin: config serves it, and TestPermissions has its
-@@ -545,6 +545,8 @@ func TestUnderApp(t *testing.T) {
- 	db := maagotest.DB(t)
- 	cfg := config(t, db)
- 	cfg.Prefix, cfg.LoginURL = "/app", "/app/login"
-+	// The signed URLs' address has the prefix too.
-+	cfg.Media = maago.LocalMedia{Dir: t.TempDir(), SiteURL: "http://example.com/app"}
- 	h, err := maago.Handler(cfg)
- 	if err != nil {
- 		t.Fatal(err)
 diff --git a/main.go b/main.go
-index 8e2bfc5..b495053 100644
+index 8e2bfc5..a0d2533 100644
 --- a/main.go
 +++ b/main.go
-@@ -10,6 +10,7 @@ import (
- 	"log"
- 	"net/http"
- 	"os"
-+	"strings"
- 	"time"
- 
- 	"github.com/maago-web/maago"
-@@ -78,8 +79,10 @@ func main() {
+@@ -78,8 +78,10 @@ func main() {
  	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")
  	// Where the files are kept, under names maago makes: a directory
  	// beside the binary, which the server does not serve as it is. The
 -	// view that sends one down checks who asks.
 -	var media maago.MediaStore = maago.LocalMedia{Dir: "media"}
 +	// view that sends one down checks who asks. Its signed URLs start
-+	// with SiteURL, the site's address with the prefix; auth.SiteURL may
-+	// end in a slash.
-+	var media maago.MediaStore = maago.LocalMedia{Dir: "media", SiteURL: strings.TrimSuffix(auth.SiteURL, "/") + "/app"}
++	// with SiteURL, the site's scheme and host, and Handler adds the
++	// prefix.
++	var media maago.MediaStore = maago.LocalMedia{Dir: "media", SiteURL: auth.SiteURL}
  	where := "media/"
  	// A bucket instead, when BOARD_S3_BUCKET is set: a disk is one
  	// machine's, a bucket every copy of the server's. Any S3 API will do,

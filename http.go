@@ -66,11 +66,12 @@ type Config struct {
 	// The proxy in front takes it off before passing a request on, so routes
 	// stay as the table says; if it does not, main wraps the handler in
 	// http.StripPrefix(cfg.Prefix, h). It goes before the paths the
-	// generated URL functions, {{url}} and the login page's next make. The
-	// proxy must pass on the Host the browser asked for: the cross-origin
-	// check compares it with Origin. URLs given as such (LoginURL, the URL of
-	// SeeOther) are left as they are. It holds for the process: the last
-	// Handler made sets it, with TimeZone, for the URL and template functions.
+	// generated URL functions, {{url}}, the login page's next and a
+	// LocalMedia's URLs make. The proxy must pass on the Host the browser
+	// asked for: the cross-origin check compares it with Origin. URLs given
+	// as such (LoginURL, the URL of SeeOther) are left as they are. It holds
+	// for the process: the last Handler made sets it, with TimeZone, for the
+	// URL and template functions.
 	Prefix string
 
 	// LoginURL is where an HTML route that requires login sends a GET or
@@ -184,7 +185,7 @@ func Handler(cfg Config) (http.Handler, error) {
 	if tz == nil {
 		tz = time.UTC
 	}
-	rtcore.Current.Store(&rtcore.Process{Prefix: cfg.Prefix, TZ: tz, Static: static}) // the last Handler wins (D-122)
+	rtcore.Current.Store(&rtcore.Process{Prefix: cfg.Prefix, TZ: tz, Static: static, LocalMedia: h.local}) // the last Handler wins (D-122)
 	return h, nil
 }
 
@@ -195,6 +196,7 @@ type handler struct {
 	routes map[string]*rtcore.Route // by pattern
 	forms  *rtcore.Settings
 	next   http.Handler // CSRF, then the routes
+	local  bool         // it serves a LocalMedia's URLs
 }
 
 // media checks Config's media store, files telling whether forms take
@@ -234,14 +236,11 @@ func (h *handler) media(files bool) error {
 		return fmt.Errorf("maago: %s %q is not a directory", name, local.Dir)
 	}
 	if local.SiteURL != "" {
-		u, err := local.site()
-		if err != nil {
+		if _, err := local.site(); err != nil {
 			return err
 		}
-		if u.Path != cfg.Prefix {
-			return fmt.Errorf("maago: Config.Media's SiteURL %q has path %q, not Config.Prefix %q; give the site's address as browsers reach it, the prefix included", local.SiteURL, u.Path, cfg.Prefix)
-		}
 	}
+	h.local = true
 	h.mux.Handle("GET /maago/media", h.serve(&rtcore.Route{Method: "GET", Path: "/maago/media", Name: "maago_media", Serve: serveSigned}))
 	return nil
 }

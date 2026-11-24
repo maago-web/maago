@@ -122,4 +122,4 @@ Maago 칸의 머리 말: "복사한 auth가 준다"는 0020의 `maago add auth`�
 | 0041 | 고아 청소: 첨부의 열쇠에 태그 `media`, `main`이 기동 때와 하루마다 `maago.SweepMedia`(어느 행도 갖지 않는 하루 지난 파일), 저장소를 `Config.Media`와 함께 쓰려고 `main`이 `LocalMedia`를 만든다(D-161·D-160) | M13 |
 | 0042 | 일꾼이 만든 파일: 게시판의 내보내기를 outbox의 둘째 Kind로, `SaveMediaFrom`으로 저장하고 이름 → 열쇠 행(`ExportFile`)을 통째로 바꾼다, 앞 판과 반쯤 돈 실행의 파일은 청소가, `main`의 `deliver`가 `WithMedia`를 하고 Kind로 가른다(D-160·D-161·D-159) | M13 |
 | 0043 | 저장소를 환경으로: `BOARD_S3_BUCKET`이면 `contrib/s3`의 `Store`, 아니면 `media/`, 기동 때 `List` 한 번으로 빈 칸·틀린 열쇠를 멈춘다(D-160) | M13 |
-| 0044 | 서명된 URL로 밖에 건넴: staff만 받는 API가 파일마다 `maago.MediaURL`(1시간), 로컬 저장소의 `SiteURL`은 Prefix까지(D-160) | M13 |
+| 0044 | 서명된 URL로 밖에 건넴: staff만 받는 API가 파일마다 `maago.MediaURL`(1시간), 로컬 저장소의 `SiteURL`은 주소만, 접두어는 런타임이(D-160) | M13 |
