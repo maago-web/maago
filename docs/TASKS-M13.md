@@ -632,6 +632,69 @@
    기록(2026-11-25, 구현 리뷰 반영): 구현 리뷰는 ponytail·codex·fable: 막는 것 없음(셋 다). 받은 것: `files`의 `TestSweep`에 2시간 전의 고아 `h`가 `SweepMedia(ctx, db, 0)` 뒤에도 남음(fable 1, 기본 24시간을 1시간으로 바꾸면 빨강), 오래된 `.tmp-`를 쓰는 중인 열쇠 `a`의 것으로(fable 2, "`.tmp-`를 뗀 열쇠가 쓰는 중이면 남김"으로 바꾸면 빨강), `TestSweepMedia`에 `time.Hour`의 "no driver" 줄(하한이 1시간을 받음, `<`를 `<=`로 바꾸면 빨강)과 빈 디렉터리·`testDB`의 nil(후보가 없으면 DB를 읽지 않음, 그 갈래를 지우면 빨강)(fable 4, `rows.Err()`는 그대로 헛것 없음), 헛것 (q) 겹침 거르기(`rt/app.go`)를 뺌 → `TestDocExamples/main`의 "different media fields"(fable 3, fable이 복사본에서 봄), D-161 기록 줄의 날짜 11-25(fable 5), 새 열쇠의 `.tmp-`를 상수 `".tmp-"+strings.Repeat("f", 32)`로 하고 `newKey`·`crypto/rand`·`encoding/hex`를 지움(ponytail 2), `files`의 30분·저장소 없음 줄을 지움(ponytail 3: 30분은 `TestSweepMedia`, 저장소 없음은 `mediaStore`의 기존 오류를 `TestMedia`가 문다; 그래서 헛것 (h)는 이제 `TestSweepMedia`의 30분 줄만), `TestSweepMedia`의 -1 줄을 지움(ponytail 4, 30분과 같은 갈래), `switch len(...)`의 빈 `case 1`을 두 `if`로(ponytail 5). 받지 않은 것: `s3fake`의 `sync.Map`(ponytail 1, 남의 이름 `a/b`와 오래된 객체를 심을 길이 이것뿐이고 `New`의 반환을 바꾸면 `contrib/s3`의 호출 다섯을 고친다: ponytail도 받아들일 만하다고 함), 낡은 바이너리의 청소 글(fable 6, 9번의 미디어 문단으로 TODO), codex(지적 없음, 쓰기 금지 환경이라 실행은 못 함). 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 384초, 게시판 걷기 포함)
 
 8. **게시판 0041~**: 일꾼이 만든 파일 여럿(내보내기 따위, 이미지 처리 아님: D-72)을 이름 → 열쇠 행으로 저장하고 뷰가 이름으로 찾아 준다(readmate의 `media/marked/<id>/` 꼴), 저장소를 환경으로 고름, 서명된 URL로 밖에 건넴, 청소(태그), outbox의 Kind 둘(웹훅과 이 일: `main`의 일꾼이 Kind로 가름), lease를 넘어 다시 도는 일이 남긴 파일은 청소가 치운다 → 확인: `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardMap`, Catches(일꾼 ctx에 저장소 없음, 태그 빠뜨림 따위)
+
+   계획
+
+   따라가 본 길: 0040의 끝(풀어 본 게시판)은 `main`이 `MediaDir: "media"`를 `Config`에 주고 `outbox.Run(work, db, board.Deliver)`를 띄우며, `Deliver`는 제 Kind(`postPublished`, 내보내지 않음)만 받는다. 첨부는 `Attachment.Key`(`unique`, 태그 없음), `Attach`가 행 실패 때 `DeleteMedia`, `deletePost`가 `AfterCommit`으로 파일을 지운다. 시험의 설정은 `web_test.go:39`의 `config(t, db)`이 `MediaDir: t.TempDir()`이고 `attach_test.go`가 `cfg.MediaDir`을 세 곳(79·97·148)에서 읽는다. 걷기(`cmd/maago/tutorial_test.go`)는 단계마다 gen·check·migrate·`go test ./...`이고, 늘 **마지막 단계**의 `main`을 `ship`한다(PG에서 일꾼이 웹훅을 보내는지). 게시판은 다른 모듈이라 앱 시험은 `internal/s3fake`·`internal/mediatest`를 import할 수 없다: S3 길은 `cmd/maago`의 `ship`만 걸을 수 있고(같은 모듈이라 `s3fake.New`·`Touch`를 쓴다) 앱 시험은 `LocalMedia`와 `os.Chtimes`로 늙힌다. `SweepMedia`는 여유(1시간 이상) 밖의 파일만 보고 후보가 없으면 DB를 읽지 않으므로 늙히지 않은 시험은 아무것도 보이지 않는다. `maago doc main`의 예는 main의 `deliver(db, media)`가 닫힘의 첫 줄에서 `WithMedia`를 하고 Kind를 본다(9번이 Kind 둘로 다시 쓴다). Catches의 꼬리 줄 넷(0033 "no migrations at the start"·"another port", 0040 "no graceful stop"·"no worker")은 뒤 단계를 모두 걷으므로, 뒤 패치의 덩어리가 그 줄을 바꾸거나 문맥으로 가지면 바꾼 복사본에서 뒤 패치의 `git apply`가 실패한다(M12 10번의 "no graceful stop"을 옮긴 일).
+
+   풀어 본 게시판(scratchpad, PG `m13_8`의 스키마 하나)에서 손으로 재 본 것(2026-11-25):
+   - 태그만 더하면(`Key string maago:"unique,media"`) `makemigrations`는 `no changes`이고, gen 뒤 모델이 있는 앱 셋(board·auth·outbox)의 `models_gen.go`에 같은 `rt.MediaInUse` 글이 생긴다
+   - 새 모델의 표 이름은 `board_export_file`(`board_exportfile`로 짐작해 쓴 쿼리 셋은 "run makemigrations"와 함께 한 실행에 `relation "board_exportfile" does not exist … (checked against the models)`: 3번의 쿼리 계속이 돈다). 마이그레이션은 `0008_export_files.sql`
+   - 내보내기 일꾼(파일을 먼저 저장하고 `WithTx`에서 그 게시판의 행을 지우고 새로 넣음)을 두 번 돌리고(lease를 넘어 다시 도는 일) 모든 파일을 48시간 늙혀 `SweepMedia(ctx, db, 0)` → 남은 파일이 행의 열쇠와 같다. `ExportFile.Key`의 태그만 빼면(첨부의 태그는 남김) 같은 시험이 빨강(쓰는 파일이 조용히 지워진다: Catches로 둘 값이 있는 꼴)
+   - main이 `contrib/s3`를 import해도 게시판의 `go.mod`(maago v0.3.0)와 `go.work`, `GOPROXY=off`·`-mod=readonly`로 빌드·vet 통과(공개 판의 `go.mod`는 10번)
+   - `LocalMedia{Dir: "media", SiteURL: auth.SiteURL + "/app"}`: `BOARD_SITE_URL=http://localhost:8000`이면 뜬다. `http://localhost:8000/`이면 auth는 받는데 `Handler`가 `Config.Media's SiteURL "http://localhost:8000//app" has path "//app", not Config.Prefix "/app"`로 멈춘다(아래 불편 1)
+   - `BOARD_S3_BUCKET`만 주고 띄우면 기동 때 `media.List(ctx, "")`가 `s3: Store.Endpoint is empty`로 멈춘다
+
+   단계 넷(패치, 글은 영어, `D-xx` 없음. 이름은 고칠 수 있다)
+   1. **0041 `Sweep the files no row keeps`**: `Attachment.Key`에 `media`(`maago:"unique,media"`, 마이그레이션 없음). main은 `MediaDir: "media"` 대신 `media := maago.LocalMedia{Dir: "media"}`를 `Config.Media`에, 일꾼 곁에 청소 고루틴: 시작할 때와 그 뒤 24시간마다 `maago.SweepMedia(maago.WithMedia(work, media), db, 0)`, 오류는 로그, `work`가 끝나면 멈춘다. 글: 커밋에 실패한 첨부·죽은 프로세스의 반쪽은 하루 뒤 청소가, `Attach`·`deletePost`의 즉시 지우기는 그대로. 시험 `attach_test.go`의 `TestSweep`: 올린 첨부 하나와 `SaveMediaFrom`으로 둔 고아 하나를 늙혀 청소 → 첨부는 열리고 고아는 없다
+   2. **0042 `Export a board in the background`**: 모델 `ExportFile{ID; BoardID fk=Board; Name; Key unique,media; Type; Size; CreatedAt auto=create}`, `unique=(BoardID,Name)`(마이그레이션 `--name export_files`). 쿼리 `export_files.sql`(게시판의 파일, 이름 차례)·`export_file.sql`(`ExportFileByName`, 게시판과 이름)·`delete_export_files.sql`(`:exec`). `board/files.go`
+      - `const BoardExport = "board_export"`, `postPublished`는 `PostPublished`로 내보낸다(main이 Kind로 가른다)
+      - `WriteExport(ctx, db, j outbox.Job) error`: 페이로드 `{"id": 게시판}`, **누구에게나 나간 글만**(`ExportRows`·`GetPost`에 사용자 nil, 쪽마다) `post-<ID>.md`(제목과 본문)와 `index.md`(목록, 글이 없어도 하나)를 `SaveMediaFrom`으로 먼저 저장하고, `WithTx`에서 그 게시판의 행을 지우고 새 행을 넣는다. 앞 내보내기의 파일, 반쯤 돈 실행과 lease를 넘어 다시 돈 실행의 파일은 어느 행도 갖지 않아 청소가 치운다(지우는 코드 없음)
+      - 라우트(staff만, 아니면 403: `u auth.User`이라 익명은 로그인으로): `GET /boards/{id}/files`(`board_files`, 파일 목록과 "다시 내보내기" 폼, 새 템플릿 `files_page.html`), `POST /boards/{id}/files`(`board_files_export`, 같은 tx에서 `outbox.Enqueue(ctx, tx, BoardExport, …)` 뒤 SeeOther), `GET /boards/{id}/files/{name}`(`board_file`, 쓰는 뷰: `ExportFileByName` → `ServeMedia`, 없으면 404)
+      - main: 일꾼의 handle을 main의 닫힘 하나로: 첫 줄 `ctx = maago.WithMedia(ctx, media)`, `switch j.Kind`로 `board.PostPublished` → `board.Deliver`, `board.BoardExport` → `board.WriteExport(ctx, db, j)`, 그 밖은 오류(일이 남아 admin에 보인다). `maago doc main`의 `deliver(db, media)`와 같은 꼴
+      - 시험 `files_test.go`: `TestWriteExport`(재 본 것: 초안은 파일이 없다, 두 번 돌린 뒤 늙혀 청소하면 행의 파일만 남고 내용이 맞다), 웹 시험 하나(staff가 POST → `outbox.RunOnce(ctx, db, now, …)`(시험이 `WithMedia`를 한 handle) → 목록에 이름, 이름으로 내려받기의 본문·`attachment`, 없는 이름 404). `TestPermissions`에 새 라우트 셋의 행
+   3. **0043 `Keep the files in a bucket`**: main이 `BOARD_S3_BUCKET`이 있으면 `s3.Store{Endpoint, Region, Bucket, AccessKeyID, SecretAccessKey}`를 `BOARD_S3_ENDPOINT`·`BOARD_S3_REGION`·`BOARD_S3_BUCKET`·`BOARD_S3_ACCESS_KEY_ID`·`BOARD_S3_SECRET_ACCESS_KEY`로 채우고 없으면 `LocalMedia`. 기동 때 `media.List(ctx, "")` 한 번(실패하면 `log.Fatal`: 빈 칸·틀린 열쇠·없는 버킷이 첫 파일이 아니라 여기서 칸 이름을 말한다). 글: 서버가 여럿이면 버킷(디스크는 한 대의 것), R2·MinIO도 같은 칸, 0033의 "바이너리 밖은 DB와 `media/`뿐"이 버킷이면 DB와 버킷이라는 한 줄. Dockerfile은 그대로(기본은 볼륨의 `media/`)
+   4. **0044 `Hand the files out by signed URLs`**: `GET /api/boards/{id}/files`(`api_board_files`, `maago.API`, staff만): 파일마다 `{Name, Type, Size, URL}`, URL은 권한을 본 **뒤** `maago.MediaURL(ctx, f.media(), time.Hour)`. 다른 서비스(프런트엔드, 파일을 받아 갈 서비스)가 앱을 지나지 않고 받는다(S3면 버킷에서 바로). main의 로컬 저장소에 `SiteURL: auth.SiteURL + "/app"`(로컬 URL은 그 프로세스만 받고 다시 시작하면 403이라는 글 한 줄). 시험의 `config(t, db)`은 `Media: maago.LocalMedia{Dir: t.TempDir(), SiteURL: "http://example.com"}`(`MediaDir` 줄임은 URL을 만들지 못한다)로 바꾸고 `attach_test.go`의 세 곳은 그 `Dir`을 읽는다. 웹 시험: `httptest` 서버를 `SiteURL`로 한 Handler에서 staff 토큰으로 목록을 받아 URL마다 `http.Get`이 200·본문·`attachment`. `TestPermissions`에 `api_board_files` 행(익명 401, staff 아닌 역할 403, staff 200)
+
+   바꿀 파일과 새 파일
+   - `examples/board/steps/0041-…`~`0044-…`(새 패치 넷, 풀어서 커밋을 더한 뒤 `steps.sh pack`)
+   - `examples/board/MAP.md`: 둘째 표에 0041~0044 행. 원본 50·52(파일 업로드) 행의 게시판 칸은 그대로(원본은 앱이 만든 파일이 없다)
+   - `cmd/maago/tutorial_test.go`
+     - `ship`(PG 갈래): `s3fake.New(t)`의 칸을 `BOARD_S3_*`로 환경에, 기동 전 `s3fake.Touch`로 48시간 전의 고아 열쇠 하나와 SQL로 게시판 하나·그 `board_export` 일 하나. `use`는 웹훅을 기다린 뒤 10초까지 `board_export_file`에 그 게시판의 행(`index.md`)이 있고 그 열쇠가 가짜의 `List`에 있으며 늙힌 고아가 없어지기를 기다린다. 주석의 줄글에 버킷·청소를 더한다
+     - Catches 새 줄(앞 셋은 `go test: `, 뒤 셋은 main에만 있는 잘못이라 `serve: ` 꼬리 줄): "an untagged attachment key"(0041, 태그 하나도 없음 → `SweepMedia`의 "knows no field"), "an untagged export file"(0042, 첨부는 태그를 가진 채 `ExportFile.Key`만: 살아 있는 파일을 조용히 지운다), "a URL to anybody"(0044, staff 검사를 지움 → `TestPermissions`), "no sweep"(청소 고루틴의 부름을 지움 → 고아가 남음), "no store in the worker"(handle의 `WithMedia` 줄 → 내보내기 파일이 생기지 않음), "the bucket ignored"(0043, `media = s3.Store{…}`를 버림 → 가짜 버킷이 빈 채). 꼬리 줄의 `old`는 그 줄을 마지막으로 쓰는 패치에 둔다
+     - 옮길 줄: "no worker"(`outbox.Run(work, db, board.Deliver)`는 0042가 바꾼다 → 0042의 handle 줄로), "no graceful stop"(0041의 청소 고루틴이 `err = maago.Serve(…)` 옆에 들어가면 0041로). "another port"·"no migrations at the start"는 뒤 패치가 그 줄을 문맥으로 갖지 않으면 그대로
+   - `docs/TODO.md` `## M13`: 아래 "쓰기 불편한 곳" 중 고치지 않는 것
+   - `docs/TASKS-M13.md`: 기록 줄
+
+   단계와 확인
+   1. 풀어 쓰기: `examples/board/steps.sh unpack <scratch>`, `.env`를 `MAAGO_TEST_PG_URL`의 데이터베이스 `m13_8`의 스키마로 돌리고 0041~0044를 커밋마다 `maago gen`·`makemigrations`·`migrate`·`go test ./...`(게시판의 `go.work`로), `steps.sh pack` → 확인: `git status`에 새 패치 넷과 바뀐 것 없음(0001~0040은 `--zero-commit`이라 그대로), 패치에 `D-\d`가 없다
+   2. 걷기 → 확인: `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_8 go test -run 'TestBoardTutorial$|TestBoardMap' -timeout 60m ./cmd/maago`
+   3. Catches → 확인: 같은 주소로 `-run TestBoardTutorialCatches -v`, 새 여섯 줄과 옮긴 줄이 PASS이고 줄마다 실패가 제 접두(`walk: <nil>`이 아님)
+   4. 헛것(하나씩 넣고 빨강을 보고 되돌린다): (a) `ship`의 고아 기다림을 지움 → "no sweep" 줄이 `walk: <nil>` (b) `ship`이 S3 환경을 주지 않음 → "the bucket ignored" 줄이 `walk: <nil>` (c) `TestWriteExport`가 늙히지 않음 → "an untagged export file" 줄이 `walk: <nil>`(시험이 문다는 증거) (d) `ship`의 내보내기 행 기다림을 지움 → "no store in the worker"가 `walk: <nil>`
+   5. 끝 확인: 루트에서 `go mod tidy -diff && go vet ./... && go test ./...`, `gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_8`로 전체(`-timeout 60m`, 앞에서 끝까지 기다려 로그의 `go test exit=` 줄). 시간: 1번의 기준(로컬 Catches 8분, `cmd/maago` 12분) 아래. 가늠: 걷기 한 번에 단계 넷 약 10초, Catches는 꼬리 줄이 일곱(있던 넷 + 셋)으로 늘어 줄마다 단계 넷과 `ship`을 더 걸어 2~3분 더(229초 → 약 6분), `cmd/maago` 약 7~9분. 잰 값을 기록에
+
+   ★ → 에이전트 편의로 결정
+   - **단계는 넷, 청소가 먼저.** 청소가 있으면 내보내기 일꾼은 파일을 지우는 코드가 없다: 앞 내보내기의 파일, 반쯤 돈 실행, lease를 넘어 다시 돈 실행이 모두 "어느 행도 갖지 않는 파일"이라 한 길로 치운다(일꾼마다 `DeleteMedia`의 갈래를 쓰지 않는다). 단계마다 새 것 하나라 게이트(11번)가 글 하나씩 따른다. 첨부의 즉시 지우기(`Attach`·`deletePost`)는 고치지 않는다
+   - **내보내기는 누구에게나 나간 글만**(사용자 nil). 요청은 staff가 하지만 파일은 URL로 밖에 나가므로 초안이 새지 않게 일꾼이 가장 좁은 사용자로 읽는다. 권한은 파일을 건네는 뷰마다 staff(목록·이름으로 내려받기·URL). 0029의 "파일의 권한은 뷰가 본다"와 같은 자리
+   - **이름 → 열쇠는 게시판의 최신 내보내기 하나**(`unique=(BoardID,Name)`, 행을 통째로 바꿈): readmate의 `media/marked/<id>/` 꼴이 이름으로 찾는 것이고 판을 쌓으면 목록·청소의 뜻이 하나 더 는다. 두 실행이 겹치면(lease를 넘음) 나중 실행의 삽입이 unique 위반으로 실패하고 일이 다시 돈다
+   - **Kind는 main의 닫힘이 가르고 `WithMedia`도 거기 한 줄**: 과제의 "main의 일꾼이 Kind로 가름"이고 `maago doc main`의 `deliver(db, media)`와 같은 꼴이라 에이전트가 문서의 예를 그대로 옮긴다. 그래서 일꾼 ctx의 저장소는 앱 시험이 아니라 `ship`이 문다(앱 시험은 handle을 제가 만든다)
+   - **저장소의 환경은 `BOARD_S3_*` 다섯, 버킷 이름이 있으면 S3.** 칸 이름 그대로라 한 대 한이고 `BOARD_WEBHOOK_*`와 같은 접두. 기동 때의 확인은 빈 칸 검사 다섯 대신 `media.List(ctx, "")` 한 줄: `contrib/s3`의 칸 검사(`s3: Store.Endpoint is empty`)를 그대로 쓰고 틀린 비밀 열쇠·없는 버킷까지 기동 때 멈춘다. 대가: 버킷이 내려가 있으면 서버가 뜨지 않는다(DB의 `Migrate`와 같다). 6번 ★의 "빈 값을 기동 때 거절하는 꼴"을 이것으로 보인다
+   - **밖에 건네는 길은 API 하나**(`GET /api/boards/{id}/files`, 1시간). 웹훅에 URL을 싣는 길은 Kind가 하나 더 늘고 URL의 기한이 일의 재시도와 엉킨다. ttl 1시간은 받아 가는 쪽의 한 번 내려받기에 넉넉하고 7일 상한과 멀다
+   - **청소는 main의 고루틴**(시작할 때와 하루마다, 일꾼과 같은 `work`로 멈춤). 플래그와 cron은 배포마다 이음새가 하나 더 든다. 인스턴스가 여럿이면 저마다 돌지만 지우기는 되풀이해도 같다. `ship`이 늙힌 고아가 기동 뒤 없어짐을 본다
+   - **`ship`은 S3(가짜)로 띄운다**: 환경 → `s3.Store` → 일꾼의 `WithMedia` → `SaveMediaFrom` → 생성된 쓰는 중 쿼리(PG) → 청소가 내보내는 바이너리 하나에서 이어진다. 로컬 갈래는 `Handler`의 기동 검사(4번의 시험)와 앱 시험의 `LocalMedia`가 문다
+   - 결정 기록 없음: 게시판 단계의 선택이고 D-160·D-161의 뜻 그대로(D-142처럼 단계를 더하는 결정은 이 과제가 이미 정했다). 고침이 생기면 D-160·D-161에 한 줄
+
+   쓰기 불편한 곳(이 작업의 값진 결과: 작으면 고치고 아니면 TODO `## M13`)
+   1. **`SiteURL` 둘의 뜻이 다르다**: 복사된 auth의 `auth.SiteURL`은 경로가 없어야 하고(`siteURL`이 거절) `LocalMedia.SiteURL`은 `Config.Prefix`를 담아야 한다. 게시판은 `auth.SiteURL + "/app"`이라 쓰고, 끝 `/`가 있는 주소는 auth가 받는데 `//app`으로 `Handler`가 멈춘다(재 봄). 멈춤과 글은 맞으므로 조용히 틀리지는 않는다. 고치는 길(로컬 URL이 `rtcore`의 Prefix를 붙이고 `SiteURL`은 주소만)은 D-160의 4번 고침을 뒤집는 공개 계약이라 이 작업에서 하지 않고 TODO(9번이나 M14에서 사람에게: 두 꼴과 대가)
+   2. **없는 표의 진단이 모델의 표 이름을 말하지 않는다**: `board_exportfile`로 짐작한 쿼리에 `relation … does not exist`뿐이고 같은 실행의 "table "board_export_file" is missing"을 읽어야 안다(재 봄). did you mean은 M14 진단 묶음의 꼴이라 TODO
+   3. 구현에서 더 찾는 것(예상): `config(t)`의 `MediaDir` → `Media`로 바꾸며 시험이 `Dir`을 다시 읽는 꼴, 일꾼 ctx에 저장소를 빠뜨렸을 때의 오류가 admin의 `LastError`에만 남는 것, `MediaURL`의 오류가 시험에서 500으로만 보이는 것. 기록 줄과 TODO에 적는다
+
+   하지 않는 것
+   - 런타임·`contrib/s3` 고치기(불편이 작게 고쳐질 때만, 그때 계획을 먼저 고친다), `maago doc`의 미디어·main 문단 다시 쓰기와 결정 고침(9번), 게시판 `go.mod`의 판(10번)
+   - 이미지 처리(D-72), 내보내기 판 여럿·지난 판 보기, 내보내기의 진행 상태, 웹훅에 URL 싣기(위 ★), 청소의 플래그·cron
+   - 걷기가 로컬 저장소로 한 번 더 `serve`(위 ★: 시간과 겹침), 게시판 시험의 S3(다른 모듈이라 가짜를 import할 수 없다)
+   - `Attach`·`deletePost`의 즉시 지우기를 청소에 맡기기(고치지 않은 것은 고치지 않는다)
+   - Dockerfile의 볼륨 바꾸기(기본은 여전히 로컬)
 9. **문서**: `maago doc`의 미디어(단일 인스턴스, 서명된 URL과 그 한계: 만든 프로세스만 받고 다시 시작하면 403, 청소)·main(일꾼의 저장소, Kind 둘)·model(태그 `media`), 결정 고침: D-140·D-153·D-159·D-123(루트 밖 공개 패키지의 셋째 `contrib/s3`)·D-09·D-72(앱이 만든 바이트는 이미지 처리가 아니다)·D-61·D-148·D-23·D-34·D-32·D-91·D-105·D-111·D-154·D-120·D-132, MILESTONES v1에서 옮김 → 확인: `TestDocExamples`, `TestPackageDoc`, `TestNoDecisionsInUserText`
 10. **v0.4.0**(Q10): 태그(깨지는 API를 태그 글에), 게시판의 `go.mod`(0001·0013) → 확인: 빈 GOPATH에서 `go install …@v0.4.0`, 공개 판으로 걷기의 끝(`GOWORK=off`)
 11. **에이전트 게이트**: `go install …@v0.4.0`부터, 0040의 끝에서 새 단계 글만 보고 서로 모르는 실행 둘 → 확인: 기록, 메시지와 `maago doc`만으로 씀
