@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -18,7 +20,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/maago-web/maago/contrib/s3"
 	"github.com/maago-web/maago/internal/build"
+	"github.com/maago-web/maago/internal/s3fake"
 	"github.com/maago-web/maago/internal/scaffold"
 	"github.com/maago-web/maago/maagotest"
 )
@@ -122,7 +126,21 @@ func TestBoardTutorialCatches(t *testing.T) {
 		// taken for done, the job is gone before the webhook is up.
 		{"a failure as success", "0040-Send-the-webhook-from-an-outbox.patch", "+\t\treturn fmt.Errorf(\"webhook: %s\", resp.Status)", "+\t\treturn nil", "go test: "},
 		// main runs the outbox's worker: without it, no job goes (D-159).
-		{"no worker", "0040-Send-the-webhook-from-an-outbox.patch", "+\t\toutbox.Run(work, db, board.Deliver)", "+\t\t_, _, _ = work, db, board.Deliver", "serve: "},
+		{"no worker", "0042-Export-a-board-in-the-background.patch", "+\t\toutbox.Run(work, db, deliver(db, media))", "+\t\t_, _ = work, deliver(db, media)", "serve: the webhook heard nothing"},
+		// A key column without the tag media: the sweep knows of none, or
+		// deletes the files that column keeps (D-161).
+		{"an untagged attachment key", "0041-Sweep-the-files-no-row-keeps.patch", "+\tKey       string `maago:\"unique,media\"`", "+\tKey       string `maago:\"unique\"`", "go test: "},
+		{"an untagged export file", "0042-Export-a-board-in-the-background.patch", "+\tKey       string `maago:\"unique,media\"`", "+\tKey       string `maago:\"unique\"`", "go test: "},
+		// main sweeps as it starts: the orphan goes.
+		{"no sweep", "0041-Sweep-the-files-no-row-keeps.patch", "+\t\t\tif err := maago.SweepMedia(maago.WithMedia(work, media), db, 0); err != nil {", "+\t\t\tif err := error(nil); err != nil {", "serve: the orphan"},
+		// The worker's context has the store, where SaveMediaFrom finds it
+		// (D-160).
+		{"no store in the worker", "0042-Export-a-board-in-the-background.patch", "+\t\tctx = maago.WithMedia(ctx, media)", "+\t\t_ = media", "serve: no export file"},
+		// The bucket of the environment is the store, checked as it starts.
+		{"the bucket ignored", "0043-Keep-the-files-in-a-bucket.patch", "+\t\tmedia = s3.Store{", "+\t\t_ = s3.Store{", "board with BOARD_S3_BUCKET alone: "},
+		// A signed URL gets the file to whoever has it: the view checks
+		// first.
+		{"a URL to anybody", "0044-Hand-the-files-out-by-signed-URLs.patch", "+\tif err := staffOnly(u); err != nil {\n+\t\treturn nil, err", "+\tif err := error(nil); err != nil {\n+\t\treturn nil, err", "go test: "},
 		// A fix: line the step quotes is maago gen's, word for word.
 		{"a misquoted fix", "0035-Write-who-may-read-a-post.patch", "each shows)", "each show)", "maago gen: the message quotes\n"},
 		// A query that reads the posts without their policy stops maago gen,
@@ -373,9 +391,13 @@ func (w *walker) clone(t *testing.T) (*walker, error) {
 // it builds the binary as a container does, without cgo for Linux, then
 // builds one for this machine, which migrates the steps' database, emptied
 // first, as it starts (D-153), makes the first staff account (D-130), and
-// serves the board on PORT until SIGTERM stops it cleanly. On PostgreSQL,
-// a job written to the outbox reaches the webhook of the environment:
-// main runs the worker (D-159).
+// serves the board on PORT until SIGTERM stops it cleanly. Given a bucket
+// with no address, it stops as it starts. On PostgreSQL, a job written to
+// the outbox reaches the webhook of the environment: main runs the worker
+// (D-159). It keeps the files in the bucket of the environment, an S3 of
+// the test's: the worker writes a board's export there, the sweep deletes
+// a file two days old that no row keeps, and a job of a kind main does
+// not know stays, with its error (D-160, D-161).
 func ship(t *testing.T, root, schema string) error {
 	cross := goCmd(root, "build", "-o", filepath.Join(t.TempDir(), "board"), ".")
 	cross.Env = append(cross.Env, "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64")
@@ -410,14 +432,26 @@ func ship(t *testing.T, root, schema string) error {
 		}
 	}
 	env := []string{"BOARD_SITE_URL=http://localhost:8000"}
+	if err := refuse(root, bin, append(env, "BOARD_S3_BUCKET=media"), "s3: Store.Endpoint is empty"); err != nil {
+		return fmt.Errorf("board with BOARD_S3_BUCKET alone: %v", err)
+	}
 	var use func(string) error
-	if schema != "" { // a job in the outbox: main's worker sends it to the webhook
+	if schema != "" { // jobs in the outbox: main's worker sends one to the webhook, writes the other's files
+		var board int64
 		if err := withPostgres(func(db *sql.DB) error {
-			_, err := db.Exec("INSERT INTO " + schema + ".outbox_job (kind, payload, run_at, created_at) VALUES ('post_published', '{\"title\":\"shipped\"}', now(), now())")
+			if err := db.QueryRow("INSERT INTO " + schema + ".board_board (name) VALUES ('shipped') RETURNING id").Scan(&board); err != nil {
+				return err
+			}
+			_, err := db.Exec("INSERT INTO "+schema+".outbox_job (kind, payload, run_at, created_at) VALUES ('post_published', '{\"title\":\"shipped\"}', now(), now()), ('export_files', $1, now(), now()), ('nope', '{}', now(), now())", fmt.Sprintf(`{"id":%d}`, board))
 			return err
 		}); err != nil {
 			return err
 		}
+		store := s3fake.New(t)
+		const orphan = "0123456789abcdef0123456789abcdef" // a key no row has
+		s3fake.Touch(store, orphan, time.Now().Add(-48*time.Hour))
+		env = append(env, "BOARD_S3_ENDPOINT="+store.Endpoint, "BOARD_S3_REGION="+store.Region, "BOARD_S3_BUCKET="+store.Bucket,
+			"BOARD_S3_ACCESS_KEY_ID="+store.AccessKeyID, "BOARD_S3_SECRET_ACCESS_KEY="+store.SecretAccessKey)
 		heard := make(chan string, 1)
 		hook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			select {
@@ -433,13 +467,76 @@ func ship(t *testing.T, root, schema string) error {
 				if got != "Bearer s3cret" {
 					return fmt.Errorf("the webhook heard Authorization %q", got)
 				}
-				return nil
 			case <-time.After(10 * time.Second):
 				return fmt.Errorf("the webhook heard nothing of the outbox's job in 10s")
 			}
+			// Then, within 10 seconds, the files and the job of no kind.
+			var err error
+			for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+				if err = shipped(t, schema, board, store, orphan); err == nil {
+					break
+				}
+			}
+			return err
 		}
 	}
 	return serve(root, bin, "/app/", http.StatusOK, env, true, use)
+}
+
+// shipped is nil once the job of kind nope has failed, the worker has
+// written board's export to store, and the sweep has deleted orphan from
+// it.
+func shipped(t *testing.T, schema string, board int64, store s3.Store, orphan string) error {
+	var failed, key string
+	if err := withPostgres(func(db *sql.DB) error {
+		return db.QueryRow("SELECT last_error FROM " + schema + ".outbox_job WHERE kind = 'nope'").Scan(&failed)
+	}); err != nil || failed == "" {
+		return fmt.Errorf("the job of kind nope is gone, or has no error, after 10s: %v", err)
+	}
+	if err := withPostgres(func(db *sql.DB) error {
+		return db.QueryRow("SELECT key FROM "+schema+".board_export_file WHERE board_id = $1 AND name = 'index.md'", board).Scan(&key)
+	}); err != nil {
+		return fmt.Errorf("no export file of board %d in 10s: %v", board, err)
+	}
+	f, err := store.Open(t.Context(), key)
+	if err != nil {
+		return fmt.Errorf("no export file %s in the bucket in 10s: %v", key, err)
+	}
+	f.Close()
+	if f, err = store.Open(t.Context(), orphan); !errors.Is(err, fs.ErrNotExist) {
+		if err == nil {
+			f.Close()
+		}
+		return fmt.Errorf("the orphan %s is still in the bucket after 10s: %v", orphan, err)
+	}
+	return nil
+}
+
+// refuse runs bin in root with env, on any free port, and wants it to stop
+// by itself within 10 seconds, before it listens, with a status other than
+// 0 and want in what it says.
+func refuse(root, bin string, env []string, want string) error {
+	var out bytes.Buffer
+	cmd := osexec.Command(bin)
+	cmd.Dir = root
+	cmd.Env = append(append(os.Environ(), "PORT=0"), env...)
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- cmd.Wait() }()
+	select {
+	case err := <-exited:
+		if err == nil || !strings.Contains(out.String(), want) || strings.Contains(out.String(), "listening on") {
+			return fmt.Errorf("%v, want it to stop with %q:\n%s", err, want, out.String())
+		}
+		return nil
+	case <-time.After(10 * time.Second):
+		cmd.Process.Kill()
+		<-exited
+		return fmt.Errorf("still running after 10s, want it to stop with %q:\n%s", want, out.String())
+	}
 }
 
 // serve runs bin in root on a free PORT until path answers want, for 10

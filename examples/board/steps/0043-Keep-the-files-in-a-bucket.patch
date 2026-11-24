@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maago <maago@example.com>
+Date: Wed, 25 Nov 2026 01:23:58 +0900
+Subject: [PATCH] Keep the files in a bucket
+
+media/ is a directory of one machine: a second copy of the server, or
+a container moved to another host, does not see the files the first
+kept. Since 0033 the binary keeps nothing but the database and the
+attachments' media/; with a bucket, it is the database and the bucket.
+Package contrib/s3 is a maago.MediaStore on any S3 API, AWS's, R2's or
+MinIO's: main picks it when the environment names a bucket.
+
+- BOARD_S3_BUCKET set: s3.Store, with each of its fields from the
+  environment of the same name, BOARD_S3_ENDPOINT, BOARD_S3_REGION,
+  BOARD_S3_ACCESS_KEY_ID and BOARD_S3_SECRET_ACCESS_KEY. Unset:
+  maago.LocalMedia{Dir: "media"}, as before. The same store goes to
+  Config.Media, to the worker's context and to the sweep
+- main lists the store once as it starts, media.List(ctx, ""): an empty
+  field stops the server with the field's name, as s3: Store.Endpoint
+  is empty, and a wrong key or a bucket that is not there stops it too,
+  here and not at the first upload. A bucket that is down keeps the
+  server from starting, as a database that is down does
+- A bucket is one site's, as its database is: the sweep deletes what no
+  row of its own database keeps, so a staging copy pointed at
+  production's bucket deletes production's files
+
+The Dockerfile keeps the volume: with no bucket, the files are there.
+
+diff --git a/main.go b/main.go
+index 3619b3c..d3c5237 100644
+--- a/main.go
++++ b/main.go
+@@ -15,6 +15,7 @@ import (
+ 	"github.com/maago-web/maago"
+ 	"github.com/maago-web/maago/contrib/admin"
+ 	authlib "github.com/maago-web/maago/contrib/auth"
++	"github.com/maago-web/maago/contrib/s3"
+ 
+ 	"example.com/board/auth"
+ 	"example.com/board/board"
+@@ -78,7 +79,25 @@ func main() {
+ 	// Where the files are kept, under names maago makes: a directory
+ 	// beside the binary, which the server does not serve as it is. The
+ 	// view that sends one down checks who asks.
+-	media := maago.LocalMedia{Dir: "media"}
++	var media maago.MediaStore = maago.LocalMedia{Dir: "media"}
++	// A bucket instead, when BOARD_S3_BUCKET is set: a disk is one
++	// machine's, a bucket every copy of the server's. Any S3 API will do,
++	// R2's and MinIO's too. A bucket is one site's: never point a staging
++	// copy at production's, whose files its sweep would delete.
++	if bucket := os.Getenv("BOARD_S3_BUCKET"); bucket != "" {
++		media = s3.Store{
++			Endpoint:        os.Getenv("BOARD_S3_ENDPOINT"),
++			Region:          os.Getenv("BOARD_S3_REGION"),
++			Bucket:          bucket,
++			AccessKeyID:     os.Getenv("BOARD_S3_ACCESS_KEY_ID"),
++			SecretAccessKey: os.Getenv("BOARD_S3_SECRET_ACCESS_KEY"),
++		}
++	}
++	// An empty field, a wrong key or no such bucket stops the server here,
++	// by the field's name, not at the first file.
++	if _, err := media.List(ctx, ""); err != nil {
++		log.Fatal(err)
++	}
+ 	// The admin, at /app/admin/: the models of the apps it is given, to
+ 	// those auth.Can lets see them. The outbox's jobs too: one whose last
+ 	// attempt failed stays there, with its error.

@@ -1,3 +1,5 @@
+examples/board/board/queries/board_file.sql:5:15 board_export_file
+examples/board/board/queries/board_files.sql:4:15 board_export_file
 examples/board/board/queries/board_list.sql:4:6 board_board
 examples/board/board/queries/export_rows.sql:10:30 board_comment c
 examples/board/board/queries/export_rows.sql:11:6 board_post p
