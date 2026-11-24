@@ -408,6 +408,113 @@
    기록(2026-11-24, 구현 리뷰 반영): 구현 리뷰는 ponytail·codex·fable: 막는 것 없음(셋 다). 받은 것: `saveFrom`의 형식 표에 300바이트 뒤 NUL → `application/octet-stream`(fable 1, 머리 16바이트 변이가 `TestLocalMediaStore`·`TestMemory`에서 빨강임을 봄), 계획 2번의 `../../evil.txt` 글을 구현에 맞춤(`Key`는 32자이고 `.`·`/` 없음, fable 2), `topics.go` form 문단 다시 접기(fable 4), D-160 기록 줄의 날짜 11-24(fable 5), `rt/file.go`의 형식 줄에 `// as maago.SaveMediaFrom (media.go)`(ponytail 1). 받지 않은 것: 예의 `deliver`를 줄이기(ponytail 2, 행이 가리키지 않는 파일을 지우는 실패 처리가 이 예의 까닭이고 계획 리뷰가 받은 것), `WithMedia`를 Kind 검사 뒤로(ponytail 2의 nit, 계획 리뷰 fable 1이 정한 닫힘 첫 줄이고 모르는 Kind는 저장소를 쓰지 않아 차이 없음), `failOnce`(ponytail 3, 지적 없음), codex(지적 없음). 예의 정리 두 갈래(앞 파일 지우기, `UpdateNote` 실패 때 `DeleteMedia`)는 시험이 물지 않는다: 헛것 (f)만 `TestDocExamples/main`이 물고 두 갈래는 예의 글일 뿐이다(fable 3, 예의 시험을 늘리지 않음). 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 363초, 게시판 걷기 포함)
 
 6. **`contrib/s3`**: stdlib SigV4(머리 서명과 서명된 URL), Range GET, LIST(페이지 나눔), 크기 모르는 Reader → 확인: S3 문서의 예 벡터(머리 서명과 서명된 URL 둘), 4번의 저장소 시험 함수를 가짜 S3에(가짜는 서명을 다시 계산해 틀리면 403), 길이 모르는 Reader의 `Content-Length`, CI에 MinIO 서비스와 `MAAGO_TEST_S3_URL`(D-91의 꼴, 없으면 CI에서 실패), `TestRuntimeImports`
+
+   계획
+
+   따라가 본 길: 경계는 4번이 정했다(`media.go`의 `MediaStore{Put, Open, Delete, List(ctx, after), URL}`, `MediaFile`은 `fs.File`+`io.Seeker`). 런타임은 열쇠(32자 hex)를 본 뒤에만 저장소를 부르고(`OpenMedia`·`DeleteMedia`·`MediaURL`의 `validKey`), `MediaURL`이 ttl을 1초~7일로 보고 초 단위로 잘라 `URL`에 준다. `SaveMediaFrom`은 늘 길이를 모르는 `io.MultiReader`를 `Put`에 준다(5번 ★: S3는 seek를 기대하지 않고 임시 파일로 센다). `ServeMedia`는 `OpenMedia` → `Stat()`(크기·시각) → `http.ServeContent`이고, ServeContent는 크기를 알려고 `Seek(0, io.SeekEnd)`, 그다음 `Seek(start)`와 `io.CopyN`으로 읽는다(Range가 없으면 0부터). `Handler`는 `LocalMedia`만 검사하고 다른 저장소는 그대로 ctx에 넣는다(`http.go`의 `handler.media`): S3 저장소는 `Handler`를 고치지 않는다. 시험 함수 `internal/mediatest.Store`가 저장소에 묻는 것: 두 저장의 열기·크기·1분 안의 시각, `Put`의 n, 런타임의 열쇠 검사, `ServeMedia`의 Range 206 `PNG`·HEAD·없음 404, `List`를 빈 쪽까지(쪽 상한 1000, `after`는 `>`), 실패한 `Put`이 남김 없음, URL의 200·`Content-Type`(`Put`의 형식)·`attachment`, `parsed.Query().Encode()`로 다시 쓴 쿼리도 200(공백이 `+`가 된다), 경로의 열쇠와 쿼리 값마다 첫 글자를 바꾸면 4xx, 1초 URL은 2초 뒤 4xx, 1.5초 `MediaURL`이 성공, `saveFrom`(한 바이트 Reader, 빈 입력, 실패한 Reader의 남김 없음을 `List`로). 메모리 가짜(`internal/mediatest/mediatest_test.go`)가 그 꼴의 본보기다. contrib의 문서 규칙: `TestNoDecisionsInUserText`가 `go doc -all`로 읽는 패키지 목록(`cmd/maago/doc_test.go:369`), `TestRuntimeDependencies`의 `contrib/auth` 줄(`runtime_test.go`), `TestRuntimeImports`는 `cmd/maago` 밖 모든 시험 아닌 파일(새 패키지도 저절로). PG 시험의 D-91 꼴은 `cmd/maago/practicedb_test.go`의 `pgURL`(없으면 skip, `CI`면 Fatal). TODO 91줄(4번 구현 리뷰 fable 1·3)이 이 작업에 넘긴 것: `Put`의 형식이 객체의 `Content-Type`, ttl이 `X-Amz-Expires` 정수 초(초 단위가 아니면 오류), 열쇠 검사 줄이 S3에서도 런타임 검사를 본다(이것은 `Store`가 이미 런타임 함수로 부르므로 그대로 덮인다).
+
+   조사한 바깥 사실(2026-11-24): MinIO의 공식 배포가 없어졌다. Docker Hub `minio/minio` 저장소는 "object not found", `quay.io/minio/minio`는 익명으로 태그를 못 읽고, `dl.min.io`의 바이너리는 410, GitHub `minio/minio`는 archived, Homebrew `minio`(2025-10-15 bottle)는 deprecated이고 2027-02-17에 꺼진다. 남은 MinIO 이미지: `bitnamilegacy/minio`(Bitnami가 빌드한 MinIO, 2025-08에 얼어붙음, 태그 `2025.7.23-debian-12-r5`), `pgsty/minio`(제3자 fork, 2026-08). AWS 문서의 SigV4 예 벡터는 지금 페이지가 API 목차로 옮겨져, Wayback의 사본(`sig-v4-header-based-auth.html`, `sigv4-query-string-auth.html`)에서 읽었다: 자격 `AKIAIOSFODNN7EXAMPLE`/`wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`, `20130524T000000Z`, `us-east-1`, `examplebucket.s3.amazonaws.com`. GET Object(`Range: bytes=0-9`, `SignedHeaders=host;range;x-amz-content-sha256;x-amz-date`) → `f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41`, GET Bucket(`?max-keys=2&prefix=J`) → `34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7`, 서명된 URL(GET `/test.txt`, `X-Amz-Expires=86400`) → `aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404`. 시험의 주석에 출처 URL을 적는다.
+
+   공개 API(새 패키지 `contrib/s3`, 그대로)
+
+   ```go
+   // Package s3 keeps a Maago project's media in a bucket of Amazon S3 or
+   // of a service that speaks its API (Cloudflare R2, MinIO), so that every
+   // instance of the site sees the same files: set maago.Config.Media to a
+   // Store. It signs its requests itself (AWS Signature Version 4) and uses
+   // the standard library only.
+   package s3
+
+   // Store keeps media in Bucket, a bucket of the site's own. Its methods
+   // are maago.MediaStore's; the app calls maago's media functions.
+   type Store struct {
+   	Endpoint        string // the service's address, no bucket in it: https://s3.us-east-1.amazonaws.com, https://ACCOUNT.r2.cloudflarestorage.com, http://127.0.0.1:9000
+   	Region          string // us-east-1; auto for R2
+   	Bucket          string // the bucket's name
+   	AccessKeyID     string
+   	SecretAccessKey string
+   }
+
+   // Put spools r to a temporary file to count and hash it, then sends it
+   // in one request: whole or not at all. One file is at most 5 GB.
+   func (s Store) Put(ctx context.Context, key, typ string, r io.Reader) (int64, error)
+   // Open asks the size and time of key's file; reading fetches from where
+   // the file is read, so a Range costs only its bytes.
+   func (s Store) Open(ctx context.Context, key string) (maago.MediaFile, error)
+   func (s Store) Delete(ctx context.Context, name string) error
+   // List gives a page of at most 1,000 names, the bucket's.
+   func (s Store) List(ctx context.Context, after string) ([]fs.FileInfo, error)
+   // URL is a presigned GET of m's file that downloads it, under m.Name,
+   // with the type Put kept; ttl is whole seconds from one to 7 days.
+   func (s Store) URL(m maago.Media, ttl time.Duration) (string, error)
+   ```
+
+   그 밖의 공개 이름은 없다(`var _ maago.MediaStore = Store{}`는 컴파일 검사 한 줄).
+
+   바꿀 파일과 새 파일
+   1. 새 `contrib/s3/s3.go`(위 API와 내보내지 않는 것들)
+      - `check()`: 부를 때마다 칸을 본다. `Endpoint`는 `url.Parse`로 http·https, 호스트 있음, 사용자 정보·쿼리·조각 없음, 경로는 비거나 `/`(아니면 `s3: Store.Endpoint %q is the service's address, such as https://s3.us-east-1.amazonaws.com: http or https, a host, and no path; the bucket goes in Store.Bucket`). `Region`·`Bucket`·`AccessKeyID`·`SecretAccessKey`가 비면 그 칸 이름을 말하는 오류, `Bucket`에 `/`가 있으면 오류
+      - 이름 검사: `Put`·`Open`·`Delete`는 먼저 이름이 한 마디인지 본다. 빈 이름, `.`, `..`, `/`·`\`가 든 이름은 오류(`LocalMedia.root`와 같은 규칙). 빈 이름은 버킷 자체의 요청(`DELETE /bucket` = DeleteBucket, `PUT /bucket` = CreateBucket)이 된다
+      - `escape(s string, slash bool) string`: RFC 3986의 unreserved(`A-Z a-z 0-9 - . _ ~`)만 그대로, 나머지 바이트는 `%XX` 대문자, `slash`면 `/`도 그대로(AWS의 UriEncode). 경로는 `"/" + escape(Bucket) + "/" + escape(name)`이고, 같은 글을 요청의 `URL.RawPath`에(서명한 글이 그대로 선 위로 간다). 쿼리도 `escape`로 키 차례·값 차례로 이은 글 하나를 서명과 `RawQuery`에 같이(`url.Values.Encode`는 공백을 `+`로 써서 쓰지 않는다)
+      - `sign(req *http.Request, payload string, now time.Time)`: `x-amz-date`·`x-amz-content-sha256`(payload)을 넣고, `host`(`req.URL.Host`)와 **서명하는 때 `req.Header`에 있는 모든 머리**를 소문자로 정렬해 정규 요청을 만든다. 날짜·지역·`s3`·`aws4_request`로 이어 만든 열쇠의 HMAC-SHA256을 `Authorization`에. 전송이 뒤에 더하는 `User-Agent`·`Accept-Encoding`·`Content-Length`는 서명 밖이다. 벡터 시험이 임의의 호스트·경로·머리로 부를 수 있게 `Store`의 경로 짓기와 따로다
+      - `presign(u *url.URL, now time.Time, ttl time.Duration, q map[string]string) string`: `X-Amz-Algorithm`·`Credential`·`Date`·`Expires`(정수 초)·`SignedHeaders=host`와 q를 정규 쿼리로, 몸 해시는 `UNSIGNED-PAYLOAD`, 끝에 `X-Amz-Signature`
+      - `do(ctx, method, path string, query map[string]string, header http.Header, body *os.File, n int64, payload string) (*http.Response, error)`: `http.NewRequestWithContext` → `RawPath`·`RawQuery` → `sign(…, time.Now())` → `http.DefaultClient.Do`. 몸이 있으면 `ContentLength = n`, n이 0이면 `http.NoBody`(Go는 몸이 nil 아닌 0 길이를 "모름"으로 보고 chunked로 보낸다: S3는 411). 2xx가 아니면 S3 오류 XML(`<Error><Code>…<Message>…`)을 `s3: %s %s/%s: %d %s: %s`(방법, 버킷, 이름, 상태, Code, Message)로
+      - `Put`: `check`·이름 검사 → `os.CreateTemp("", "maago-s3-*")`(0600), `defer` 닫고 지움 → `io.Copy(io.MultiWriter(f, h), r)`로 n과 SHA-256 → `f.Seek(0, 0)` → `PUT`에 `Content-Type: typ`(빈 형식이면 머리 없음)와 hex 해시. 읽기가 실패하면 요청을 보내지 않는다(남김 없음). 돌려주는 것은 n
+      - `Open`: `HEAD` → 404면 `fmt.Errorf("s3: %s/%s: %w", Bucket, key, fs.ErrNotExist)`, 아니면 `Content-Length`와 `Last-Modified`(`http.ParseTime`)로 `*object{s, ctx, key, size, mod, off, body, at}`. `Read`: `off >= size`면 `io.EOF`(요청 없음, 빈 파일도), `body`가 없거나 `at != off`면 앞 몸을 닫고 `GET`에 `Range: bytes=off-`, 206이고 `Content-Range`의 시작이 off가 아니면 오류, 읽은 만큼 `off`·`at`을 민다. `Seek`는 `off`만 바꾼다(음수·없는 whence는 오류). `Stat`은 작은 `fileInfo{name, size, mod}`(모드 0444). `Close`는 몸을 닫는다
+      - `Delete`: `DELETE`, 2xx와 404는 nil(S3는 없는 열쇠에도 204)
+      - `List`: `GET /bucket/?list-type=2&start-after=after`(`after`가 비면 그 값 없이), `encoding/xml`로 `ListBucketResult.Contents{Key, Size, LastModified}`, 응답 한 번이 한 쪽, `Contents`가 없으면 빈 쪽
+      - `URL`: `check`, ttl이 1초 아래·7일 위·초 단위가 아니면 오류(`MediaURL`이 먼저 보지만 `URL`을 바로 부르는 코드에도), `response-content-disposition`은 `ServeMedia`와 같은 글(`mime.FormatMediaType("attachment", filename=m.Name)`, 이름이 비면 `attachment`), 그다음 `presign`. `response-content-type`은 넣지 않는다(아래 ★)
+      - → 확인: 아래 시험들
+   2. 새 `internal/s3fake/s3fake.go`: `func New(t *testing.T) s3.Store`. `httptest.Server` 하나와 버킷 하나(이름 `media`, 자격·지역 고정)를 만들고 그것을 가리키는 `s3.Store`를 준다(서버는 `t.Cleanup`에서 닫는다). 7번의 `SweepMedia` 시험(다른 패키지)도 이것을 쓴다(그래서 `_test.go`가 아니라 internal 패키지, `mediatest`와 같은 꼴)
+      - **서명 검증은 가짜가 따로 쓴 SigV4**(`contrib/s3`의 함수를 부르지 않는다): 받은 요청에서 정규 요청을 다시 짓는다. 방법, `r.URL.EscapedPath()`(선 위로 온 경로), `r.URL.RawQuery`를 풀어(`+`는 공백, 실제 서버처럼) RFC 3986으로 다시 이스케이프해 정렬한 쿼리(서명된 URL이면 `X-Amz-Signature`를 뺀다), `SignedHeaders`에 적힌 머리의 받은 값(`host`는 `r.Host`). 머리 서명은 `x-amz-content-sha256`이 받은 몸의 SHA-256과 같아야 하고(아니면 400 `XAmzContentSHA256Mismatch`), 서명된 URL은 `UNSIGNED-PAYLOAD`, `X-Amz-Date`+`X-Amz-Expires`가 지났으면 403, `X-Amz-Expires`가 정수 1~604800이 아니면 400. 자격의 범위(키·날짜·지역·`s3`)가 다르면 403. 서명이 다르면 403 `SignatureDoesNotMatch`
+      - PUT: `Content-Length`가 없거나 chunked면 411 `MissingContentLength`, 몸과 `Content-Type`·시각을 지도에. GET·HEAD: `http.ServeContent`(Range 206·`Last-Modified`·길이), `Content-Type`은 PUT의 것, 서명된 URL이면 `response-content-disposition`을 `Content-Disposition`으로. 없으면 404 `NoSuchKey`(XML). DELETE: 204(없어도). LIST(`list-type=2`): `start-after`보다 큰 이름을 바이트 차례로 **한 쪽에 둘**(7번의 "LIST 페이지 둘 이상"이 저절로), `IsTruncated`. 그 밖의 경로·방법은 400
+   3. 새 `contrib/s3/s3_test.go`(package `s3_test`)
+      - `TestFake`: `mediatest.Store(t, s3fake.New(t))`
+      - `TestPutLength`: `t.Setenv("TMPDIR", t.TempDir())`. 길이 1000의 `iotest.OneByteReader`와 빈 Reader를 `Put` → 성공(가짜가 411을 내지 않음)이고 n이 길이, `Open`의 내용이 같다. 그다음 `SecretAccessKey`를 바꾼 저장소의 `Put` → 오류에 `403`과 `SignatureDoesNotMatch`(가짜가 실제로 검증한다), 그 오류 뒤에도 TMPDIR이 비어 있다(임시 파일을 늘 지움)
+      - `TestNames`: `Put`·`Open`·`Delete`가 `""`·`.`·`..`·`a/b`·`a\b`를 거절하고 가짜에 요청이 가지 않는다(가짜의 지도가 그대로, `Delete("")`가 버킷을 지우는 요청이 되지 않음)
+      - `TestConfig`: 칸마다 하나씩 빈 저장소, `Endpoint`에 경로(`https://s3.amazonaws.com/media`)·쿼리·사용자 정보·`ftp://`, `Bucket`의 `/` → 모든 메서드가 칸 이름을 말하는 오류. `URL`의 ttl 0·1500ms·8일이 오류, 1초·7일은 성공(TODO 91줄: 초 단위)
+   4. 새 `contrib/s3/internal_test.go`(package `s3`: 내보내지 않는 서명 함수를 부른다. `s3fake`는 `s3`를 import하므로 여기서는 쓰지 않는다)
+      - `TestVectors`: 위 세 벡터. GET Object와 GET Bucket은 `http.NewRequest`에 문서의 머리(`Range`)를 넣고 `sign(req, 빈 몸 해시, 2013-05-24)` 뒤 `Authorization`이 문서 글 그대로, 서명된 URL은 `presign(…, 86400초, nil)`의 `X-Amz-Signature`가 문서 값
+      - `TestEscape`: 0~255의 바이트마다 `escape`가 unreserved면 그대로, 아니면 `%XX` 대문자, `/`는 `slash`일 때만 그대로. 공백은 `%20`(`+`가 아님), `~`는 그대로
+      - `TestServer`(D-91 꼴): `MAAGO_TEST_S3_URL`(꼴 `http://KEY:SECRET@127.0.0.1:9000`, 사용자 정보가 자격, 지역은 `us-east-1`)이 없으면 skip, `CI`면 Fatal. 실행마다 새 버킷 `maago-<16 hex>`을 `do(ctx, "PUT", "/"+버킷, …)`로 만들고 `t.Cleanup`에서 `List`·`Delete`로 비운 뒤 `DELETE /버킷`(worktree 여럿이 한 서버를 써도 `Store`의 `List` 비교가 부딪히지 않는다, PG의 시험마다 스키마와 같은 뜻). 그 위에서 `mediatest.Store`
+   5. `runtime_test.go` `TestRuntimeDependencies`: `contrib/s3`의 의존이 런타임의 `want`와 `maago`, 그리고 자신뿐이라는 줄(`contrib/auth` 줄 아래, 같은 꼴). → 확인: 헛것으로 `s3.go`에 `internal/web`을 import하면 빨강
+   6. `cmd/maago/doc_test.go:369` `TestNoDecisionsInUserText`의 목록에 `./contrib/s3`
+   7. `.github/workflows/ci.yml`: `services:`에 `minio`(image `bitnamilegacy/minio:2025.7.23-debian-12-r5`, env `MINIO_ROOT_USER: maago`, `MINIO_ROOT_PASSWORD: maago-secret`, ports `9000:9000`: Bitnami 이미지는 명령 인자 없이 서버를 띄운다), job env에 `MAAGO_TEST_S3_URL: http://maago:maago-secret@127.0.0.1:9000`, test 앞에 러너에서 기다리는 단계(`for i in $(seq 60); do curl -sf http://127.0.0.1:9000/minio/health/live && exit 0; sleep 1; done; exit 1`: 이미지 안에 curl이 있는지에 기대지 않는다)
+   8. 문서
+      - `contrib/s3`의 패키지 문서(위 API 글)
+      - `docs/ARCHITECTURE.md`: `contrib/` 나무에 `s3/  S3 호환 미디어 저장소(stdlib SigV4, M13): Store{Endpoint, Region, Bucket, AccessKeyID, SecretAccessKey}가 maago.MediaStore (D-160)`, 원칙의 "예외는 넷"을 다섯으로(`Config.Media`에 주는 `contrib/s3`, D-160)
+      - `docs/DECISIONS.md` D-160에 고침 한 줄(M13 6번: 아래 ★들)과 끝의 기록 줄. D-123의 고침(루트 밖 공개 패키지의 셋째)과 `maago doc`의 미디어 문단은 9번 목록대로 9번
+      - `docs/TODO.md` 91줄 체크(`Put`의 형식은 `Store`의 URL `Content-Type` 줄이 가짜와 MinIO에서, 초 단위 ttl은 `TestConfig`가, 열쇠 검사는 `Store`의 런타임 줄이 문다)
+      - → 확인: `TestNoDecisionsInUserText`, `go doc ./contrib/s3`가 패키지 문서와 `Store`를 보인다
+   9. 게시판·런타임: 고치지 않는다 → 확인: `git diff --stat examples/ *.go`에 `runtime_test.go` 밖의 루트 파일이 없다
+
+   단계와 확인
+   1. 시험 먼저: `internal_test.go`의 벡터·escape, `s3_test.go`, `s3fake` → 확인: `go vet ./...`가 없는 패키지·이름으로 실패(빨강)
+   2. `s3.go` → 확인: `go test ./contrib/s3 ./internal/s3fake`(벡터 셋이 문서 값과 같고 `TestFake`·`TestPutLength`·`TestNames`·`TestConfig` 초록, `TestServer`는 skip)
+   3. 진짜 서버 한 번: Homebrew의 `minio` bottle을 `brew fetch`로 받아 scratchpad에 풀고(설치하지 않음) `MINIO_ROOT_USER=maago MINIO_ROOT_PASSWORD=maago-secret minio server <scratch>/data --address 127.0.0.1:9000`을 띄워 `MAAGO_TEST_S3_URL=http://maago:maago-secret@127.0.0.1:9000 go test -run TestServer -v ./contrib/s3` → 확인: PASS(skip이 아님). 이 길이 안 되면 그렇게 기록하고 첫 진짜 서버 실행은 push 뒤 CI다(push는 묻고 한다: M13 끝의 "push 뒤 GitHub Actions" 항목에 CI의 `TestServer` PASS를 더한다)
+   4. 헛것(하나씩 넣고 실패를 보고 되돌린다): (a) `sign`이 `range` 머리를 빼고 서명 → `TestVectors`의 GET Object (b) `escape` 대신 `url.QueryEscape` → `TestEscape`(공백·`~`) (c) 빈 몸에 `http.NoBody` 대신 빈 파일 → `TestPutLength`의 빈 Reader와 `Store`의 빈 저장(가짜 411) (d) PUT의 몸 해시를 빈 몸의 해시로 → 가짜 400, `TestFake` (e) `URL`이 `response-content-disposition`을 서명 뒤에 덧붙임 → `Store`의 쿼리 값 바꾸기(가짜) (f) `Read`가 다시 열 때 늘 `bytes=0-` → `Store`의 Range 206 `PNG` (g) 가짜 `List`가 `start-after`를 무시 → `Store`의 쪽 상한 (h) 가짜가 서명을 보지 않음 → `TestPutLength`의 틀린 비밀 열쇠 (i) 이름 검사를 지움 → `TestNames` (j) `URL`이 초 단위가 아닌 ttl을 받음 → `TestConfig` (k) `Endpoint`의 경로를 받음 → `TestConfig` (l) 임시 파일을 지우지 않음 → `TestPutLength`의 TMPDIR (m) 가짜의 만료 검사를 지움 → `Store`의 1초 URL
+   5. 문서와 CI 파일 → 확인: `go test -run 'TestNoDecisionsInUserText' ./cmd/maago`, `go test -run TestRuntimeDependencies .`
+   6. 끝 확인: 루트에서 `go mod tidy -diff && go vet ./... && go test ./...`, `gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4`로 전체(`-timeout 60m`, 앞에서 끝까지 기다려 로그의 `go test exit=` 줄), 게시판 걷기 포함. 새 시험은 `GOTOOLCHAIN=go1.25.14`로도
+
+   ★ → 에이전트 편의로 결정
+   - **칸은 `Endpoint`·`Region`·`Bucket`·`AccessKeyID`·`SecretAccessKey`, 요청은 늘 경로 꼴(`/bucket/key`).** 버킷 주소 하나(`https://bucket.s3…`)를 받으면 서비스 주소와 버킷 주소가 같은 꼴이라, 에이전트가 AWS 문서의 서비스 주소를 넣으면 `Put`이 열쇠 이름의 버킷을 만드는 요청(CreateBucket)이 된다: 조용히 틀린다(PHILOSOPHY 7). 칸을 나누면 `Endpoint`의 경로를 거절할 수 있다. 경로 꼴은 S3·R2·MinIO에서 같고, 점이 든 버킷 이름도 TLS에서 깨지지 않는다. 칸 이름은 AWS 설정의 이름 그대로라 환경 변수와 한 대 한으로 잇는다. 대가: AWS가 2020년에 미룬 경로 꼴의 폐기가 다시 오면 칸 하나를 더한다
+   - **타입은 `s3.Store`, 칸의 값**(생성자가 아니라): 4번의 `LocalMedia{Dir, SiteURL}`과 같은 꼴(`Config{Media: s3.Store{…}}`가 한눈에 읽힌다). 버킷 주소 칸을 두지 않으므로 메서드 `URL`과 이름이 부딪히지 않는다. `http.Client` 칸은 없다(`http.DefaultClient`, 기한은 ctx가)
+   - **`Put`은 늘 임시 파일에 받아 세고 해시한다**(5번 ★, Q3). 길이와 실제 몸 해시를 머리에 실어 S3가 받은 바이트를 검증한다(`UNSIGNED-PAYLOAD`를 쓰지 않는다). 한 PUT의 상한 5GB는 문서에 적고 나누어 올리기는 하지 않는다(상한은 앱의 몫, Q2)
+   - **`Open`은 `HEAD` 하나, 읽기는 그 자리부터의 범위 GET.** ServeContent가 크기를 먼저 seek로 묻고 Range의 시작으로 seek하므로, 처음부터 몸을 여는 GET은 Range 요청마다 버려진다. 읽기 자리가 몸의 자리와 다를 때만 다시 연다(처음부터 끝까지 읽는 일꾼은 GET 하나)
+   - **서명하는 머리는 `host`와 그때 요청에 있는 모든 머리.** 머리 목록을 따로 들지 않아 `Range`·`Content-Type`·`x-amz-*`가 저절로 서명되고, AWS의 벡터(서명된 `range`)를 그대로 재현한다
+   - **URL은 `response-content-disposition`만 덧붙이고 형식은 `Put`의 것**(TODO 91줄). `ServeMedia`와 같은 `attachment` 글이고, 형식은 저장 때 정해진 하나라 URL에서 다시 정하지 않는다. `MediaURL`이 ttl을 이미 보지만 `URL`도 초 단위·1초~7일을 본다(`X-Amz-Expires`는 정수 초, 메모리 가짜와 같다)
+   - **이름 규칙은 `LocalMedia`와 같은 "한 마디"**: 빈 이름이 버킷 자체의 요청이 되는 것을 막고, 두 저장소의 `Delete(name)`이 같은 이름을 받는다. 버킷에 `/`가 든 남의 객체가 있으면 `List`는 주지만 지우지 못한다(7번 청소는 열쇠 꼴과 `.tmp-`만 지운다)
+   - **가짜는 `internal/s3fake`이고 서명을 제 코드로 다시 계산한다.** `contrib/s3`의 서명 함수를 부르면 같은 버그를 둘이 나눠 가진다: 클라이언트의 계산은 문서 벡터가, 서명한 것과 선 위로 간 것이 같은지는 가짜가 받은 요청에서 본다. SigV4 약 40줄이 둘이 되지만 시험의 기준이 따로 서는 값이다. internal 패키지라 7번의 `SweepMedia` 시험(루트)이 같은 가짜를 쓴다. 한 쪽에 둘이라 쪽 넘김이 늘 돈다(공개 쪽 크기 칸은 두지 않는다)
+   - **진짜 서버 시험은 실행마다 새 버킷**, `MAAGO_TEST_S3_URL`은 자격을 사용자 정보에 담은 서버 주소이고 지역은 `us-east-1`(MinIO의 기본). `Store`의 `List` 비교는 버킷을 혼자 쓸 때만 맞고, PG의 시험마다 스키마(D-113)와 같은 뜻이다. 없으면 skip, `CI`면 실패(D-91)
+   - **CI의 MinIO는 `bitnamilegacy/minio:2025.7.23-debian-12-r5`**(공식 `minio/minio`·quay·`dl.min.io`가 모두 없어짐, 위 사실). 할 일의 "MinIO 서비스"를 그대로 지키는 길 중, MinIO 자신의 코드를 이름 있는 배포자가 빌드했고 명령 인자 없이 `services:`로 뜨는 것이 이것뿐이다(GitHub의 서비스 컨테이너는 명령을 받지 않아 `pgsty/minio`나 옛 공식 이미지는 `docker run … server /data` 단계가 든다). 얼어붙은 이미지이지만 시험 전용이고 태그를 고정한다. 그 이미지마저 사라지면 같은 줄을 다른 S3 호환 서버로 바꾼다(시험은 서버를 모른다). 새 종류의 의존이 아니라 계획된 MinIO의 배포처가 바뀐 것으로 보았다
+   - **런타임은 그대로**: `Handler`는 S3 칸을 검사하지 않는다(첫 요청이 칸 이름을 말하는 오류를 낸다). `Handler`가 `contrib/s3`를 알면 의존이 거꾸로 선다
+
+   하지 않는 것
+   - 가상 호스트 꼴(`bucket.s3…`), 세션 토큰·STS·IAM 역할의 자격, 나누어 올리기(5GB 넘는 파일), 다시 시도, 서버 쪽 암호화 머리, 버킷 안의 접두(버킷은 사이트 혼자의 것), `response-content-type`
+   - 환경 변수나 URL 글에서 `Store`를 읽는 공개 함수(게시판 8번이 칸 다섯을 환경에서 채운다), `Handler`의 S3 칸 검사
+   - CI에서 진짜 AWS(자격 비밀이 든다), 로컬 시험이 MinIO를 스스로 띄우기
+   - `maago doc`의 미디어 문단(단일 인스턴스·S3·서명된 URL)과 D-123·D-140 고침(9번), `SweepMedia`(7번), 게시판(8번)
+
 7. **고아 청소**(Q4): 태그 `media`, 생성된 "쓰는 중" 쿼리, `SweepMedia` → 확인: 오래된 고아만 지움, 여유 안의 새 것과 `.tmp-`, 태그 없는 프로젝트의 오류, 열쇠 열이 둘인 모델·두 앱에서 둘 다 쓰는 중으로 봄, 로컬과 가짜 S3 둘(LIST 페이지 둘 이상)
 8. **게시판 0041~**: 일꾼이 만든 파일 여럿(내보내기 따위, 이미지 처리 아님: D-72)을 이름 → 열쇠 행으로 저장하고 뷰가 이름으로 찾아 준다(readmate의 `media/marked/<id>/` 꼴), 저장소를 환경으로 고름, 서명된 URL로 밖에 건넴, 청소(태그), outbox의 Kind 둘(웹훅과 이 일: `main`의 일꾼이 Kind로 가름), lease를 넘어 다시 도는 일이 남긴 파일은 청소가 치운다 → 확인: `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardMap`, Catches(일꾼 ctx에 저장소 없음, 태그 빠뜨림 따위)
 9. **문서**: `maago doc`의 미디어(단일 인스턴스, 서명된 URL과 그 한계: 만든 프로세스만 받고 다시 시작하면 403, 청소)·main(일꾼의 저장소, Kind 둘)·model(태그 `media`), 결정 고침: D-140·D-153·D-159·D-123(루트 밖 공개 패키지의 셋째 `contrib/s3`)·D-09·D-72(앱이 만든 바이트는 이미지 처리가 아니다)·D-61·D-148·D-23·D-34·D-32·D-91·D-105·D-111·D-154·D-120·D-132, MILESTONES v1에서 옮김 → 확인: `TestDocExamples`, `TestPackageDoc`, `TestNoDecisionsInUserText`
