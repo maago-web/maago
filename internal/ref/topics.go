@@ -51,9 +51,8 @@ sqlite:app.db or postgres://….
     (where people's times are; nil is UTC), Prefix (the path the site is
     under, such as /app), MaxBody (0 is 10MB), MediaDir or Media (where
     media is kept, maago doc form). MediaDir is a short form for an app
-    that uses media only in requests: when a worker or the sweep uses it
-    too, main makes one store and gives the same one to Config.Media, the
-    worker and the sweep.
+    with no worker or sweep: the example's main makes one store and gives
+    the same one to Config.Media, the worker and the sweep.
   - Serve stops on SIGINT or SIGTERM: no new connections, the running
     requests finish within 30 seconds. TLS is a proxy's in front, or an
     http.Server of main's.
@@ -78,15 +77,13 @@ admin shows it.
 
 A project with media sweeps it in main beside the worker, as the
 example's main does: maago.SweepMedia(maago.WithMedia(work, media), db, 0)
-as the server starts and each day after, which deletes the files no row
-keeps. The store is that database's alone: a staging site pointed at the
-live bucket deletes the live files. A deploy that tags a new field media
-rebuilds every binary that sweeps: an old one does not know the new
-column, and once a file over a day old has its key moved there, it
-deletes the file. main checks the store as it starts with
-media.List(ctx, ""), after Handler, which checks a directory: a bucket's
-empty field, wrong key or missing bucket stops the server there, not at
-the first file.`,
+as the server starts and each day after, which deletes the files over a
+day old that no row keeps. The store is that database's alone: a staging
+site pointed at the live bucket deletes the live files. A deploy that
+tags a new field media rebuilds every binary that sweeps: an old one does
+not know the new column, and deletes that column's files once they are a
+day old. main checks a bucket's store as it starts, after Handler (the
+example's comment).`,
 		API: []string{"Handler", "Config", "App", "DBConfig", "OpenDB", "Migrate", "Serve", "Messages", "DefaultMessages", "Prefix"},
 	},
 	{
