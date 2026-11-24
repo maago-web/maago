@@ -366,7 +366,7 @@ func TestNoDecisionsInUserText(t *testing.T) {
 	// What is left of a sentence a number was cut from: a comment line
 	// that starts with the mark, which go doc joins to the line before.
 	cut, joined := regexp.MustCompile(`^\s*//\s*[.,:;](\s|$)`), regexp.MustCompile(`\S [.,:;](\s|$)`)
-	for _, pkg := range []string{".", "./rt", "./contrib/admin", "./contrib/auth", "./maagotest"} {
+	for _, pkg := range []string{".", "./rt", "./contrib/admin", "./contrib/auth", "./contrib/s3", "./maagotest"} {
 		cmd := osexec.Command("go", "doc", "-all", pkg)
 		cmd.Dir = "../.."
 		out, err := cmd.Output()

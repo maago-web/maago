@@ -53,6 +53,14 @@ func TestRuntimeDependencies(t *testing.T) {
 	if got := strings.TrimSpace(string(out)); got != "github.com/maago-web/maago/contrib/auth" {
 		t.Errorf("contrib/auth depends on %q", got)
 	}
+	// The S3 media store: the runtime's, maago, and itself (D-160).
+	out, err = exec.Command("go", "list", "-deps", "-f", "{{if not .Standard}}{{.ImportPath}}{{end}}", "./contrib/s3").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Fields(string(out)), append(want, "github.com/maago-web/maago/contrib/s3"); strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("contrib/s3 depends on %q, want %q", got, want)
+	}
 }
 
 func TestOpt(t *testing.T) {

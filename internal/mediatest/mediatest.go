@@ -78,6 +78,11 @@ func Store(t *testing.T, s maago.MediaStore) {
 	if ns := names(all); !slices.IsSorted(ns) || len(slices.Compact(slices.Clone(ns))) != len(ns) || size(all, m.Key) != int64(len(pngBytes)) || size(all, m2.Key) != int64(len(other)) || size(all, key) != -1 {
 		t.Errorf("listed %v", names(all))
 	}
+	for _, i := range all { // what a sweep spares new files by
+		if i.Name() == m.Key && time.Since(i.ModTime()).Abs() > time.Minute {
+			t.Errorf("listed %s of %v", m.Key, i.ModTime())
+		}
+	}
 	if rest := list(t, ctx, s, first); size(rest, first) != -1 || size(rest, second) < 0 {
 		t.Errorf("listed after %s: %v", first, names(rest))
 	}

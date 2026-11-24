@@ -25,6 +25,7 @@ jobs:
           --health-retries 15
     env:
       MAAGO_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/postgres
+      MAAGO_TEST_S3_URL: http://maago:maago-secret@127.0.0.1:9000
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -32,6 +33,16 @@ jobs:
           go-version: 1.25.x
           cache: false
       - run: go version
+      - name: minio
+        # The S3 tests' server. MinIO's own images are gone; this one is
+        # Bitnami's build, whose default command is a setup script: run
+        # the server by name instead.
+        run: |
+          docker run -d --name minio -p 9000:9000 -e MINIO_ROOT_USER=maago -e MINIO_ROOT_PASSWORD=maago-secret \
+            --entrypoint /opt/bitnami/minio/bin/minio bitnamilegacy/minio:2025.7.23-debian-12-r5 server /tmp/data
+          for i in $(seq 60); do curl -sf http://127.0.0.1:9000/minio/health/live && exit 0; sleep 1; done
+          docker logs minio
+          exit 1
       - name: gofmt
         # gofmt -l exits 0 even when it lists files; a parse error must fail too
         run: |
