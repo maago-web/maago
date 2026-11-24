@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -55,8 +57,33 @@ func TestPutLength(t *testing.T) {
 	}
 	other := s
 	other.Bucket = "other"
-	if err := other.Delete(ctx, newKey()); err == nil || !strings.Contains(err.Error(), "NoSuchBucket") {
+	if err := other.Delete(ctx, newKey()); err == nil || !strings.Contains(err.Error(), "NoSuchBucket") || errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("delete in a bucket of none: %v", err)
+	}
+}
+
+// A redirect is an error, not followed: a PUT or DELETE followed as a
+// GET would end in a 200 for nothing done.
+func TestRedirect(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ok" {
+			http.Redirect(w, r, "/ok", http.StatusFound)
+			return
+		}
+		w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+		io.WriteString(w, "<ListBucketResult></ListBucketResult>")
+	}))
+	defer srv.Close()
+	s := s3.Store{Endpoint: srv.URL, Region: "us-east-1", Bucket: "media", AccessKeyID: "id", SecretAccessKey: "secret"}
+	ctx := t.Context()
+	key := newKey()
+	_, put := s.Put(ctx, key, "text/plain", strings.NewReader("x"))
+	_, open := s.Open(ctx, key)
+	_, list := s.List(ctx, "")
+	for i, err := range []error{put, open, s.Delete(ctx, key), list} {
+		if err == nil || !strings.Contains(err.Error(), "302") {
+			t.Errorf("call %d: %v", i, err)
+		}
 	}
 }
 

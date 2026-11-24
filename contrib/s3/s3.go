@@ -236,9 +236,14 @@ func (s Store) path(u *url.URL, name string) {
 	}
 }
 
+// client follows no redirect: a PUT or DELETE sent on as a GET would end
+// in a 200 for what was never done.
+var client = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+
 // do sends a signed request of name's file, the bucket's for "", with
-// body's n bytes whose SHA-256 is payload. A status but 2xx is an error,
-// one that is fs.ErrNotExist for 404.
+// body's n bytes whose SHA-256 is payload. A status but 2xx is an error;
+// a 404 of a file's HEAD or GET is fs.ErrNotExist, of nothing else (a
+// bucket of none).
 func (s Store) do(ctx context.Context, method, name string, query url.Values, header http.Header, body io.Reader, n int64, payload string) (*http.Response, error) {
 	u, err := s.check()
 	if err != nil {
@@ -259,7 +264,7 @@ func (s Store) do(ctx context.Context, method, name string, query url.Values, he
 		req.Header[k] = v
 	}
 	s.sign(req, payload, time.Now())
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +278,7 @@ func (s Store) do(ctx context.Context, method, name string, query url.Values, he
 		msg += ": " + e.Code + ": " + e.Message
 	}
 	err = fmt.Errorf("s3: %s %s/%s: %s", method, s.Bucket, name, msg)
-	if resp.StatusCode == http.StatusNotFound {
+	if resp.StatusCode == http.StatusNotFound && name != "" && (method == "HEAD" || method == "GET") {
 		err = fmt.Errorf("%w (%w)", err, fs.ErrNotExist)
 	}
 	return nil, err
