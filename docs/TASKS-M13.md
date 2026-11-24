@@ -524,6 +524,106 @@
    기록(2026-11-24, 구현 리뷰 반영): 구현 리뷰는 ponytail·codex·fable: 막는 것 없음(셋 다). 받은 것: `escape`의 `slash` 인자를 지움(ponytail 1, 본 코드는 늘 false), `presign`의 nil 분기를 지우고 시험이 `url.Values{}`를 넘김(ponytail 2), `List` 앞의 `check`를 지움(ponytail 3, `do`가 먼저 본다; `Put`·`Open`·`Delete`의 `checkName`은 이름 검사라 그대로), `sign`이 `do`의 정규 `RawQuery`를 그대로 서명(ponytail 4, `TestVectors`의 쿼리는 이미 정렬된 꼴), `object.at`을 지우고 `Seek`가 자리가 바뀌면 몸을 닫음(ponytail 5), 없는 버킷의 `List`가 `NoSuchBucket`이고 `fs.ErrNotExist`가 아님(fable 1, `TestPutLength`), `TestReads`에 못 읽는 `LastModified`의 `List`(fable 2: 0 시각이면 7번 청소가 새 파일을 지울 수 있다), 206인데 짧은 몸의 `io.ErrUnexpectedEOF`·`Open`과 `Read` 사이에 지워진 파일의 `fs.ErrNotExist`·`Content-Length` 없는 HEAD(fable 3), 계획 글의 어긋남 둘(`TestServer`의 이름 `""`, 오류 글의 `resp.Status`, fable 6)과 `escape`·`object`의 글. 변이 여섯(`name != ""`, `LastModified` 오류, `ErrUnexpectedEOF`, 404의 `GET`, `Content-Length` 검사, `Seek`의 몸 닫기)을 하나씩 넣어 `TestPutLength`·`TestReads`가 빨강임을 보고 되돌림(`cmp` 같음). 받지 않은 것: 가짜의 몸 해시 검사(fable 4)는 직접 시험하지 않는다, 헛것 (d')로 적는다: 가짜의 해시 검사를 끄면 시험 없음(지금은 (d)가 고치지 않은 가짜에서 빨강으로 덮는다, `s3fake`는 `contrib/s3`를 import해 안쪽 시험이 손 요청을 서명할 수 없다), `Content-Type` 서명의 시험(fable 5, 서버가 서명 안 된 `Content-Type`도 받아 동작 위험이 없다), `Put`의 `GetBody`(fable 7, "하지 않는 것: 다시 시도"와 맞음), codex(지적 없음, 쓰기 금지 환경이라 실행은 못 함). 합치기 조건: push 뒤 CI의 `TestServer`가 PASS(skip 아님)인지 본다(fable, TODO). `GOTOOLCHAIN=go1.25.14`로 `contrib/s3` 초록. 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 370초, 게시판 걷기 포함)
 
 7. **고아 청소**(Q4): 태그 `media`, 생성된 "쓰는 중" 쿼리, `SweepMedia`(6번 계획 리뷰 codex 4에서 넘어옴: `MediaStore.Delete` 주석의 "a name List gave"를 열쇠와 `.tmp-*`로 좁히고, 버킷의 남의 이름(`/`가 든 것)을 지우지 않음을 시험에) → 확인: 오래된 고아만 지움, 여유 안의 새 것과 `.tmp-`, 태그 없는 프로젝트의 오류, 열쇠 열이 둘인 모델·두 앱에서 둘 다 쓰는 중으로 봄, 로컬과 가짜 S3 둘(LIST 페이지 둘 이상)
+
+   계획
+
+   따라가 본 길: 저장소의 이름 모음은 4번의 `MediaStore.List(ctx, after)`(이름 차례의 쪽, 빈 쪽이 끝, 열쇠 아닌 이름도: 로컬의 `.tmp-<key>`·`.gitignore`, S3의 남의 `a/b`)이고 시각은 `fs.FileInfo.ModTime()`(로컬 mtime, S3 `LastModified`, 6번이 못 읽으면 오류로). `Delete(name)`은 로컬이 `root`의 한 마디 규칙, S3가 `checkName`으로 `/`를 거절한다. 열쇠 검사는 `validKey`(32자 소문자 hex, `media.go`). 생성기의 모든 생성물은 앱마다다(`build.go:158`의 `models_gen.go`·`admin_gen.go`·`queries_gen.go`·`urls_gen.go`): 프로젝트 하나에 하나인 생성 파일은 없다. 모든 앱을 받는 생성기는 이미 있다(`admingen.File(d, app, apps, …)`). 생성 코드가 런타임에 남기는 상태의 자리는 `internal/rtcore`(루트와 `rt`가 함께 본다, 마지막 `Handler`의 Prefix·TimeZone처럼)이고, 생성 코드는 공개 `rt`만 부른다(`rt`는 `maago`를 import하므로 루트는 `rt`를 못 부른다). 지금 생성 코드에 `init`은 없다(`mapper.Names`는 사용자의 `init`을 이름 충돌에서 뺀다, `names.go:170`). 일꾼은 `Handler`를 지나지 않고(`outbox.Run(work, db, …)`), `DBFrom`은 없으면 panic이고 문서가 "a test uses WithDB"라고 한다: 생성된 쿼리와 `outbox`는 모두 db를 인자로 받는다. 태그는 `ref.FieldTags`의 닫힌 목록을 `model.fieldOptions`가 읽고 목록에 있는데 `case`가 없으면 panic(`check.go:410`). `TestDocKeysAreRead`는 목록의 항목마다 그것을 빼면 그 목록을 보이는 주제(`model`)의 예를 `maago check`가 거절해야 하므로 `docs/model.txt`가 `media`를 써야 한다. `TestGeneratedCallsAppAPI`는 생성 코드의 주석 속 `maago.X`도 세고 앱 코드(`internal/ref` 포함)에 그 이름이 있어야 한다. 생성된 SQL의 안전띠는 `checkGenerated`(`build.go:394`, 모델 DDL의 연습 DB에 prepare). 뿌리 시험(`package maago`)은 DB 드라이버를 import하지 않는다(`maagotest.DB`는 쓰는 쪽이 드라이버를 넣는다): 진짜 DB로 생성 코드를 돌리는 자리는 `cmd/maago/internal/gentest`(두 방언, 같은 시험 파일, `gentest.Open`이 fixture 모든 앱의 표를 만들고 `*sql.Conn`을 준다)와 `TestDocExamples`. `gentest`는 같은 모듈이라 `internal/s3fake`를 import할 수 있다. `s3fake`는 PUT에 `time.Now()`를 찍고 `s3.Store`는 `/`가 든 이름을 보내지 않아, 지금은 오래된 객체도 남의 `a/b`도 만들 수 없다. 5번이 `maago doc main` 예의 `Note.Export`에 태그를 7번으로 넘겼다.
+
+   공개 API(새 것과 바뀌는 것 그대로)
+
+   ```go
+   // package maago (media.go)
+
+   // SweepMedia deletes the media files no row keeps, from the store in
+   // ctx (maago.WithMedia): a file older than olderThan whose key no field
+   // tagged media holds, in any app, and what a failed save left. olderThan
+   // is 0 for 24 hours, or at least an hour, longer than the longest a
+   // file waits for its row (a job that saves files, then writes rows).
+   // Any error stops it before it deletes another file. Run it now and
+   // then, such as daily, beside the server or the worker.
+   func SweepMedia(ctx context.Context, db DB, olderThan time.Duration) error
+
+   // MediaStore.Delete의 주석만 바뀜:
+   // Delete deletes the file of name, a key or .tmp- and a key, as List
+   // gave it; none is no error.
+
+   // package rt (rt/app.go): 생성 코드만 부른다
+   // MediaInUse tells maago.SweepMedia the query of the media keys that
+   // the project's fields tagged media hold, every app's: the generated
+   // code of each app tells it, the same, as the program starts.
+   func MediaInUse(query string)
+   ```
+
+   태그(`ref.FieldTags`, `maago doc model`): `{"media", "The field keeps a media key, Media.Key: maago.SweepMedia deletes the old files that no such field keeps. A string or *string.", nil}`
+
+   생성물: 프로젝트에 `media` 필드가 하나라도 있으면 **모델이 있는 모든 앱**의 `models_gen.go` 끝에
+   ```go
+   // The media keys the project's rows keep, every app's, for maago.SweepMedia.
+   func init() {
+   	rt.MediaInUse(`SELECT "main" FROM "files_file" WHERE "main" IS NOT NULL UNION ALL SELECT "thumb" FROM "files_file" WHERE "thumb" IS NOT NULL UNION ALL SELECT "attachment" FROM "notes_note" WHERE "attachment" IS NOT NULL`)
+   }
+   ```
+   (자리표시 없음: 두 방언이 같은 글. 차례는 앱·모델·필드의 차례.) 태그 없는 프로젝트는 지금과 바이트까지 같다(gentest 골든과 `examples/` 생성물이 그대로).
+
+   바꿀 파일과 새 파일
+   1. `internal/ref/ref.go`: `FieldTags`에 `media`(위 글). → 확인: `TestDoc`, `TestDocKeysAreRead`(아래 `model.txt`와 함께)
+   2. `internal/model/check.go`: `Field`에 `Media bool // keeps a media key: maago.SweepMedia reads it`. `fieldOptions`에 `case "media":` `c.shape(o, where, NoValue, 0, "write it alone, like media")`이고 `f.Type != String`이면 `media keeps a media key in a string, but %s is %s`(고치는 법 `declare the field as string, or *string to allow NULL`), 맞으면 `f.Media = true`. `ID`는 이미 있는 규칙이 막는다(`ID may only have label and help`). → 확인: `internal/model`의 새 `TestMediaTag`(아래)
+   3. `internal/mapper/crud.go`: `func MediaInUse(apps []*model.App) string`: 모든 앱·모델의 `Media` 필드마다 `SELECT q FROM t WHERE q IS NOT NULL`(`dialect.Quote`로 열과 표)을 ` UNION ALL `로 이은 글, 없으면 `""`. `IS NOT NULL`은 늘(포인터 아닌 열에도: 한 꼴이 짧고, NULL을 `string`으로 읽다 실패하는 길이 없다)
+   4. `internal/mapper/gen.go`·`templates/models.go.tmpl`: `ModelsFile(d project.Dialect, app *model.App, apps []*model.App, pols []*Policy, user User) []byte`(모든 앱을 받는다: `admingen.File`과 같은 꼴). 안에서 `MediaInUse(apps)`가 비지 않으면 템플릿의 `.MediaInUse`(`GoString`)로 위의 `init`을 쓴다. 어느 앱이 담는지를 `ModelsFile` 안에서 정하므로 `build.go`와 `TestGenerated`가 한 길을 지난다
+   5. `internal/build/build.go`: `ModelsFile` 부름에 `s.apps`. `checkGenerated`의 `sqls`에 `mapper.MediaInUse(s.apps)`(비지 않을 때). → 확인: `go test ./internal/build ./cmd/maago -run 'TestGenThenCheck|TestGenerated'`
+   6. `internal/rtcore/rtcore.go`: `var MediaQueries []string // what generated code told rt.MediaInUse`. `rt/app.go`: `MediaInUse(query)`가 `rtcore.MediaQueries`에 덧붙인다(같은 글이면 덧붙이지 않는다). `init`은 한 고루틴에서 차례로 돌고 `SweepMedia`는 그 뒤라 잠금이 없다
+   7. `media.go`
+      - `SweepMedia`: 차례대로, 어느 오류든 바로 돌려준다(그 뒤로 지우는 것 없음)
+        1. `olderThan`: 0이면 24시간, 음수이거나 1시간 아래면 `maago: SweepMedia's olderThan is 0 for 24 hours, or at least an hour, not %v: a file is saved before its row is written`
+        2. `rtcore.MediaQueries`가 비면 `maago: SweepMedia knows no field that keeps media keys: tag each with media, such as Key string `+"`"+`maago:"media"`+"`"+`, run maago gen, and import the project's apps in this program`. 글이 둘 이상이면(어느 앱의 생성물이 낡음) `maago: the apps' generated code tells SweepMedia different media fields; run maago gen`
+        3. `mediaStore(ctx)`(지금의 "no media store … maago.WithMedia" 오류)
+        4. `before := time.Now().Add(-olderThan)`. `List`를 빈 쪽까지(`after`는 쪽의 마지막 이름) 걸으며 후보를 모은다: 이름이 `validKey`이거나 `.tmp-`와 `validKey`이고 `ModTime().Before(before)`인 것. 그 밖의 이름(`.gitignore`, `.tmp-x`, 대문자 hex, `a/b`)은 저장소에 넘기지 않는다(S3의 이름 오류에 기대지 않음)
+        5. 후보가 없으면 nil(DB를 읽지 않는다). 있으면 **후보를 고른 뒤** 쿼리를 `db.QueryContext`로 읽어 열쇠의 모음(`map[string]bool`, `// ponytail: every key in use in memory; a lookup per page of candidates if rows outgrow it`). 쓰는 중인 열쇠의 파일은 모음을 읽은 때보다 늦게 행을 잃었어도 다음 청소까지 남는다
+        6. 후보마다 `.tmp-`면 지우고, 열쇠면 모음에 없을 때만 `s.Delete`. 첫 오류에서 돌려준다
+      - `MediaStore.Delete`의 주석(위)
+      - → 확인: 아래 시험들
+   8. `internal/s3fake/s3fake.go`: `func Touch(s s3.Store, name string, mod time.Time)`: s의 가짜 버킷에서 name의 시각을 mod로, 없으면 빈 파일로 만든다(오래된 파일과 `contrib/s3`가 쓰지 않는 이름을 위해). `New`가 가짜를 패키지의 `Endpoint → *fake` 지도(잠금 하나)에 두고 `t.Cleanup`에서 뺀다
+   9. 새 fixture `internal/testdata/media/`: 앱 셋. `files/models.go`(`File{ID; Name string; Main string `+"`"+`maago:"media"`+"`"+`; Thumb *string `+"`"+`maago:"media"`+"`"+`}`: 열쇠 열이 둘인 모델, 하나는 NULL을 받는다), `notes/models.go`(`Note{ID; Attachment string `+"`"+`maago:"media"`+"`"+`}`: 둘째 앱), `tags/models.go`(`Tag{ID; Name string}`: 태그 없는 앱)
+   10. `cmd/maago/gen_test.go`: `gentests`에 `{"files", "../../internal/testdata/media", "files"}`·`{"tags", "../../internal/testdata/media", "tags"}`, `ModelsFile`에 `apps`. 새 `cmd/maago/internal/gentest/{sqlite,postgres}/{files,tags}/`(`models.go`는 fixture의 복사, `models_gen.go`·`admin_gen.go`는 `-update`, 시험 파일은 두 방언이 같다)
+      - `files_test.go`의 `TestSweep`: `gentest.Open(t, "internal/testdata/media")` 위에서 저장소 둘(`maago.LocalMedia{Dir: t.TempDir()}`, `s3fake.New(t)`: 한 쪽에 둘이라 쪽이 여럿)을 서브시험으로. `SaveMediaFrom`으로 다섯(a, b, c, 오래될 고아 d, 새 고아 e), `InsertFile`로 행 둘(`Main: a.Key, Thumb: &b.Key`와 `Main: "", Thumb: nil`), `notes_note`에 c를 SQL 글로(`INSERT … VALUES ('<c.Key>')`: 열쇠는 hex, 다른 앱의 CRUD는 이 패키지에 없다). 남의 이름: `.gitignore`, `.tmp-x`, 오래될 `.tmp-<새 열쇠>`, 새 `.tmp-<새 열쇠>`, 그리고 로컬은 하위 디렉터리 `a/b`, S3는 `s3fake.Touch`의 `a/b`. e와 새 `.tmp-` 밖은 모두 48시간 전으로(로컬 `os.Chtimes`, S3 `s3fake.Touch`)
+        - `SweepMedia(ctx, db, 30*time.Minute)`와 저장소 없는 ctx의 `SweepMedia`가 오류(뒤는 `maago.WithMedia`를 말함), `SweepMedia(ctx, db, 72*time.Hour)`가 nil이고 아무것도 지우지 않음(여유를 본다)
+        - `SweepMedia(ctx, db, 0)`이 nil, 그 뒤 `List`로 모은 이름이 정확히 {a, b, c, e, `.gitignore`, `.tmp-x`, 새 `.tmp-`, (S3) `a/b`}: d와 오래된 `.tmp-`만 없다. 두 번째 `SweepMedia(ctx, db, 0)`도 nil이고 이름이 같다
+      - `tags_test.go`의 `TestSweep`: 태그 없는 앱 하나만 링크한 시험 이진에서 `SweepMedia(maago.WithMedia(ctx, maago.LocalMedia{Dir: t.TempDir()}), db, 0)`이 nil(그 앱의 생성물도 프로젝트의 쿼리를 알린다)
+   11. `media_test.go`(package `maago`): 새 `TestSweepMedia`(DB 없이 닿는 갈래, db는 nil): `rtcore.MediaQueries`를 저장하고 `t.Cleanup`에서 되돌린다. 48시간 전의 고아 하나(`os.Chtimes`)를 둔 `LocalMedia`의 ctx에서 `olderThan` -1·30분의 오류, 빈 `MediaQueries`의 오류(`maago:"media"`를 말함), 다른 글 둘의 오류(`run maago gen`), 그 뒤에도 고아가 남아 있다
+   12. `internal/model/model_test.go`: 새 `TestMediaTag`: `Key string media`·`Thumb *string media`는 `Media`, `Count int64 media`·`Raw string media=x`·`ID int64 media`는 오류(글을 본다), `medai`는 did you mean
+   13. `cmd/maago/docs/model.txt`: `Post`에 `Cover string `+"`"+`maago:"media"`+"`"+` // a media key: maago.SweepMedia keeps its file while a row has it`(`TestDocKeysAreRead`). `cmd/maago/docs/main.txt`: `Note.Export`에 `maago:"media"`, `main_test.go`의 일꾼 뒤에 `maago.SweepMedia(maago.WithMedia(ctx, media), db, 0)`이 nil이고 그 뒤에도 `OpenMedia`가 `hello`(실제 `maago gen`의 생성물이 쿼리를 알린다). 주기적으로 부르는 `main.go`의 꼴은 9번
+   14. 문서
+       - `internal/ref/topics.go` form 절: "A file no row points at stays: delete it with maago.DeleteMedia when you delete the row (the admin does not); one saved by a request that failed before writing its row stays too." → "A file no row points at is deleted by maago.SweepMedia(ctx, db, 0), run now and then, once the fields that keep keys are tagged media (maago doc model); maago.DeleteMedia deletes a row's file at once." `API`에 `SweepMedia`(`TestPackageDoc`). 미디어 문단의 다시 쓰기(단일 인스턴스·서명된 URL·청소)는 9번
+       - `doc.go`는 `-update`(PG 주소와 함께)
+       - `docs/ARCHITECTURE.md`: 루트의 "M13이 더한 것"에 `SweepMedia(D-161)`, `rt` 목록에 `MediaInUse`, `rtcore`에 "생성 코드가 알린 미디어 쿼리"
+       - `docs/TODO.md` 90줄 체크(`List`·`Delete(name)`을 `SweepMedia`가 쓴다)
+       - `docs/DECISIONS.md` D-161에 고침 한 줄(아래 ★들)과 끝의 기록 줄
+       - → 확인: `TestPackageDoc`, `TestDocExamples`, `TestNoDecisionsInUserText`, `TestGeneratedCallsAppAPI`(생성 주석의 `maago.SweepMedia`는 `topics.go`가 앱 코드로 센다)
+   15. 게시판: 고치지 않는다(태그와 청소는 8번) → 확인: `TestBoardTutorial`(PG)·`TestBoardTutorialCatches`·`TestBoardMap`, `git diff --stat examples/`가 비어 있다
+
+   단계와 확인
+   1. 시험 먼저: `TestMediaTag`, `TestSweepMedia`, fixture와 gentest의 `models.go`·시험 파일 → 확인: `go vet ./...`가 없는 이름(`SweepMedia`, `Field.Media`, `rtcore.MediaQueries`, `s3fake.Touch`)으로 실패(빨강)
+   2. 태그·생성기·`build.go`·`rt`·`rtcore`·`media.go`·`s3fake` → 확인: `go test ./internal/model ./internal/mapper ./internal/build .`, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4 go test -run TestGenerated -update ./cmd/maago` 뒤 `go test ./cmd/maago/internal/gentest/...`(두 방언)
+   3. 문서·예·골든 → 확인: `go test -run 'TestDoc|TestPackageDoc|TestNoDecisions|TestGeneratedCallsAppAPI' ./cmd/maago .`(`-update`는 PG 주소와 함께)
+   4. 헛것(하나씩 넣고 이름 붙인 시험의 빨강을 보고 되돌린다. 생성물을 바꾸는 것은 PG 주소와 `-update` 뒤 gentest를 돌리고, 되돌린 뒤 다시 `-update`해 diff가 같음을 본다): (a) `MediaInUse`가 제 앱의 필드만 → `files`의 `TestSweep`(c가 지워진다) (b) `ModelsFile`이 `media` 필드가 있는 앱에만 `init` → `tags`의 `TestSweep` (c) `IS NOT NULL`을 뺌 → `files`의 `TestSweep`(NULL `Thumb`를 읽다 오류) (d) 후보의 시각을 보지 않음 → 72시간 줄 (e) 이름을 거르지 않고 모두 후보로 → `.gitignore`·`.tmp-x`가 지워지거나 S3 `a/b`의 `Delete` 오류 (f) `.tmp-`를 후보에서 뺌 → 오래된 `.tmp-`가 남음 (g) `List`의 첫 쪽만 → S3 줄(`.`로 시작하는 이름이 첫 쪽을 채워 고아 열쇠는 늘 뒤 쪽) (h) 1시간 하한을 지움 → `TestSweepMedia`·`files`의 30분 줄 (i) 다른 글 둘을 받음 → `TestSweepMedia` (j) 빈 `MediaQueries`를 받음(아무것도 쓰지 않는다고 보고 모두 지움) → `TestSweepMedia`의 남은 고아 (k) `media`가 `int64`를 받음 → `TestMediaTag` (l) `main.txt`의 `Export` 태그를 뺌 → `TestDocExamples/main`("knows no field") (m) `model.txt`의 `media`를 뺌 → `TestDocKeysAreRead/model`. `checkGenerated`의 prepare는 안전띠라(지금 CRUD처럼) 헛것이 없다
+   5. 끝 확인: 루트에서 `go mod tidy -diff && go vet ./... && go test ./...`, `gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4`로 전체(`-timeout 60m`, 앞에서 끝까지 기다려 로그의 `go test exit=` 줄), 게시판 걷기 포함. 새 시험은 `GOTOOLCHAIN=go1.25.14`로도
+
+   ★ → 에이전트 편의로 결정
+   - **쿼리는 생성 코드의 `init`이 `rt.MediaInUse`로 알리고, 모델이 있는 모든 앱이 프로젝트 전체의 같은 쿼리를 담는다.** `SweepMedia`는 앱 목록을 받지 않고 일꾼은 `Handler`를 지나지 않는다. 앱마다 제 열만 알리면, 또는 `Config.Apps`에 매달면, 앱 하나만 링크한 프로그램이 다른 앱의 살아 있는 파일을 조용히 지운다(Q4가 손 `inUse`를 기각한 바로 그 실패). 모든 앱이 전체를 담으면 어느 앱 하나만 링크해도 맞고, 하나도 없으면 오류, 글이 다르면(낡은 생성물) 오류다: 어느 쪽도 지우지 않는 쪽으로 실패한다. 에이전트는 태그 하나를 달고 `SweepMedia`를 부를 뿐 이을 것이 없다. 숨은 동작이 아니라 `models_gen.go`에 보이는 `init` 한 개다(PHILOSOPHY 5). 기각: `SweepMedia(ctx, db, olderThan, board.MediaInUse, …)`처럼 앱이 넘기기(빠뜨린 앱의 파일을 지운다), 태그 있는 앱에만 담기(태그 없는 앱만 링크한 일꾼이 쓸 수 없다, 헛것 (b))
+   - **`SweepMedia(ctx, db, olderThan) error`: db는 인자, 저장소는 ctx**(D-161의 `(ctx, olderThan)`에 db를 더한다: D-161 고침). 생성된 쿼리·`outbox.Run`·`RunOnce`가 모두 db를 인자로 받고, `DBFrom`은 없으면 panic이며 "시험에서"라는 `WithDB`를 일꾼에 요구하게 된다. 저장소는 `SaveMediaFrom`·`DeleteMedia`처럼 ctx(`WithMedia`): 일꾼이 이미 그 ctx를 가진다. `maago.DB`라 `*sql.Conn`·`*sql.Tx`도 된다. 지운 수는 돌려주지 않는다(쓰는 곳 없음)
+   - **`olderThan`은 0이면 24시간(Q4의 기본), 아니면 1시간 이상.** 작은 값은 저장과 행 쓰기 사이의 파일을 지운다(긴 일꾼은 파일 여럿을 저장한 뒤 행을 쓴다). `SweepMedia(ctx, db, 24)`(24나노초)처럼 단위를 빠뜨린 실수가 모든 새 파일을 지우는 대신 오류가 된다(PHILOSOPHY 6). 1시간도 가장 긴 일보다 짧으면 위험하므로 주석이 "the longest a file waits for its row"를 말한다
+   - **지우는 것은 열쇠와 `.tmp-`+열쇠뿐**(Q4의 "`.tmp-*`"를 Maago가 만드는 꼴로 좁힘). 저장소에 넘기기 전에 런타임이 거른다: `.gitignore`, 사용자의 `.tmp-x`, S3의 남의 `a/b`는 저장소의 이름 오류에 기대지 않고 손대지 않는다. `.tmp-`+열쇠는 쓰는 중이어도(같은 열쇠의 행이 있어도) 여유 밖이면 지운다: `Put`이 이름을 바꾸기 전의 반쪽이다
+   - **실패는 닫힌 쪽으로**: `List`의 한 쪽, 쿼리(마이그레이션을 적용하지 않아 없는 열 따위), `Delete` 어느 오류든 바로 돌려주고 그 뒤로 지우지 않는다. 다음 청소가 다시 한다
+   - **후보를 고른 뒤 쓰는 중을 읽는다**, 쿼리는 열쇠 전부를 메모리에(`ponytail:` 주석). 앞에 읽으면 그사이 쓰인 행의 파일을 볼 수 없다. 후보가 없으면 DB를 읽지 않는다. 행 수가 커지면 후보 쪽마다 `IN`으로 묻는 길이 있다(지금은 하지 않음)
+   - **`UNION ALL` 한 문장, 자리표시 없음**: 두 방언이 같은 글이고 `checkGenerated`가 모델 DB에 prepare한다(CRUD와 같은 안전띠)
+   - **`s3fake.Touch`**: 오래된 객체와 `/`가 든 남의 이름을 가짜에 두는 시험 도우미 하나. 런타임에 시각을 주입하는 갈고리(시험만 쓰는 공개 이름)는 두지 않는다: 로컬은 `os.Chtimes`, S3 가짜는 `Touch`로 파일을 늙힌다
+   - **진짜 DB의 시험은 gentest**(두 방언, 열쇠 열이 둘인 모델·두 앱·태그 없는 앱), 생성 경로 전체는 `TestDocExamples/main`(실제 `maago gen`과 복사된 outbox 앱). 뿌리 시험은 DB 없이 닿는 갈래만
+
+   하지 않는 것
+   - 태그를 빠뜨린 열쇠 필드를 생성 때 찾기(필드 이름으로 짐작하지 않는다, PHILOSOPHY 6; 태그가 하나도 없는 프로젝트는 `SweepMedia`의 오류가 말한다), 행 하나에 열쇠 여럿(JSON·글 속의 열쇠: 열 하나에 열쇠 하나, 8번의 "이름 → 열쇠 행"), 손 마이그레이션에만 있는 표의 열
+   - `SweepMedia`를 스스로 주기적으로 부르기(`Handler`·일꾼 안), 지운 수나 목록의 반환, 시각 주입 갈고리, 후보 쪽마다의 `IN` 쿼리
+   - `main.go`가 청소를 주기적으로 부르는 예와 미디어 문단 다시 쓰기·D-140 고침(9번), 게시판의 태그와 청소(8번)
+
 8. **게시판 0041~**: 일꾼이 만든 파일 여럿(내보내기 따위, 이미지 처리 아님: D-72)을 이름 → 열쇠 행으로 저장하고 뷰가 이름으로 찾아 준다(readmate의 `media/marked/<id>/` 꼴), 저장소를 환경으로 고름, 서명된 URL로 밖에 건넴, 청소(태그), outbox의 Kind 둘(웹훅과 이 일: `main`의 일꾼이 Kind로 가름), lease를 넘어 다시 도는 일이 남긴 파일은 청소가 치운다 → 확인: `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardMap`, Catches(일꾼 ctx에 저장소 없음, 태그 빠뜨림 따위)
 9. **문서**: `maago doc`의 미디어(단일 인스턴스, 서명된 URL과 그 한계: 만든 프로세스만 받고 다시 시작하면 403, 청소)·main(일꾼의 저장소, Kind 둘)·model(태그 `media`), 결정 고침: D-140·D-153·D-159·D-123(루트 밖 공개 패키지의 셋째 `contrib/s3`)·D-09·D-72(앱이 만든 바이트는 이미지 처리가 아니다)·D-61·D-148·D-23·D-34·D-32·D-91·D-105·D-111·D-154·D-120·D-132, MILESTONES v1에서 옮김 → 확인: `TestDocExamples`, `TestPackageDoc`, `TestNoDecisionsInUserText`
 10. **v0.4.0**(Q10): 태그(깨지는 API를 태그 글에), 게시판의 `go.mod`(0001·0013) → 확인: 빈 GOPATH에서 `go install …@v0.4.0`, 공개 판으로 걷기의 끝(`GOWORK=off`)
