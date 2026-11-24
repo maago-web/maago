@@ -128,3 +128,9 @@ func scan{{.Name}}(rows *sql.Rows) ({{.Name}}, error) {
 	return v, err
 }
 {{end}}
+{{- if .MediaInUse}}
+// The media keys the project's rows keep, every app's, for maago.SweepMedia.
+func init() {
+	rt.MediaInUse({{.MediaInUse}})
+}
+{{end}}

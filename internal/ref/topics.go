@@ -43,13 +43,14 @@ sqlite:app.db or postgres://….
     file once.
   - Handler refuses a Config it cannot serve, such as: no DB, no Apps, an app twice,
     routes that take the user without Config.Auth, a form with a file
-    without Config.MediaDir.
+    without a media store.
   - Config: Apps (each app's generated App, and admin.App), Auth and
     LoginURL (maago doc auth), Origins (other origins to trust, for
     cross-origin POSTs and CORS), OnError (hears every 5xx), Messages (the
     forms' errors; maago.DefaultMessages has the English ones), TimeZone
     (where people's times are; nil is UTC), Prefix (the path the site is
-    under, such as /app), MaxBody (0 is 10MB), MediaDir.
+    under, such as /app), MaxBody (0 is 10MB), MediaDir or Media (where
+    media is kept).
   - Serve stops on SIGINT or SIGTERM: no new connections, the running
     requests finish within 30 seconds. TLS is a proxy's in front, or an
     http.Server of main's.
@@ -66,7 +67,9 @@ admin.Config's Models. The outbox's worker runs in main beside the server,
 as the example's main does: once Serve has stopped, it takes no more jobs
 and finishes the one in hand, for up to its lease (5 minutes). A second
 signal, during Serve's stop or after it, kills the process at once, and
-the job goes again later.`,
+the job goes again later. Its deliver keeps files with
+maago.SaveMediaFrom once its ctx has the media store Config.Media has,
+maago.WithMedia(ctx, media), as the example's deliver does.`,
 		API: []string{"Handler", "Config", "App", "DBConfig", "OpenDB", "Migrate", "Serve", "Messages", "DefaultMessages", "Prefix"},
 	},
 	{
@@ -407,15 +410,17 @@ other: its Valid is false, and its Fail uses the default messages.
 	}
 
 A maago.File field is read from a multipart form (enctype="multipart/form-data"),
-and needs maago.Config.MediaDir; maago.SaveMedia keeps the file. A field
-takes one file, from an HTML form: an API route takes none. Its kind is
-what the content's first bytes say, not its name; zip includes .docx and
-.xlsx. The File lives as long as the request.
+and needs a media store: maago.Config.MediaDir, or Config.Media;
+maago.SaveMedia keeps the file; maago.SaveMediaFrom keeps bytes the app
+made, such as a worker's (maago doc main). A field takes one file, from
+an HTML form: an API route takes none. Its kind is what the content's
+first bytes say, not its name; zip includes .docx and .xlsx. The File lives as long as the request.
 
 Media stays in Config.MediaDir, on this machine. A file no row points at
-stays: delete it with maago.DeleteMedia when you delete the row (the admin
-does not); one saved by a request that failed before writing its row stays
-too. No route serves the directory: a view checks who asks, then
+is deleted by maago.SweepMedia(ctx, db, 0), run now and then, once the
+fields that keep keys are tagged media (maago doc model);
+maago.DeleteMedia deletes a row's file at once. No route serves the
+directory: a view checks who asks, then
 calls maago.ServeMedia, which sends a download.
 
 A field has Value, Raw (what was sent, to draw back), Error, and Name,
@@ -453,7 +458,7 @@ with one unique constraint has every refusal on it, even a unique index
 a migration made by hand. An API view has no page to draw: it returns
 the error, and maago answers a 422, on the field as Fail would put it.`,
 		Lists: []*List{FormTypes, FormTags},
-		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "UniqueError", "File", "Media", "SaveMedia", "OpenMedia", "DeleteMedia", "ServeMedia", "WithMediaDir"},
+		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "UniqueError", "File", "Media", "SaveMedia", "SaveMediaFrom", "OpenMedia", "DeleteMedia", "ServeMedia", "MediaStore", "MediaFile", "LocalMedia", "WithMedia", "MediaURL", "SweepMedia"},
 	},
 	{
 		Name:  Template,

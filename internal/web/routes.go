@@ -407,6 +407,10 @@ func Check(fset *token.FileSet, apps []*App) []diag.Diagnostic {
 				errAt(r.PathPos, fmt.Sprintf("route path %q is under /static/, where maago serves the apps' static files", r.Path), "move the route to another path")
 				continue
 			}
+			if r.Path == "/maago" || strings.HasPrefix(r.Path, "/maago/") { // GET /maago/media is no pattern a route can conflict with
+				errAt(r.PathPos, fmt.Sprintf("route path %q is under /maago/, where maago serves signed media URLs", r.Path), "move the route to another path")
+				continue
+			}
 			if i := slices.IndexFunc(static, func(s *Route) bool { return conflicts(s, r) }); i >= 0 {
 				errAt(r.PathPos, fmt.Sprintf("route %s %s conflicts with %s, where maago serves static files: a request could match both", r.Method, r.Path, static[i].Path),
 					"make the route more specific than the static files' pattern, or move it")

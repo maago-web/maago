@@ -118,6 +118,7 @@ var (
 		{"fk", "The model an int64 ID field refers to: fk=Post, or fk=auth.User for another app's. *int64 for an optional one.", nil},
 		{"auto", "The generated CRUD fills a time.Time with the time: create when inserting, update on every UpdateX, which then compares it (409 on a stale copy).", []string{"create", "update"}},
 		{"admin", "hidden leaves the field out of the admin, readonly shows it without an input.", []string{"hidden", "readonly"}},
+		{"media", "The field keeps a media key, Media.Key. Tag every field that keeps one: maago.SweepMedia deletes the old file of a key that no tagged field keeps. A string or *string.", nil},
 	}}
 	QueryKeys = &List{"Header lines (-- key: …)", []Item{
 		{"name", "-- name: Name :kind [Result]: the Go function, what it returns, and the result type.", nil},

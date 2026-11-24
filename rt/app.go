@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/maago-web/maago"
@@ -20,7 +21,7 @@ type AppRoute struct {
 	API                bool
 	LoginRequired      bool // a request without a user does not reach Serve
 	User               bool // its view takes the user: Config.Auth is needed
-	Files              bool // it reads a form with a file: Config.MediaDir is needed
+	Files              bool // it reads a form with a file: a media store is needed
 	Serve              func(w http.ResponseWriter, r *http.Request) error
 }
 
@@ -70,4 +71,13 @@ func DateFunc(layout string, t any) (string, error) {
 		return DateFunc(layout, *v)
 	}
 	return "", fmt.Errorf("date: %T is not a time", t)
+}
+
+// MediaInUse tells maago.SweepMedia the query of the media keys that the
+// project's fields tagged media hold, every app's: the generated code of
+// each app tells it, the same, as the program starts.
+func MediaInUse(query string) {
+	if !slices.Contains(rtcore.MediaQueries, query) {
+		rtcore.MediaQueries = append(rtcore.MediaQueries, query)
+	}
 }

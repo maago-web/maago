@@ -207,11 +207,432 @@
    계획 리뷰 codex·fable 반영: D-162와의 충돌(codex)은 리뷰가 갈렸고 Q8이 꼴을 계획에 맡긴 에이전트 편의의 결정이라 에이전트 편의로 ★를 지키고 까닭을 적음, 초안 실패 뒤 `a`를 다시 읽지 않고 닫기로 버림(따로 연결은 받지 않음), 음성 회귀를 seam 대신 오타 쿼리와 두 줄 `slices.Equal`로 CI에(codex·fable), SQLite에도 이름이 닿음(`INDEXED BY`)을 고치고 음성 시험을 두 방언에, (c)·(d)를 바꿔 지움은 새 프로젝트에서, 모든 기대를 줄 전체로, 정책 probe 접미사는 시험 없이 같은 길로(4e), DraftFails의 gen도 `slices.Equal`, `kor` 쿼리는 `status`로. 글 ` (checked against the models)`는 그대로(fable 7).
    기록(2026-11-22): `checkDatabase`가 마이그레이션과 모델이 다르면 `againstModels`로 마이그레이션의 연습 DB에 makemigrations의 초안을 적용하고 사용자 쿼리·`Results`·정책 probe를 돌려 "run makemigrations"와 한 실행에 낸다(글 끝 ` (checked against the models)`, `diag.Note`). 초안이 실패하거나 차이가 남으면 차이만, CRUD·admin의 prepare(`checkGenerated`)는 같을 때만. `maago doc query`·ARCHITECTURE·D-162의 글, 패키지 문서. 시험: `TestQueriesBeforeMigration`·`TestQueriesHandMigration`·`TestQueriesDraftFails`(두 방언, 줄 전체 `slices.Equal`), `TestPackageDoc` 골든. 모델 DDL만의 DB로 되돌리는 변이에서 `HandMigration`이 두 방언 빨강. PG 전체 시험 초록. 구현 리뷰는 ponytail·codex·fable: codex 지적 없음(샌드박스로 시험은 못 돎). fable의 막는 것 하나, "makemigrations는 쿼리 파일을 읽지 않는다"의 고정이 사라짐 → `BeforeMigration`에서 머리 오류의 `bad.sql`을 makemigrations 앞에 두고 makemigrations가 통과함을 본다(makemigrations가 쿼리를 읽게 하는 변이에서 빨강을 확인). 계획 글의 어긋남 셋(반영 줄의 정책 probe 시험, DraftFails의 `customers`, `stages` 주석)과 두 가드가 함께만 고정됨, CRUD·admin 안전띠의 시험 없음을 계획에 적음. 받지 않은 것: 다시 읽어 남은 차이의 가드를 지우기(ponytail 1, 계획이 일부러 둔 안전띠이고 차이가 있을 때만 한 번 더 읽는다), 도중의 연결 실패 진단에도 붙는 접미사(fable 5, 드물고 해가 없다), `Note`·`checkGenerated`는 그대로(ponytail 2·3)
 4. **저장소 경계**(Q3): `MediaStore`와 로컬 구현(서명된 로컬 URL 포함), `OpenMedia`·`ServeMedia`를 그 위로, `WithMediaDir`의 처지(남기거나 지움, 계획에서 하나), `MediaDir`과 저장소를 함께 주면 `Handler` 오류 → 확인: 미디어 시험을 저장소를 받는 함수 하나로 만들어 로컬과 메모리 가짜 둘에(7번의 S3도 같은 함수), Range(206)·404·nosniff·attachment, 서명된 URL의 기한 지남·바뀐 서명 거절, 게시판 0029·0038·0039가 고치지 않고 걷는다
+
+   계획
+
+   따라가 본 길: 디스크는 `media.go` 한 파일에 박혀 있다. `mediaRoot`가 ctx의 디렉터리 문자열(`mediaKey{}`)을 `os.OpenRoot`로 열고, `SaveMedia`는 `.tmp-<key>`에 쓴 뒤 `Rename`, `OpenMedia`는 `*os.File`, `DeleteMedia`는 `Remove`(없으면 nil), `ServeMedia`는 `OpenMedia` → `Stat().ModTime()` → `http.ServeContent`(seek로 Range). ctx에 디렉터리를 넣는 곳은 `Handler`의 `serve`(`http.go:255`)와 `WithMediaDir`뿐이고, `Handler`는 `r.Files`가 있으면 `MediaDir`을 요구하고 `os.Stat`으로 디렉터리를 본다(`http.go:148`). `WithMediaDir`·`OpenMedia`를 부르는 곳은 `media_test.go`뿐(게시판·site fixture·contrib·복사 앱 모두 없음). 게시판은 `SaveMedia`·`DeleteMedia`·`ServeMedia`와 `MediaDir: "media"`만 쓰고, 시험이 `os.ReadDir(cfg.MediaDir)`가 열쇠 이름의 파일 하나뿐임(0029:143·185)과 `filepath.Join(cfg.MediaDir, a.Key)`의 이름 바꾸기로 404(0038:77)를 본다: 로컬 저장소는 디렉터리에 열쇠 이름 파일만 두는 지금의 꼴을 지켜야 한다(옆 파일·하위 디렉터리 없음). site fixture에 사용자 라우트 `GET /media/{key}`가 있다(`cmd/maago/testdata/web/site/urls.go:26`). `/static/`은 생성기가 이미 예약한다(`internal/web/routes.go:406`, `conflicts`로 겹침도). 복사된 auth 앱은 이미 `auth.SiteURL`(게시판 `BOARD_SITE_URL`)이라는 이름을 쓴다. `maago` 내부 시험은 `maago`를 import하는 패키지를 import할 수 없고, `contrib/s3`(6번)의 시험은 같은 모듈이라 `internal/`을 import할 수 있다.
+
+   공개 API(루트, 새 것과 바뀌는 것 그대로)
+
+   ```go
+   // MediaStore is where media is kept: this machine's disk (LocalMedia,
+   // for one instance) or a bucket (contrib/s3). Maago makes the keys and
+   // checks them before a store sees one.
+   type MediaStore interface {
+   	// Put keeps r's bytes under key, of media type typ, whole or not at
+   	// all, and returns how many it kept. A failed Put leaves nothing.
+   	Put(ctx context.Context, key, typ string, r io.Reader) (int64, error)
+   	// Open opens key's file. None is an error that is fs.ErrNotExist.
+   	Open(ctx context.Context, key string) (MediaFile, error)
+   	// Delete deletes the file of name, a name List gave; none is no error.
+   	Delete(ctx context.Context, name string) error
+   	// List returns the files whose names sort after after, in byte order,
+   	// a page at a time; none when there are no more. It gives every file,
+   	// keys or not (a half-written one's .tmp- name, a .gitignore).
+   	List(ctx context.Context, after string) ([]fs.FileInfo, error)
+   	// URL is a link to m's file, to download, that anyone may follow
+   	// for ttl: whole seconds from one to 7 days, as MediaURL checks first.
+   	URL(m Media, ttl time.Duration) (string, error)
+   }
+
+   // MediaFile is a media file open to read from any offset, as
+   // http.ServeContent reads a Range. Stat tells its size and time.
+   type MediaFile interface {
+   	fs.File
+   	io.Seeker
+   }
+
+   // LocalMedia keeps media in Dir on this machine's disk: for one
+   // instance, since another machine does not see the files.
+   type LocalMedia struct {
+   	Dir     string // the directory, which must exist
+   	SiteURL string // the site's address as browsers and other services reach it, Config.Prefix included: https://example.com/app; URL needs it
+   }
+   func (l LocalMedia) Put(ctx context.Context, key, typ string, r io.Reader) (int64, error)
+   func (l LocalMedia) Open(ctx context.Context, key string) (MediaFile, error)
+   func (l LocalMedia) Delete(ctx context.Context, name string) error
+   func (l LocalMedia) List(ctx context.Context, after string) ([]fs.FileInfo, error)
+   func (l LocalMedia) URL(m Media, ttl time.Duration) (string, error)
+
+   func WithMedia(ctx context.Context, s MediaStore) context.Context      // WithMediaDir 대신
+   func OpenMedia(ctx context.Context, key string) (MediaFile, error)     // 바뀜: *os.File → MediaFile
+   func MediaURL(ctx context.Context, m Media, ttl time.Duration) (string, error)
+   // 그대로: SaveMedia(ctx, File) (Media, error), DeleteMedia(ctx, key) error, ServeMedia(w, r, Media) error, Media
+
+   type Config struct {
+   	…
+   	MediaDir string     // 그대로, 이제 Media: maago.LocalMedia{Dir: MediaDir}의 줄임
+   	Media    MediaStore // 새 칸
+   }
+   ```
+
+   바꿀 파일과 새 파일
+   1. `media.go`
+      - 위의 타입과 함수. `mediaRoot`·`WithMediaDir`를 지우고(`mediaKey`는 저장소의 ctx 열쇠로 남는다) `mediaStore(ctx) (MediaStore, error)`가 ctx의 저장소를 준다. 없으면 `maago: no media store in the context; Handler puts Config's there, and a test or a worker uses maago.WithMedia`.
+      - `SaveMedia`: 열쇠를 만들고(그대로) `f.Open()`을 `s.Put(ctx, key, f.Type, in)`에. 반환의 `Size`는 지금처럼 `f.Size`(센 크기는 5번 `SaveMediaFrom`의 것). `OpenMedia`·`DeleteMedia`는 `validKey`를 본 뒤 저장소로(틀린 열쇠의 뜻은 그대로). `ServeMedia`의 몸은 그대로이고 `OpenMedia`가 주는 `MediaFile`의 `Stat()`·seek를 쓴다.
+      - `MediaURL`: `validKey`, ttl이 1초 아래이거나 7일(S3 서명 URL의 상한) 위면 오류, 그다음 `s.URL(m, ttl.Truncate(time.Second))`.
+      - `LocalMedia`의 Put·Open·Delete는 지금 `SaveMedia`·`OpenMedia`·`DeleteMedia`의 `os.Root` 몸을 옮긴 것이다(임시 이름과 `Rename`, 0600, 링크가 밖으로 못 감). 셋 모두 먼저 이름이 디렉터리 안의 파일 이름 하나인지 본다: 빈 이름, `.`, `..`, `/`·`\`가 든 이름은 오류(codex 3: `os.Root`가 밖으로는 막지만 하위 디렉터리로는 간다). `Open`은 `*os.File`을 그대로 준다(그것이 `MediaFile`이다). `List`는 `os.ReadDir(l.Dir)`(이름 차례)에서 일반 파일만(링크와 디렉터리는 빠진다), 이름이 `after` 뒤인 것의 `Info()`를 한 쪽에 모두 준다(다음 부름은 빈 쪽).
+      - `LocalMedia.URL`: 먼저 `validKey`(codex 1). `SiteURL`이 비면 `maago: a local media store makes URLs only with its SiteURL: set Config.Media to maago.LocalMedia{Dir: …, SiteURL: …} in place of Config.MediaDir`. `SiteURL`은 끝의 `/` 하나를 떼고(`https://example.com/`이 흔한 꼴이라 거절하지 않는다) `http`·`https`, 호스트가 있고, 사용자 정보·쿼리·조각이 없어야 한다(아니면 오류, `Handler`도 같은 검사, codex 2·fable 7). 그러면 `SiteURL + "/maago/media?" + q`, `q`는 `url.Values{key, name, type, expires(유닉스 초), sig}.Encode()`(열쇠도 쿼리에: 아래 ★). `sig`는 프로세스의 무작위 32바이트 열쇠로 만든 HMAC-SHA256(`sig`를 뺀 값들의 `url.Values.Encode()` 하나)의 base64url. 문서 주석에 "only the process that made a URL serves it, and not after a restart"(fable 6).
+      - 서명된 라우트 `serveSigned(w, r) error`: 쿼리에서 `sig`를 떼고 남은 값의 `Encode()`로 다시 계산해, 디코드하지 않은 글끼리 `hmac.Equal`(fable 4). 서명이 틀리거나 `expires`가 숫자가 아니거나 지났으면 `Status(403, …)`, 맞으면 `ServeMedia(w, r, Media{Key, Name, Type})`(attachment·nosniff·Range·없으면 404가 같은 코드).
+      - → 확인: 아래 시험들.
+   2. `http.go`
+      - `Config.Media`와 문서. `MediaDir`의 문서에 "short for Media: maago.LocalMedia{Dir: MediaDir}".
+      - `Handler`: `Media`와 `MediaDir`이 둘 다면 `maago: Config.Media and Config.MediaDir are both set; MediaDir is short for Media: maago.LocalMedia{Dir: MediaDir}: keep one`. 파일 폼이 있는데 둘 다 비면 지금 글에 덧붙여 `maago: forms take files, but Config.MediaDir is empty; set it to the directory to keep them in, such as media, or set Config.Media`(`Config.MediaDir is empty`를 보는 site 시험 그대로). `MediaDir`의 두 `Stat` 오류 글은 한 글자도 바꾸지 않는다. `Media`가 `LocalMedia`(값이나 포인터)면 같은 두 검사를 `Config.Media's Dir`라는 이름으로, `Dir`이 비면 오류, `SiteURL`이 있는데 위의 꼴이 아니거나 그 경로(끝 `/`를 뗀)가 `Config.Prefix`와 다르면 오류(Prefix는 프록시가 떼어도 사이트가 있는 경로라 같아야 한다)(`Prefix: "/app"`에 `https://example.com`은 모든 URL이 조용히 404, fable 7).
+      - 검사는 `handler.media(files)` 하나에 모으고, 저장소(줄임이면 `LocalMedia{Dir: MediaDir}`)를 `handler.store`에 두어 `serve`가 `WithMedia(ctx, h.store)`. 로컬 저장소면(줄임도: 같은 프로세스의 일꾼이 제 `LocalMedia{Dir, SiteURL}`로 만든 URL을 받아야 한다) `h.mux.Handle("GET /maago/media", h.serve(&rtcore.Route{Method: "GET", Path: "/maago/media", Name: "maago_media", Serve: serveSigned}))`: 오류·panic이 `report`·`OnError`를 지난다. `h.routes`에는 넣지 않는다(CORS 사전 요청의 대상이 아니다).
+      - → 확인: `TestMediaDirConfig`
+   3. `internal/web/routes.go`: `/static/` 옆에 `/maago`·`/maago/…` 경로를 `route path %q is under /maago/, where maago serves signed media URLs`로 거절한다. 저장소가 로컬인지 생성기는 모르므로 늘. `GET /maago/media`는 글자뿐인 경로라 `/maago` 밖의 어느 GET·POST·PUT·PATCH·DELETE 라우트보다 구체적이어서 겹침(`conflicts`) 검사는 없다(실측: `GET /{a}/{b}`·`GET /{a}/media`·`GET /{a}/{b}/edit`·`POST /{a}/{b}`와 함께 panic 없음; 겹치는 것은 `HEAD /{a}/{b}`뿐이고 라우트 표에 `HEAD`는 없다). → 확인: `internal/web/static_test.go`의 표에 줄 둘(`/maago/x`, `/maago`), site fixture의 `/media/{key}`는 그대로 통과(`TestWeb`)
+   4. 새 `internal/mediatest/mediatest.go`: `func Store(t *testing.T, s maago.MediaStore)`. 모두 `ctx := maago.WithMedia(t.Context(), s)` 위의 런타임 함수(`SaveMedia`·`OpenMedia`·`DeleteMedia`·`ServeMedia`·`MediaURL`)로 부르고, 저장소의 메서드는 런타임이 부르지 않는 `List`와 `Put`(성공 하나: 돌려준 n이 길이, fable 10; 실패 하나)만 직접 부른다. 저장 바이트는 `pngBytes`꼴의 104바이트(두 파일은 끝 바이트가 달라 열쇠 바꾸기에서 본문으로 가린다). `File`은 multipart 요청과 `rtcore.NewFile`로 만든다(`sentFile`을 옮김, fable 8).
+      - 저장과 열기: `SaveMedia` 둘(열쇠가 다르다) → `OpenMedia`의 내용이 같고 `Stat().Size()`가 길이, `ModTime()`이 지금의 1분 안. 모양이 맞고 없는 열쇠는 `fs.ErrNotExist`
+      - `ServeMedia`: GET 200과 본문, `Content-Type`, `X-Content-Type-Options: nosniff`, `Content-Disposition`(이름의 `"`·`\`·한글·CRLF·빈 이름, 지금 `TestServeMedia`의 표를 옮긴다), 형식 없음·틀린 형식의 `application/octet-stream`, `Last-Modified`, `Range: bytes=1-3` → 206 `PNG`, HEAD, 없는 열쇠 → `rtcore.Code` 404이고 쓴 것 없음
+      - `List`: 빈 쪽이 올 때까지 `after`를 마지막 이름으로 넘기며(쪽 수에 상한: `after`를 무시하는 구현이 끝없이 돌지 않고 실패한다) 모은 이름에 두 열쇠가 있고, 차례가 오름이고, 크기가 맞다. 작은 열쇠를 `after`로 준 모음에 그 열쇠는 없고 큰 열쇠는 있다(`>=` 구현을 잡는다, fable 3). `DeleteMedia` 뒤에는 없고, 두 번 지워도 nil
+      - 실패한 `Put`: 중간에 오류를 내는 Reader → 오류, 그 열쇠로 `OpenMedia`가 `fs.ErrNotExist`, `List`에 그 열쇠를 담은 이름이 없다(로컬의 `.tmp-`가 지워짐)
+      - URL: `MediaURL`(1시간) → `http.Get` 200, 본문, `Content-Type`, `Content-Disposition`이 `attachment`로 시작. 쿼리를 `Encode()`로 다시 쓴 URL도 200(아래 4xx가 다시 쓰기 탓이 아님). 바뀐 URL은 모두 4xx이고 본문이 파일이 아니다: URL 안의 열쇠를 다른 저장 열쇠로(로컬은 쿼리, S3는 경로), 그리고 쿼리 값마다 하나씩 첫 글자를 다른 글자로 바꾼 것(로컬의 `key`·`name`·`type`·`expires`·`sig`, S3의 `X-Amz-*`·`response-*`: 서명이 덮지 않는 값이 있으면 잡힌다; 첫 글자는 base64·hex의 남는 비트가 없다, fable 4). 따로 만든 1초 URL은 2초 뒤 4xx. ttl 0·8일의 `MediaURL` 오류
+   5. 새 `internal/mediatest/mediatest_test.go`: 메모리 가짜(`fstest.MapFS`: 그 파일이 `Seek`·`Stat`을 가져 `MediaFile`이고 `fs.ReadDir`가 `List`의 차례를 준다. `List`는 한 쪽에 하나씩(fable 3). URL은 가짜 자신의 `httptest.Server`가 경로의 열쇠·HMAC·기한을 보고 attachment로 준다)에 `Store`. 디스크에 기대는 것(`*os.File`, `os.Stat`)이 런타임에 남았으면 여기서 빨강.
+   6. 새 `media_store_test.go`(package `maago_test`, `maago` 안의 시험은 `mediatest`를 import할 수 없다): `httptest.NewServer` 위에 `Handler(Config{DB: sql.OpenDB(nil), Apps: rt.NewApp으로 만든 라우트 하나, Media: LocalMedia{Dir: t.TempDir(), SiteURL: srv.URL}})`를 두고 `mediatest.Store`. `Prefix: "/app"`(`http.StripPrefix`, `SiteURL: srv.URL + "/app/"`: 끝 `/`를 뗌도 함께)에서는 URL 부분만, `MediaURL`의 GET이 200(`LocalMedia.URL`은 Prefix를 읽지 않으므로 `Store` 전체를 다시 돌릴 것이 없다, fable 7). 줄임(`MediaDir`)의 Handler에 같은 프로세스의 `LocalMedia{Dir: 같은 디렉터리, SiteURL}`이 만든 URL이 200인 줄 하나.
+   7. `media_test.go`(package `maago`): 로컬에만 있는 것만 남긴다. `TestMedia`: 열쇠 이름의 파일 하나만 디렉터리에(게시판이 기대는 꼴), 0600, `../`가 이름에만, 밖으로 가는 링크, 저장소 없는 ctx의 오류가 `maago.WithMedia`를 말함. 새 `TestLocalMediaList`: `.gitignore`·`.tmp-x`·하위 디렉터리를 둔 디렉터리에서 `List`가 파일 둘만 주고 `Delete(".tmp-x")`가 지운다(fable 3). `Put`·`Open`·`Delete`가 `""`·`..`·`a/b`·`a\b`를 거절(codex 3). `TestServeMedia`는 `mediatest`로 옮겨 지운다. `TestMediaDirConfig`에 줄: `Media`와 `MediaDir` 둘 다, `Media: LocalMedia{}`와 `&LocalMedia{}`(빈 Dir, fable 9), 없는 Dir, 상대 `SiteURL`, 쿼리·사용자 정보가 있는 `SiteURL`, `Prefix: "/app"`에 경로 없는 `SiteURL`과 빈 Prefix에 경로 있는 `SiteURL`, `Media`만으로 파일 폼이 통과, ctx의 저장소가 줄임이면 `LocalMedia{Dir: dir}`, 로컬이 아닌 저장소의 Handler에서 `GET /maago/media`는 404(fable 5). 새 `TestLocalMediaURL`: `SiteURL` 없는 URL의 오류 글, 틀린 열쇠의 오류, 끝 `/`를 뗌, 같은 키·다른 `name`의 두 URL의 `sig`를 바꿔 끼우면 403(쿼리 값 바꾸기와 다른 꼴의 위조), 숫자 아닌 `expires`는 패키지 안의 서명 함수로 맞게 서명한 URL로 403(fable 2: 손으로 바꾼 값은 서명에서 먼저 막힌다)
+   8. 문서: `internal/ref/topics.go` 폼 절의 "needs maago.Config.MediaDir"를 "needs a media store: maago.Config.MediaDir, or Config.Media"로, `API`의 `WithMediaDir`를 `MediaStore`·`MediaFile`·`LocalMedia`·`WithMedia`·`MediaURL`로 바꿔 더함(`TestPackageDoc`이 모든 공개 이름을 한 주제에 요구한다). main 절의 Handler 줄 "without Config.MediaDir" → "without a media store", Config 목록에 `Media`. 미디어 문단(단일 인스턴스·서명된 URL·청소)의 다시 쓰기는 9번. `doc.go`는 `-update`(PG 주소와 함께). `docs/ARCHITECTURE.md` 39줄 옆에 "M13이 더한 것: Config.Media·MediaStore·MediaFile·LocalMedia·WithMedia·MediaURL(WithMediaDir를 지움, D-160)". `rt/app.go:23` 주석의 `Config.MediaDir` → "a media store". `docs/DECISIONS.md` D-160에 이 작업의 고침 한 줄(아래 ★들). D-140의 고침은 9번 목록대로 9번에서
+      - → 확인: `TestPackageDoc`, `TestDocExamples`, `TestNoDecisionsInUserText`
+   9. 게시판: 고치지 않는다 → 확인: `TestBoardTutorial`(PG)·`TestBoardTutorialCatches`·`TestBoardMap`, `git diff --stat examples/`가 비어 있다
+
+   단계와 확인
+   1. `internal/mediatest`와 두 시험 파일을 먼저 쓴다 → 확인: `go vet ./...`가 없는 이름으로 실패(빨강)
+   2. `media.go`·`http.go`·`routes.go` → 확인: `go test . ./internal/mediatest ./internal/web`
+   3. 헛것(하나씩 넣고 실패를 보고 되돌린다): (a) `Handler`의 둘 다 검사를 지움 → `TestMediaDirConfig` (b) `serveSigned`가 `expires`를 보지 않음 → `Store`의 1초 URL(로컬) (c) HMAC 글에서 `type`을 뺌 → `Store`의 쿼리 값 바꾸기(로컬) (d) 메모리 가짜의 서명에서 열쇠를 뺌 → `Store`의 열쇠 바꾸기(가짜: 시험 함수가 가짜에도 실제로 문다) (e) `ServeMedia`가 `MediaFile`을 `*os.File`로 단언 → 메모리 가짜 빨강 (f) 로컬 `Put`이 실패 때 `.tmp-`를 남김 → `Store`의 실패한 Put (g) `routes.go`의 `/maago` 예약을 지움 → `static_test.go`의 `/maago/x` (h) 가짜 `List`가 `after`를 무시 → `Store`의 쪽 상한 (i) `serveSigned`가 숫자 아닌 `expires`를 지나침 → `TestLocalMediaURL`
+   4. 문서·골든 → 확인: `TestPackageDoc`·`TestDocExamples`(`-update`는 PG 주소와 함께)
+   5. 끝 확인: 루트에서 `go mod tidy -diff && go vet ./... && go test ./...`, `gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4`로 전체(`-timeout 60m`, 로그의 `go test exit=` 줄), 게시판 걷기 포함
+
+   ★ → 에이전트 편의로 결정
+   - **`WithMediaDir`를 지우고 `WithMedia(ctx, MediaStore)`.** 디렉터리 문자열은 저장소 하나를 줄인 것일 뿐이라 둘을 두면 같은 일에 길이 둘이다. Q2가 "일꾼의 ctx에 저장소를 넣는 공개 함수는 경계 뒤에 한 번만 이름 짓는다"고 한 그 함수가 이것이다. 5번은 새 이름을 짓지 않고 일꾼에서의 쓰임(문서와 `TestAddOutbox`)만 더한다. 지금 부르는 곳은 `media_test.go`뿐이고, 깨지는 API로 v0.4.0 태그 글에 적는다(10번, `OpenMedia`와 함께)
+   - **`MediaFile`은 `fs.File` + `io.Seeker`.** `*os.File`이 그대로 맞으므로 로컬은 감싸지 않고, `OpenMedia`로 `Read`·`Seek`·`Stat`·`Close`만 쓰던 코드는 고치지 않아도 컴파일된다. 크기와 시각은 `Stat()`의 `fs.FileInfo`(stdlib 타입 하나로 `List`와 같이 쓴다). S3(6번)는 범위 GET을 미루는 Reader와 작은 `FileInfo`를 만든다
+   - **`List(ctx, after)`는 이름 차례의 쪽, 빈 쪽이 끝.** S3의 `start-after`와 디스크의 정렬된 `ReadDir`가 같은 꼴이라 이음새가 없고, 이어 읽을 표시가 따로 없다. 열쇠 아닌 이름도 준다: 청소(7번)는 `.tmp-<key>`를 지워야 하고 `.gitignore`(게시판 0029의 `media/.gitignore`)는 남겨야 하므로 거르는 것은 7번의 몫이고, 저장소의 `Delete`는 `List`가 준 이름을 받는다(열쇠만 받는 것은 런타임의 `DeleteMedia`)
+   - **`URL`은 ctx를 받지 않는다.** 로컬은 HMAC, S3는 SigV4 계산뿐이라 네트워크가 없다
+   - **`LocalMedia`는 칸 둘의 구조체 값**(생성자 함수가 아니라). `maago.LocalMedia{Dir: "media", SiteURL: os.Getenv("BOARD_SITE_URL")}`이 한눈에 읽히고(PHILOSOPHY 2), 복사된 auth 앱의 `auth.SiteURL`과 같은 이름이다. `SiteURL`에 `Config.Prefix`를 넣는다: `LoginURL`처럼 "URL로 준 것은 그대로"
+   - **`SiteURL` 없는 로컬의 `URL`은 오류**(상대 경로를 주지 않는다). 밖의 서비스(readmate의 OCR)에 상대 경로는 쓸모가 없고 조용히 틀린다(PHILOSOPHY 6·7). 오류가 `Config.Media: maago.LocalMedia{Dir, SiteURL}`로 고치라고 말한다. 줄임의 저장소에는 `SiteURL`이 없으므로 요청 안의 `MediaURL`은 이 오류다. 라우트는 그래도 모든 로컬 저장소에 단다(fable 5의 "SiteURL 있는 `Media`일 때만"은 받지 않음: 그러면 줄임의 Handler와 제 `LocalMedia{Dir, SiteURL}`을 쓰는 일꾼의 URL이 오류 없이 404가 된다. 다는 조건이 하나 적은 쪽이 조용히 틀리지 않는다)
+   - **서명 열쇠는 프로세스마다 무작위 32바이트**(설정 칸 없음). 한계: 다시 시작하면 그 전의 URL이 403이 되고, 다른 프로세스의 일꾼이 만든 URL은 웹 프로세스가 받지 않는다. 로컬은 단일 인스턴스용(D-160)이고 URL은 짧은 기한이 필수라 감당할 만하다. 디렉터리에 열쇠 파일을 두는 길은 받지 않는다: 게시판 시험이 디렉터리에 열쇠 이름 파일만 있음을 본다(0029:143·185). 같은 프로세스 안에서는 `Handler`의 저장소와 일꾼의 `LocalMedia`가 값이 달라도 같은 열쇠로 서명한다(그래서 줄임에도 라우트를 단다). 여러 인스턴스는 `contrib/s3`
+   - **서명된 라우트는 `GET /maago/media?key=…`(열쇠도 쿼리에)이고 생성기가 `/maago`·`/maago/…`만 예약한다.** `/media/`는 사용자가 흔히 쓰는 경로라(site fixture가 그렇다) 예약하면 에이전트가 왕복을 맞는다. `/maago/`는 사용자가 쓸 일이 없고 URL은 사람이 치지 않는다. 처음 꼴 `/maago/media/{key}`는 `/{board}/{id}/edit` 같은 흔한 라우트와 겹쳐 미디어 없는 프로젝트에도 새 거절이 생긴다(fable 1, 실측). 글자뿐인 경로는 아무것과도 겹치지 않아 거절이 "maago가 쓰는 경로" 한 줄(`/static/` 옆)만 넓어진다. 로컬 저장소일 때만 단다(S3의 URL은 버킷을 가리킨다)
+   - **서명이 덮는 것은 `sig` 밖의 쿼리 전부(열쇠·`name`·`type`·`expires`, 덧붙인 값도)**, 거절은 403(S3의 `AccessDenied`와 같은 상태). 시험 함수는 "모든 쿼리 값과 경로의 열쇠"를 바꿔 4xx를 본다: 저장소마다 매개변수 이름이 달라도 서명이 덮지 않는 값을 잡는다
+   - **ttl은 1초~7일, 초 단위로 자른다**(`MediaURL`에서). S3 서명 URL의 `X-Amz-Expires`가 정수 초이고 상한이 7일이라, 로컬에서 통과한 ttl이 S3에서 실패하지 않게 런타임이 한 번 본다
+   - **시험 함수는 `internal/mediatest`**(공개 `maagotest`가 아니라). 쓰는 것은 이 모듈의 시험뿐이다(루트, 메모리 가짜, 6번의 `contrib/s3`). 사용자가 저장소를 쓰는 길은 D-160이 기각했다(SDK 어댑터를 앱이). 런타임 의존은 그대로(`TestRuntimeDependencies`: 루트는 이것을 import하지 않는다), `TestRuntimeImports`는 stdlib와 이 모듈이라 통과
+   - **권한은 부르는 쪽**: `MediaURL`의 문서 주석이 "anyone holding the URL may download the file until it expires: call it once the view or worker has checked the user may have the file"라고 말한다(codex 5). 게시판 시험으로 고정하는 것은 게시판이 URL을 쓰는 8번에서
+   - **`SaveMedia`의 `Size`는 그대로 `f.Size`**, `Put`의 센 값은 5번의 `SaveMediaFrom`에서 쓴다(Q2). 형식은 `Put` 전에 정해진다(`File.Type`, 5번은 첫 512바이트)
+
+   하지 않는 것
+   - `SaveMediaFrom`과 일꾼의 쓰임(5번), `contrib/s3`(6번), `SweepMedia`와 태그 `media`(7번), `maago doc`의 미디어 문단 다시 쓰기와 D-140 고침(9번), 태그 글(10번)
+   - 서명 열쇠의 설정 칸이나 파일(위 ★), 여러 인스턴스의 로컬 저장소
+   - 상대 URL을 주는 로컬 `URL`(위 ★)
+   - 서명된 라우트의 CORS·캐시 조정(`ServeMedia`의 `Cache-Control: private` 그대로)
+   - `List`가 열쇠만 거르기(7번의 몫, 위 ★)
+   - `Media` 칸에 사용자가 만든 저장소의 시험 도우미 공개(위 ★)
+
+   계획 리뷰 codex·fable 반영: 서명된 라우트를 `GET /maago/media?key=…`로(fable 1의 막는 것, 실측: `/maago/media/{key}`는 `/{a}/{b}/edit`와 겹친다), 그래서 `conflicts` 줄·`/{a}/{b}/edit` 시험·헛것 (g)를 `/maago` 예약의 헛것으로 바꿈. `LocalMedia.URL`도 `validKey`(codex 1, 열쇠는 `url.Values`가 인코딩). `SiteURL`은 http(s)·호스트·사용자 정보·쿼리·조각 없음, 끝 `/`는 떼고(거절하지 않음: 흔한 꼴), `Handler`에서는 경로가 `Prefix`와 같음까지(codex 2·fable 7의 "끝남"은 빈 Prefix에 `/app`을 지나치므로 같음으로). 로컬의 Put·Open·Delete는 파일 이름 하나만(codex 3). `MediaURL` 문서에 bearer와 권한 먼저(codex 5, 게시판 시험은 8번). 숫자 아닌 `expires`는 맞게 서명한 URL로(fable 2), 가짜 `List`는 한 쪽에 하나와 쪽 상한·`after`의 `>`·`.gitignore`·`.tmp-x`·하위 디렉터리(fable 3), 바꾸는 것은 첫 글자이고 디코드하지 않은 글끼리 비교(fable 4), 로컬이 아닌 저장소의 404 줄(fable 5의 뒤 절), 재시작·다른 프로세스의 한계를 `LocalMedia.URL` 주석과 9번 목록에(fable 6), Prefix 실행은 URL 부분만(fable 7), `File`은 `rtcore.NewFile`(fable 8), `&LocalMedia{}` 줄(fable 9), 성공한 `Put`의 n(fable 10). 받지 않은 것: `crypto/rand` 실패의 처리(codex 4: Go 1.24부터 `rand.Read`는 오류를 돌려주지 않고 프로세스를 끝내므로 0값·부분 열쇠가 생길 수 없다), 줄임에 라우트를 달지 않기(fable 5의 앞 절: 위 ★, 줄임의 Handler와 일꾼의 URL이 오류 없이 404가 된다)
+   구현 리뷰 반영(ponytail·codex·fable): 런타임의 열쇠 검사를 `Store`에서 고정(`DeleteMedia(".gitignore")`·`MediaURL(Key "x")`가 오류, fable 1), `Put`이 실패하면 `SaveMedia`가 오류와 빈 `Media`(`TestMedia`의 `fullStore`, fable 2), 메모리 가짜가 `Put`의 형식을 `MapFile.Sys`에 두어 URL의 `Content-Type`으로 주고(형식은 쿼리에서 뺌) 초 단위가 아닌 ttl을 오류로 하며 `Store`가 1.5초의 `MediaURL`을 부른다(fable 3), `TestLocalMediaList`에 링크(fable 4), `Config.Media: (*LocalMedia)(nil)`은 panic 대신 `Dir is empty` 오류(fable 5), `MediaStore.URL` 주석에 "whole seconds from one to 7 days, as MediaURL checks first"(위 API 글도, fable 6), `TestLocalMediaURL`에 덧붙인 `x=1`이 403(fable 7)과 표의 `{ok, 404}` 한 갈래(ponytail 2). 받지 않은 것: `expires`의 `>=`(codex): `expires`는 유닉스 초로 내림이라 `>=`면 1초 URL이 만들자마자 죽을 수 있다, `>`는 ttl보다 짧지 않고 길어야 1초 더. `LocalMedia.URL`의 `validKey`를 지우기(ponytail 1, 계획 리뷰 codex 1이 일부러 넣은 것이고 `URL`을 직접 부르는 6번의 시험에도 안전띠). 아직 받는 곳 없는 `Put`의 n·`List`·`Delete(name)`(ponytail 3, 5번·7번이 쓴다, TODO), 두 벌의 `sentFile`·`pngBytes`(ponytail 4, `package maago`의 시험은 `mediatest`를 import하면 순환)
+   기록(2026-11-22): `MediaStore`·`MediaFile`·`LocalMedia{Dir, SiteURL}`·`WithMedia`·`MediaURL`·`Config.Media`(`WithMediaDir`를 지움), `Handler`의 검사(`handler.media`: 둘 다 오류, 로컬이면 Dir 셋과 `SiteURL`의 꼴·Prefix, 로컬 저장소면 `GET /maago/media`를 단다), 생성기의 `/maago` 예약, 문서(`maago doc` form·main, `doc.go` 골든, ARCHITECTURE, `rt/app.go`, D-160 고침). 시험: `internal/mediatest.Store`를 로컬(`TestLocalMediaStore`, Handler가 URL을 받음)과 메모리 가짜(`TestMemory`, `fstest.MapFS`, 한 쪽에 하나)에, `TestLocalMediaURLServed`(Prefix와 끝 `/`, 줄임 Handler와 일꾼의 `LocalMedia`), `TestMedia`·`TestLocalMediaList`·`TestLocalMediaURL`·`TestMediaDirConfig`, `TestStaticDiags`의 줄과 골든. 헛것 (a)~(i) 모두 이름 붙인 시험이 빨강(되돌린 뒤 diff가 같음): (d)·(h)는 가짜를 바꾼 것이고 (h)는 `>=`로도 쪽 상한에 걸림. `GOTOOLCHAIN=go1.25.14`로 새 시험 초록. 게시판은 고치지 않음(`examples/` diff 없음). 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 373초, 게시판 걷기 포함). 구현 리뷰는 ponytail·codex·fable: 막는 것 없음. 반영은 위 줄: fable 표의 살아남은 변이 일곱과 nil `*LocalMedia`의 panic을 시험 줄로(변이마다 다시 넣어 `TestLocalMediaStore`·`TestMemory`·`TestMedia`·`TestLocalMediaList`·`TestLocalMediaURL`·`TestMediaDirConfig` 중 하나가 빨강을 확인), ponytail 2의 표. codex의 `>=`와 ponytail 1·3·4는 받지 않음(까닭은 위 줄). 반영 뒤 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, PG 전체 시험 `go test exit=0`(cmd/maago 367초)
 5. **바이트로 미디어 저장**(Q2): `SaveMediaFrom`, 일꾼의 ctx에 저장소를 넣는 공개 함수 → 확인: 저장소 시험 함수에 바이트·빈 입력·형식·센 크기, 복사된 outbox 일꾼의 handle 안에서 저장이 성공(`TestAddOutbox`, 두 방언), `maago doc main` 예(`TestDocExamples`)
+
+   계획
+
+   따라가 본 길: 일꾼의 ctx에 저장소를 넣는 공개 함수는 4번이 이미 지었다(`WithMedia(ctx, MediaStore)`, D-160 고침: "Q2의 한 함수"). 그래서 이 작업의 새 공개 이름은 `SaveMediaFrom` 하나이고, 일꾼 쪽은 쓰임(문서·시험)만 더한다. `SaveMedia`는 지금 `mediaStore` → `f.Open()` → 열쇠 → `s.Put(ctx, key, f.Type, in)`이고 `Size`는 `f.Size`(`Put`의 n은 버린다, TODO 90줄). 업로드의 형식은 `rt/file.go:81~83`: 첫 512바이트를 `io.ReadFull`, `mime.ParseMediaType(http.DetectContentType(head[:n]))`로 매개변수를 뗀다(글은 `text/plain`이지 `; charset=utf-8`이 아니다). `rt`는 `maago`를 import하므로 `maago`가 `rt`의 것을 부를 수 없다. outbox의 `RunOnce`는 `context.WithoutCancel`·`WithTimeout`으로 ctx를 감싸는데 둘 다 값을 지키므로, `main`이 `outbox.Run`에 준 ctx의 저장소가 `handle`의 ctx에 그대로 온다: 복사되는 `outbox.go`의 코드는 고칠 것이 없다. `Handler`는 파일 폼이 없어도 `Config.Media`를 받고 로컬이면 `Dir`을 `Stat`한다(`http.go:200`). `rtcore.NewFile`로 `File`을 만드는 시험(`media_test.go`·`mediatest`)은 모두 PNG 바이트에 `image/png`라 형식을 다시 정해도 같다. site fixture의 `Upload`(`testdata/web/site/upload.go`)도 PNG만 받는다. 게시판 0029·0039는 `SaveMedia`의 `Name`·`Type`·`Size`만 쓰고, 끝까지 읽은 업로드에서 센 크기는 `f.Size`와 같다. 복사되는 outbox 원본은 `internal/scaffold/testdata/outbox`이고 걷기(0040)는 `maago add outbox`를 실행하므로 패치에 `outbox.go`가 없다.
+
+   공개 API(루트, 새 것과 바뀌는 것 그대로)
+
+   ```go
+   // SaveMediaFrom keeps r's bytes, read to its end, in the media store
+   // under a random key, as name, and returns what to keep in a row: Size
+   // is how many bytes it read, Type what the first 512 tell, as a form's
+   // File. A worker's ctx needs the store: maago.WithMedia. Nothing bounds
+   // r here: to bound it, pass io.LimitReader(r, max+1) and, when Size is
+   // over max, DeleteMedia the file and refuse it.
+   // If the row is not written after, delete the file with DeleteMedia.
+   func SaveMediaFrom(ctx context.Context, name string, r io.Reader) (Media, error)
+
+   // 그대로(서명): SaveMedia(ctx context.Context, f File) (Media, error), 몸만 SaveMediaFrom(ctx, f.Name, f.Open()의 것)
+   ```
+
+   바꿀 파일과 새 파일
+   1. `media.go`
+      - `SaveMediaFrom`: 먼저 `mediaStore(ctx)`(없으면 r을 한 바이트도 읽지 않고 지금의 "no media store … maago.WithMedia" 오류). `head := make([]byte, 512)`, `n, err := io.ReadFull(r, head)`: `io.EOF`·`io.ErrUnexpectedEOF`는 짧은 입력이라 받고 다른 오류는 `maago: saving %q: %w`. `typ, _, _ := mime.ParseMediaType(http.DetectContentType(head[:n]))`(`rt/file.go:83`과 같은 식). 열쇠를 만들고(지금 `SaveMedia`의 세 줄을 옮김) `size, err := s.Put(ctx, key, typ, io.MultiReader(bytes.NewReader(head[:n]), r))`, 오류면 `maago: saving %q: %w`와 빈 `Media`. 돌려주는 것 `Media{Key: key, Name: name, Type: typ, Size: size}`
+      - `SaveMedia`: `f.Open()`(오류 글 그대로) → `defer in.Close()` → `return SaveMediaFrom(ctx, f.Name, in)`. `Size`는 이제 센 값, `Type`은 같은 식으로 다시 정한 값(업로드 때 `f.Type`을 정한 바로 그 식이라 같다). 검사 차례가 `Open` 다음 `mediaStore`로 뒤집혀 저장소도 파일도 없으면 "no file" 오류가 된다: 받는다(둘 다 참인 오류, 줄을 더하지 않는다, 계획 리뷰 fable 6)
+      - 주석: `Media`의 "a file SaveMedia kept" → "SaveMedia or SaveMediaFrom", `Media.Type`의 "(File.Type)" → "as its first 512 bytes tell". `File.Type`의 주석(`file.go`)은 그대로
+      - → 확인: 아래 시험
+   2. `internal/mediatest/mediatest.go`: `Store`에 `saveFrom(t, ctx, s)` 하나를 더한다(런타임 함수로 부르고 결과를 `OpenMedia`로 읽어 본다)
+      - 길이 0, 100, 512, 1000바이트의 고르지 않은 바이트(바이트 i가 `byte(i*7)`꼴, 앞 512와 뒤가 다르다)를 `iotest.OneByteReader`에 감싸 저장: `Size`가 길이, 읽은 내용이 같다(머리를 버리거나 뒤를 버리거나 머리를 두 번 쓰면 빨강. `Read` 한 번으로 머리를 채우는 구현은 `MultiReader`가 나머지를 이어 이 줄로는 초록이고 형식 줄이 잡는다), 이름이 준 그대로. 이름은 `../../evil.txt`: `Name`은 그대로이고 `Key`는 32자이고 `.`·`/`가 없어 경로로 쓰이지 않는다(계획 리뷰 codex 4, 구현 리뷰 fable 2가 구현에 맞춤)
+      - 형식(모두 `iotest.OneByteReader`에 감싸): PNG 바이트 → `image/png`, 글(`"hello\n"` 되풀이) → `text/plain`(매개변수 없음: 업로드와 같은 뜻), 빈 입력 → `text/plain`이고 `Size` 0이며 연 파일이 비었다(아래 ★)
+      - 실패: 머리 안에서 오류를 내는 Reader(10바이트를 준 뒤 오류를 **한 번** 내고 그다음은 `io.EOF`: 늘 오류인 `iotest.ErrReader`면 머리의 오류를 버리는 구현도 `Put`에서 다시 걸려 헛것이 된다, 이 Reader면 그 구현은 10바이트 파일로 성공해 빨강)와 머리 뒤(600바이트 뒤)에서 오류를 내는 Reader → 둘 다 오류, 빈 `Media`, `List`의 이름이 저장 전과 같다(실패한 저장은 열쇠를 돌려주지 않으므로 "남김 없음"을 이름 모음으로 본다)
+      - 이것으로 로컬(`TestLocalMediaStore`)과 메모리 가짜(`TestMemory`) 둘에 돌고, 6번의 S3도 같은 함수로 받는다
+   3. `media_test.go`(package `maago`): `TestMedia`의 "저장소 없는 ctx" 줄 옆에 `SaveMediaFrom`도 같은 오류(`maago.WithMedia`를 말함)이고, 그때 Reader를 읽지 않았다(읽으면 실패하는 Reader로) 한 줄
+   3a. `rt/file_test.go`의 `TestBindFile`: "the type is the content's"로 바인딩한 HTML 파일을 `maago.SaveMedia`(로컬 저장소 `t.TempDir()`)로 저장하면 `Type`이 `f.Value.Type`과 같다 한 줄. 업로드의 식(`rt/file.go`)과 `media.go`의 식이 갈라지면 빨강(계획 리뷰 fable 2)
+   4. 새 시험은 복사본이 아니라 `cmd/maago/add_test.go`의 `TestAddOutbox`가 쓴다: `addProject` 뒤 `outbox/media_test.go`에 상수 `outboxMediaTest`를 쓰고 `goTest`(두 방언). 내용: `db := maagotest.DB(t)`, `ctx := maago.WithMedia(t.Context(), maago.LocalMedia{Dir: t.TempDir()})`, 복사본의 `job(t, db)`로 일 하나, `RunOnce(ctx, db, time.Now(), handle)`의 `handle`은 **제 인자 `ctx`로** `maago.SaveMediaFrom(ctx, "export.txt", strings.NewReader("done"))`를 부르고(바깥 ctx를 잡으면 헛것 (d)가 빨강이 될 수 없다) 그 오류를 닫힘 밖 변수에 둔다. `RunOnce`는 `handle`이 실패해도 `(true, nil)`(기록하고 다시 돌림)이므로 시험은 `found`·오류 없음에 더해 그 변수가 nil인지를 먼저 보고(헛것 (d)의 메시지가 "no media store"), 그다음 `maago.OpenMedia(ctx, m.Key)`의 내용이 `done`. `RunOnce`를 지나므로 복사본이 ctx를 `context.Background()`로 갈아 끼우면 빨강(아래 헛것 (d))
+   5. `internal/scaffold/testdata/outbox/outbox.go`의 패키지 문서: "Once Serve has stopped" 문단 앞에 한 문장, "To keep files from deliver with maago.SaveMediaFrom, put the store Config.Media has in its ctx: ctx = maago.WithMedia(ctx, store)." 예의 코드는 그대로라 `outboxMain`도 그대로(`go doc ./outbox`를 읽는 에이전트가 길을 안다)
+   6. `cmd/maago/docs/main.txt`(`maago doc main`의 예, `TestDocExamples`): 
+      - `notes/models.go`의 `Note`에 `Export string // the key of the note's file, once the worker kept it`
+      - `main.go`: `media := maago.LocalMedia{Dir: "media"} // the directory must exist` 하나를 `handler(db, media)`의 `Config.Media`와 일꾼의 `outbox.Run(work, db, deliver(db, media))`에 같이 준다(값 하나: 둘을 따로 쓰면 디렉터리가 갈라지는 실수를 예가 보이지 않게). `handler(db *sql.DB, media maago.MediaStore)`
+      - `deliver(db maago.DB, media maago.MediaStore) func(context.Context, outbox.Job) error`(일꾼이 행을 쓰려면 db가 필요하다): 닫힘의 첫 줄이 `ctx = maago.WithMedia(ctx, media)`(main과 시험이 한 길을 지나 그 줄을 시험이 문다, 계획 리뷰 fable 1), Kind 검사 그대로, 페이로드의 `ID`로 `notes.GetNote`, `maago.SaveMediaFrom(ctx, fmt.Sprintf("note-%d.txt", n.ID), strings.NewReader(n.Text))`, `old := n.Export`, `n.Export = m.Key`, `notes.UpdateNote`이 실패하면 `errors.Join(err, maago.DeleteMedia(ctx, m.Key))`(어느 행도 가리키지 않는 파일을 남기지 않고 삭제의 오류도 버리지 않는다, 계획 리뷰 codex 2), 성공하면 `old != ""`일 때 `maago.DeleteMedia(ctx, old)`(다시 도는 일이 앞 파일을 남기지 않는다: form 주제의 "delete it with maago.DeleteMedia"와 맞고 7번이 와도 그대로 맞다, 계획 리뷰 fable 5)
+      - `main_test.go`: `media := maago.LocalMedia{Dir: t.TempDir()}`를 `handler(db, media)`와 `outbox.RunOnce(ctx, db, time.Now(), deliver(db, media))`에. 그 뒤 `notes.AllNotes`의 첫 행의 `Export`가 비지 않고 `maago.OpenMedia(maago.WithMedia(ctx, media), n.Export)`의 내용이 `hello`. 두 번째 `RunOnce`(한 시간 뒤 없음)는 그대로
+   7. 문서: `internal/ref/topics.go`
+      - form 절: "maago.SaveMedia keeps the file." 뒤에 "maago.SaveMediaFrom keeps bytes the app made, such as a worker's (maago doc main)." `API`에 `SaveMedia` 다음 `SaveMediaFrom`(`TestPackageDoc`이 모든 공개 이름을 한 주제에)
+      - main 절: outbox 문단 끝에 "Its deliver keeps files with maago.SaveMediaFrom once its ctx has the media store Config.Media has, maago.WithMedia(ctx, media), as the example's deliver does." 미디어 문단(단일 인스턴스·서명된 URL·청소)과 Kind 둘의 다시 쓰기는 9번
+      - `doc.go`는 `-update`(PG 주소와 함께, `TestPackageDoc`)
+      - `docs/ARCHITECTURE.md` 40줄의 "M13이 더한 것"에 `SaveMediaFrom`
+      - `docs/TODO.md` 90줄: `Put`의 n은 `SaveMediaFrom`이 쓰므로 그 절을 지우고 `List`·`Delete(name)`(7번)만 남긴다
+      - `docs/DECISIONS.md` D-160에 고침 한 줄(M13 5번: 아래 ★들)과 끝의 기록 줄
+      - → 확인: `TestPackageDoc`, `TestDocExamples`, `TestNoDecisionsInUserText`
+   8. 게시판: 고치지 않는다 → 확인: `TestBoardTutorial`(PG)·`TestBoardTutorialCatches`·`TestBoardMap`, `git diff --stat examples/`가 비어 있다
+
+   단계와 확인
+   1. 시험 먼저: `mediatest`의 `saveFrom`, `media_test.go`의 줄, `rt/file_test.go`의 줄, `outboxMediaTest` → 확인: `mediatest`·`media_test.go`는 `go vet ./...`가 없는 이름 `SaveMediaFrom`으로 실패(빨강), `rt/file_test.go`의 줄은 `media.go` 전에 초록이어도 되고(지금도 같은 식) 헛것 (i)가 문다, 문자열 상수 `outboxMediaTest`는 vet이 컴파일하지 않아 단계 2 전의 `TestAddOutbox`가 컴파일 실패로 빨강(계획 리뷰 fable 4)
+   2. `media.go` → 확인: `go test . ./internal/mediatest`, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4 go test -run 'TestAddOutbox' ./cmd/maago`(두 방언)
+   3. `outbox.go` 문서, `main.txt`, `topics.go`, 골든 → 확인: `go test -run 'TestDocExamples|TestDoc$|TestPackageDoc' ./cmd/maago .`(`-update`는 PG 주소와 함께)
+   4. 헛것(하나씩 넣고 실패를 보고 되돌린다): (a) `Put`에 머리를 빼고 r만 → `Store`의 내용(512·1000바이트) (b) `Size`를 `int64(n)`(머리의 길이)으로 → `Store`의 1000바이트 크기 (c) `ParseMediaType`을 빼고 `DetectContentType` 그대로 → `Store`의 `text/plain` (d) 복사 원본 `RunOnce`의 `context.WithoutCancel(ctx)`를 `context.Background()`로 → `TestAddOutbox`의 `outboxMediaTest`("no media store") (e) `ReadFull`의 다른 오류를 버림 → `Store`의 머리 안 실패 (f) `main.txt`의 `deliver` 안 `WithMedia` 줄을 뺌 → `TestDocExamples/main` (g) `ReadFull` 대신 `r.Read` 한 번 → `Store`의 형식(한 바이트 Reader에서 `image/png`가 아니게 된다) (h) `SaveMediaFrom`이 `mediaStore`보다 먼저 읽음 → `TestMedia`의 읽으면 실패하는 Reader (i) `media.go`의 식에서 `ParseMediaType`을 빼고 `rt`는 그대로 → `TestBindFile`의 HTML 형식 줄(`text/html; charset=utf-8` ≠ `text/html`)
+   5. 끝 확인: 루트에서 `go mod tidy -diff && go vet ./... && go test ./...`, `gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4`로 전체(`-timeout 60m`, 앞에서 끝까지 기다려 로그의 `go test exit=` 줄), 게시판 걷기 포함. 새 시험은 `GOTOOLCHAIN=go1.25.14`로도
+
+   ★ → 에이전트 편의로 결정
+   - **일꾼의 함수는 새로 짓지 않고 4번의 `WithMedia`.** 같은 일에 이름이 둘이면 에이전트가 고른다. 이 작업은 그 쓰임을 셋에 박는다: `maago doc main`의 예(`TestDocExamples`), outbox 패키지 문서의 한 문장, `TestAddOutbox`의 `RunOnce` 안 저장
+   - **빈 입력은 받는다**(`Size` 0, 형식 `text/plain`: 업로드의 빈 파일과 같은 식의 결과). 일꾼이 만든 빈 내보내기는 오류가 아니고, 오류로 하면 outbox가 12번 다시 돌린 뒤 일을 남긴다. 업로드와 뜻이 하나다(빈 파일 칸도 같은 결과). 빈 것을 막을 앱은 `Size == 0`을 본다
+   - **형식은 업로드와 같은 식 한 줄을 `media.go`에 다시 쓴다**(새 공용 함수 없이). `rt`는 `maago`를 import해 `maago`가 `rt`의 것을 부를 수 없고, 한 줄을 위한 `rtcore` 함수는 이름만 는다. 두 곳이 갈라지지 않음은 `TestBindFile`의 한 줄(업로드의 `f.Type`과 `SaveMedia`의 `Type`이 같다)이 고정하고, `Store`의 `text/plain`은 `media.go` 쪽 식을 문다
+   - **상한의 문서는 `io.LimitReader(r, max+1)`과 `Size > max`면 `DeleteMedia`.** Q2의 "`io.LimitReader`를 문서에"를 그대로 `LimitReader(r, max)`로 적으면 넘친 파일이 잘린 채 성공한다(PHILOSOPHY 7: 조용히 버리지 않는다). `max+1`이면 넘침이 `Size`에 보인다
+   - **`SaveMedia`의 `Size`도 센 값**(Q2의 "얇은 함수"). 끝까지 읽은 업로드에서 `f.Size`와 같고, 크기의 출처가 `Put` 하나가 된다. 4번 ★("`SaveMedia`의 `Size`는 그대로 `f.Size`, 센 값은 5번에서")를 여기서 닫는다
+   - **저장소를 먼저 찾고 r을 읽는다.** 저장소 없는 ctx에서 일꾼이 Reader(네트워크 응답 따위)를 반쯤 먹고 실패하지 않게
+   - **일꾼 시험은 복사본이 아니라 `TestAddOutbox`가 쓰는 파일.** 미디어를 쓰지 않는 outbox 사용자의 복사본을 무겁게 하지 않고, 길은 패키지 문서 한 문장이 알린다. 두 방언은 `TestAddOutbox`의 두 줄이 이미 돈다
+   - **`Put`은 업로드에서도 길이를 모르는 Reader를 받는다**(얇은 `SaveMedia`가 seek하는 `multipart.File` 대신 `MultiReader`를 준다). Q2·Q3 그대로이고, 6번의 `contrib/s3`는 seek를 기대하지 말고 늘 Q3의 임시 파일 길로 센다(6번 계획에서 이 줄을 본다)
+   - **`main.txt`의 저장소 값은 하나를 `Config.Media`와 `WithMedia`에 같이.** 에이전트가 따라 쓸 꼴이므로 디렉터리가 갈라질 자리를 두지 않는다. `deliver(db)`는 일꾼이 행을 쓰는 가장 짧은 꼴(닫힘 하나)이다
+
+   하지 않는 것
+   - `SweepMedia`·태그 `media`(7번: 예의 `Export` 열에 태그는 7번이 단다), `contrib/s3`(6번), `maago doc`의 미디어 문단·main의 Kind 둘 다시 쓰기와 D-140 고침(9번), 게시판 0041~(8번)
+   - 크기 상한 인자나 `MaxBytes` 칸(Q2: 상한은 앱의 몫)
+   - `SaveMediaFrom`이 형식을 받는 인자(Q2: 첫 512바이트, 업로드와 같은 뜻)
+   - outbox 원본의 코드 바꾸기(값이 이미 지나간다), 복사본에 미디어 시험 넣기(위 ★)
+   - `File`을 바이트로 만드는 길(Q2가 기각한 `NewFile`)
+
+   계획 리뷰 codex·fable 반영: 막는 것 없음(둘 다). 받은 것: `deliver(db, media)`가 안에서 `WithMedia`를 해 main과 시험이 한 길(fable 1, 헛것 (f)를 그 줄로, outbox 문서·main 주제의 문장도 그 꼴로), `TestBindFile`의 업로드 형식 = `SaveMedia` 형식 한 줄과 헛것 (i)(fable 2), `saveFrom` 첫 줄의 괄호(fable 3), 단계 1의 빨강을 vet과 `TestAddOutbox`로 나눔(fable 4), 청소 주석 대신 `old`를 지움(fable 5), `UpdateNote` 실패의 `errors.Join`(codex 2), `../../evil.txt` 이름의 저장(codex 4). 받지 않은 것: `SaveMedia`의 검사 차례(fable 6, 위 1의 까닭), 상한 넘침의 `DeleteMedia` 실패를 주석에 적기(codex 1: 그 오류의 처리는 앱의 보통 오류 처리이고, 남은 파일은 7번 청소가 치운다, 주석은 한 줄 짧게 둔다), `SaveMediaFrom` 주석의 권한 문장(codex 3: D-160의 권한은 파일을 밖에 건네는 `MediaURL`의 것이고, 저장은 아무것도 건네지 않는다: 권한을 본 뷰·일꾼이 행을 쓴다)
+   기록(2026-11-24): `SaveMediaFrom`(저장소를 먼저 찾고, `ReadFull`의 머리 512바이트로 매개변수를 뗀 형식, `MultiReader`로 `Put`, 센 크기), `SaveMedia`는 그것을 부르는 얇은 함수, `Media` 주석, outbox 패키지 문서의 한 문장, `maago doc main`의 예(`Note.Export`, `deliver(db, media)` 안의 `WithMedia`, `UpdateNote` 실패의 `errors.Join`, 앞 파일 지우기, `main_test.go`의 파일 읽기), `topics.go`의 form·main 문장과 `API`, `doc.go` 골든, ARCHITECTURE·TODO·D-160 고침과 기록 줄. 시험: `mediatest.Store`의 `saveFrom`(로컬·메모리 가짜), `TestMedia`의 읽지 않은 Reader, `TestBindFile`의 형식 한 줄, `TestAddOutbox`의 `outboxMediaTest`(두 방언). 헛것 (a)~(i) 모두 이름 붙인 시험이 빨강(되돌린 뒤 diff 같음): (a)는 머리를 `head[:0]`로, (b)는 `int64(n)`으로 컴파일되게 넣음, (g)는 `TestMemory`의 PNG 형식, (d)·(f)는 "no media store". `GOTOOLCHAIN=go1.25.14`로 새 시험 초록. 게시판은 고치지 않음(`examples/` diff 없음). 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 368초, 게시판 걷기 포함)
+   기록(2026-11-24, 구현 리뷰 반영): 구현 리뷰는 ponytail·codex·fable: 막는 것 없음(셋 다). 받은 것: `saveFrom`의 형식 표에 300바이트 뒤 NUL → `application/octet-stream`(fable 1, 머리 16바이트 변이가 `TestLocalMediaStore`·`TestMemory`에서 빨강임을 봄), 계획 2번의 `../../evil.txt` 글을 구현에 맞춤(`Key`는 32자이고 `.`·`/` 없음, fable 2), `topics.go` form 문단 다시 접기(fable 4), D-160 기록 줄의 날짜 11-24(fable 5), `rt/file.go`의 형식 줄에 `// as maago.SaveMediaFrom (media.go)`(ponytail 1). 받지 않은 것: 예의 `deliver`를 줄이기(ponytail 2, 행이 가리키지 않는 파일을 지우는 실패 처리가 이 예의 까닭이고 계획 리뷰가 받은 것), `WithMedia`를 Kind 검사 뒤로(ponytail 2의 nit, 계획 리뷰 fable 1이 정한 닫힘 첫 줄이고 모르는 Kind는 저장소를 쓰지 않아 차이 없음), `failOnce`(ponytail 3, 지적 없음), codex(지적 없음). 예의 정리 두 갈래(앞 파일 지우기, `UpdateNote` 실패 때 `DeleteMedia`)는 시험이 물지 않는다: 헛것 (f)만 `TestDocExamples/main`이 물고 두 갈래는 예의 글일 뿐이다(fable 3, 예의 시험을 늘리지 않음). 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 363초, 게시판 걷기 포함)
+
 6. **`contrib/s3`**: stdlib SigV4(머리 서명과 서명된 URL), Range GET, LIST(페이지 나눔), 크기 모르는 Reader → 확인: S3 문서의 예 벡터(머리 서명과 서명된 URL 둘), 4번의 저장소 시험 함수를 가짜 S3에(가짜는 서명을 다시 계산해 틀리면 403), 길이 모르는 Reader의 `Content-Length`, CI에 MinIO 서비스와 `MAAGO_TEST_S3_URL`(D-91의 꼴, 없으면 CI에서 실패), `TestRuntimeImports`
-7. **고아 청소**(Q4): 태그 `media`, 생성된 "쓰는 중" 쿼리, `SweepMedia` → 확인: 오래된 고아만 지움, 여유 안의 새 것과 `.tmp-`, 태그 없는 프로젝트의 오류, 열쇠 열이 둘인 모델·두 앱에서 둘 다 쓰는 중으로 봄, 로컬과 가짜 S3 둘(LIST 페이지 둘 이상)
+
+   계획
+
+   따라가 본 길: 경계는 4번이 정했다(`media.go`의 `MediaStore{Put, Open, Delete, List(ctx, after), URL}`, `MediaFile`은 `fs.File`+`io.Seeker`). 런타임은 열쇠(32자 hex)를 본 뒤에만 저장소를 부르고(`OpenMedia`·`DeleteMedia`·`MediaURL`의 `validKey`), `MediaURL`이 ttl을 1초~7일로 보고 초 단위로 잘라 `URL`에 준다. `SaveMediaFrom`은 늘 길이를 모르는 `io.MultiReader`를 `Put`에 준다(5번 ★: S3는 seek를 기대하지 않고 임시 파일로 센다). `ServeMedia`는 `OpenMedia` → `Stat()`(크기·시각) → `http.ServeContent`이고, ServeContent는 크기를 알려고 `Seek(0, io.SeekEnd)`, 그다음 `Seek(start)`와 `io.CopyN`으로 읽는다(Range가 없으면 0부터). `Handler`는 `LocalMedia`만 검사하고 다른 저장소는 그대로 ctx에 넣는다(`http.go`의 `handler.media`): S3 저장소는 `Handler`를 고치지 않는다. 시험 함수 `internal/mediatest.Store`가 저장소에 묻는 것: 두 저장의 열기·크기·1분 안의 시각, `Put`의 n, 런타임의 열쇠 검사, `ServeMedia`의 Range 206 `PNG`·HEAD·없음 404, `List`를 빈 쪽까지(쪽 상한 1000, `after`는 `>`), 실패한 `Put`이 남김 없음, URL의 200·`Content-Type`(`Put`의 형식)·`attachment`, `parsed.Query().Encode()`로 다시 쓴 쿼리도 200(공백이 `+`가 된다), 경로의 열쇠와 쿼리 값마다 첫 글자를 바꾸면 4xx, 1초 URL은 2초 뒤 4xx, 1.5초 `MediaURL`이 성공, `saveFrom`(한 바이트 Reader, 빈 입력, 실패한 Reader의 남김 없음을 `List`로). 메모리 가짜(`internal/mediatest/mediatest_test.go`)가 그 꼴의 본보기다. contrib의 문서 규칙: `TestNoDecisionsInUserText`가 `go doc -all`로 읽는 패키지 목록(`cmd/maago/doc_test.go:369`), `TestRuntimeDependencies`의 `contrib/auth` 줄(`runtime_test.go`), `TestRuntimeImports`는 `cmd/maago` 밖 모든 시험 아닌 파일(새 패키지도 저절로). PG 시험의 D-91 꼴은 `cmd/maago/practicedb_test.go`의 `pgURL`(없으면 skip, `CI`면 Fatal). TODO 91줄(4번 구현 리뷰 fable 1·3)이 이 작업에 넘긴 것: `Put`의 형식이 객체의 `Content-Type`, ttl이 `X-Amz-Expires` 정수 초(초 단위가 아니면 오류), 열쇠 검사 줄이 S3에서도 런타임 검사를 본다(이것은 `Store`가 이미 런타임 함수로 부르므로 그대로 덮인다).
+
+   조사한 바깥 사실(2026-11-24): MinIO의 공식 배포가 없어졌다. Docker Hub `minio/minio` 저장소는 "object not found", `quay.io/minio/minio`는 익명으로 태그를 못 읽고, `dl.min.io`의 바이너리는 410, GitHub `minio/minio`는 archived, Homebrew `minio`(2025-10-15 bottle)는 deprecated이고 2027-02-17에 꺼진다. 남은 MinIO 이미지: `bitnamilegacy/minio`(Bitnami가 빌드한 MinIO, 2025-08에 얼어붙음, 태그 `2025.7.23-debian-12-r5`), `pgsty/minio`(제3자 fork, 2026-08). AWS 문서의 SigV4 예 벡터는 지금 페이지가 API 목차로 옮겨져, Wayback의 사본(`sig-v4-header-based-auth.html`, `sigv4-query-string-auth.html`)에서 읽었다: 자격 `AKIAIOSFODNN7EXAMPLE`/`wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`, `20130524T000000Z`, `us-east-1`, `examplebucket.s3.amazonaws.com`. GET Object(`Range: bytes=0-9`, `SignedHeaders=host;range;x-amz-content-sha256;x-amz-date`) → `f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41`, GET Bucket(`?max-keys=2&prefix=J`) → `34b48302e7b5fa45bde8084f4b7868a86f0a534bc59db6670ed5711ef69dc6f7`, 서명된 URL(GET `/test.txt`, `X-Amz-Expires=86400`) → `aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404`. 시험의 주석에 출처 URL을 적는다.
+
+   공개 API(새 패키지 `contrib/s3`, 그대로)
+
+   ```go
+   // Package s3 keeps a Maago project's media in a bucket of Amazon S3 or
+   // of a service that speaks its API (Cloudflare R2, MinIO), so that every
+   // instance of the site sees the same files: set maago.Config.Media to a
+   // Store. It signs its requests itself (AWS Signature Version 4) and uses
+   // the standard library only.
+   package s3
+
+   // Store keeps media in Bucket, a bucket of the site's own. Its methods
+   // are maago.MediaStore's; the app calls maago's media functions.
+   type Store struct {
+   	Endpoint        string // the service's address, no bucket in it: https://s3.us-east-1.amazonaws.com, https://ACCOUNT.r2.cloudflarestorage.com, http://127.0.0.1:9000
+   	Region          string // us-east-1; auto for R2
+   	Bucket          string // the bucket's name
+   	AccessKeyID     string
+   	SecretAccessKey string
+   }
+
+   // Put spools r to a temporary file to count and hash it, then sends it
+   // in one request: whole or not at all. One file is at most 5 GB.
+   func (s Store) Put(ctx context.Context, key, typ string, r io.Reader) (int64, error)
+   // Open asks the size and time of key's file; reading fetches from where
+   // the file is read, so a Range costs only its bytes.
+   func (s Store) Open(ctx context.Context, key string) (maago.MediaFile, error)
+   func (s Store) Delete(ctx context.Context, name string) error
+   // List gives a page of at most 1,000 names, the bucket's.
+   func (s Store) List(ctx context.Context, after string) ([]fs.FileInfo, error)
+   // URL is a presigned GET of m's file that downloads it, under m.Name,
+   // with the type Put kept; ttl is whole seconds from one to 7 days.
+   func (s Store) URL(m maago.Media, ttl time.Duration) (string, error)
+   ```
+
+   그 밖의 공개 이름은 없다(`var _ maago.MediaStore = Store{}`는 컴파일 검사 한 줄).
+
+   바꿀 파일과 새 파일
+   1. 새 `contrib/s3/s3.go`(위 API와 내보내지 않는 것들)
+      - `check()`: 부를 때마다 칸을 본다. `Endpoint`는 `url.Parse`로 http·https, 호스트 있음, 사용자 정보·쿼리·조각 없음, 경로는 비거나 `/`(아니면 `s3: Store.Endpoint %q is the service's address, such as https://s3.us-east-1.amazonaws.com: http or https, a host, and no path; the bucket goes in Store.Bucket`, `%q`는 `u.Redacted()`: 사용자 정보에 넣은 비밀 열쇠가 오류 글로 `OnError`와 로그에 가지 않게, 파싱이 안 되면 값을 찍지 않는다). `Region`·`Bucket`·`AccessKeyID`·`SecretAccessKey`가 비면 그 칸 이름을 말하는 오류. `Bucket`은 S3의 버킷 이름 규칙(소문자·숫자·`.`·`-`, 3~63자, 처음과 끝은 영숫자: `.`·`..`·`\`·제어 문자·대문자·`/`가 모두 빠진다, 아니면 `s3: Store.Bucket %q is not a bucket's name: 3 to 63 of a-z, 0-9, . and -, a letter or digit first and last`): 경로의 한 마디로만 선다
+      - 이름 검사: `Put`·`Open`·`Delete`는 먼저 이름이 한 마디인지 본다. 빈 이름, `.`, `..`, `/`·`\`가 든 이름은 오류(`LocalMedia.root`와 같은 규칙). 빈 이름은 버킷 자체의 요청(`DELETE /bucket` = DeleteBucket, `PUT /bucket` = CreateBucket)이 된다. 오류 글은 `s3: %q is not the name of one file in the bucket`. `URL`은 더 좁게 `m.Key`가 열쇠(32자 소문자 hex)인지 본다(`LocalMedia.URL`과 같다: `URL`을 바로 부르는 코드가 버킷의 다른 객체나, 빈 이름으로 버킷 목록 `GET /bucket/`의 링크를 만들지 못한다), 오류 글은 `s3: media key %q is not one maago.SaveMedia makes`
+      - `escape(s string) string`: RFC 3986의 unreserved(`A-Z a-z 0-9 - . _ ~`)만 그대로, 나머지 바이트는(`/`도) `%XX` 대문자(AWS의 UriEncode, 이름에 `/`가 없으므로 `slash` 갈래는 두지 않는다). 경로는 `"/" + escape(Bucket) + "/" + escape(name)`이고, 같은 글을 요청의 `URL.RawPath`에(서명한 글이 그대로 선 위로 간다). 쿼리도 `escape`로 키 차례·값 차례로 이은 글 하나를 서명과 `RawQuery`에 같이(`url.Values.Encode`는 공백을 `+`로 써서 쓰지 않는다)
+      - `(Store) sign(req *http.Request, payload string, now time.Time)`(자격·지역은 `Store`의 칸, 벡터 시험은 자격만 채운 `Store`로 부른다): `x-amz-date`·`x-amz-content-sha256`(payload)을 넣고, `host`(`req.URL.Host`)와 **서명하는 때 `req.Header`에 있는 모든 머리**를 소문자로 정렬해 정규 요청을 만든다. 날짜·지역·`s3`·`aws4_request`로 이어 만든 열쇠의 HMAC-SHA256을 `Authorization`에. 전송이 뒤에 더하는 `User-Agent`·`Accept-Encoding`·`Content-Length`는 서명 밖이다. 벡터 시험이 임의의 호스트·경로·머리로 부를 수 있게 `Store`의 경로 짓기와 따로다
+      - `(Store) presign(u *url.URL, now time.Time, ttl time.Duration, q url.Values) string`: `X-Amz-Algorithm`·`Credential`·`Date`·`Expires`(정수 초)·`SignedHeaders=host`와 q를 정규 쿼리로, 몸 해시는 `UNSIGNED-PAYLOAD`, 끝에 `X-Amz-Signature`
+      - `(Store) do(ctx, method, name string, query url.Values, header http.Header, body io.Reader, n int64, payload string) (*http.Response, error)`(name이 비면 버킷 자체: `List`와 `TestServer`의 버킷 만들기·지우기): `http.NewRequestWithContext` → `RawPath`·`RawQuery` → `sign(…, time.Now())` → 리다이렉트를 따르지 않는 패키지의 `client`(`CheckRedirect`가 `http.ErrUseLastResponse`: Go는 302의 PUT·DELETE를 GET으로 바꿔 따라가 200이면 한 적 없는 일이 nil이 된다). 몸이 있으면 `ContentLength = n`, n이 0이면 `http.NoBody`(Go는 몸이 nil 아닌 0 길이를 "모름"으로 보고 chunked로 보낸다: S3는 411). 2xx가 아니면 몸을 닫고 S3 오류 XML(`<Error><Code>…<Message>…`)을 `s3: %s %s/%s: %s: %s: %s`(방법, 버킷, 이름, `resp.Status`, Code, Message)로(3xx도 오류: 따라가지 않는다, 몸 없는 HEAD는 상태만). 404는 열쇠의 HEAD·GET(`Open`·`Read`)일 때만 `fs.ErrNotExist`를 싼다(없는 버킷의 `Put`·`Delete`·`List`가 "이미 없음"으로 삼켜지지 않게). 2xx면 응답을 받은 쪽이 몸을 늘 닫는다. 정규 쿼리는 `k=v` 글을 정렬한다(명세는 키 차례: 쓰는 키들에서는 결과가 같고, 가짜도 같은 꼴이라 시험이 가르지 못한다)
+      - `Put`: `check`·이름 검사 → `os.CreateTemp("", "maago-s3-*")`(0600), `defer` 닫고 지움 → `io.Copy(io.MultiWriter(f, h), r)`로 n과 SHA-256 → `f.Seek(0, 0)` → `PUT`에 `Content-Type: typ`(빈 형식이면 머리 없음)와 hex 해시. 읽기가 실패하면 요청을 보내지 않는다(남김 없음). 돌려주는 것은 n
+      - `Open`: `HEAD` → 404면 `do`의 오류가 `fs.ErrNotExist`, 그 밖의 2xx 아님은 오류, 2xx면 `Content-Length` 머리(못 읽거나 음수면 오류)와 `Last-Modified`(`http.ParseTime`, 없거나 못 읽으면 0 시각이 아니라 오류)로 `*object{s, ctx, info, off, body}`. `Read`: `off >= size`면 `io.EOF`(요청 없음, 빈 파일도), `body`가 없으면 `GET`에 `Range: bytes=off-`, 206이 아니거나 `Content-Range`의 시작이 off가 아니면 오류(200도 오류), 읽은 만큼 `off`를 민다. `Seek`는 `off`를 바꾸고 달라졌으면 몸을 닫는다(음수·없는 whence는 오류). `Stat`은 작은 `info{name, size, mod}`(모드 0444, `List`도 같은 것). `Close`는 몸을 닫는다
+      - `Delete`: `DELETE`, 2xx만 nil(S3는 없는 열쇠에도 204). 404는 사실상 `NoSuchBucket`이라 오류로 둔다: `Bucket`을 잘못 적은 사이트의 `DeleteMedia`가 조용히 성공하지 않게. `Open`의 HEAD 404는 몸이 없어 없는 열쇠와 없는 버킷을 가르지 못한다: `Store` 문서에 한 줄(없는 버킷도 `Put`과 `Delete`가 칸 이름과 Code를 말한다)
+      - `List`: `GET /bucket/?list-type=2&start-after=after`(`after`가 비면 그 값 없이), `encoding/xml`로 `ListBucketResult.Contents{Key, Size, LastModified}`(`LastModified`는 RFC 3339, 못 읽으면 0 시각이 아니라 오류: 7번 청소가 그 시각으로 여유를 잰다), 응답 한 번이 한 쪽, `Contents`가 없으면 빈 쪽. 버킷에 `/`가 든 남의 객체가 있으면 주지만 `Delete`는 이름 규칙으로 거절한다: `List`의 문서에 한 줄(7번 청소는 열쇠와 `.tmp-*`만 지운다)
+      - `URL`: `check`, 열쇠 검사(위), ttl이 1초 아래·7일 위·초 단위가 아니면 오류(`MediaURL`이 먼저 보지만 `URL`을 바로 부르는 코드에도), `response-content-disposition`은 `ServeMedia`와 같은 글(`mime.FormatMediaType("attachment", filename=m.Name)`, 이름이 비면 `attachment`), 그다음 `presign`. `response-content-type`은 넣지 않는다(아래 ★)
+      - → 확인: 아래 시험들
+   2. 새 `internal/s3fake/s3fake.go`: `func New(t *testing.T) s3.Store`. `httptest.Server` 하나와 버킷 하나(이름 `media`, 자격·지역 고정)를 만들고 그것을 가리키는 `s3.Store`를 준다(서버는 `t.Cleanup`에서 닫는다). 7번의 `SweepMedia` 시험(다른 패키지)도 이것을 쓴다(그래서 `_test.go`가 아니라 internal 패키지, `mediatest`와 같은 꼴)
+      - **서명 검증은 가짜가 따로 쓴 SigV4**(`contrib/s3`의 함수를 부르지 않는다): 받은 요청에서 정규 요청을 다시 짓는다. 방법, `r.URL.EscapedPath()`(선 위로 온 경로), `r.URL.RawQuery`를 풀어(`+`는 공백, 실제 서버처럼) RFC 3986으로 다시 이스케이프해 정렬한 쿼리(서명된 URL이면 `X-Amz-Signature`를 뺀다), `SignedHeaders`에 적힌 머리의 받은 값(`host`는 `r.Host`). 머리 서명은 `x-amz-content-sha256`이 받은 몸의 SHA-256과 같아야 하고(아니면 400 `XAmzContentSHA256Mismatch`), 서명된 URL은 `UNSIGNED-PAYLOAD`, `X-Amz-Date`+`X-Amz-Expires`가 지났으면 403, `X-Amz-Expires`가 정수 1~604800이 아니면 400. 자격의 범위(키·날짜·지역·`s3`)가 다르면 403. 서명이 다르면 403 `SignatureDoesNotMatch`
+      - PUT: `Content-Length`가 없거나 chunked면 411 `MissingContentLength`, 몸과 `Content-Type`·시각을 지도에. GET·HEAD: `http.ServeContent`(Range 206·`Last-Modified`·길이), `Content-Type`은 PUT의 것, 서명된 URL이면 `response-content-disposition`을 `Content-Disposition`으로. 없으면 404 `NoSuchKey`(XML). DELETE: 204(없어도). LIST(`list-type=2`): `start-after`보다 큰 이름을 바이트 차례로 **한 쪽에 둘**(7번의 "LIST 페이지 둘 이상"이 저절로), `IsTruncated`, `LastModified`는 S3처럼 밀리초의 RFC 3339. 버킷이 `media`가 아니면 404 `NoSuchBucket`, 그 밖의 경로·방법은 400. 서명 검증 전에 받은 값(`X-Amz-Date`·`X-Amz-Expires`·`Authorization`)이 꼴에 맞지 않으면 400이나 403이지 500·panic이 아니다(`mediatest`가 쿼리 값의 첫 글자를 바꾼다). 경로는 `ServeMux`가 아니라 `HandlerFunc`에서 `EscapedPath()`를 직접 나눈다(mux는 경로를 정리한다)
+   3. 새 `contrib/s3/s3_test.go`(package `s3_test`)
+      - `TestFake`: `mediatest.Store(t, s3fake.New(t))`
+      - `TestPutLength`: `t.Setenv("TMPDIR", t.TempDir())`. 길이 1000의 `iotest.OneByteReader`와 빈 Reader를 `Put` → 성공(가짜가 411을 내지 않음)이고 n이 길이, `Open`의 내용이 같다. 그다음 `SecretAccessKey`를 바꾼 저장소의 `Put` → 오류에 `403`과 `SignatureDoesNotMatch`(가짜가 실제로 검증한다), 그 오류 뒤에도 TMPDIR이 비어 있다(임시 파일을 늘 지움). `Bucket`만 다른 저장소의 `Delete` → 오류에 `NoSuchBucket`(404를 삼키지 않음)
+      - `TestDisposition`: `사진 "1".png`·`a.png`·빈 이름의 `Media`로 `URL`을 만들어 가짜에 GET하면 `Content-Disposition`이 `ServeMedia`의 글(`mime.FormatMediaType("attachment", …)`, 빈 이름은 `attachment`)과 같다(`mediatest`의 `signedURLs`는 `a.png`의 `attachment` 머리만 본다)
+      - `TestNames`: `Put`·`Open`·`Delete`가 `""`·`.`·`..`·`a/b`·`a\b`를 이름 규칙의 오류 글(`is not the name of one file`)로, `URL`이 그 다섯과 `a.png`(한 마디이지만 열쇠가 아님)를 열쇠의 오류 글(`is not one maago.SaveMedia makes`)로 거절한다(가짜의 400·404도 오류라, 오류가 있는지만 보면 검사를 지워도 초록: 글을 본다)
+      - `TestConfig`: 칸마다 하나씩 빈 저장소, `Endpoint`에 경로(`https://s3.amazonaws.com/media`)·쿼리·사용자 정보·`ftp://`, `Bucket`의 `a/b`·`.`·`..`·`a\b`·`ab`(짧음)·`Media`(대문자)·`-ab`·`a\nb`(제어 문자) → 모든 메서드가 칸 이름을 말하는 오류. 사용자 정보 `http://KEY:SECRET@…`의 오류 글에 `SECRET`이 없다. `URL`의 ttl 0·1500ms·8일이 오류, 1초·7일은 성공(TODO 91줄: 초 단위)
+   4. 새 `contrib/s3/internal_test.go`(package `s3`: 내보내지 않는 서명 함수를 부른다. `s3fake`는 `s3`를 import하므로 여기서는 쓰지 않는다)
+      - `TestVectors`: 위 세 벡터. GET Object와 GET Bucket은 `http.NewRequest`에 문서의 머리(`Range`)를 넣고 `sign(req, 빈 몸 해시, 2013-05-24)` 뒤 `Authorization`이 문서 글 그대로, 서명된 URL은 `presign(…, 86400초, nil)`의 `X-Amz-Signature`가 문서 값
+      - `TestReads`: 서명을 보지 않는 작은 `httptest` 서버(HEAD는 길이·`Last-Modified`, GET은 Range를 무시하고 200과 몸 전체 또는 `Content-Range`의 시작이 틀린 206)로 `Open`한 파일의 `Seek(5)` 뒤 `Read`가 오류다(200·틀린 시작을 받지 않음). 바른 206을 주는 같은 서버에서 `io.ReadAll` 한 번이 GET 하나임을 센다(차례로 읽으면 다시 열지 않음). `Last-Modified`가 없는 HEAD의 `Open`은 오류
+      - `TestEscape`: 0~255의 바이트마다 `escape`가 unreserved면 그대로, 아니면 `%XX` 대문자, `/`는 `slash`일 때만 그대로. 공백은 `%20`(`+`가 아님), `~`는 그대로
+      - `TestServer`(D-91 꼴): `MAAGO_TEST_S3_URL`(꼴 `http://KEY:SECRET@127.0.0.1:9000`, 사용자 정보가 자격, 지역은 `us-east-1`)이 없으면 skip, `CI`면 Fatal. 실행마다 새 버킷 `maago-<16 hex>`을 `do(ctx, "PUT", "", …)`(이름이 비면 버킷 자체)로 만들고 `t.Cleanup`에서 `List`·`Delete`로 비운 뒤 `DELETE /버킷`(worktree 여럿이 한 서버를 써도 `Store`의 `List` 비교가 부딪히지 않는다, PG의 시험마다 스키마와 같은 뜻). 그 위에서 `mediatest.Store`
+   5. `runtime_test.go` `TestRuntimeDependencies`: `contrib/s3`의 의존이 런타임의 `want`와 `maago`, 그리고 자신뿐이라는 줄(`contrib/auth` 줄 아래, 같은 꼴). → 확인: 헛것으로 `s3.go`에 `internal/web`을 import하면 빨강. `TestRuntimeImports`도 헛것 하나: `s3.go`에 stdlib 밖 import(`golang.org/x/…`, 컴파일하지 않아도 파일을 읽는 검사)를 넣으면 빨강
+   6. `cmd/maago/doc_test.go:369` `TestNoDecisionsInUserText`의 목록에 `./contrib/s3`
+   7. `.github/workflows/ci.yml`: 이미지의 기본 명령(`run.sh`, Bitnami의 설정 스크립트)에 기대지 않고 test 앞 단계에서 `docker run -d -p 9000:9000 -e MINIO_ROOT_USER=maago -e MINIO_ROOT_PASSWORD=maago-secret --entrypoint /opt/bitnami/minio/bin/minio bitnamilegacy/minio:2025.7.23-debian-12-r5 server /tmp/data`로 MinIO를 이름 붙여 띄운다(확인한 사실(2026-11-24, Docker Hub 레지스트리의 이미지 설정과 층 목록): `Entrypoint`는 `entrypoint.sh`, `Cmd`는 `run.sh`, `User` 1001, 바이너리는 `/opt/bitnami/minio/bin/minio`, `/tmp`는 1777이라 1001이 쓴다. `services:`는 명령을 받지 않아 이 꼴을 쓸 수 없다), job env에 `MAAGO_TEST_S3_URL: http://maago:maago-secret@127.0.0.1:9000`, test 앞에 러너에서 기다리는 단계(`for i in $(seq 60); do curl -sf http://127.0.0.1:9000/minio/health/live && exit 0; sleep 1; done; exit 1`: 이미지 안에 curl이 있는지에 기대지 않는다)
+   8. 문서
+      - `contrib/s3`의 패키지 문서(위 API 글)
+      - `docs/ARCHITECTURE.md`: `contrib/` 나무에 `s3/  S3 호환 미디어 저장소(stdlib SigV4, M13): Store{Endpoint, Region, Bucket, AccessKeyID, SecretAccessKey}가 maago.MediaStore (D-160)`, 원칙의 "예외는 넷"을 다섯으로(`Config.Media`에 주는 `contrib/s3`, D-160)
+      - `docs/DECISIONS.md` D-160에 고침 한 줄(M13 6번: 아래 ★들, S3의 URL은 ttl보다 1초까지 짧다)과 끝의 기록 줄. D-123의 고침(루트 밖 공개 패키지의 셋째)과 `maago doc`의 미디어 문단은 9번 목록대로 9번(ARCHITECTURE의 "예외는 다섯"과 D-123의 "셋째"는 세는 법이 다르다: 9번에서 하나로 맞춘다)
+      - `docs/TODO.md` 91줄 체크(`Put`의 형식은 `Store`의 URL `Content-Type` 줄이 가짜와 MinIO에서, 초 단위 ttl은 `TestConfig`가, 열쇠 검사는 `Store`의 런타임 줄이 문다)
+      - → 확인: `TestNoDecisionsInUserText`, `go doc ./contrib/s3`가 패키지 문서와 `Store`를 보인다
+   9. 게시판·런타임: 고치지 않는다(`media.go`의 `MediaStore` 주석도: 외부 이름을 지우지 않는 계약은 7번이 `SweepMedia`와 함께 적는다) → 확인: `git diff --stat 32376cb -- examples/ ':(glob)*.go'`(6번 구현 직전 커밋 기준, 루트의 `.go`만)에 `runtime_test.go` 밖의 파일이 없다
+   10. `internal/mediatest/mediatest.go`: `Store`의 `List` 검사에 시각 한 줄(나열한 `m.Key`의 `ModTime`이 1분 안, 세 저장소 공통: 7번 청소가 그 시각으로 여유를 잰다) → 확인: `TestMemory`·`TestLocalMediaStore` 초록, 헛것 (p)
+
+   단계와 확인
+   1. 시험 먼저: `internal_test.go`의 벡터·escape, `s3_test.go`, `s3fake` → 확인: `go vet ./...`가 없는 패키지·이름으로 실패(빨강)
+   2. `s3.go` → 확인: `go test ./contrib/s3 ./internal/s3fake`(벡터 셋이 문서 값과 같고 `TestFake`·`TestPutLength`·`TestNames`·`TestConfig` 초록, `TestServer`는 skip)
+   3. 진짜 서버 한 번(기록: 6번 계획 리뷰 뒤 시도, 로컬에서는 안 된다. 받은 bottle을 풀어 돌리는 것을 이 실행의 권한이 막았고 docker도 없다. 그래서 6번을 합치기 전에 push를 물어 CI의 `TestServer` PASS를 보고, 늦어도 10번 태그 앞에 본다: 가짜는 같은 사람이 같은 이해로 쓴 것이라 벡터가 덮지 않는 HEAD 404·`start-after`·쿼리의 `+`는 진짜 서버만 가른다. 원래 길:) Homebrew의 `minio` bottle을 `brew fetch`로 받아 scratchpad에 풀고(설치하지 않음) `MINIO_ROOT_USER=maago MINIO_ROOT_PASSWORD=maago-secret minio server <scratch>/data --address 127.0.0.1:9000`을 띄워 `MAAGO_TEST_S3_URL=http://maago:maago-secret@127.0.0.1:9000 go test -run TestServer -v ./contrib/s3` → 확인: PASS(skip이 아님). 이 길이 안 되면 그렇게 기록하고 첫 진짜 서버 실행은 push 뒤 CI다. 로컬이 되든 안 되든 CI 파일(이미지가 명령 없이 뜨는지, env 이름, health 경로)은 로컬에서 볼 수 없으므로 M13 끝의 "push 뒤 GitHub Actions" 항목에 CI의 `TestServer` PASS(skip이 아님)를 늘 더한다(push는 묻고 한다)
+   4. 헛것(하나씩 넣고 실패를 보고 되돌린다): (a) `sign`이 `range` 머리를 빼고 서명 → `TestVectors`의 GET Object (b) `escape` 대신 `url.QueryEscape` → `TestEscape`(공백·`~`) (c) 빈 몸에 `http.NoBody` 대신 빈 파일 → `TestPutLength`의 빈 Reader와 `Store`의 빈 저장(가짜 411) (d) PUT의 몸 해시를 빈 몸의 해시로 → 가짜 400, `TestFake` (e) `URL`이 `response-content-disposition`을 서명 뒤에 덧붙임 → `Store`의 쿼리 값 바꾸기(가짜) (f) `Read`가 다시 열 때 늘 `bytes=0-` → `Store`의 Range 206 `PNG` (g) 가짜 `List`가 `start-after`를 무시 → `Store`의 쪽 상한 (h) 가짜가 서명을 보지 않음 → `TestPutLength`의 틀린 비밀 열쇠 (i) 이름 검사를 지움 → `TestNames`(오류 글) (n) `s3.go`에 stdlib 밖 import → `TestRuntimeImports` (j) `URL`이 초 단위가 아닌 ttl을 받음 → `TestConfig` (k) `Endpoint`의 경로를 받음 → `TestConfig` (l) 임시 파일을 지우지 않음 → `TestPutLength`의 TMPDIR (m) 가짜의 만료 검사를 지움 → `Store`의 1초 URL (o) `URL`의 열쇠 검사를 지움 → `TestNames` (p) `List`가 `LastModified`를 읽지 않음 → `mediatest.Store`의 시각 줄(가짜에서) (q) `URL`이 `"attachment; filename=" + m.Name`으로 이음 → `TestDisposition` (r) `Read`의 206·`Content-Range` 검사를 지움, 또는 `Read`마다 다시 열기 → `TestReads` (s) `Delete`가 404를 nil로 → `TestPutLength`의 `NoSuchBucket` (t) `Endpoint` 오류 글이 `Redacted` 없이 → `TestConfig`의 비밀 (u) `Bucket` 규칙을 `/`만으로 → `TestConfig` (v) `http.DefaultClient`로 리다이렉트를 따름 → `TestRedirect`(모든 요청에 302, 그 끝은 200) (w) 모든 404를 `fs.ErrNotExist`로 → `TestPutLength`의 `NoSuchBucket` 줄
+   5. 문서와 CI 파일 → 확인: `go test -run 'TestNoDecisionsInUserText' ./cmd/maago`, `go test -run TestRuntimeDependencies .`
+   6. 끝 확인: 루트에서 `go mod tidy -diff && go vet ./... && go test ./...`, `gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4`로 전체(`-timeout 60m`, 앞에서 끝까지 기다려 로그의 `go test exit=` 줄), 게시판 걷기 포함. 새 시험은 `GOTOOLCHAIN=go1.25.14`로도
+
+   ★ → 에이전트 편의로 결정
+   - **칸은 `Endpoint`·`Region`·`Bucket`·`AccessKeyID`·`SecretAccessKey`, 요청은 늘 경로 꼴(`/bucket/key`).** 버킷 주소 하나(`https://bucket.s3…`)를 받으면 서비스 주소와 버킷 주소가 같은 꼴이라, 에이전트가 AWS 문서의 서비스 주소를 넣으면 `Put`이 열쇠 이름의 버킷을 만드는 요청(CreateBucket)이 된다: 조용히 틀린다(PHILOSOPHY 7). 칸을 나누면 `Endpoint`의 경로를 거절할 수 있다. 경로 꼴은 S3·R2·MinIO에서 같고, 점이 든 버킷 이름도 TLS에서 깨지지 않는다. 칸 이름은 AWS 설정의 이름 그대로라 환경 변수와 한 대 한으로 잇는다. 대가: AWS가 2020년에 미룬 경로 꼴의 폐기가 다시 오면 칸 하나를 더한다
+   - **타입은 `s3.Store`, 칸의 값**(생성자가 아니라): 4번의 `LocalMedia{Dir, SiteURL}`과 같은 꼴(`Config{Media: s3.Store{…}}`가 한눈에 읽힌다). 버킷 주소 칸을 두지 않으므로 메서드 `URL`과 이름이 부딪히지 않는다. `http.Client` 칸은 없다(리다이렉트를 따르지 않는 패키지의 클라이언트 하나, 기한은 ctx가)
+   - **`Put`은 늘 임시 파일에 받아 세고 해시한다**(5번 ★, Q3). 길이와 실제 몸 해시를 머리에 실어 S3가 받은 바이트를 검증한다(`UNSIGNED-PAYLOAD`를 쓰지 않는다). 한 PUT의 상한 5GB는 문서에 적고 나누어 올리기는 하지 않는다(상한은 앱의 몫, Q2)
+   - **`Open`은 `HEAD` 하나, 읽기는 그 자리부터의 범위 GET.** ServeContent가 크기를 먼저 seek로 묻고 Range의 시작으로 seek하므로, 처음부터 몸을 여는 GET은 Range 요청마다 버려진다. 읽기 자리가 몸의 자리와 다를 때만 다시 연다(처음부터 끝까지 읽는 일꾼은 GET 하나)
+   - **서명하는 머리는 `host`와 그때 요청에 있는 모든 머리.** 머리 목록을 따로 들지 않아 `Range`·`Content-Type`·`x-amz-*`가 저절로 서명되고, AWS의 벡터(서명된 `range`)를 그대로 재현한다
+   - **URL은 `response-content-disposition`만 덧붙이고 형식은 `Put`의 것**(TODO 91줄). `ServeMedia`와 같은 `attachment` 글이고, 형식은 저장 때 정해진 하나라 URL에서 다시 정하지 않는다. `MediaURL`이 ttl을 이미 보지만 `URL`도 초 단위·1초~7일을 본다(`X-Amz-Expires`는 정수 초, 메모리 가짜와 같다)
+   - **이름 규칙은 `LocalMedia`와 같은 "한 마디"**: 빈 이름이 버킷 자체의 요청이 되는 것을 막고, 두 저장소의 `Delete(name)`이 같은 이름을 받는다. 버킷에 `/`가 든 남의 객체가 있으면 `List`는 주지만 지우지 못한다(7번 청소는 열쇠 꼴과 `.tmp-`만 지운다)
+   - **가짜는 `internal/s3fake`이고 서명을 제 코드로 다시 계산한다.** `contrib/s3`의 서명 함수를 부르면 같은 버그를 둘이 나눠 가진다: 클라이언트의 계산은 문서 벡터가, 서명한 것과 선 위로 간 것이 같은지는 가짜가 받은 요청에서 본다. SigV4 약 40줄이 둘이 되지만 시험의 기준이 따로 서는 값이다. internal 패키지라 7번의 `SweepMedia` 시험(루트)이 같은 가짜를 쓴다. 한 쪽에 둘이라 쪽 넘김이 늘 돈다(공개 쪽 크기 칸은 두지 않는다)
+   - **진짜 서버 시험은 실행마다 새 버킷**, `MAAGO_TEST_S3_URL`은 자격을 사용자 정보에 담은 서버 주소이고 지역은 `us-east-1`(MinIO의 기본). `Store`의 `List` 비교는 버킷을 혼자 쓸 때만 맞고, PG의 시험마다 스키마(D-113)와 같은 뜻이다. 없으면 skip, `CI`면 실패(D-91)
+   - **CI의 MinIO는 `bitnamilegacy/minio:2025.7.23-debian-12-r5`를 `docker run`으로 `minio server`를 직접**(공식 `minio/minio`·quay·`dl.min.io`가 모두 없어짐, 위 사실). MinIO 자신의 코드를 이름 있는 배포자가 빌드한 이미지이고, 명령을 적어 띄우므로 Bitnami 설정 스크립트의 뜻(환경 변수 이름, 데이터 경로)에 기대지 않는다(codex 계획 리뷰 5). 얼어붙은 이미지이지만 시험 전용이고 태그를 고정한다. 그 이미지마저 사라지면 같은 줄을 다른 S3 호환 서버로 바꾼다(시험은 서버를 모른다). 새 종류의 의존이 아니라 계획된 MinIO의 배포처가 바뀐 것으로 보았다
+   - **런타임은 그대로**: `Handler`는 S3 칸을 검사하지 않는다(첫 요청이 칸 이름을 말하는 오류를 낸다). `Handler`가 `contrib/s3`를 알면 의존이 거꾸로 선다. 고른 것(fable 계획 리뷰 8): (a) 이대로 두고 `Store` 문서에 "칸은 첫 요청에서 본다", (b) 런타임이 `interface{ Check() error }`인 저장소를 `Handler`에서 부른다(런타임 4줄, 공개 이름 하나) 중 (a). (b)는 문서에만 사는 선택적 인터페이스라 에이전트가 찾지 못하고, 빠뜨린 칸은 어차피 첫 저장에서 칸 이름을 말한다. 8번 게시판의 `main`이 환경에서 칸 다섯을 채우며 빈 값을 기동 때 거절하는 꼴을 보인다. codex는 이 줄을 짚지 않았다
+- **S3의 서명된 URL은 ttl보다 1초까지 짧다**: `X-Amz-Date`가 초에서 잘린다(로컬은 1초까지 길다). D-160 고침에 적는다(fable 계획 리뷰 9)
+
+   하지 않는 것
+   - 가상 호스트 꼴(`bucket.s3…`), 세션 토큰·STS·IAM 역할의 자격, 나누어 올리기(5GB 넘는 파일), 다시 시도, 서버 쪽 암호화 머리, 버킷 안의 접두(버킷은 사이트 혼자의 것), `response-content-type`
+   - 환경 변수나 URL 글에서 `Store`를 읽는 공개 함수(게시판 8번이 칸 다섯을 환경에서 채운다), `Handler`의 S3 칸 검사
+   - CI에서 진짜 AWS(자격 비밀이 든다), 로컬 시험이 MinIO를 스스로 띄우기
+   - `maago doc`의 미디어 문단(단일 인스턴스·S3·서명된 URL)과 D-123·D-140 고침(9번), `SweepMedia`(7번), 게시판(8번)
+
+   계획 리뷰 codex·fable 반영: 막는 것은 `URL`의 이름 검사(둘 다, 32자 열쇠 검사로 `LocalMedia.URL`과 같게, `TestNames`와 헛것 (o)), `Bucket` 검사(codex 2, `/`만이 아니라 S3 버킷 이름 규칙 하나로, 헛것 (u)), CI의 기본 명령(codex 5, 레지스트리에서 이미지 설정을 읽어 `docker run --entrypoint …/minio … server /tmp/data`로). 받은 것: 응답 상태·길이·시각·몸 닫기(codex 3, 못 읽은 시각은 오류), `List`의 시각 줄을 `mediatest.Store`에(fable 2, 계획 10항과 헛것 (p)), `TestDisposition`(fable 3, 헛것 (q)), `TestReads`(fable 4, 헛것 (r)), `Delete`의 404는 오류이고 `Open`의 한계는 문서에(fable 5, 헛것 (s)), `Endpoint` 오류 글의 `Redacted`(fable 6, 헛것 (t)), 9항 확인의 기준 커밋(fable 7: `main...`은 4·5번의 `media.go`까지 보이므로 `32376cb`와 `':(glob)*.go'`로), `Handler`의 S3 칸을 ★로(fable 8, (a)를 고른 까닭은 ★에), S3 URL이 1초까지 짧음(fable 9), 로컬 MinIO가 안 되면 합치기 전에 push를 물음(fable 10, 단계 3의 기록), 이름 오류 글과 예외 세는 법(fable 작은 것 둘). 받되 고쳐서: codex 4(외부 이름의 계약)는 이 작업에서 `Store.List`의 문서에만 적고 `MediaStore` 주석과 `SweepMedia` 시험은 7번에 넘긴다(런타임을 고치지 않는 9항을 지키고, 그 계약을 쓰는 곳이 7번이다)
+   기록(2026-11-24): `contrib/s3/s3.go`(`Store`, `check`의 `Redacted`와 버킷 규칙, `checkName`, `isKey`, `escape`·`canonicalQuery`, `sign`·`presign`·`signature`, `do`의 비 2xx 오류와 404의 `fs.ErrNotExist`, 임시 파일의 `Put`, HEAD의 `Open`과 범위 GET의 `object`, `List`의 RFC 3339 시각), `internal/s3fake`(제 SigV4, 411·`NoSuchBucket`·`NoSuchKey`, 한 쪽에 둘), `s3_test.go`(`TestFake`·`TestPutLength`·`TestRedirect`·`TestNames`·`TestConfig`·`TestDisposition`), `internal_test.go`(`TestVectors`·`TestEscape`·`TestReads`·`TestServer`), `mediatest.Store`의 `List` 시각 줄, `TestRuntimeDependencies`의 `contrib/s3` 줄, `TestNoDecisionsInUserText`의 목록, CI의 `minio` 단계와 `MAAGO_TEST_S3_URL`, ARCHITECTURE·TODO 91줄·D-160 고침과 기록 줄. 벡터 셋이 문서 값과 같다. 헛것 (a)~(u)와 `Read`마다 다시 열기(r2), `s3.go`의 `internal/web` import(`TestRuntimeDependencies`) 모두 이름 붙인 시험이 빨강((v)·(w)는 첫 커밋 뒤 advisor가 짚은 리다이렉트와 404의 넓은 `ErrNotExist`를 고치며 더함)(되돌린 뒤 같은 파일): (h)·(m)은 컴파일되게 `false &&`로, (r2)는 처음에 초록이라 `TestReads`의 몸을 1000바이트로 늘려(`io.ReadAll`이 여러 번 읽게) 빨강을 봄. 진짜 서버는 로컬에서 돌리지 못했다(단계 3의 기록): `TestServer`는 skip이고 첫 진짜 서버는 CI다. D-91 꼴: `CI=1`이고 `MAAGO_TEST_S3_URL`이 없으면 `TestServer`가 FAIL(`MAAGO_TEST_S3_URL is not set; CI must run the S3 tests`). `GOTOOLCHAIN=go1.25.14`로 새 시험 초록. 9항의 `git diff --stat 32376cb -- examples/ ':(glob)*.go'`는 `runtime_test.go`뿐. 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 369초, (v)·(w)를 고친 뒤 다시 373초, 게시판 걷기 포함)
+   기록(2026-11-24, 구현 리뷰 반영): 구현 리뷰는 ponytail·codex·fable: 막는 것 없음(셋 다). 받은 것: `escape`의 `slash` 인자를 지움(ponytail 1, 본 코드는 늘 false), `presign`의 nil 분기를 지우고 시험이 `url.Values{}`를 넘김(ponytail 2), `List` 앞의 `check`를 지움(ponytail 3, `do`가 먼저 본다; `Put`·`Open`·`Delete`의 `checkName`은 이름 검사라 그대로), `sign`이 `do`의 정규 `RawQuery`를 그대로 서명(ponytail 4, `TestVectors`의 쿼리는 이미 정렬된 꼴), `object.at`을 지우고 `Seek`가 자리가 바뀌면 몸을 닫음(ponytail 5), 없는 버킷의 `List`가 `NoSuchBucket`이고 `fs.ErrNotExist`가 아님(fable 1, `TestPutLength`), `TestReads`에 못 읽는 `LastModified`의 `List`(fable 2: 0 시각이면 7번 청소가 새 파일을 지울 수 있다), 206인데 짧은 몸의 `io.ErrUnexpectedEOF`·`Open`과 `Read` 사이에 지워진 파일의 `fs.ErrNotExist`·`Content-Length` 없는 HEAD(fable 3), 계획 글의 어긋남 둘(`TestServer`의 이름 `""`, 오류 글의 `resp.Status`, fable 6)과 `escape`·`object`의 글. 변이 여섯(`name != ""`, `LastModified` 오류, `ErrUnexpectedEOF`, 404의 `GET`, `Content-Length` 검사, `Seek`의 몸 닫기)을 하나씩 넣어 `TestPutLength`·`TestReads`가 빨강임을 보고 되돌림(`cmp` 같음). 받지 않은 것: 가짜의 몸 해시 검사(fable 4)는 직접 시험하지 않는다, 헛것 (d')로 적는다: 가짜의 해시 검사를 끄면 시험 없음(지금은 (d)가 고치지 않은 가짜에서 빨강으로 덮는다, `s3fake`는 `contrib/s3`를 import해 안쪽 시험이 손 요청을 서명할 수 없다), `Content-Type` 서명의 시험(fable 5, 서버가 서명 안 된 `Content-Type`도 받아 동작 위험이 없다), `Put`의 `GetBody`(fable 7, "하지 않는 것: 다시 시도"와 맞음), codex(지적 없음, 쓰기 금지 환경이라 실행은 못 함). 합치기 조건: push 뒤 CI의 `TestServer`가 PASS(skip 아님)인지 본다(fable, TODO). `GOTOOLCHAIN=go1.25.14`로 `contrib/s3` 초록. 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 370초, 게시판 걷기 포함)
+
+7. **고아 청소**(Q4): 태그 `media`, 생성된 "쓰는 중" 쿼리, `SweepMedia`(6번 계획 리뷰 codex 4에서 넘어옴: `MediaStore.Delete` 주석의 "a name List gave"를 열쇠와 `.tmp-*`로 좁히고, 버킷의 남의 이름(`/`가 든 것)을 지우지 않음을 시험에) → 확인: 오래된 고아만 지움, 여유 안의 새 것과 `.tmp-`, 태그 없는 프로젝트의 오류, 열쇠 열이 둘인 모델·두 앱에서 둘 다 쓰는 중으로 봄, 로컬과 가짜 S3 둘(LIST 페이지 둘 이상)
+
+   계획
+
+   따라가 본 길: 저장소의 이름 모음은 4번의 `MediaStore.List(ctx, after)`(이름 차례의 쪽, 빈 쪽이 끝, 열쇠 아닌 이름도: 로컬의 `.tmp-<key>`·`.gitignore`, S3의 남의 `a/b`)이고 시각은 `fs.FileInfo.ModTime()`(로컬 mtime, S3 `LastModified`, 6번이 못 읽으면 오류로). `Delete(name)`은 로컬이 `root`의 한 마디 규칙, S3가 `checkName`으로 `/`를 거절한다. 열쇠 검사는 `validKey`(32자 소문자 hex, `media.go`). 생성기의 모든 생성물은 앱마다다(`build.go:158`의 `models_gen.go`·`admin_gen.go`·`queries_gen.go`·`urls_gen.go`): 프로젝트 하나에 하나인 생성 파일은 없다. 모든 앱을 받는 생성기는 이미 있다(`admingen.File(d, app, apps, …)`). `maago gen`은 앱 디렉터리에서 불러도 `project.Root`로 프로젝트 전체를 읽는다(`build.go:38`, `TestGenThenCheck`가 `blog/`에서 gen하고 루트에서 check): 한 실행의 `s.apps`는 늘 프로젝트의 모든 앱이라, 앱마다 쓰는 프로젝트 전체의 쿼리가 실행마다 같다. 생성 코드가 런타임에 남기는 상태의 자리는 `internal/rtcore`(루트와 `rt`가 함께 본다, 마지막 `Handler`의 Prefix·TimeZone처럼)이고, 생성 코드는 공개 `rt`만 부른다(`rt`는 `maago`를 import하므로 루트는 `rt`를 못 부른다). 지금 생성 코드에 `init`은 없다(`mapper.Names`는 사용자의 `init`을 이름 충돌에서 뺀다, `names.go:170`). 일꾼은 `Handler`를 지나지 않고(`outbox.Run(work, db, …)`), `DBFrom`은 없으면 panic이고 문서가 "a test uses WithDB"라고 한다: 생성된 쿼리와 `outbox`는 모두 db를 인자로 받는다. 태그는 `ref.FieldTags`의 닫힌 목록을 `model.fieldOptions`가 읽고 목록에 있는데 `case`가 없으면 panic(`check.go:410`). `TestDocKeysAreRead`는 목록의 항목마다 그것을 빼면 그 목록을 보이는 주제(`model`)의 예를 `maago check`가 거절해야 하므로 `docs/model.txt`가 `media`를 써야 한다. `TestGeneratedCallsAppAPI`는 생성 코드의 주석 속 `maago.X`도 세고 앱 코드(`internal/ref` 포함)에 그 이름이 있어야 한다. 생성된 SQL의 안전띠는 `checkGenerated`(`build.go:394`, 모델 DDL의 연습 DB에 prepare). 뿌리 시험(`package maago`)은 DB 드라이버를 import하지 않는다(`maagotest.DB`는 쓰는 쪽이 드라이버를 넣는다): 진짜 DB로 생성 코드를 돌리는 자리는 `cmd/maago/internal/gentest`(두 방언, 같은 시험 파일, `gentest.Open`이 fixture 모든 앱의 표를 만들고 `*sql.Conn`을 준다)와 `TestDocExamples`. `gentest`는 같은 모듈이라 `internal/s3fake`를 import할 수 있다. `s3fake`는 PUT에 `time.Now()`를 찍고 `s3.Store`는 `/`가 든 이름을 보내지 않아, 지금은 오래된 객체도 남의 `a/b`도 만들 수 없다. 5번이 `maago doc main` 예의 `Note.Export`에 태그를 7번으로 넘겼다.
+
+   공개 API(새 것과 바뀌는 것 그대로)
+
+   ```go
+   // package maago (media.go)
+
+   // SweepMedia deletes the media files no row keeps, from the store in
+   // ctx (maago.WithMedia): a file older than olderThan whose key no field
+   // tagged media holds, in any app, and what a failed save left. olderThan
+   // is 0 for 24 hours, or at least an hour, longer than the longest a
+   // file waits for its row (a job that saves files, then writes rows).
+   // Any error stops it before it deletes another file. Run it now and
+   // then, such as daily, beside the server or the worker. The store must
+   // be this database's alone: a file that only another database's rows
+   // keep is deleted.
+   func SweepMedia(ctx context.Context, db DB, olderThan time.Duration) error
+
+   // MediaStore.Delete의 주석만 바뀜:
+   // Delete deletes the file of name, a key or .tmp- and a key, as List
+   // gave it; none is no error.
+
+   // package rt (rt/app.go): 생성 코드만 부른다
+   // MediaInUse tells maago.SweepMedia the query of the media keys that
+   // the project's fields tagged media hold, every app's: the generated
+   // code of each app tells it, the same, as the program starts.
+   func MediaInUse(query string)
+   ```
+
+   태그(`ref.FieldTags`, `maago doc model`): `{"media", "The field keeps a media key, Media.Key. Tag every field that keeps one: maago.SweepMedia deletes the old file of a key that no tagged field keeps. A string or *string.", nil}`
+
+   생성물: 프로젝트에 `media` 필드가 하나라도 있으면 **모델이 있는 모든 앱**의 `models_gen.go` 끝에
+   ```go
+   // The media keys the project's rows keep, every app's, for maago.SweepMedia.
+   func init() {
+   	rt.MediaInUse(`SELECT "main" FROM "files_file" WHERE "main" IS NOT NULL UNION ALL SELECT "thumb" FROM "files_file" WHERE "thumb" IS NOT NULL UNION ALL SELECT "attachment" FROM "notes_note" WHERE "attachment" IS NOT NULL`)
+   }
+   ```
+   (자리표시 없음: 두 방언이 같은 글. 차례는 앱·모델·필드의 차례.) 태그 없는 프로젝트는 지금과 바이트까지 같다(gentest 골든과 `examples/` 생성물이 그대로).
+
+   바꿀 파일과 새 파일
+   1. `internal/ref/ref.go`: `FieldTags`에 `media`(위 글). → 확인: `TestDoc`, `TestDocKeysAreRead`(아래 `model.txt`와 함께)
+   2. `internal/model/check.go`: `Field`에 `Media bool // keeps a media key: maago.SweepMedia reads it`. `fieldOptions`에 `case "media":` `c.shape(o, where, NoValue, 0, "write it alone, like media")`이고 `f.Type != String`이면 `media keeps a media key in a string, but %s is %s`(고치는 법 `declare the field as string, or *string to allow NULL`), 맞으면 `f.Media = true`. `ID`는 이미 있는 규칙이 막는다(`ID may only have label and help`). → 확인: `internal/model`의 새 `TestMediaTag`(아래)
+   3. `internal/mapper/crud.go`: `func MediaInUse(apps []*model.App) string`: 모든 앱·모델의 `Media` 필드마다 `SELECT q FROM t WHERE q IS NOT NULL`(`dialect.Quote`로 열과 표)을 ` UNION ALL `로 이은 글, 없으면 `""`. `IS NOT NULL`은 늘(포인터 아닌 열에도: 한 꼴이 짧고, NULL을 `string`으로 읽다 실패하는 길이 없다)
+   4. `internal/mapper/gen.go`·`templates/models.go.tmpl`: `ModelsFile(d project.Dialect, app *model.App, apps []*model.App, pols []*Policy, user User) []byte`(모든 앱을 받는다: `admingen.File`과 같은 꼴). 안에서 `MediaInUse(apps)`가 비지 않으면 템플릿의 `.MediaInUse`(`GoString`)로 위의 `init`을 쓴다. 어느 앱이 담는지를 `ModelsFile` 안에서 정하므로 `build.go`와 `TestGenerated`가 한 길을 지난다
+   5. `internal/build/build.go`: `ModelsFile` 부름에 `s.apps`. `checkGenerated`의 `sqls`에 `mapper.MediaInUse(s.apps)`(비지 않을 때). → 확인: `go test ./internal/build ./cmd/maago -run 'TestGenThenCheck|TestGenerated|TestGenMedia'`. 새 `cmd/maago/build_test.go`의 `TestGenMedia`: `internal/testdata/media`의 복사본(첫 마이그레이션은 시험이 `sqlite.DDL`로 쓴다)에 `build.Gen`을 돌려 `files/models_gen.go`·`tags/models_gen.go`가 gentest sqlite 골든과 같다(`TestGenerated`는 `ModelsFile`을 제 `apps`로 부르므로 `build.go`의 부름은 이것만 문다)
+   6. `internal/rtcore/app.go`: `var MediaQueries []string // what generated code told rt.MediaInUse`. `rt/app.go`: `MediaInUse(query)`가 `rtcore.MediaQueries`에 덧붙인다(같은 글이면 덧붙이지 않는다). `init`은 한 고루틴에서 차례로 돌고 `SweepMedia`는 그 뒤라 잠금이 없다
+   7. `media.go`
+      - `SweepMedia`: 차례대로, 어느 오류든 바로 돌려준다(그 뒤로 지우는 것 없음)
+        1. `olderThan`: 0이면 24시간, 음수이거나 1시간 아래면 `maago: SweepMedia's olderThan is 0 for 24 hours, or at least an hour, not %v: a file is saved before its row is written`
+        2. `rtcore.MediaQueries`가 비면 `maago: SweepMedia knows no field that keeps media keys: tag each with media, such as Key string `+"`"+`maago:"media"`+"`"+`, run maago gen, and import the project's apps in this program`. 글이 둘 이상이면(어느 앱의 생성물이 낡음) `maago: the apps' generated code tells SweepMedia different media fields; run maago gen`
+        3. `mediaStore(ctx)`(지금의 "no media store … maago.WithMedia" 오류)
+        4. `before := time.Now().Add(-olderThan)`. `List`를 빈 쪽까지(`after`는 쪽의 마지막 이름) 걸으며 후보를 모은다: 이름이 `validKey`이거나 `.tmp-`와 `validKey`이고 `ModTime().Before(before)`인 것. 그 밖의 이름(`.gitignore`, `.tmp-x`, 대문자 hex, `a/b`)은 저장소에 넘기지 않는다(S3의 이름 오류에 기대지 않음)
+        5. 후보가 없으면 nil(DB를 읽지 않는다). 있으면 **후보를 고른 뒤** 쿼리를 `db.QueryContext`로 읽어(`Scan`과 `rows.Err()`의 오류도 돌려준다: 끊긴 읽기의 모자란 모음으로 지우지 않는다) 열쇠의 모음(`map[string]bool`, `// ponytail: every key in use in memory; a lookup per page of candidates if rows outgrow it`). 쓰는 중인 열쇠의 파일은 모음을 읽은 때보다 늦게 행을 잃었어도 다음 청소까지 남는다
+        6. 후보마다 `.tmp-`면 지우고, 열쇠면 모음에 없을 때만 `s.Delete`. 첫 오류에서 돌려준다
+      - `MediaStore.Delete`의 주석(위)
+      - → 확인: 아래 시험들
+   8. `internal/s3fake/s3fake.go`: `func Touch(s s3.Store, name string, mod time.Time)`: s의 가짜 버킷에서 name의 시각을 mod로, 없으면 빈 파일로 만든다(오래된 파일과 `contrib/s3`가 쓰지 않는 이름을 위해). `New`가 가짜를 패키지의 `sync.Map`(`Endpoint → *fake`)에 두고 `t.Cleanup`에서 뺀다
+   9. 새 fixture `internal/testdata/media/`: 앱 셋. `files/models.go`(`File{ID; Name string; Main string `+"`"+`maago:"media"`+"`"+`; Thumb *string `+"`"+`maago:"media"`+"`"+`}`: 열쇠 열이 둘인 모델, 하나는 NULL을 받는다), `notes/models.go`(`Note{ID; Attachment string `+"`"+`maago:"media"`+"`"+`}`: 둘째 앱), `tags/models.go`(`Tag{ID; Name string}`: 태그 없는 앱)
+   10. `cmd/maago/gen_test.go`: `gentests`에 `{"files", "../../internal/testdata/media", "files"}`·`{"tags", "../../internal/testdata/media", "tags"}`, `ModelsFile`에 `apps`. 새 `cmd/maago/internal/gentest/{sqlite,postgres}/{files,tags}/`(`models.go`는 fixture의 복사, `models_gen.go`·`admin_gen.go`는 `-update`, 시험 파일은 두 방언이 같다)
+      - `files_test.go`의 `TestSweep`: `gentest.Open(t, "internal/testdata/media")` 위에서 저장소 둘(`maago.LocalMedia{Dir: t.TempDir()}`, `s3fake.New(t)`: 한 쪽에 둘이라 쪽이 여럿)을 서브시험으로. `SaveMediaFrom`으로 다섯(a, b, c, 오래될 고아 d, 새 고아 e), `InsertFile`로 행 둘(`Main: a.Key, Thumb: &b.Key`와 `Main: "", Thumb: nil`), `notes_note`에 c를 SQL 글로(`INSERT … VALUES ('<c.Key>')`: 열쇠는 hex, 다른 앱의 CRUD는 이 패키지에 없다). 남의 이름: `.gitignore`, `.tmp-x`, 오래될 `.tmp-<새 열쇠>`, 새 `.tmp-<새 열쇠>`, 그리고 S3는 `s3fake.Touch`의 `a/b`(로컬 `List`는 정규 파일만 주므로 하위 디렉터리는 아무것도 물지 않는다). e와 새 `.tmp-` 밖은 모두 48시간 전으로(로컬 `os.Chtimes`, S3 `s3fake.Touch`)
+        - `SweepMedia(ctx, db, 30*time.Minute)`와 저장소 없는 ctx의 `SweepMedia`가 오류(앞은 `at least an hour`, 뒤는 `maago.WithMedia`를 말함). `Delete`가 오류인 저장소(저장소를 감싼 시험 타입)에서 그 오류가 돌아오고 `Delete`는 한 번만 불린다(첫 오류에서 멈춤), `SweepMedia(ctx, db, 72*time.Hour)`가 nil이고 아무것도 지우지 않음(여유를 본다)
+        - `SweepMedia(ctx, db, 0)`이 nil, 그 뒤 `List`로 모은 이름이 정확히 {a, b, c, e, `.gitignore`, `.tmp-x`, 새 `.tmp-`, (S3) `a/b`}: d와 오래된 `.tmp-`만 없다. 두 번째 `SweepMedia(ctx, db, 0)`도 nil이고 이름이 같다
+      - `tags_test.go`의 `TestSweep`: 태그 없는 앱 하나만 링크한 시험 이진에서 48시간 전의 파일 둘 중 `files_file`의 행(SQL 글)이 가진 것은 남고 고아는 지워진다(그 앱의 생성물도 프로젝트의 쿼리를 알린다)
+   11. `media_test.go`(package `maago`): 새 `TestSweepMedia`(DB 없이 닿는 갈래, db는 `testDB`): `rtcore.MediaQueries`를 저장하고 `t.Cleanup`에서 되돌린다. 48시간 전의 고아 하나(`os.Chtimes`)를 둔 `LocalMedia`의 ctx에서 `olderThan` -1·30분의 오류, 빈 `MediaQueries`의 오류(`maago:"media"`를 말함), 다른 글 둘의 오류(`run maago gen`), 글 하나를 알리고 `http_test.go`의 `testDB`(`QueryContext`가 "no driver")로 부르면 그 오류가 돌아온다(쓰는 중을 못 읽으면 지우지 않는다). 줄마다 제 오류 글의 조각을 본다(`olderThan` -1·30분은 `at least an hour`). 매 줄 뒤에도 고아가 남아 있다
+   12. `internal/model/model_test.go`: 새 `TestMediaTag`: `Key string media`·`Thumb *string media`는 `Media`, `Count int64 media`·`Raw string media=x`·`ID int64 media`는 오류(글을 본다), `medai`는 did you mean
+   13. `cmd/maago/docs/model.txt`: `Post`에 `Cover string `+"`"+`maago:"media"`+"`"+` // a media key: maago.SweepMedia keeps its file while a row has it`(`TestDocKeysAreRead`). `cmd/maago/docs/main.txt`: `Note.Export`에 `maago:"media"`, `main_test.go`의 일꾼 뒤에 `maago.SweepMedia(maago.WithMedia(ctx, media), db, 0)`이 nil이고 그 뒤에도 `OpenMedia`가 `hello`(실제 `maago gen`의 생성물이 쿼리를 알림과 두 앱의 같은 글만 본다: 새 파일이라 후보가 없어 쿼리는 돌지 않는다. 생성된 쿼리를 진짜 DB에 돌리는 것은 gentest이고, 그 골든이 `build.Gen`의 것과 같음은 `TestGenMedia`). 주기적으로 부르는 `main.go`의 꼴은 9번
+   14. 문서
+       - `internal/ref/topics.go` form 절: "A file no row points at stays: delete it with maago.DeleteMedia when you delete the row (the admin does not); one saved by a request that failed before writing its row stays too." → "A file no row points at is deleted by maago.SweepMedia(ctx, db, 0), run now and then, once the fields that keep keys are tagged media (maago doc model); maago.DeleteMedia deletes a row's file at once." `API`에 `SweepMedia`(`TestPackageDoc`). 미디어 문단의 다시 쓰기(단일 인스턴스·서명된 URL·청소)는 9번
+       - `doc.go`는 `-update`(PG 주소와 함께)
+       - `docs/ARCHITECTURE.md`: 루트의 "M13이 더한 것"에 `SweepMedia(D-161)`, `rt` 목록에 `MediaInUse`, `rtcore`에 "생성 코드가 알린 미디어 쿼리"
+       - `docs/TODO.md` 90줄 체크(`List`·`Delete(name)`을 `SweepMedia`가 쓴다)
+       - `docs/DECISIONS.md` D-161에 고침 한 줄(아래 ★들)과 끝의 기록 줄
+       - → 확인: `TestPackageDoc`, `TestDocExamples`, `TestNoDecisionsInUserText`, `TestGeneratedCallsAppAPI`(생성 주석의 `maago.SweepMedia`는 `topics.go`가 앱 코드로 센다)
+   15. 게시판: 고치지 않는다(태그와 청소는 8번) → 확인: `TestBoardTutorial`(PG)·`TestBoardTutorialCatches`·`TestBoardMap`, `git diff --stat examples/`가 비어 있다
+
+   단계와 확인
+   1. 시험 먼저: `TestMediaTag`, `TestSweepMedia`, fixture와 gentest의 `models.go`·시험 파일 → 확인: `go vet ./...`가 없는 이름(`SweepMedia`, `Field.Media`, `rtcore.MediaQueries`, `s3fake.Touch`)으로 실패(빨강)
+   2. 태그·생성기·`build.go`·`rt`·`rtcore`·`media.go`·`s3fake` → 확인: `go test ./internal/model ./internal/mapper ./internal/build .`, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4 go test -run TestGenerated ./cmd/maago -update`(`-update` 뒤의 패키지는 시험 이진의 인자가 되므로 패키지가 먼저) 뒤 `go test ./cmd/maago/internal/gentest/...`(두 방언)
+   3. 문서·예·골든 → 확인: `go test -run 'TestDoc|TestPackageDoc|TestNoDecisions|TestGeneratedCallsAppAPI' ./cmd/maago .`(`-update`는 PG 주소와 함께)
+   4. 헛것(하나씩 넣고 이름 붙인 시험의 빨강을 보고 되돌린다. 생성물을 바꾸는 것은 PG 주소와 `-update` 뒤 gentest를 돌리고, 되돌린 뒤 다시 `-update`해 diff가 같음을 본다): (a) `MediaInUse`가 제 앱의 필드만 → `files`의 `TestSweep`(c가 지워진다) (b) `ModelsFile`이 `media` 필드가 있는 앱에만 `init` → `tags`의 `TestSweep` (c) `IS NOT NULL`을 뺌 → `files`의 `TestSweep`(NULL `Thumb`를 읽다 오류) (d) 후보의 시각을 보지 않음 → 72시간 줄 (e) 이름을 거르지 않고 모두 후보로 → `.gitignore`·`.tmp-x`가 지워지거나 S3 `a/b`의 `Delete` 오류 (f) `.tmp-`를 후보에서 뺌 → 오래된 `.tmp-`가 남음 (g) `List`의 첫 쪽만 → S3 줄(`.`로 시작하는 이름이 첫 쪽을 채워 고아 열쇠는 늘 뒤 쪽) (h) 1시간 하한을 지움 → `TestSweepMedia`·`files`의 30분 줄 (i) 다른 글 둘을 받음 → `TestSweepMedia` (j) 빈 `MediaQueries`를 받음(아무것도 쓰지 않는다고 보고 모두 지움) → `TestSweepMedia`의 남은 고아 (k) `media`가 `int64`를 받음 → `TestMediaTag` (l) `main.txt`의 `Export` 태그를 뺌 → `TestDocExamples/main`("knows no field") (m) `model.txt`의 `media`를 뺌 → `TestDocKeysAreRead/model` (n) 쿼리 오류를 빈 모음으로 받음(쓰는 중 없음으로 보고 오래된 파일을 모두 지움) → `TestSweepMedia`의 오류 `DB` 줄 (o) `build.go`가 `ModelsFile`에 제 앱만 넘김 → `TestGenMedia`(두 파일 다) (p) `Delete` 오류 뒤에도 계속 → `files`의 `Delete` 오류 줄. `checkGenerated`의 prepare는 안전띠라(지금 CRUD처럼) 헛것이 없다. `rows.Err()`는 읽다 끊기는 드라이버 가짜가 없어 헛것이 없다
+   5. 끝 확인: 루트에서 `go mod tidy -diff && go vet ./... && go test ./...`, `gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=postgres://maago@127.0.0.1:55432/m13_4`로 전체(`-timeout 60m`, 앞에서 끝까지 기다려 로그의 `go test exit=` 줄), 게시판 걷기 포함. 새 시험은 `GOTOOLCHAIN=go1.25.14`로도
+
+   ★ → 에이전트 편의로 결정
+   - **쿼리는 생성 코드의 `init`이 `rt.MediaInUse`로 알리고, 모델이 있는 모든 앱이 프로젝트 전체의 같은 쿼리를 담는다.** `SweepMedia`는 앱 목록을 받지 않고 일꾼은 `Handler`를 지나지 않는다. 앱마다 제 열만 알리면, 또는 `Config.Apps`에 매달면, 앱 하나만 링크한 프로그램이 다른 앱의 살아 있는 파일을 조용히 지운다(Q4가 손 `inUse`를 기각한 바로 그 실패). 모든 앱이 전체를 담으면 어느 앱 하나만 링크해도 맞고, 하나도 없으면 오류, 글이 다르면(낡은 생성물) 오류다: 어느 쪽도 지우지 않는 쪽으로 실패한다. 에이전트는 태그 하나를 달고 `SweepMedia`를 부를 뿐 이을 것이 없다. 숨은 동작이 아니라 `models_gen.go`에 보이는 `init` 한 개다(PHILOSOPHY 5). 기각: `SweepMedia(ctx, db, olderThan, board.MediaInUse, …)`처럼 앱이 넘기기(빠뜨린 앱의 파일을 지운다), 태그 있는 앱에만 담기(태그 없는 앱만 링크한 일꾼이 쓸 수 없다, 헛것 (b))
+   - **`SweepMedia(ctx, db, olderThan) error`: db는 인자, 저장소는 ctx**(D-161의 `(ctx, olderThan)`에 db를 더한다: D-161 고침). 생성된 쿼리·`outbox.Run`·`RunOnce`가 모두 db를 인자로 받고, `DBFrom`은 없으면 panic이며 "시험에서"라는 `WithDB`를 일꾼에 요구하게 된다. 저장소는 `SaveMediaFrom`·`DeleteMedia`처럼 ctx(`WithMedia`): 일꾼이 이미 그 ctx를 가진다. `maago.DB`라 `*sql.Conn`·`*sql.Tx`도 된다. 지운 수는 돌려주지 않는다(쓰는 곳 없음)
+   - **`olderThan`은 0이면 24시간(Q4의 기본), 아니면 1시간 이상.** 작은 값은 저장과 행 쓰기 사이의 파일을 지운다(긴 일꾼은 파일 여럿을 저장한 뒤 행을 쓴다). `SweepMedia(ctx, db, 24)`(24나노초)처럼 단위를 빠뜨린 실수가 모든 새 파일을 지우는 대신 오류가 된다(PHILOSOPHY 6). 1시간도 가장 긴 일보다 짧으면 위험하므로 주석이 "the longest a file waits for its row"를 말한다
+   - **지우는 것은 열쇠와 `.tmp-`+열쇠뿐**(Q4의 "`.tmp-*`"를 Maago가 만드는 꼴로 좁힘). 저장소에 넘기기 전에 런타임이 거른다: `.gitignore`, 사용자의 `.tmp-x`, S3의 남의 `a/b`는 저장소의 이름 오류에 기대지 않고 손대지 않는다. `.tmp-`+열쇠는 쓰는 중이어도(같은 열쇠의 행이 있어도) 여유 밖이면 지운다: `Put`이 이름을 바꾸기 전의 반쪽이다
+   - **실패는 닫힌 쪽으로**: `List`의 한 쪽, 쿼리(마이그레이션을 적용하지 않아 없는 열 따위), `Delete` 어느 오류든 바로 돌려주고 그 뒤로 지우지 않는다. 다음 청소가 다시 한다
+   - **후보를 고른 뒤 쓰는 중을 읽는다**, 쿼리는 열쇠 전부를 메모리에(`ponytail:` 주석). 앞에 읽으면 그사이 쓰인 행의 파일을 볼 수 없다. 후보가 없으면 DB를 읽지 않는다. 행 수가 커지면 후보 쪽마다 `IN`으로 묻는 길이 있다(지금은 하지 않음)
+   - **`UNION ALL` 한 문장, 자리표시 없음**: 두 방언이 같은 글이고 `checkGenerated`가 모델 DB에 prepare한다(CRUD와 같은 안전띠)
+   - **`s3fake.Touch`**: 오래된 객체와 `/`가 든 남의 이름을 가짜에 두는 시험 도우미 하나. 런타임에 시각을 주입하는 갈고리(시험만 쓰는 공개 이름)는 두지 않는다: 로컬은 `os.Chtimes`, S3 가짜는 `Touch`로 파일을 늙힌다
+   - **진짜 DB의 시험은 gentest**(두 방언, 열쇠 열이 둘인 모델·두 앱·태그 없는 앱), 생성 경로 전체는 `TestDocExamples/main`(실제 `maago gen`과 복사된 outbox 앱). 뿌리 시험은 DB 없이 닿는 갈래만
+
+   하지 않는 것
+   - 태그를 빠뜨린 열쇠 필드를 생성 때 찾기(필드 이름으로 짐작하지 않는다, PHILOSOPHY 6; 태그가 하나도 없는 프로젝트는 `SweepMedia`의 오류가 말한다), 행 하나에 열쇠 여럿(JSON·글 속의 열쇠: 열 하나에 열쇠 하나, 8번의 "이름 → 열쇠 행"), 손 마이그레이션에만 있는 표의 열
+   - `SweepMedia`를 스스로 주기적으로 부르기(`Handler`·일꾼 안), 지운 수나 목록의 반환, 시각 주입 갈고리, 후보 쪽마다의 `IN` 쿼리
+   - 빈 DB나 다른 프로젝트의 DB를 준 청소를 알아보기: 표가 있고 행이 없으면 오래된 파일을 모두 지운다. 받아들이고 `SweepMedia`의 주석이 말한다("The store must be this database's alone". 표가 없으면 쿼리 오류로 멈춘다, 지키는 장치를 더하지 않음)
+   - `main.go`가 청소를 주기적으로 부르는 예와 미디어 문단 다시 쓰기·D-140 고침(9번), 게시판의 태그와 청소(8번)
+
+   계획 리뷰 codex·fable 반영: 막는 것은 `build.go`의 부름을 무는 확인(fable 1: `TestGenMedia`와 헛것 (o)). 받은 것: `main.txt`의 주장을 낮춤(fable 2: 늙힌 파일을 예에 넣으면 예가 길어지고, 생성된 쿼리는 gentest와 `TestGenMedia`가 문다), 오류 줄마다 제 글의 조각(fable 3), `Scan`·`rows.Err()`의 오류(fable 4, 헛것 없음), `testDB`(fable 5), 주석의 "this database's alone"(fable 6), 태그 글의 "Tag every field that keeps one"(fable 7), `Delete` 오류 줄(fable 8, 헛것 (p))과 로컬 `a/b`를 뺌(fable 8). codex 4(후보 쪽마다 `IN`)는 이미 미룬 대로(`ponytail:` 주석). 받지 않은 것(codex가 막는다고 한 셋): (1) DB와 쿼리의 프로젝트 식별자 — 가장 그럴듯한 실수는 같은 프로젝트의 스테이징 DB에 운영 버킷을 준 것이고 그 DB는 같은 식별자를 가져 장치가 잡지 못한다. fable은 같은 위험을 보고 주석만 청했다: 리뷰가 갈린 자리를 D-161(태그로 지킴)과 에이전트 편의(이을 것 없는 한 함수)로 주석 쪽으로 정한다 (2) 행 추가와 삭제의 경쟁에 advisory lock — 쓰는 중 읽기는 `UNION ALL` 한 문장이라 한 스냅숏을 본다(한 트랜잭션에서 열쇠를 다른 행으로 옮겨도 늘 보인다). 후보는 `olderThan` 넘게 묵은 파일이라, 그 열쇠를 처음 가리키는 행은 주석의 계약("longer than the longest a file waits for its row")이 이미 막는다. SQLite에는 advisory lock이 없고 손 쿼리의 쓰기를 덮지도 못한다 (3) `.tmp-`의 lease — 저장소에 `.tmp-<key>`를 만드는 것은 `LocalMedia.Put`뿐이고(S3의 `Put`은 OS 임시 디렉터리에 받는다) 쓰는 동안 mtime이 움직인다. 멈춘 `Put`의 `.tmp-`를 지우면 `Rename`이 실패해 `Put`이 오류를 돌려주고(`media.go`의 `LocalMedia.Put`) 행은 쓰이지 않는다: 조용히 잃는 것이 없다
+   기록(2026-11-25): 태그 `media`(`ref.FieldTags`, `model.Field.Media`, 문자열만), `mapper.MediaInUse`(앱·모델·필드 차례의 `UNION ALL`, 늘 `IS NOT NULL`), `ModelsFile`이 모든 앱을 받아 모델이 있는 앱마다 `init`의 `rt.MediaInUse`, `build.go`의 `s.apps`와 `checkGenerated`의 prepare, `rtcore.MediaQueries`(`app.go`), `maago.SweepMedia`, `MediaStore.Delete` 주석, `s3fake.Touch`(`sync.Map`), fixture `internal/testdata/media`와 gentest `files`·`tags`(두 방언), `TestGenMedia`·`TestSweepMedia`·`TestMediaTag`, `model.txt`의 `Cover`, `main.txt`의 `Export` 태그와 청소, form 절과 `doc.go`, ARCHITECTURE·TODO·D-161 고침과 기록 줄, `TUTORIAL-FUTURE.md`의 허용 목록(전체 시험의 `TestShortTutorial`이 잡음). 헛것 (a)~(p) 모두 이름 붙인 시험이 빨강(되돌린 뒤 같은 파일, 생성물을 바꾸는 (a)(b)(c)는 PG 주소와 `-update` 뒤 gentest 두 방언이 빨강이고 되돌려 다시 `-update`한 diff가 비어 있음): (a) `files`의 `TestSweep`(다른 앱의 n이 지워짐)과 `tags`의 오류 (b) `tags`의 `TestSweep`("knows no field") (c) NULL `Thumb`의 `Scan` 오류 (d) 72시간 줄 (e) 로컬은 `.gitignore`·`.tmp-x`가 지워지고 S3는 `a/b`의 이름 오류 (f) 오래된 `.tmp-`가 남음 (g) S3 줄만 (h) `TestSweepMedia`의 -1·30분과 `files`의 30분 줄 (i)(j)(n) `TestSweepMedia`(j·n은 고아가 지워짐) (k) `TestMediaTag` (l) `TestDocExamples/main`("knows no field") (m) `TestDocKeysAreRead/model` (o) `TestGenMedia`의 `files`·`tags` 둘 (p) `Delete` 오류 줄(2번 불림). 첫 단계의 "시험 먼저 빨강"은 이 실행에서 다시 보지 않았고 헛것이 그 증거다. 계획 글을 구현에 맞춤: `rtcore`의 파일, `testDB`, `sync.Map`, `tags`의 시험, `-update`는 패키지 뒤. 새 시험은 `GOTOOLCHAIN=go1.25.14`로도 초록. `MAAGO_TEST_PG_URL`로 전체 시험 `go test exit=0`(cmd/maago 383초), `go mod tidy -diff`·`go vet`·`gofmt -l .` 깨끗, `examples/` 그대로
+   기록(2026-11-25, 구현 리뷰 반영): 구현 리뷰는 ponytail·codex·fable: 막는 것 없음(셋 다). 받은 것: `files`의 `TestSweep`에 2시간 전의 고아 `h`가 `SweepMedia(ctx, db, 0)` 뒤에도 남음(fable 1, 기본 24시간을 1시간으로 바꾸면 빨강), 오래된 `.tmp-`를 쓰는 중인 열쇠 `a`의 것으로(fable 2, "`.tmp-`를 뗀 열쇠가 쓰는 중이면 남김"으로 바꾸면 빨강), `TestSweepMedia`에 `time.Hour`의 "no driver" 줄(하한이 1시간을 받음, `<`를 `<=`로 바꾸면 빨강)과 빈 디렉터리·`testDB`의 nil(후보가 없으면 DB를 읽지 않음, 그 갈래를 지우면 빨강)(fable 4, `rows.Err()`는 그대로 헛것 없음), 헛것 (q) 겹침 거르기(`rt/app.go`)를 뺌 → `TestDocExamples/main`의 "different media fields"(fable 3, fable이 복사본에서 봄), D-161 기록 줄의 날짜 11-25(fable 5), 새 열쇠의 `.tmp-`를 상수 `".tmp-"+strings.Repeat("f", 32)`로 하고 `newKey`·`crypto/rand`·`encoding/hex`를 지움(ponytail 2), `files`의 30분·저장소 없음 줄을 지움(ponytail 3: 30분은 `TestSweepMedia`, 저장소 없음은 `mediaStore`의 기존 오류를 `TestMedia`가 문다; 그래서 헛것 (h)는 이제 `TestSweepMedia`의 30분 줄만), `TestSweepMedia`의 -1 줄을 지움(ponytail 4, 30분과 같은 갈래), `switch len(...)`의 빈 `case 1`을 두 `if`로(ponytail 5). 받지 않은 것: `s3fake`의 `sync.Map`(ponytail 1, 남의 이름 `a/b`와 오래된 객체를 심을 길이 이것뿐이고 `New`의 반환을 바꾸면 `contrib/s3`의 호출 다섯을 고친다: ponytail도 받아들일 만하다고 함), 낡은 바이너리의 청소 글(fable 6, 9번의 미디어 문단으로 TODO), codex(지적 없음, 쓰기 금지 환경이라 실행은 못 함). 루트에서 `go mod tidy -diff`·`go vet ./...`·`gofmt -l .` 비어 있음, `MAAGO_TEST_PG_URL=…/m13_4`로 PG 전체 시험 `go test exit=0`(cmd/maago 384초, 게시판 걷기 포함)
+
 8. **게시판 0041~**: 일꾼이 만든 파일 여럿(내보내기 따위, 이미지 처리 아님: D-72)을 이름 → 열쇠 행으로 저장하고 뷰가 이름으로 찾아 준다(readmate의 `media/marked/<id>/` 꼴), 저장소를 환경으로 고름, 서명된 URL로 밖에 건넴, 청소(태그), outbox의 Kind 둘(웹훅과 이 일: `main`의 일꾼이 Kind로 가름), lease를 넘어 다시 도는 일이 남긴 파일은 청소가 치운다 → 확인: `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardMap`, Catches(일꾼 ctx에 저장소 없음, 태그 빠뜨림 따위)
-9. **문서**: `maago doc`의 미디어(단일 인스턴스, 서명된 URL, 청소)·main(일꾼의 저장소, Kind 둘)·model(태그 `media`), 결정 고침: D-140·D-153·D-159·D-123(루트 밖 공개 패키지의 셋째 `contrib/s3`)·D-09·D-72(앱이 만든 바이트는 이미지 처리가 아니다)·D-61·D-148·D-23·D-34·D-32·D-91·D-105·D-111·D-154·D-120·D-132, MILESTONES v1에서 옮김 → 확인: `TestDocExamples`, `TestPackageDoc`, `TestNoDecisionsInUserText`
+9. **문서**: `maago doc`의 미디어(단일 인스턴스, 서명된 URL과 그 한계: 만든 프로세스만 받고 다시 시작하면 403, 청소)·main(일꾼의 저장소, Kind 둘)·model(태그 `media`), 결정 고침: D-140·D-153·D-159·D-123(루트 밖 공개 패키지의 셋째 `contrib/s3`)·D-09·D-72(앱이 만든 바이트는 이미지 처리가 아니다)·D-61·D-148·D-23·D-34·D-32·D-91·D-105·D-111·D-154·D-120·D-132, MILESTONES v1에서 옮김 → 확인: `TestDocExamples`, `TestPackageDoc`, `TestNoDecisionsInUserText`
 10. **v0.4.0**(Q10): 태그(깨지는 API를 태그 글에), 게시판의 `go.mod`(0001·0013) → 확인: 빈 GOPATH에서 `go install …@v0.4.0`, 공개 판으로 걷기의 끝(`GOWORK=off`)
 11. **에이전트 게이트**: `go install …@v0.4.0`부터, 0040의 끝에서 새 단계 글만 보고 서로 모르는 실행 둘 → 확인: 기록, 메시지와 `maago doc`만으로 씀
 12. **M13 끝**: MILESTONES의 M13 체크, README, 다음 마일스톤(M14: Google 로그인, 진단 묶음, 단계 글의 빈틈)의 차례

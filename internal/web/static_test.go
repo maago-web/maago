@@ -48,6 +48,8 @@ func TestStaticDiags(t *testing.T) {
 			[]string{"more/blog/static: apps blog and more/blog are both package blog, so both would serve /static/blog/"}},
 		{"routes under /static/", withFiles("blog/urls.go", routes("\tmaago.GET(\"/static/x\", \"x\", Feed),\n\tmaago.GET(\"/static\", \"y\", Feed),\n")),
 			[]string{`blog/urls.go:16:12: route path "/static/x" is under /static/`, `blog/urls.go:17:12: route path "/static" is under /static/`}},
+		{"routes under /maago/", withFiles("blog/urls.go", routes("\tmaago.GET(\"/maago/x\", \"x\", Feed),\n\tmaago.GET(\"/maago\", \"y\", Feed),\n")),
+			[]string{`blog/urls.go:16:12: route path "/maago/x" is under /maago/`, `blog/urls.go:17:12: route path "/maago" is under /maago/`}},
 		{"a route the static files' pattern conflicts with", withFiles("blog/static/a.css", "x", "blog/urls.go", routes("\tmaago.GET(\"/{x}/blog/a.css\", \"x\", Feed),\n")),
 			[]string{`blog/urls.go:16:12: route GET /{x}/blog/a.css conflicts with /static/blog/{name}`}},
 		{"a name the static files' code declares", withFiles("blog/static/a.css", "x", "blog/more.go", "package blog\n\nvar maagoStatic int\n"),

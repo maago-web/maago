@@ -85,8 +85,14 @@ type Config struct {
 
 	// MediaDir is the directory SaveMedia keeps files in, relative
 	// to the working directory if not absolute. A project whose forms take
-	// files must set it, and it must exist: Handler does not make it.
+	// files must set it or Media, and it must exist: Handler does not make
+	// it. It is short for Media: maago.LocalMedia{Dir: MediaDir}.
 	MediaDir string
+
+	// Media is where media is kept, given to each request: a
+	// maago.LocalMedia or contrib/s3's store. Handler serves a
+	// LocalMedia's URLs, at /maago/media.
+	Media MediaStore
 }
 
 // App is an app's routes, as maago gen generates them into the app's App
@@ -145,13 +151,8 @@ func Handler(cfg Config) (http.Handler, error) {
 	case htmlLogin && cfg.LoginURL == "":
 		return nil, errors.New("maago: HTML routes require login, but Config.LoginURL is empty; set it to the login page")
 	}
-	switch info, err := os.Stat(cfg.MediaDir); {
-	case files && cfg.MediaDir == "":
-		return nil, errors.New("maago: forms take files, but Config.MediaDir is empty; set it to the directory to keep them in, such as media")
-	case cfg.MediaDir != "" && err != nil:
-		return nil, fmt.Errorf("maago: Config.MediaDir: %w; create the directory", err)
-	case cfg.MediaDir != "" && !info.IsDir():
-		return nil, fmt.Errorf("maago: Config.MediaDir %q is not a directory", cfg.MediaDir)
+	if err := h.media(files); err != nil {
+		return nil, err
 	}
 	if h.cfg.MaxBody < 0 {
 		return nil, fmt.Errorf("maago: Config.MaxBody is %d; give the most bytes a body may hold, or 0 for 10MB", h.cfg.MaxBody)
@@ -187,10 +188,60 @@ func Handler(cfg Config) (http.Handler, error) {
 
 type handler struct {
 	cfg    Config
+	store  MediaStore // Config's, MediaDir's a LocalMedia; nil for none
 	mux    *http.ServeMux
 	routes map[string]*rtcore.Route // by pattern
 	forms  *rtcore.Settings
 	next   http.Handler // CSRF, then the routes
+}
+
+// media checks Config's media store, files telling whether forms take
+// files, and serves a local store's URLs.
+func (h *handler) media(files bool) error {
+	cfg := h.cfg
+	switch {
+	case cfg.Media != nil && cfg.MediaDir != "":
+		return errors.New("maago: Config.Media and Config.MediaDir are both set; MediaDir is short for Media: maago.LocalMedia{Dir: MediaDir}: keep one")
+	case files && cfg.Media == nil && cfg.MediaDir == "":
+		return errors.New("maago: forms take files, but Config.MediaDir is empty; set it to the directory to keep them in, such as media, or set Config.Media")
+	}
+	h.store = cfg.Media
+	name, local := "Config.Media's Dir", LocalMedia{}
+	switch s := cfg.Media.(type) {
+	case LocalMedia:
+		local = s
+	case *LocalMedia:
+		if s != nil { // a nil one's Dir is empty
+			local = *s
+		}
+	case nil:
+		if cfg.MediaDir == "" {
+			return nil
+		}
+		name, local = "Config.MediaDir", LocalMedia{Dir: cfg.MediaDir}
+		h.store = local
+	default:
+		return nil
+	}
+	switch info, err := os.Stat(local.Dir); {
+	case local.Dir == "":
+		return fmt.Errorf("maago: %s is empty; set it to the directory to keep media in, such as media", name)
+	case err != nil:
+		return fmt.Errorf("maago: %s: %w; create the directory", name, err)
+	case !info.IsDir():
+		return fmt.Errorf("maago: %s %q is not a directory", name, local.Dir)
+	}
+	if local.SiteURL != "" {
+		u, err := local.site()
+		if err != nil {
+			return err
+		}
+		if u.Path != cfg.Prefix {
+			return fmt.Errorf("maago: Config.Media's SiteURL %q has path %q, not Config.Prefix %q; give the site's address as browsers reach it, the prefix included", local.SiteURL, u.Path, cfg.Prefix)
+		}
+	}
+	h.mux.Handle("GET /maago/media", h.serve(&rtcore.Route{Method: "GET", Path: "/maago/media", Name: "maago_media", Serve: serveSigned}))
+	return nil
 }
 
 // ServeHTTP answers CORS first, since a preflight never reaches a route,
@@ -252,8 +303,8 @@ func (h *handler) serve(route *rtcore.Route) http.Handler {
 		ww := &written{ResponseWriter: w}
 		ctx := rtcore.WithSettings(WithDB(r.Context(), h.cfg.DB), h.forms)
 		ctx = context.WithValue(ctx, remoteAddrKey{}, r.RemoteAddr)
-		if h.cfg.MediaDir != "" {
-			ctx = WithMediaDir(ctx, h.cfg.MediaDir)
+		if h.store != nil {
+			ctx = WithMedia(ctx, h.store)
 		}
 		r = r.WithContext(context.WithValue(ctx, cookiesKey{}, ww))
 		r.Body = http.MaxBytesReader(w, r.Body, h.cfg.MaxBody) // w, not ww: net/http closes the connection only when its own writer hears of it

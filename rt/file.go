@@ -80,7 +80,7 @@ func BindFile(r *http.Request, vals url.Values, f *maago.Field[maago.File], rule
 	defer file.Close()
 	head := make([]byte, 512)
 	n, _ := io.ReadFull(file, head)
-	typ, _, _ := mime.ParseMediaType(http.DetectContentType(head[:n]))
+	typ, _, _ := mime.ParseMediaType(http.DetectContentType(head[:n])) // as maago.SaveMediaFrom (media.go)
 	if rule.Accept != nil && !slices.ContainsFunc(rule.Accept, func(k string) bool { return fileKinds[k] == typ }) {
 		f.Error = m.NotKind
 		return

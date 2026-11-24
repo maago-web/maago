@@ -81,6 +81,7 @@ type Field struct {
 	FK          string // the table of the model it refers to (D-124)
 	Auto        string // "create" or "update": generated CRUD fills it with the time (D-102)
 	Admin       string // "hidden" or "readonly" in the admin (D-132), or ""
+	Media       bool   // keeps a media key: maago.SweepMedia reads it (D-161)
 }
 
 // Unsupported is a field that is not a column, and why (D-18, D-82).
@@ -410,6 +411,14 @@ func (c *checker) fieldOptions(f *Field, opts []Option, where string, app *App) 
 				c.unknown(o.ValuePos[0], "admin value", first(o), where, refdoc.FieldTags.Values("admin"))
 			default:
 				f.Admin = first(o)
+			}
+		case "media":
+			switch {
+			case !c.shape(o, where, NoValue, 0, "write it alone, like media"):
+			case f.Type != String:
+				c.errf(o.KeyPos, "declare the field as string, or *string to allow NULL", "media keeps a media key in a string, but %s is %s", where, f.Type)
+			default:
+				f.Media = true
 			}
 		default:
 			panic("maago bug: field tag key " + o.Key + " is in refdoc.FieldTags but not handled")

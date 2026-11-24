@@ -26,6 +26,9 @@
 //		log.Fatal(err)
 //	}
 //
+// To keep files from deliver with maago.SaveMediaFrom, put the store
+// Config.Media has in its ctx: ctx = maago.WithMedia(ctx, store).
+//
 // Once Serve has stopped, the worker takes no more jobs and finishes the
 // one in hand, for up to the lease (5 minutes): give the work in deliver
 // a shorter deadline of its own. A second signal kills the process at

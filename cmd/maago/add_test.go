@@ -98,10 +98,50 @@ func TestAddOutbox(t *testing.T) {
 				}
 			}
 			expect(t, root)
+			writeFile(t, filepath.Join(root, "outbox", "media_test.go"), outboxMediaTest)
 			goTest(t, root)
 		})
 	}
 }
+
+// outboxMediaTest keeps a file from handle, through RunOnce: the media
+// store Run's ctx carries reaches handle's.
+const outboxMediaTest = `package outbox
+
+import (
+	"context"
+	"io"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/maago-web/maago"
+	"github.com/maago-web/maago/maagotest"
+)
+
+func TestMedia(t *testing.T) {
+	db := maagotest.DB(t)
+	ctx := maago.WithMedia(t.Context(), maago.LocalMedia{Dir: t.TempDir()})
+	job(t, db)
+	var m maago.Media
+	var saveErr error
+	found, err := RunOnce(ctx, db, time.Now(), func(ctx context.Context, j Job) error {
+		m, saveErr = maago.SaveMediaFrom(ctx, "export.txt", strings.NewReader("done"))
+		return saveErr
+	})
+	if saveErr != nil || !found || err != nil {
+		t.Fatalf("save in handle: %v; %v %v", saveErr, found, err)
+	}
+	f, err := maago.OpenMedia(ctx, m.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if b, _ := io.ReadAll(f); string(b) != "done" {
+		t.Errorf("kept %q", b)
+	}
+}
+`
 
 // outboxMain runs the outbox's worker beside the server, as the doc of
 // package outbox has it. It is only compiled.

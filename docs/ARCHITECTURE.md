@@ -37,22 +37,26 @@ github.com/maago-web/maago
 │                          M5가 더한 것: SetCookie(D-125), RemoteAddrFrom(D-128).
 │                          M7이 더한 것: Config.MaxBody·MediaDir(D-139, D-140), File(D-139),
 │                          Media·SaveMedia·OpenMedia·DeleteMedia·ServeMedia·WithMediaDir(D-140).
+│                          M13이 더한 것: Config.Media·MediaStore·MediaFile·LocalMedia·WithMedia·MediaURL
+│                          (WithMediaDir를 지움, D-160), SaveMediaFrom(D-160), SweepMedia(D-161).
 │                          생성 코드만 부르는 것은 M10 11번에 `rt`로 옮겼다(아래).
 │                          런타임이 기대는 내부 패키지는 TestRuntimeDependencies가 적는 것뿐(diag·ref·model·project·migrate·rtcore…)
 ├── rt/                 생성 코드(와 contrib/admin, D-131)만 부르는 것(M10 11번, D-152): One·Many·Exec·Placeholders,
 │                          SQLiteTime·SQLiteNullTime·ScanTime·ScanNullTime(D-105), NewApp·AppRoute·Pages·ParsePages·
 │                          Render·JSON·Buffer·ParseQuery·Query·Path·Parse*·Bind*·FinishForm·FormValid·FormValues·JSONValues·
 │                          MultipartValues·Unprocessable·Taken·Code·Rule·FieldError·URLFunc·PathSegment·DateFunc·NoRow·FileKinds,
-│                          Static·StaticFiles·StaticFunc·StaticName(D-136, D-137). 생성기가 rt와 루트를 둘 다 넣고 쓰지 않는 쪽은 뺀다
+│                          Static·StaticFiles·StaticFunc·StaticName(D-136, D-137), MediaInUse(D-161). 생성기가 rt와 루트를 둘 다 넣고 쓰지 않는 쪽은 뺀다
 │                          (pipeline.Format). 앱 코드는 rt를 import하지 않는다(TestGeneratedCallsAppAPI)
 ├── internal/rtcore/    루트와 rt가 함께 보는 상태: 마지막 Handler의 Prefix·TimeZone·static, 폼 설정과 ctx 키, 422 오류,
-│                          StaticFiles, App(루트의 App은 별칭)·Route. 루트 타입의 숨은 필드는 갈고리 둘(FormStateOf, NewFile)로만
+│                          StaticFiles, App(루트의 App은 별칭)·Route, 생성 코드가 알린 미디어 쿼리(MediaQueries, D-161). 루트 타입의 숨은 필드는 갈고리 둘(FormStateOf, NewFile)로만
 ├── maagotest/          시험 전용 도우미: DB (M4, D-113), Mailbox (M5, D-126), Permissions·As (M11, D-156). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
 ├── contrib/
 │   ├── auth/            인증의 보안 부품(stdlib만, M5): Hash·Check(D-127), ValidatePassword·MinLength·NotCommon·NotSimilar(D-15), NewToken·HashToken·
 │   │                      SessionCookie·FromSession(D-128, D-129)·SafeNext·ClientIP(D-128), Mail·Message·SMTP·ConsoleMail(D-126). 앱 층은 `maago add auth`가
 │   │                      프로젝트에 복사한다(D-123)                     D-50, D-51
-│   └── admin/           admin 런타임과 admin_gen.go의 타입 (M6)  D-48, D-49, D-131
+│   ├── admin/           admin 런타임과 admin_gen.go의 타입 (M6)  D-48, D-49, D-131
+│   └── s3/              S3 호환 미디어 저장소(stdlib SigV4, M13): Store{Endpoint, Region, Bucket, AccessKeyID, SecretAccessKey}가
+│                          maago.MediaStore. 시험은 서명을 따로 계산하는 가짜 internal/s3fake와 CI의 MinIO  D-160
 │
 ├── cmd/maago/           CLI 진입점. 명령은 flag 디스패치이고 일은 internal에 (D-68). 예외는 `maago tailwind`의
 │                          받기·확인·실행(실행 파일을 다루는 CLI의 일, D-138)
@@ -96,7 +100,7 @@ github.com/maago-web/maago
   `cmd/maago`만 import하고, 그 밖은 stdlib만이다(`TestRuntimeImports`가 파일을 걸으며 본다). 런타임만 import하는
   사용자의 `go.mod`·`go.sum`에 드라이버가 들어오지 않는다(모듈 그래프 가지치기). `gen`은 제 판과 프로젝트가 쓰는
   런타임의 판이 다르면 멈춘다 (D-03, D-09, D-151).
-- **런타임 공개 API는 루트 패키지 `maago` 하나.** 사용자가 import할 경로를 늘리지 않는다. 예외는 넷: 시험 전용 `maagotest`(D-113), 복사된 인증 앱이 부르는 보안 부품 `contrib/auth`(D-123, stdlib만), `main`과 생성물이 부르는 `contrib/admin`(D-131), 생성 코드만 부르는 `rt`(D-152, 앱은 import하지 않는다).
+- **런타임 공개 API는 루트 패키지 `maago` 하나.** 사용자가 import할 경로를 늘리지 않는다. 예외는 다섯: 시험 전용 `maagotest`(D-113), 복사된 인증 앱이 부르는 보안 부품 `contrib/auth`(D-123, stdlib만), `main`과 생성물이 부르는 `contrib/admin`(D-131), 생성 코드만 부르는 `rt`(D-152, 앱은 import하지 않는다), `Config.Media`에 주는 `contrib/s3`(D-160, stdlib만).
 - **생성기는 모두 `internal/`.** 공개 API가 아니므로 마음대로 고칠 수 있다.
 - **방언의 SQL은 `internal/dialect/` 안에만.** DDL 쓰기, 스키마 읽기, 초안 쓰기는 방언 디렉터리에 있다. MySQL(v1)은
   디렉터리 하나를 더하는 일이 된다. 연결과 트랜잭션을 모는 곳(`practicedb`, `migrate`의 적용·기록, `build`의 방언 표)은
@@ -151,7 +155,7 @@ func Write(w io.Writer, ds []Diagnostic) error          // 정렬, 중복 제거
 
 ```
 blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
-  fix: did you mean "max"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin
+  fix: did you mean "max"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin, media
   see: maago doc model
 ```
 

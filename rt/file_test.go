@@ -157,6 +157,12 @@ func TestBindFile(t *testing.T) {
 	if f := bind(multipartRequest(t, "/f", filePart("doc", "a.html", html, "image/png")), Rule{Name: "doc"}); f.Value.Type != "text/html" {
 		t.Errorf("the type is the content's: %q", f.Value.Type)
 	}
+	// SaveMedia tells the type as the upload did: one way, not two.
+	ctx := maago.WithMedia(context.Background(), maago.LocalMedia{Dir: t.TempDir()})
+	page := bind(multipartRequest(t, "/f", filePart("doc", "a.html", html, "text/html")), Rule{Name: "doc"})
+	if m, err := maago.SaveMedia(ctx, page.Value); err != nil || m.Type != page.Value.Type {
+		t.Errorf("saved %+v, %v; the upload's type %q", m, err, page.Value.Type)
+	}
 	var get maago.Field[maago.File] // a GET draws the field
 	BindFile(httptest.NewRequest("GET", "/f", nil).WithContext(context.Background()), nil, &get, rule)
 	if get.Error != "" || get.Given || get.Name != "doc" {

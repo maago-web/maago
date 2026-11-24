@@ -61,7 +61,7 @@ type Post struct {
 	Title string ` + "`" + `maago:"maxlen=200"` + "`" + `
 }
 `})
-	want := "blog/models.go:9:23: unknown tag key \"maxlen\" in Post.Title\n  fix: did you mean \"max\"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin\n"
+	want := "blog/models.go:9:23: unknown tag key \"maxlen\" in Post.Title\n  fix: did you mean \"max\"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin, media\n"
 	if errs != want {
 		t.Errorf("got:\n%s\nwant:\n%s", errs, want)
 	}
@@ -424,5 +424,46 @@ type Order struct {
 	}
 	if u := apps[0].Models[0].Unsupported; len(u) != 1 || !strings.HasPrefix(u[0].Reason, "maago.JSON[time.Time] is not supported: T must be a type of this package") {
 		t.Errorf("unsupported: %+v", u)
+	}
+}
+
+// A field tagged media keeps a media key, so it is a string (M13 7번).
+func TestMediaTag(t *testing.T) {
+	q := "`"
+	apps, errs, _ := load(t, map[string]string{"files/models.go": `package files
+
+import "github.com/maago-web/maago"
+
+type File struct {
+	maago.Model
+
+	ID    int64
+	Key   string  ` + q + `maago:"media"` + q + `
+	Thumb *string ` + q + `maago:"media"` + q + `
+	Name  string
+}
+`})
+	if errs != "" {
+		t.Fatal(errs)
+	}
+	for name, want := range map[string]bool{"Key": true, "Thumb": true, "Name": false} {
+		if got := apps[0].Models[0].Field(name).Media; got != want {
+			t.Errorf("%s: Media %v, want %v", name, got, want)
+		}
+	}
+	for field, want := range map[string]string{
+		"Count int64 " + q + `maago:"media"` + q:  "media keeps a media key in a string, but File.Count is int64",
+		"Raw string " + q + `maago:"media=x"` + q: "write it alone, like media",
+		"Raw string " + q + `maago:"medai"` + q:   `did you mean "media"?`,
+		"ID int64 " + q + `maago:"media"` + q:     `File.ID is the primary key and cannot have "media"`,
+	} {
+		id := "\n\tID int64"
+		if strings.HasPrefix(field, "ID ") {
+			id = ""
+		}
+		_, errs, _ := load(t, map[string]string{"files/models.go": "package files\n\nimport \"github.com/maago-web/maago\"\n\ntype File struct {\n\tmaago.Model\n" + id + "\n\t" + field + "\n}\n"})
+		if !strings.Contains(errs, want) {
+			t.Errorf("%s:\n%s\nwant %q", field, errs, want)
+		}
 	}
 }
