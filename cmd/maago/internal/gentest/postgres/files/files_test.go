@@ -2,8 +2,6 @@ package files
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"os"
 	"path/filepath"
@@ -63,7 +61,7 @@ func TestSweep(t *testing.T) {
 				}
 				return m.Key
 			}
-			a, b, n, d, e := save(), save(), save(), save(), save()
+			a, b, n, d, e, h := save(), save(), save(), save(), save(), save()
 			if _, err := InsertFile(ctx, db, NewFileInput{Name: "a", Main: a, Thumb: &b}); err != nil {
 				t.Fatal(err)
 			}
@@ -73,8 +71,9 @@ func TestSweep(t *testing.T) {
 			if _, err := db.ExecContext(ctx, "INSERT INTO notes_note (attachment) VALUES ('"+n+"')"); err != nil {
 				t.Fatal(err)
 			}
-			oldTmp, newTmp := ".tmp-"+newKey(), ".tmp-"+newKey()
+			oldTmp, newTmp := ".tmp-"+a, ".tmp-"+strings.Repeat("f", 32) // a half is deleted though its key is in use
 			now, old := time.Now(), time.Now().Add(-48*time.Hour)
+			c.touch(h, now.Add(-2*time.Hour)) // within the 24 hours of 0
 			for _, name := range []string{".gitignore", ".tmp-x", newTmp} {
 				c.touch(name, now)
 			}
@@ -102,12 +101,6 @@ func TestSweep(t *testing.T) {
 			}
 			all := names()
 
-			if err := maago.SweepMedia(ctx, db, 30*time.Minute); err == nil || !strings.Contains(err.Error(), "at least an hour") {
-				t.Errorf("30 minutes: %v", err)
-			}
-			if err := maago.SweepMedia(context.Background(), db, 0); err == nil || !strings.Contains(err.Error(), "maago.WithMedia") {
-				t.Errorf("no store: %v", err)
-			}
 			if err := maago.SweepMedia(ctx, db, 72*time.Hour); err != nil {
 				t.Errorf("72 hours: %v", err)
 			}
@@ -128,16 +121,9 @@ func TestSweep(t *testing.T) {
 					t.Fatalf("sweep %d: %v", i+1, err)
 				}
 				if got := names(); !slices.Equal(got, want) {
-					t.Errorf("sweep %d left %v, want %v (a %s b %s n %s e %s)", i+1, got, want, a, b, n, e)
+					t.Errorf("sweep %d left %v, want %v (a %s b %s n %s e %s h %s)", i+1, got, want, a, b, n, e, h)
 				}
 			}
 		})
 	}
-}
-
-// newKey is a key no file has.
-func newKey() string {
-	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
 }

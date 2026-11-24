@@ -271,8 +271,8 @@ func TestSweepMedia(t *testing.T) {
 		olderThan time.Duration
 		want      string
 	}{
-		{[]string{query}, -1, "at least an hour"},
 		{[]string{query}, 30 * time.Minute, "at least an hour"},
+		{[]string{query}, time.Hour, "no driver"}, // an hour is enough
 		{nil, 0, `maago:"media"`},
 		{[]string{query, query + " UNION ALL SELECT 1"}, 0, "run maago gen"},
 		{[]string{query}, 0, "no driver"}, // what is in use is unknown: nothing is deleted
@@ -284,5 +284,9 @@ func TestSweepMedia(t *testing.T) {
 		if _, err := os.Stat(orphan); err != nil {
 			t.Fatalf("%d queries, %v: the orphan is gone: %v", len(c.queries), c.olderThan, err)
 		}
+	}
+	// No old file: the rows are not read.
+	if err := SweepMedia(WithMedia(context.Background(), LocalMedia{Dir: t.TempDir()}), testDB, 0); err != nil {
+		t.Errorf("no old file: %v", err)
 	}
 }

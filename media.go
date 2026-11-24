@@ -176,11 +176,10 @@ func SweepMedia(ctx context.Context, db DB, olderThan time.Duration) error {
 	if olderThan < time.Hour {
 		return fmt.Errorf("maago: SweepMedia's olderThan is 0 for 24 hours, or at least an hour, not %v: a file is saved before its row is written", olderThan)
 	}
-	switch len(rtcore.MediaQueries) {
-	case 0:
+	if len(rtcore.MediaQueries) == 0 {
 		return errors.New("maago: SweepMedia knows no field that keeps media keys: tag each with media, such as Key string `maago:\"media\"`, run maago gen, and import the project's apps in this program")
-	case 1:
-	default:
+	}
+	if len(rtcore.MediaQueries) > 1 {
 		return errors.New("maago: the apps' generated code tells SweepMedia different media fields; run maago gen")
 	}
 	s, err := mediaStore(ctx)
