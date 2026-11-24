@@ -15,16 +15,18 @@ bucket.
   the view checks who asks before it makes any. An hour is enough for
   one download, and it ends long before the 7 days a URL may last
 - A local store makes its URLs from its SiteURL, the site's address
-  with the prefix: main gives LocalMedia SiteURL: auth.SiteURL + "/app".
-  Handler refuses a SiteURL whose path is not Config.Prefix. A local
-  URL is served by the process that made it, and no longer once it
-  starts again: one machine's files, one process's URLs. A bucket's
-  URLs are the bucket's
+  with the prefix: main gives LocalMedia SiteURL:
+  strings.TrimSuffix(auth.SiteURL, "/") + "/app", as auth.SiteURL may
+  end in a slash. Handler refuses a SiteURL whose path is not
+  Config.Prefix, //app too. A local URL is served by the process that
+  made it, and no longer once it starts again: one machine's files, one
+  process's URLs. A bucket's URLs are the bucket's
 
 TestFileURLs serves the app on an httptest server whose address is the
 store's SiteURL, asks for the list with staff's token, and downloads
-the file by its URL with no sign-in. The tests' store has a SiteURL
-now; TestUnderApp's has /app in it, as its Prefix.
+the file by its URL with no sign-in; a board that is not there is a
+404. The tests' store has a SiteURL now; TestUnderApp's has /app in
+it, as its Prefix.
 
 diff --git a/board/files.go b/board/files.go
 index 677fa0a..e0f5ea9 100644
@@ -71,7 +73,7 @@ index 677fa0a..e0f5ea9 100644
  func staffOnly(u auth.User) error {
  	if !u.IsStaff {
 diff --git a/board/files_test.go b/board/files_test.go
-index 82df6a4..bc0369a 100644
+index 936aa8b..7a5bc87 100644
 --- a/board/files_test.go
 +++ b/board/files_test.go
 @@ -2,8 +2,10 @@ package board
@@ -85,7 +87,7 @@ index 82df6a4..bc0369a 100644
  	"net/http/httptest"
  	"os"
  	"path/filepath"
-@@ -122,3 +124,52 @@ func TestFiles(t *testing.T) {
+@@ -129,3 +131,55 @@ func TestFiles(t *testing.T) {
  		t.Errorf("no such file: %d", code)
  	}
  }
@@ -127,6 +129,9 @@ index 82df6a4..bc0369a 100644
 +	resp.Body.Close()
 +	if err != nil || resp.StatusCode != 200 || len(links) != 1 || links[0].Name != "index.md" || !strings.HasPrefix(links[0].URL, srv.URL+"/") {
 +		t.Fatalf("the list: %d %+v %v", resp.StatusCode, links, err)
++	}
++	if code, _ := get(maagotest.Bearer(h, token), APIBoardFilesURL(b.ID+1)); code != 404 {
++		t.Errorf("no such board: %d", code)
 +	}
 +	resp, err = http.Get(links[0].URL)
 +	if err != nil {
@@ -183,18 +188,27 @@ index 07d3878..9a97a02 100644
  	if err != nil {
  		t.Fatal(err)
 diff --git a/main.go b/main.go
-index d3c5237..de844ab 100644
+index 8e2bfc5..b495053 100644
 --- a/main.go
 +++ b/main.go
-@@ -78,8 +78,9 @@ func main() {
+@@ -10,6 +10,7 @@ import (
+ 	"log"
+ 	"net/http"
+ 	"os"
++	"strings"
+ 	"time"
+ 
+ 	"github.com/maago-web/maago"
+@@ -78,8 +79,10 @@ func main() {
  	board.Webhook.Token = os.Getenv("BOARD_WEBHOOK_TOKEN")
  	// Where the files are kept, under names maago makes: a directory
  	// beside the binary, which the server does not serve as it is. The
 -	// view that sends one down checks who asks.
 -	var media maago.MediaStore = maago.LocalMedia{Dir: "media"}
 +	// view that sends one down checks who asks. Its signed URLs start
-+	// with SiteURL, the site's address with the prefix.
-+	var media maago.MediaStore = maago.LocalMedia{Dir: "media", SiteURL: auth.SiteURL + "/app"}
++	// with SiteURL, the site's address with the prefix; auth.SiteURL may
++	// end in a slash.
++	var media maago.MediaStore = maago.LocalMedia{Dir: "media", SiteURL: strings.TrimSuffix(auth.SiteURL, "/") + "/app"}
+ 	where := "media/"
  	// A bucket instead, when BOARD_S3_BUCKET is set: a disk is one
  	// machine's, a bucket every copy of the server's. Any S3 API will do,
- 	// R2's and MinIO's too. A bucket is one site's: never point a staging

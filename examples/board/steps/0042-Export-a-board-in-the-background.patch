@@ -13,7 +13,8 @@ board takes a while, and a job that fails goes again.
   latest export, by name, unique on (BoardID, Name). Its Key is tagged
   media, as the attachments' is: what a row keeps, the sweep keeps
 - A second kind of job, ExportFiles, "export_files". postPublished is
-  PostPublished now: main tells the kinds apart, so both are exported.
+  PostPublished now: main tells the kinds apart, so both are exported,
+  and Deliver, the webhook's, no longer asks the kind.
   The handle is main's deliver(db, media): it puts the store in the
   job's context, maago.WithMedia(ctx, media), where maago.SaveMediaFrom
   finds it, and goes by the job's Kind. A kind it does not know is an
@@ -29,10 +30,10 @@ board takes a while, and a job that fails goes again.
   transaction, board_file sends a file down by its name, with
   maago.ServeMedia, as the attachments go
 
-TestWriteExportFiles runs a job twice, makes the files two days old and
-sweeps: the store holds the rows' files, and they read as they should;
+TestWriteExportFiles runs a job twice, a post a page, makes the files
+two days old and sweeps: the store holds the rows' files, and they read as they should;
 the draft is in none. TestFiles asks as staff, runs the job as main
-does with outbox.RunOnce, and gets index.md by its name. TestPermissions
+does with outbox.RunOnce, by its kind, and gets index.md by its name. TestPermissions
 has the three routes' rows.
 
 diff --git a/board/files.go b/board/files.go
@@ -185,10 +186,10 @@ index 0000000..677fa0a
 +}
 diff --git a/board/files_test.go b/board/files_test.go
 new file mode 100644
-index 0000000..82df6a4
+index 0000000..936aa8b
 --- /dev/null
 +++ b/board/files_test.go
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,131 @@
 +package board
 +
 +import (
@@ -210,30 +211,34 @@ index 0000000..82df6a4
 +	"example.com/board/outbox"
 +)
 +
-+// An export is a file for each post out to everybody, and index.md. Run
-+// again, as a job past its lease is, it swaps the rows: the files of the
-+// run before no row keeps, and the sweep deletes them.
++// An export is a file for each post out to everybody, and index.md, a
++// page of posts at a time. Run again, as a job past its lease is, it
++// swaps the rows: the files of the run before no row keeps, and the
++// sweep deletes them.
 +func TestWriteExportFiles(t *testing.T) {
++	defer func(n int64) { exportPage = n }(exportPage)
++	exportPage = 1 // two posts: two full pages, then an empty one
 +	db := maagotest.DB(t)
 +	dir := t.TempDir()
 +	ctx := maago.WithMedia(t.Context(), maago.LocalMedia{Dir: dir})
 +	b, _ := InsertBoard(ctx, db, NewBoardInput{Name: "자유"})
 +	p, _ := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "공개", Body: "본문", Status: maago.Set("published")})
 +	InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "초안", Body: "비밀"})
-+	j := outbox.Job{ID: 1, Kind: ExportFiles, Payload: fmt.Sprintf(`{"id":%d}`, b.ID)}
++	p2, _ := InsertPost(ctx, db, NewPostInput{BoardID: b.ID, Title: "둘째", Body: "본문 둘", Status: maago.Set("published")})
++	j := outbox.Job{Kind: ExportFiles, Payload: fmt.Sprintf(`{"id":%d}`, b.ID)}
 +	for range 2 {
 +		if err := WriteExportFiles(ctx, db, j); err != nil {
 +			t.Fatal(err)
 +		}
 +	}
 +	fs, err := BoardFiles(ctx, db, BoardFilesParams{BoardID: b.ID})
-+	if err != nil || len(fs) != 2 || fs[0].Name != "index.md" || fs[1].Name != fmt.Sprintf("post-%d.md", p.ID) {
++	if err != nil || len(fs) != 3 || fs[0].Name != "index.md" || fs[1].Name != fmt.Sprintf("post-%d.md", p.ID) || fs[2].Name != fmt.Sprintf("post-%d.md", p2.ID) {
 +		t.Fatalf("files: %+v %v", fs, err)
 +	}
 +	old := time.Now().Add(-48 * time.Hour)
 +	entries, _ := os.ReadDir(dir)
-+	if len(entries) != 4 {
-+		t.Fatalf("%d files in the store, want two runs' two", len(entries))
++	if len(entries) != 6 {
++		t.Fatalf("%d files in the store, want two runs' three", len(entries))
 +	}
 +	for _, e := range entries {
 +		os.Chtimes(filepath.Join(dir, e.Name()), old, old)
@@ -253,7 +258,7 @@ index 0000000..82df6a4
 +	if !slices.Equal(names, keys) {
 +		t.Errorf("after the sweep: %v, want the rows' %v", names, keys)
 +	}
-+	for _, c := range []struct{ file, want string }{{fs[0].Key, "# 자유\n\n- [공개](" + fs[1].Name + ")\n"}, {fs[1].Key, "# 공개\n\n본문\n"}} {
++	for _, c := range []struct{ file, want string }{{fs[0].Key, "# 자유\n\n- [공개](" + fs[1].Name + ")\n- [둘째](" + fs[2].Name + ")\n"}, {fs[1].Key, "# 공개\n\n본문\n"}, {fs[2].Key, "# 둘째\n\n본문 둘\n"}} {
 +		f, err := maago.OpenMedia(ctx, c.file)
 +		if err != nil {
 +			t.Fatal(err)
@@ -295,6 +300,9 @@ index 0000000..82df6a4
 +	}
 +	// The worker, as main runs it: the store in its context.
 +	handle := func(ctx context.Context, j outbox.Job) error {
++		if j.Kind != ExportFiles {
++			return fmt.Errorf("a job of kind %q", j.Kind)
++		}
 +		return WriteExportFiles(maago.WithMedia(ctx, cfg.Media), db, j)
 +	}
 +	if found, err := outbox.RunOnce(ctx, db, time.Now(), handle); !found || err != nil {
@@ -342,10 +350,10 @@ index 93352e3..0172ca8 100644
 +	return maago.Media{Key: f.Key, Name: f.Name, Type: f.Type, Size: f.Size}
 +}
 diff --git a/board/notify.go b/board/notify.go
-index 604b069..0950e81 100644
+index 604b069..03dce0c 100644
 --- a/board/notify.go
 +++ b/board/notify.go
-@@ -18,8 +18,8 @@ type Hook struct{ URL, Token string }
+@@ -18,23 +18,20 @@ type Hook struct{ URL, Token string }
  // environment. With no URL, nothing is announced.
  var Webhook Hook
  
@@ -356,17 +364,24 @@ index 604b069..0950e81 100644
  
  // notifyWithin bounds one try of Deliver. The worker waits for the job
  // in hand as the server stops, so a webhook that never answers holds the
-@@ -32,7 +32,7 @@ var notifyWithin = 10 * time.Second
+ // stop up by no more than this.
+ var notifyWithin = 10 * time.Second
+ 
+-// Deliver is the outbox's worker's: it posts the payload of a job of
++// Deliver is the webhook's job's: it posts the payload of a job of
+ // moveTo's to Webhook. An error, a 4xx or 5xx or no answer, has the
+ // outbox try the job again later: a wrong token fixed in the
  // environment gets it through. The job's id goes as the Idempotency-Key
  // header, the same on each try, so the webhook can drop a repeat.
  func Deliver(ctx context.Context, j outbox.Job) error {
 -	if j.Kind != postPublished {
-+	if j.Kind != PostPublished {
- 		return fmt.Errorf("board: no job of kind %q", j.Kind)
- 	}
+-		return fmt.Errorf("board: no job of kind %q", j.Kind)
+-	}
  	ctx, cancel := context.WithTimeout(ctx, notifyWithin)
+ 	defer cancel()
+ 	r, err := http.NewRequestWithContext(ctx, "POST", Webhook.URL, strings.NewReader(j.Payload))
 diff --git a/board/notify_test.go b/board/notify_test.go
-index faf86e9..b5ae2aa 100644
+index faf86e9..ca0dacc 100644
 --- a/board/notify_test.go
 +++ b/board/notify_test.go
 @@ -12,7 +12,7 @@ import (
@@ -378,6 +393,33 @@ index faf86e9..b5ae2aa 100644
  
  	for _, c := range []struct {
  		answer int
+@@ -35,16 +35,7 @@ func TestDeliver(t *testing.T) {
+ 		}
+ 	}
+ 
+-	// A job of another kind is not the webhook's.
+-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+-		t.Error("another kind went to the webhook")
+-	}))
+-	Webhook = Hook{srv.URL, "s3cret"}
+-	if err := Deliver(t.Context(), outbox.Job{ID: 8, Kind: "mail", Payload: "{}"}); err == nil {
+-		t.Error("another kind: no error")
+-	}
+-	// No answer at all.
+-	srv.Close()
++	// No answer at all: Webhook is the last server's, closed.
+ 	if err := Deliver(t.Context(), job); err == nil {
+ 		t.Error("no server: no error")
+ 	}
+@@ -53,7 +44,7 @@ func TestDeliver(t *testing.T) {
+ 	defer func(d time.Duration) { notifyWithin = d }(notifyWithin)
+ 	notifyWithin = 50 * time.Millisecond
+ 	block := make(chan struct{})
+-	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
++	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-block }))
+ 	Webhook.URL = srv.URL
+ 	start := time.Now()
+ 	err := Deliver(t.Context(), job)
 diff --git a/board/permissions_test.go b/board/permissions_test.go
 index e460c4d..a339148 100644
 --- a/board/permissions_test.go

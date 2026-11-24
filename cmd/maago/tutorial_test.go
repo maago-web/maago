@@ -95,9 +95,9 @@ func TestBoardTutorialCatches(t *testing.T) {
 		// The binary migrates its database itself, and stops cleanly on
 		// SIGTERM (D-153).
 		{"no migrations at the start", "0033-Ship-it.patch", "+\tapplied, err := maago.Migrate(ctx, maago.DBConfig{}, migrations)", "+\tapplied, err := []string(nil), error(nil)", "board -createsuperuser: "},
-		{"no graceful stop", "0040-Send-the-webhook-from-an-outbox.patch", `+	err = maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h))`, `+	err = http.ListenAndServe(":"+port, http.StripPrefix("/app", h))`, "serve: "},
+		{"no graceful stop", "0040-Send-the-webhook-from-an-outbox.patch", `+	err = maago.Serve(ctx, ":"+port, http.StripPrefix("/app", h))`, `+	err = http.ListenAndServe(":"+port, http.StripPrefix("/app", h))`, "board with no bucket: serve: SIGTERM did not stop"},
 		// The binary reads PORT, and serves on it (D-142).
-		{"another port", "0033-Ship-it.patch", `+	port := cmp.Or(os.Getenv("PORT"), "8000")`, `+	port := cmp.Or(os.Getenv("ADDR"), "8000")`, "serve: "},
+		{"another port", "0033-Ship-it.patch", `+	port := cmp.Or(os.Getenv("PORT"), "8000")`, `+	port := cmp.Or(os.Getenv("ADDR"), "8000")`, "board with no bucket: serve: "},
 		// A route without its row in the permission table fails the app's
 		// tests (D-156). api_me has one row; a route with more keeps the
 		// others.
@@ -392,7 +392,8 @@ func (w *walker) clone(t *testing.T) (*walker, error) {
 // builds one for this machine, which migrates the steps' database, emptied
 // first, as it starts (D-153), makes the first staff account (D-130), and
 // serves the board on PORT until SIGTERM stops it cleanly. Given a bucket
-// with no address, it stops as it starts. On PostgreSQL, a job written to
+// with no address, it stops as it starts; given none, it keeps the files
+// in media/, with BOARD_SITE_URL's slash at its end. On PostgreSQL, a job written to
 // the outbox reaches the webhook of the environment: main runs the worker
 // (D-159). It keeps the files in the bucket of the environment, an S3 of
 // the test's: the worker writes a board's export there, the sweep deletes
@@ -434,6 +435,10 @@ func ship(t *testing.T, root, schema string) error {
 	env := []string{"BOARD_SITE_URL=http://localhost:8000"}
 	if err := refuse(root, bin, append(env, "BOARD_S3_BUCKET=media"), "s3: Store.Endpoint is empty"); err != nil {
 		return fmt.Errorf("board with BOARD_S3_BUCKET alone: %v", err)
+	}
+	// Before the jobs below, which this one's worker would take.
+	if err := serve(root, bin, "/app/", http.StatusOK, []string{"BOARD_SITE_URL=http://localhost:8000/"}, true, nil); err != nil {
+		return fmt.Errorf("board with no bucket: %v", err)
 	}
 	var use func(string) error
 	if schema != "" { // jobs in the outbox: main's worker sends one to the webhook, writes the other's files
@@ -488,15 +493,19 @@ func ship(t *testing.T, root, schema string) error {
 // it.
 func shipped(t *testing.T, schema string, board int64, store s3.Store, orphan string) error {
 	var failed, key string
+	var nope, export error
 	if err := withPostgres(func(db *sql.DB) error {
-		return db.QueryRow("SELECT last_error FROM " + schema + ".outbox_job WHERE kind = 'nope'").Scan(&failed)
-	}); err != nil || failed == "" {
-		return fmt.Errorf("the job of kind nope is gone, or has no error, after 10s: %v", err)
-	}
-	if err := withPostgres(func(db *sql.DB) error {
-		return db.QueryRow("SELECT key FROM "+schema+".board_export_file WHERE board_id = $1 AND name = 'index.md'", board).Scan(&key)
+		nope = db.QueryRow("SELECT last_error FROM " + schema + ".outbox_job WHERE kind = 'nope'").Scan(&failed)
+		export = db.QueryRow("SELECT key FROM "+schema+".board_export_file WHERE board_id = $1 AND name = 'index.md'", board).Scan(&key)
+		return nil
 	}); err != nil {
-		return fmt.Errorf("no export file of board %d in 10s: %v", board, err)
+		return err
+	}
+	if nope != nil || failed == "" {
+		return fmt.Errorf("the job of kind nope is gone, or has no error, after 10s: %v", nope)
+	}
+	if export != nil {
+		return fmt.Errorf("no export file of board %d in 10s: %v", board, export)
 	}
 	f, err := store.Open(t.Context(), key)
 	if err != nil {

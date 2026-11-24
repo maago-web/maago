@@ -19,7 +19,9 @@ MinIO's: main picks it when the environment names a bucket.
   field stops the server with the field's name, as s3: Store.Endpoint
   is empty, and a wrong key or a bucket that is not there stops it too,
   here and not at the first upload. A bucket that is down keeps the
-  server from starting, as a database that is down does
+  server from starting, as a database that is down does. Then it logs
+  which store it is, files in bucket NAME or files in media/: a
+  misspelt BOARD_S3_BUCKET shows there
 - A bucket is one site's, as its database is: the sweep deletes what no
   row of its own database keeps, so a staging copy pointed at
   production's bucket deletes production's files
@@ -27,7 +29,7 @@ MinIO's: main picks it when the environment names a bucket.
 The Dockerfile keeps the volume: with no bucket, the files are there.
 
 diff --git a/main.go b/main.go
-index 3619b3c..d3c5237 100644
+index 3619b3c..8e2bfc5 100644
 --- a/main.go
 +++ b/main.go
 @@ -15,6 +15,7 @@ import (
@@ -38,16 +40,16 @@ index 3619b3c..d3c5237 100644
  
  	"example.com/board/auth"
  	"example.com/board/board"
-@@ -78,7 +79,25 @@ func main() {
+@@ -78,7 +79,28 @@ func main() {
  	// Where the files are kept, under names maago makes: a directory
  	// beside the binary, which the server does not serve as it is. The
  	// view that sends one down checks who asks.
 -	media := maago.LocalMedia{Dir: "media"}
 +	var media maago.MediaStore = maago.LocalMedia{Dir: "media"}
++	where := "media/"
 +	// A bucket instead, when BOARD_S3_BUCKET is set: a disk is one
 +	// machine's, a bucket every copy of the server's. Any S3 API will do,
-+	// R2's and MinIO's too. A bucket is one site's: never point a staging
-+	// copy at production's, whose files its sweep would delete.
++	// R2's and MinIO's too.
 +	if bucket := os.Getenv("BOARD_S3_BUCKET"); bucket != "" {
 +		media = s3.Store{
 +			Endpoint:        os.Getenv("BOARD_S3_ENDPOINT"),
@@ -56,12 +58,15 @@ index 3619b3c..d3c5237 100644
 +			AccessKeyID:     os.Getenv("BOARD_S3_ACCESS_KEY_ID"),
 +			SecretAccessKey: os.Getenv("BOARD_S3_SECRET_ACCESS_KEY"),
 +		}
++		where = "bucket " + bucket
 +	}
 +	// An empty field, a wrong key or no such bucket stops the server here,
-+	// by the field's name, not at the first file.
++	// by the field's name, not at the first file. The log says which store
++	// it is: with BOARD_S3_BUCKET misspelt, media/.
 +	if _, err := media.List(ctx, ""); err != nil {
 +		log.Fatal(err)
 +	}
++	log.Printf("files in %s", where)
  	// The admin, at /app/admin/: the models of the apps it is given, to
  	// those auth.Can lets see them. The outbox's jobs too: one whose last
  	// attempt failed stays there, with its error.
