@@ -155,7 +155,7 @@ func checking(root string) [][]pipeline.Step {
 	return append(stages(s, parse, early, func() []diag.Diagnostic { return checkDatabase(s) }),
 		[]pipeline.Step{func(r *pipeline.Run) []diag.Diagnostic {
 			for _, app := range s.apps {
-				r.Files[path.Join(app.Dir, "models_gen.go")] = mapper.ModelsFile(s.d, app, s.pols[app.Dir], s.user(app.Dir))
+				r.Files[path.Join(app.Dir, "models_gen.go")] = mapper.ModelsFile(s.d, app, s.apps, s.pols[app.Dir], s.user(app.Dir))
 				if s.admin {
 					r.Files[path.Join(app.Dir, "admin_gen.go")] = admingen.File(s.d, app, s.apps, mapper.Guarded(app, s.pols[app.Dir]))
 				}
@@ -387,10 +387,11 @@ func checkQueries(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagno
 	return ds
 }
 
-// checkGenerated prepares the SQL of the CRUD and of the admin (D-134) on
-// a, the practice database that matches the models: it fails only
-// through a bug of maago, which TestCRUDPrepares and the gentest tests
-// pin down, so this is a seat belt.
+// checkGenerated prepares the SQL of the CRUD, of the admin (D-134) and
+// of the media keys in use (D-161) on a, the practice database that
+// matches the models: it fails only through a bug of maago, which
+// TestCRUDPrepares and the gentest tests pin down, so this is a seat
+// belt.
 func checkGenerated(ctx context.Context, s *state, a *practicedb.DB) []diag.Diagnostic {
 	var sqls []string
 	for _, app := range s.apps {
@@ -419,6 +420,9 @@ func checkGenerated(ctx context.Context, s *state, a *practicedb.DB) []diag.Diag
 				sqls = append(sqls, st.Exists...)
 			}
 		}
+	}
+	if q := mapper.MediaInUse(s.apps); q != "" {
+		sqls = append(sqls, q)
 	}
 	for _, sql := range sqls {
 		_, err, fatal := a.Describe(ctx, sql)

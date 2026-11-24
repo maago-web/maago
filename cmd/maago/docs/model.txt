@@ -23,6 +23,7 @@ type Post struct {
 	Meta        maago.JSON[PostMeta] // kept as JSON
 	Body        []byte
 	Secret      string     `maago:"unique,admin=hidden"`
+	Cover       string     `maago:"media"` // a media key: maago.SweepMedia keeps its file while a row has it
 	PublishedAt *time.Time // a pointer allows NULL
 	CreatedAt   time.Time  `maago:"auto=create"`
 	UpdatedAt   time.Time  `maago:"auto=update"` // UpdatePost compares it: 409 on a stale copy

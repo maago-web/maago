@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/maago-web/maago/internal/build"
+	"github.com/maago-web/maago/internal/dialect/sqlite"
+	"github.com/maago-web/maago/internal/model/modeltest"
 )
 
 // exampleProject copies the shared example into a new directory with a
@@ -110,4 +112,30 @@ func TestRunsAreIndependent(t *testing.T) {
 func noEnv(t *testing.T) {
 	t.Setenv("MAAGO_DATABASE_URL", "") // restores it afterwards
 	os.Unsetenv("MAAGO_DATABASE_URL")
+}
+
+// maago gen writes into every app with models the media query of the
+// whole project, the one gentest runs: an app without media too
+// (M13 7번).
+func TestGenMedia(t *testing.T) {
+	const fixture = "../../internal/testdata/media"
+	root := t.TempDir()
+	if err := os.CopyFS(root, os.DirFS(fixture)); err != nil {
+		t.Fatal(err)
+	}
+	apps, fset := modeltest.Example(t, fixture)
+	ddl, ds := sqlite.DDL(fset, apps)
+	if len(ds) > 0 {
+		t.Fatalf("DDL:\n%s", text(ds))
+	}
+	t.Setenv("MAAGO_DATABASE_URL", "sqlite:app.db")
+	writeFile(t, filepath.Join(root, "migrations", "0001_initial.sql"), ddl)
+	if removed, ds := build.Gen(root); len(ds) > 0 || len(removed) > 0 {
+		t.Fatalf("gen: removed %v\n%s", removed, text(ds))
+	}
+	for _, app := range []string{"files", "tags"} {
+		if got, want := readFile(t, filepath.Join(root, app, "models_gen.go")), readFile(t, "internal/gentest/sqlite/"+app+"/models_gen.go"); got != want {
+			t.Errorf("%s/models_gen.go:\n%s\nwant:\n%s", app, got, want)
+		}
+	}
 }

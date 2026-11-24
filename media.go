@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/maago-web/maago/internal/rtcore"
 )
 
 // Media is a file SaveMedia or SaveMediaFrom kept in the media store:
@@ -40,7 +42,8 @@ type MediaStore interface {
 	Put(ctx context.Context, key, typ string, r io.Reader) (int64, error)
 	// Open opens key's file. None is an error that is fs.ErrNotExist.
 	Open(ctx context.Context, key string) (MediaFile, error)
-	// Delete deletes the file of name, a name List gave; none is no error.
+	// Delete deletes the file of name, a key or .tmp- and a key, as List
+	// gave it; none is no error.
 	Delete(ctx context.Context, name string) error
 	// List returns the files whose names sort after after, in byte order,
 	// a page at a time; none when there are no more. It gives every file,
@@ -155,6 +158,83 @@ func DeleteMedia(ctx context.Context, key string) error {
 		return err
 	}
 	return s.Delete(ctx, key)
+}
+
+// SweepMedia deletes the media files no row keeps, from the store in
+// ctx (maago.WithMedia): a file older than olderThan whose key no field
+// tagged media holds, in any app, and what a failed save left. olderThan
+// is 0 for 24 hours, or at least an hour, longer than the longest a
+// file waits for its row (a job that saves files, then writes rows).
+// Any error stops it before it deletes another file. Run it now and
+// then, such as daily, beside the server or the worker. The store must
+// be this database's alone: a file that only another database's rows
+// keep is deleted.
+func SweepMedia(ctx context.Context, db DB, olderThan time.Duration) error {
+	if olderThan == 0 {
+		olderThan = 24 * time.Hour
+	}
+	if olderThan < time.Hour {
+		return fmt.Errorf("maago: SweepMedia's olderThan is 0 for 24 hours, or at least an hour, not %v: a file is saved before its row is written", olderThan)
+	}
+	switch len(rtcore.MediaQueries) {
+	case 0:
+		return errors.New("maago: SweepMedia knows no field that keeps media keys: tag each with media, such as Key string `maago:\"media\"`, run maago gen, and import the project's apps in this program")
+	case 1:
+	default:
+		return errors.New("maago: the apps' generated code tells SweepMedia different media fields; run maago gen")
+	}
+	s, err := mediaStore(ctx)
+	if err != nil {
+		return err
+	}
+	before := time.Now().Add(-olderThan)
+	var old []string // keys and .tmp- and keys, the only names deleted
+	for after := ""; ; {
+		page, err := s.List(ctx, after)
+		if err != nil {
+			return err
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, f := range page {
+			key, _ := strings.CutPrefix(f.Name(), ".tmp-")
+			if validKey(key) && f.ModTime().Before(before) {
+				old = append(old, f.Name())
+			}
+		}
+		after = page[len(page)-1].Name()
+	}
+	if len(old) == 0 {
+		return nil
+	}
+	// Read after the names: a row written while they were listed counts.
+	// ponytail: every key in use in memory; a lookup per page of
+	// candidates if rows outgrow it.
+	inUse := map[string]bool{}
+	rows, err := db.QueryContext(ctx, rtcore.MediaQueries[0])
+	if err != nil {
+		return fmt.Errorf("maago: SweepMedia reading the media keys in use: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return fmt.Errorf("maago: SweepMedia reading the media keys in use: %w", err)
+		}
+		inUse[key] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("maago: SweepMedia reading the media keys in use: %w", err)
+	}
+	for _, name := range old {
+		if !inUse[name] { // a .tmp- name never is
+			if err := s.Delete(ctx, name); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // MediaURL is a link to m's file, to download, that anyone may follow

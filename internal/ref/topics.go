@@ -417,9 +417,10 @@ an HTML form: an API route takes none. Its kind is what the content's
 first bytes say, not its name; zip includes .docx and .xlsx. The File lives as long as the request.
 
 Media stays in Config.MediaDir, on this machine. A file no row points at
-stays: delete it with maago.DeleteMedia when you delete the row (the admin
-does not); one saved by a request that failed before writing its row stays
-too. No route serves the directory: a view checks who asks, then
+is deleted by maago.SweepMedia(ctx, db, 0), run now and then, once the
+fields that keep keys are tagged media (maago doc model);
+maago.DeleteMedia deletes a row's file at once. No route serves the
+directory: a view checks who asks, then
 calls maago.ServeMedia, which sends a download.
 
 A field has Value, Raw (what was sent, to draw back), Error, and Name,
@@ -457,7 +458,7 @@ with one unique constraint has every refusal on it, even a unique index
 a migration made by hand. An API view has no page to draw: it returns
 the error, and maago answers a 422, on the field as Fail would put it.`,
 		Lists: []*List{FormTypes, FormTags},
-		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "UniqueError", "File", "Media", "SaveMedia", "SaveMediaFrom", "OpenMedia", "DeleteMedia", "ServeMedia", "MediaStore", "MediaFile", "LocalMedia", "WithMedia", "MediaURL"},
+		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "UniqueError", "File", "Media", "SaveMedia", "SaveMediaFrom", "OpenMedia", "DeleteMedia", "ServeMedia", "MediaStore", "MediaFile", "LocalMedia", "WithMedia", "MediaURL", "SweepMedia"},
 	},
 	{
 		Name:  Template,

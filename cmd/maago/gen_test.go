@@ -26,6 +26,8 @@ var gentests = []struct{ name, root, dir string }{
 	{"blog", "../../internal/testdata/example", "blog"},
 	{"plain", "../../internal/testdata/plain", "."},
 	{"policy", "../../internal/testdata/policy", "."},
+	{"files", "../../internal/testdata/media", "files"},
+	{"tags", "../../internal/testdata/media", "tags"},
 }
 
 // The generated files of each fixture app are the files of its gentest
@@ -48,7 +50,7 @@ func TestGenerated(t *testing.T) {
 				if ds := mapper.Names(fset, g.root, g.dir, app, queries, nil); ds != nil {
 					t.Fatalf("names:\n%s", text(ds))
 				}
-				golden.Check(t, out+"/models_gen.go", mapper.ModelsFile(d, app, pols, user))
+				golden.Check(t, out+"/models_gen.go", mapper.ModelsFile(d, app, apps, pols, user))
 				golden.Check(t, out+"/admin_gen.go", admingen.File(d, app, apps, mapper.Guarded(app, pols)))
 				if qs != nil {
 					golden.Check(t, out+"/queries_gen.go", mapper.QueriesFile(d, app.Name, qs, user))

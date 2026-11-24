@@ -249,3 +249,40 @@ func (fullStore) Put(context.Context, string, string, io.Reader) (int64, error) 
 }
 
 var pngBytes = append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 100)...)
+
+// The branches of SweepMedia that stop before the database answers: none
+// deletes a file. The gentest packages sweep a real database (M13 7번).
+func TestSweepMedia(t *testing.T) {
+	saved := rtcore.MediaQueries
+	t.Cleanup(func() { rtcore.MediaQueries = saved })
+	dir := t.TempDir()
+	orphan := filepath.Join(dir, strings.Repeat("a", 32))
+	if err := os.WriteFile(orphan, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(orphan, old, old); err != nil {
+		t.Fatal(err)
+	}
+	ctx := WithMedia(context.Background(), LocalMedia{Dir: dir})
+	query := `SELECT "key" FROM "files_file"`
+	for _, c := range []struct {
+		queries   []string
+		olderThan time.Duration
+		want      string
+	}{
+		{[]string{query}, -1, "at least an hour"},
+		{[]string{query}, 30 * time.Minute, "at least an hour"},
+		{nil, 0, `maago:"media"`},
+		{[]string{query, query + " UNION ALL SELECT 1"}, 0, "run maago gen"},
+		{[]string{query}, 0, "no driver"}, // what is in use is unknown: nothing is deleted
+	} {
+		rtcore.MediaQueries = c.queries
+		if err := SweepMedia(ctx, testDB, c.olderThan); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%d queries, %v: %v, want %q", len(c.queries), c.olderThan, err, c.want)
+		}
+		if _, err := os.Stat(orphan); err != nil {
+			t.Fatalf("%d queries, %v: the orphan is gone: %v", len(c.queries), c.olderThan, err)
+		}
+	}
+}

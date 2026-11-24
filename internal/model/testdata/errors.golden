@@ -13,7 +13,7 @@ blog/models.go:9:95: unknown column field "Bar" in Post
 blog/models.go:12:33: max in Post.Title is "0", not a positive whole number
   fix: use a positive whole number, like max=200
 blog/models.go:12:35: unknown tag key "uniqe" in Post.Title
-  fix: did you mean "unique"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin
+  fix: did you mean "unique"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin, media
 blog/models.go:12:41: label in Post.Title is not written as expected
   fix: write text in quotes, like label='Title'
 blog/models.go:13:41: choice "a" appears twice in Post.Status

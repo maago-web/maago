@@ -179,10 +179,14 @@ func TestSite(t *testing.T) {
 	if found, err := outbox.RunOnce(ctx, db, time.Now().Add(time.Hour), deliver(db, media)); found || err != nil {
 		t.Errorf("worker again: %v %v", found, err)
 	}
-	// The worker kept the note's text as a file.
+	// The worker kept the note's text as a file, which the sweep keeps:
+	// a row has its key.
 	all, err := notes.AllNotes(ctx, db)
 	if err != nil || len(all) != 1 {
 		t.Fatalf("notes: %v %v", all, err)
+	}
+	if err := maago.SweepMedia(maago.WithMedia(ctx, media), db, 0); err != nil {
+		t.Errorf("sweep: %v", err)
 	}
 	f, err := maago.OpenMedia(maago.WithMedia(ctx, media), all[0].Export)
 	if err != nil {
@@ -212,7 +216,7 @@ type Note struct {
 
 	ID        int64
 	Text      string    `maago:"max=200"`
-	Export    string    // the key of the note's file, once the worker kept it
+	Export    string    `maago:"media"` // the key of the note's file, once the worker kept it
 	CreatedAt time.Time `maago:"auto=create"`
 }
 -- notes/forms.go --

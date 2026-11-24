@@ -88,3 +88,21 @@ func PolicyGet(c CRUD, p *Policy, d project.Dialect) Statement {
 	sql, args := p.sql(d, []string{"ID"})
 	return Statement{strings.Replace(c.Get.SQL, " WHERE ", " "+p.Alias+" WHERE ", 1) + " AND " + sql, args}
 }
+
+// MediaInUse is the query of the media keys the fields tagged media hold,
+// in every app of apps: what maago.SweepMedia keeps (D-161). "" when no
+// field is tagged. The same text in both dialects.
+func MediaInUse(apps []*model.App) string {
+	var selects []string
+	for _, app := range apps {
+		for _, m := range app.Models {
+			for _, f := range m.Fields {
+				if f.Media {
+					col := dialect.Quote(f.Column)
+					selects = append(selects, "SELECT "+col+" FROM "+dialect.Quote(m.Table)+" WHERE "+col+" IS NOT NULL")
+				}
+			}
+		}
+	}
+	return strings.Join(selects, " UNION ALL ")
+}

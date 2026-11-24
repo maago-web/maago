@@ -38,8 +38,11 @@ type User struct{ Type, Import string }
 // ModelsFile is the models_gen.go of app: the fields that are not columns
 // (D-18), and each model's input type and CRUD (D-21, D-106). pols are
 // the app's policies: the GetX of a model with them applies one, and
-// GetXIgnoringPolicies does not (D-155).
-func ModelsFile(d project.Dialect, app *model.App, pols []*Policy, user User) []byte {
+// GetXIgnoringPolicies does not (D-155). apps are all the project's: when
+// a field is tagged media, every app tells maago.SweepMedia the keys of
+// all of them, so a program that links one app keeps the others' files
+// (D-161).
+func ModelsFile(d project.Dialect, app *model.App, apps []*model.App, pols []*Policy, user User) []byte {
 	g := &gen{d: d, imports: map[string]bool{"context": true, "database/sql": true}}
 	var unsupported []string
 	var ms []modelView
@@ -58,7 +61,11 @@ func ModelsFile(d project.Dialect, app *model.App, pols []*Policy, user User) []
 	if !uses {
 		user.Import = ""
 	}
-	return g.execute("models.go.tmpl", map[string]any{"Package": app.Name, "Unsupported": unsupported, "Models": ms, "UserImport": user.Import})
+	media := ""
+	if q := MediaInUse(apps); q != "" {
+		media = GoString(q)
+	}
+	return g.execute("models.go.tmpl", map[string]any{"Package": app.Name, "Unsupported": unsupported, "Models": ms, "UserImport": user.Import, "MediaInUse": media})
 }
 
 // QueriesFile is the queries_gen.go of one app's queries, in package pkg.

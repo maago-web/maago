@@ -38,17 +38,17 @@ github.com/maago-web/maago
 │                          M7이 더한 것: Config.MaxBody·MediaDir(D-139, D-140), File(D-139),
 │                          Media·SaveMedia·OpenMedia·DeleteMedia·ServeMedia·WithMediaDir(D-140).
 │                          M13이 더한 것: Config.Media·MediaStore·MediaFile·LocalMedia·WithMedia·MediaURL
-│                          (WithMediaDir를 지움, D-160), SaveMediaFrom(D-160).
+│                          (WithMediaDir를 지움, D-160), SaveMediaFrom(D-160), SweepMedia(D-161).
 │                          생성 코드만 부르는 것은 M10 11번에 `rt`로 옮겼다(아래).
 │                          런타임이 기대는 내부 패키지는 TestRuntimeDependencies가 적는 것뿐(diag·ref·model·project·migrate·rtcore…)
 ├── rt/                 생성 코드(와 contrib/admin, D-131)만 부르는 것(M10 11번, D-152): One·Many·Exec·Placeholders,
 │                          SQLiteTime·SQLiteNullTime·ScanTime·ScanNullTime(D-105), NewApp·AppRoute·Pages·ParsePages·
 │                          Render·JSON·Buffer·ParseQuery·Query·Path·Parse*·Bind*·FinishForm·FormValid·FormValues·JSONValues·
 │                          MultipartValues·Unprocessable·Taken·Code·Rule·FieldError·URLFunc·PathSegment·DateFunc·NoRow·FileKinds,
-│                          Static·StaticFiles·StaticFunc·StaticName(D-136, D-137). 생성기가 rt와 루트를 둘 다 넣고 쓰지 않는 쪽은 뺀다
+│                          Static·StaticFiles·StaticFunc·StaticName(D-136, D-137), MediaInUse(D-161). 생성기가 rt와 루트를 둘 다 넣고 쓰지 않는 쪽은 뺀다
 │                          (pipeline.Format). 앱 코드는 rt를 import하지 않는다(TestGeneratedCallsAppAPI)
 ├── internal/rtcore/    루트와 rt가 함께 보는 상태: 마지막 Handler의 Prefix·TimeZone·static, 폼 설정과 ctx 키, 422 오류,
-│                          StaticFiles, App(루트의 App은 별칭)·Route. 루트 타입의 숨은 필드는 갈고리 둘(FormStateOf, NewFile)로만
+│                          StaticFiles, App(루트의 App은 별칭)·Route, 생성 코드가 알린 미디어 쿼리(MediaQueries, D-161). 루트 타입의 숨은 필드는 갈고리 둘(FormStateOf, NewFile)로만
 ├── maagotest/          시험 전용 도우미: DB (M4, D-113), Mailbox (M5, D-126), Permissions·As (M11, D-156). 런타임 공개 API가 루트 하나라는 원칙의 첫째 예외(둘째는 `contrib/auth`)
 ├── contrib/
 │   ├── auth/            인증의 보안 부품(stdlib만, M5): Hash·Check(D-127), ValidatePassword·MinLength·NotCommon·NotSimilar(D-15), NewToken·HashToken·
@@ -155,7 +155,7 @@ func Write(w io.Writer, ds []Diagnostic) error          // 정렬, 중복 제거
 
 ```
 blog/models.go:12:18: unknown tag key "maxlen" in Post.Title
-  fix: did you mean "max"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin
+  fix: did you mean "max"? allowed: max, decimal, unique, index, default, choices, label, help, fk, auto, admin, media
   see: maago doc model
 ```
 

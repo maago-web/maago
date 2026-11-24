@@ -30,12 +30,32 @@ const (
 	secret = "fake-secret"
 )
 
+// fakes are the servers New started, by endpoint, for Touch.
+var fakes sync.Map
+
 // New starts a server for the test and returns a Store of its bucket.
 func New(t *testing.T) s3.Store {
 	f := &fake{files: map[string]file{}}
 	srv := httptest.NewServer(f)
-	t.Cleanup(srv.Close)
+	fakes.Store(srv.URL, f)
+	t.Cleanup(func() {
+		fakes.Delete(srv.URL)
+		srv.Close()
+	})
 	return s3.Store{Endpoint: srv.URL, Region: region, Bucket: bucket, AccessKeyID: id, SecretAccessKey: secret}
+}
+
+// Touch gives the file of name in the bucket of s, a Store New returned,
+// the time mod, made empty if there is none: an old file, or a name
+// contrib/s3 never sends, such as a/b.
+func Touch(s s3.Store, name string, mod time.Time) {
+	v, _ := fakes.Load(s.Endpoint)
+	f := v.(*fake)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	file := f.files[name]
+	file.mod = mod
+	f.files[name] = file
 }
 
 type fake struct {

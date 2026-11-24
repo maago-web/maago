@@ -49,6 +49,7 @@
 //   - fk: The model an int64 ID field refers to: fk=Post, or fk=auth.User for another app's. *int64 for an optional one.
 //   - auto: The generated CRUD fills a time.Time with the time: create when inserting, update on every UpdateX, which then compares it (409 on a stale copy). Values: create, update.
 //   - admin: hidden leaves the field out of the admin, readonly shows it without an input. Values: hidden, readonly.
+//   - media: The field keeps a media key, Media.Key. Tag every field that keeps one: maago.SweepMedia deletes the old file of a key that no tagged field keeps. A string or *string.
 //
 // Model tags (on the embedded maago.Model):
 //
@@ -157,7 +158,7 @@
 //   - optional: An empty value is no error (a bool never is required). A pointer field of a model is optional in its model form.
 //   - accept: The kinds of file a maago.File field takes, split by /: accept=png/jpeg, as the content's first bytes tell: png, jpeg, gif, webp, pdf, zip (zip includes .docx and .xlsx).
 //
-// Names: [Form], [Field], [Invalid], [InvalidForm], [UniqueError], [File], [Media], [SaveMedia], [SaveMediaFrom], [OpenMedia], [DeleteMedia], [ServeMedia], [MediaStore], [MediaFile], [LocalMedia], [WithMedia], [MediaURL].
+// Names: [Form], [Field], [Invalid], [InvalidForm], [UniqueError], [File], [Media], [SaveMedia], [SaveMediaFrom], [OpenMedia], [DeleteMedia], [ServeMedia], [MediaStore], [MediaFile], [LocalMedia], [WithMedia], [MediaURL], [SweepMedia].
 //
 // maago doc form has the full text and an example.
 //

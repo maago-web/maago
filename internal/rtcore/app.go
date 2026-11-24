@@ -23,3 +23,8 @@ type Route struct {
 	API, LoginRequired, User, Files bool
 	Serve                           func(w http.ResponseWriter, r *http.Request) error
 }
+
+// MediaQueries is what generated code told rt.MediaInUse, each text
+// once: maago.SweepMedia reads it. The init functions write it, one at a
+// time, before main, so it needs no lock.
+var MediaQueries []string
