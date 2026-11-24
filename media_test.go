@@ -81,6 +81,11 @@ func TestMedia(t *testing.T) {
 	if _, err := SaveMedia(context.Background(), sentFile(t, "a.png", pngBytes)); err == nil || !strings.Contains(err.Error(), "maago.WithMedia") {
 		t.Errorf("no store: %v", err)
 	}
+	// No store: r is not read, so a worker's reader is not half eaten.
+	unread := strings.NewReader("x")
+	if _, err := SaveMediaFrom(context.Background(), "a.txt", unread); err == nil || !strings.Contains(err.Error(), "maago.WithMedia") || unread.Len() != 1 {
+		t.Errorf("no store, from a reader: %v, %d bytes left", err, unread.Len())
+	}
 	if m, err := SaveMedia(WithMedia(ctx, fullStore{}), sentFile(t, "a.png", pngBytes)); err == nil || m != (Media{}) {
 		t.Errorf("a failed put: %+v, %v", m, err)
 	}

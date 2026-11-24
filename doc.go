@@ -157,7 +157,7 @@
 //   - optional: An empty value is no error (a bool never is required). A pointer field of a model is optional in its model form.
 //   - accept: The kinds of file a maago.File field takes, split by /: accept=png/jpeg, as the content's first bytes tell: png, jpeg, gif, webp, pdf, zip (zip includes .docx and .xlsx).
 //
-// Names: [Form], [Field], [Invalid], [InvalidForm], [UniqueError], [File], [Media], [SaveMedia], [OpenMedia], [DeleteMedia], [ServeMedia], [MediaStore], [MediaFile], [LocalMedia], [WithMedia], [MediaURL].
+// Names: [Form], [Field], [Invalid], [InvalidForm], [UniqueError], [File], [Media], [SaveMedia], [SaveMediaFrom], [OpenMedia], [DeleteMedia], [ServeMedia], [MediaStore], [MediaFile], [LocalMedia], [WithMedia], [MediaURL].
 //
 // maago doc form has the full text and an example.
 //

@@ -1,6 +1,7 @@
 package maago
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -20,13 +21,13 @@ import (
 	"time"
 )
 
-// Media is a file SaveMedia kept in the media store: its key,
-// the name and type it came with, and its size. Keep the four in a
-// model's row, and give the value back to ServeMedia.
+// Media is a file SaveMedia or SaveMediaFrom kept in the media store:
+// its key, the name and type it came with, and its size. Keep the four
+// in a model's row, and give the value back to ServeMedia.
 type Media struct {
 	Key  string // Maago's random name for it: 32 lowercase hex digits
 	Name string // the name it was sent under, for showing and downloading
-	Type string // its media type, as its content told (File.Type)
+	Type string // its media type, as its first 512 bytes tell
 	Size int64
 }
 
@@ -94,22 +95,40 @@ func validKey(key string) bool {
 // opens half a file.
 // If the row is not written after, delete the file with DeleteMedia.
 func SaveMedia(ctx context.Context, f File) (Media, error) {
-	s, err := mediaStore(ctx)
-	if err != nil {
-		return Media{}, err
-	}
 	in, err := f.Open()
 	if err != nil {
 		return Media{}, fmt.Errorf("maago: saving %q: %w", f.Name, err)
 	}
 	defer in.Close()
+	return SaveMediaFrom(ctx, f.Name, in)
+}
+
+// SaveMediaFrom keeps r's bytes, read to its end, in the media store
+// under a random key, as name, and returns what to keep in a row: Size
+// is how many bytes it read, Type what the first 512 tell, as a form's
+// File. A worker's ctx needs the store: maago.WithMedia. Nothing bounds
+// r here: to bound it, pass io.LimitReader(r, max+1) and, when Size is
+// over max, DeleteMedia the file and refuse it.
+// If the row is not written after, delete the file with DeleteMedia.
+func SaveMediaFrom(ctx context.Context, name string, r io.Reader) (Media, error) {
+	s, err := mediaStore(ctx)
+	if err != nil {
+		return Media{}, err
+	}
+	head := make([]byte, 512)
+	n, err := io.ReadFull(r, head)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return Media{}, fmt.Errorf("maago: saving %q: %w", name, err)
+	}
+	typ, _, _ := mime.ParseMediaType(http.DetectContentType(head[:n])) // as a form's File
 	b := make([]byte, 16)
 	rand.Read(b) // never fails (crypto/rand)
 	key := hex.EncodeToString(b)
-	if _, err := s.Put(ctx, key, f.Type, in); err != nil {
-		return Media{}, fmt.Errorf("maago: saving %q: %w", f.Name, err)
+	size, err := s.Put(ctx, key, typ, io.MultiReader(bytes.NewReader(head[:n]), r))
+	if err != nil {
+		return Media{}, fmt.Errorf("maago: saving %q: %w", name, err)
 	}
-	return Media{Key: key, Name: f.Name, Type: f.Type, Size: f.Size}, nil
+	return Media{Key: key, Name: name, Type: typ, Size: size}, nil
 }
 
 // OpenMedia opens the file of key. A key SaveMedia would not make, or of

@@ -97,6 +97,7 @@ func Store(t *testing.T, s maago.MediaStore) {
 	}
 
 	signedURLs(t, ctx, m, m2, other)
+	saveFrom(t, ctx, s)
 
 	for range 2 { // gone already is no error
 		if err := maago.DeleteMedia(ctx, m.Key); err != nil {
@@ -110,6 +111,66 @@ func Store(t *testing.T, s maago.MediaStore) {
 		t.Error("listed after delete")
 	}
 	maago.DeleteMedia(ctx, m2.Key)
+}
+
+// saveFrom checks SaveMediaFrom: all of r's bytes, however r reads, the
+// type the first 512 tell, and nothing kept when r fails.
+func saveFrom(t *testing.T, ctx context.Context, s maago.MediaStore) {
+	t.Helper()
+	save := func(body []byte) maago.Media {
+		t.Helper()
+		m, err := maago.SaveMediaFrom(ctx, "../../evil.txt", iotest.OneByteReader(bytes.NewReader(body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if b, _ := open(t, ctx, m.Key); !bytes.Equal(b, body) || m.Size != int64(len(body)) || m.Name != "../../evil.txt" || len(m.Key) != 32 || strings.ContainsAny(m.Key, "./") {
+			t.Errorf("saved %d bytes as %+v, opened %d", len(body), m, len(b))
+		}
+		maago.DeleteMedia(ctx, m.Key)
+		return m
+	}
+	for _, n := range []int{0, 100, 512, 1000} {
+		body := make([]byte, n)
+		for i := range body {
+			body[i] = byte(i * 7)
+		}
+		save(body)
+	}
+	for body, want := range map[string]string{
+		string(pngBytes):               "image/png",
+		strings.Repeat("hello\n", 200): "text/plain", // no charset: as a form's File
+		"":                             "text/plain",
+	} {
+		if m := save([]byte(body)); m.Type != want {
+			t.Errorf("type of %.10q: %q, want %q", body, m.Type, want)
+		}
+	}
+
+	// A reader that fails, in the first 512 bytes or after, saves nothing.
+	before := names(list(t, ctx, s, ""))
+	for _, r := range []io.Reader{
+		io.MultiReader(bytes.NewReader(make([]byte, 10)), &failOnce{}),
+		io.MultiReader(bytes.NewReader(make([]byte, 600)), &failOnce{}),
+	} {
+		if m, err := maago.SaveMediaFrom(ctx, "x.txt", r); err == nil || m != (maago.Media{}) {
+			t.Errorf("a reader that fails: %+v, %v", m, err)
+		}
+	}
+	if after := names(list(t, ctx, s, "")); !slices.Equal(after, before) {
+		t.Errorf("a failed save left %v, before %v", after, before)
+	}
+}
+
+// failOnce fails once, then ends: a save that drops the error keeps what
+// came before it.
+type failOnce struct{ failed bool }
+
+func (f *failOnce) Read([]byte) (int, error) {
+	if f.failed {
+		return 0, io.EOF
+	}
+	f.failed = true
+	return 0, errors.New("cut")
 }
 
 // serveMedia checks that a file goes down to download, never as a page

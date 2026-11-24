@@ -87,7 +87,7 @@
 ## M13
 
 - [ ] admin 삭제의 경합: 참조를 센 뒤 잠그지 않고 지워, 그사이 다른 트랜잭션이 참조를 더하거나 행을 지우면 `Delete`의 FK 오류는 500, `sql.ErrNoRows`는 404가 된다(409 페이지가 아니다). 데이터는 안전하다(FK가 막고 트랜잭션이 되돌린다). 고치려면 행 잠금(방언마다)이나 FK 오류 알아보기(런타임은 드라이버를 모른다, D-09)가 든다(M13 2번 구현 리뷰, codex)
-- [ ] `MediaStore`에서 런타임이 아직 부르지 않는 것: `Put`이 돌려주는 n(5번 `SaveMediaFrom`의 센 크기), `List`·`Delete(name)`(7번 `SweepMedia`). 그 작업이 쓰지 않으면 지운다(M13 4번 구현 리뷰, ponytail 3)
+- [ ] `MediaStore`에서 런타임이 아직 부르지 않는 것: `List`·`Delete(name)`(7번 `SweepMedia`, `Put`의 n은 5번 `SaveMediaFrom`이 쓴다). 그 작업이 쓰지 않으면 지운다(M13 4번 구현 리뷰, ponytail 3)
 - [ ] 6번 `contrib/s3`: `Put`의 형식이 객체의 `Content-Type`이 되고 ttl이 `X-Amz-Expires` 정수 초가 됨을 `Store`가 문다(메모리 가짜처럼 `Put`의 형식을 URL의 응답에, 초 단위 아닌 ttl은 오류). `Store`의 열쇠 검사 줄이 S3에서도 런타임 검사를 본다(M13 4번 구현 리뷰, fable 1·3)
 
 ## 언젠가

@@ -67,7 +67,9 @@ admin.Config's Models. The outbox's worker runs in main beside the server,
 as the example's main does: once Serve has stopped, it takes no more jobs
 and finishes the one in hand, for up to its lease (5 minutes). A second
 signal, during Serve's stop or after it, kills the process at once, and
-the job goes again later.`,
+the job goes again later. Its deliver keeps files with
+maago.SaveMediaFrom once its ctx has the media store Config.Media has,
+maago.WithMedia(ctx, media), as the example's deliver does.`,
 		API: []string{"Handler", "Config", "App", "DBConfig", "OpenDB", "Migrate", "Serve", "Messages", "DefaultMessages", "Prefix"},
 	},
 	{
@@ -409,8 +411,8 @@ other: its Valid is false, and its Fail uses the default messages.
 
 A maago.File field is read from a multipart form (enctype="multipart/form-data"),
 and needs a media store: maago.Config.MediaDir, or Config.Media;
-maago.SaveMedia keeps the file. A field
-takes one file, from an HTML form: an API route takes none. Its kind is
+maago.SaveMedia keeps the file; maago.SaveMediaFrom keeps bytes the app
+made, such as a worker's (maago doc main). A field takes one file, from an HTML form: an API route takes none. Its kind is
 what the content's first bytes say, not its name; zip includes .docx and
 .xlsx. The File lives as long as the request.
 
@@ -455,7 +457,7 @@ with one unique constraint has every refusal on it, even a unique index
 a migration made by hand. An API view has no page to draw: it returns
 the error, and maago answers a 422, on the field as Fail would put it.`,
 		Lists: []*List{FormTypes, FormTags},
-		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "UniqueError", "File", "Media", "SaveMedia", "OpenMedia", "DeleteMedia", "ServeMedia", "MediaStore", "MediaFile", "LocalMedia", "WithMedia", "MediaURL"},
+		API:   []string{"Form", "Field", "Invalid", "InvalidForm", "UniqueError", "File", "Media", "SaveMedia", "SaveMediaFrom", "OpenMedia", "DeleteMedia", "ServeMedia", "MediaStore", "MediaFile", "LocalMedia", "WithMedia", "MediaURL"},
 	},
 	{
 		Name:  Template,

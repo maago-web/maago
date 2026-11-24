@@ -7,10 +7,13 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/maago-web/maago"
@@ -41,7 +44,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	h, err := handler(db)
+	media := maago.LocalMedia{Dir: "media"} // the directory must exist
+	h, err := handler(db, media)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -51,7 +55,7 @@ func main() {
 	work, stop := context.WithCancel(ctx)
 	worked := make(chan struct{})
 	go func() {
-		outbox.Run(work, db, deliver)
+		outbox.Run(work, db, deliver(db, media))
 		close(worked)
 	}()
 	// Serve stops on SIGINT or SIGTERM and lets running requests finish.
@@ -65,19 +69,42 @@ func main() {
 }
 
 // deliver does the work of a job the outbox's worker hands it, by its
-// Kind. An error, and the job goes again later: a kind it does not know
-// stays, for the admin to show, rather than being dropped.
-func deliver(ctx context.Context, j outbox.Job) error {
-	if j.Kind != "note_created" {
-		return fmt.Errorf("no job of kind %q", j.Kind)
+// Kind: here, it keeps a note's text as a file, and the note its key. An
+// error, and the job goes again later: a kind it does not know stays, for
+// the admin to show, rather than being dropped.
+func deliver(db maago.DB, media maago.MediaStore) func(context.Context, outbox.Job) error {
+	return func(ctx context.Context, j outbox.Job) error {
+		ctx = maago.WithMedia(ctx, media) // the store Config.Media has
+		if j.Kind != "note_created" {
+			return fmt.Errorf("no job of kind %q", j.Kind)
+		}
+		var created notes.Note
+		if err := json.Unmarshal([]byte(j.Payload), &created); err != nil {
+			return err
+		}
+		n, err := notes.GetNote(ctx, db, created.ID)
+		if err != nil {
+			return err
+		}
+		m, err := maago.SaveMediaFrom(ctx, fmt.Sprintf("note-%d.txt", n.ID), strings.NewReader(n.Text))
+		if err != nil {
+			return err
+		}
+		old := n.Export // a file of a job that went before, if any
+		n.Export = m.Key
+		if err := notes.UpdateNote(ctx, db, &n); err != nil {
+			return errors.Join(err, maago.DeleteMedia(ctx, m.Key)) // no row points at it
+		}
+		if old != "" {
+			return maago.DeleteMedia(ctx, old)
+		}
+		return nil
 	}
-	log.Printf("note created: %s", j.Payload) // a webhook's call, say
-	return nil
 }
 
 // handler puts the apps together, apart from main so that a test serves
 // the same site.
-func handler(db *sql.DB) (http.Handler, error) {
+func handler(db *sql.DB, media maago.MediaStore) (http.Handler, error) {
 	seoul, err := time.LoadLocation("Asia/Seoul")
 	if err != nil {
 		return nil, err
@@ -86,6 +113,7 @@ func handler(db *sql.DB) (http.Handler, error) {
 		DB:       db,
 		Apps:     []maago.App{notes.App}, // each app's generated App
 		TimeZone: seoul,                  // where the times people enter and see are
+		Media:    media,
 		Messages: maago.Messages{Required: "Write something."},
 		OnError: func(ctx context.Context, r *http.Request, err error) {
 			log.Printf("%s %s: %v", r.Method, r.URL.Path, err) // every 5xx
@@ -97,6 +125,7 @@ package main
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -106,6 +135,7 @@ import (
 
 	"github.com/maago-web/maago"
 
+	"example.com/app/notes"
 	"example.com/app/outbox"
 )
 
@@ -123,7 +153,8 @@ func TestSite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := handler(db)
+	media := maago.LocalMedia{Dir: t.TempDir()}
+	h, err := handler(db, media)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,11 +173,24 @@ func TestSite(t *testing.T) {
 	}
 	// The note's job, one step of the worker: done, so none is left, not
 	// even an hour later, when a failed one would go again.
-	if found, err := outbox.RunOnce(ctx, db, time.Now(), deliver); !found || err != nil {
+	if found, err := outbox.RunOnce(ctx, db, time.Now(), deliver(db, media)); !found || err != nil {
 		t.Errorf("worker: %v %v", found, err)
 	}
-	if found, err := outbox.RunOnce(ctx, db, time.Now().Add(time.Hour), deliver); found || err != nil {
+	if found, err := outbox.RunOnce(ctx, db, time.Now().Add(time.Hour), deliver(db, media)); found || err != nil {
 		t.Errorf("worker again: %v %v", found, err)
+	}
+	// The worker kept the note's text as a file.
+	all, err := notes.AllNotes(ctx, db)
+	if err != nil || len(all) != 1 {
+		t.Fatalf("notes: %v %v", all, err)
+	}
+	f, err := maago.OpenMedia(maago.WithMedia(ctx, media), all[0].Export)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if b, _ := io.ReadAll(f); string(b) != "hello" {
+		t.Errorf("the note's file: %q", b)
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
@@ -168,6 +212,7 @@ type Note struct {
 
 	ID        int64
 	Text      string    `maago:"max=200"`
+	Export    string    // the key of the note's file, once the worker kept it
 	CreatedAt time.Time `maago:"auto=create"`
 }
 -- notes/forms.go --
