@@ -60,6 +60,9 @@ func TestPutLength(t *testing.T) {
 	if err := other.Delete(ctx, newKey()); err == nil || !strings.Contains(err.Error(), "NoSuchBucket") || errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("delete in a bucket of none: %v", err)
 	}
+	if _, err := other.List(ctx, ""); err == nil || !strings.Contains(err.Error(), "NoSuchBucket") || errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("list of a bucket of none: %v", err)
+	}
 }
 
 // A redirect is an error, not followed: a PUT or DELETE followed as a

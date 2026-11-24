@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -44,7 +45,7 @@ func TestVectors(t *testing.T) {
 		}
 	}
 	u, _ := url.Parse("https://examplebucket.s3.amazonaws.com/test.txt")
-	signed, err := url.Parse(s.presign(u, now, 86400*time.Second, nil))
+	signed, err := url.Parse(s.presign(u, now, 86400*time.Second, url.Values{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,29 +58,32 @@ func TestEscape(t *testing.T) {
 	for b := range 256 {
 		s := string([]byte{byte(b)}) // a byte, not a rune
 		unreserved := 'A' <= b && b <= 'Z' || 'a' <= b && b <= 'z' || '0' <= b && b <= '9' || strings.ContainsRune("-._~", rune(b))
-		for _, slash := range []bool{false, true} {
-			want := "%" + strings.ToUpper(hex.EncodeToString([]byte{byte(b)}))
-			if unreserved || slash && b == '/' {
-				want = s
-			}
-			if got := escape(s, slash); got != want {
-				t.Errorf("escape(%q, %v) = %q, want %q", s, slash, got, want)
-			}
+		want := "%" + strings.ToUpper(hex.EncodeToString([]byte{byte(b)}))
+		if unreserved {
+			want = s
+		}
+		if got := escape(s); got != want {
+			t.Errorf("escape(%q) = %q, want %q", s, got, want)
 		}
 	}
-	if got := escape("a b~/c", false); got != "a%20b~%2Fc" {
+	if got := escape("a b~/c"); got != "a%20b~%2Fc" {
 		t.Errorf("escape: %q", got)
 	}
 }
 
 // Reading asks for the bytes from where it reads, and takes nothing
-// else: not the whole file for a Range, nor a range from elsewhere.
+// else: not the whole file for a Range, nor a range from elsewhere, nor
+// fewer bytes than the file's. A size or time it cannot read is an error.
 func TestReads(t *testing.T) {
 	body := strings.Repeat("0123456789", 100) // more than one Read of io.ReadAll
 	mod := time.Date(2026, 11, 24, 0, 0, 0, 0, time.UTC)
 	var gets int
-	answer := "range" // or "whole", "elsewhere", "no time"
+	answer := "range" // or "whole", "elsewhere", "short", "gone", "no time", "no length"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Has("list-type") {
+			io.WriteString(w, "<ListBucketResult><Contents><Key>k</Key><Size>1</Size><LastModified>x</LastModified></Contents></ListBucketResult>")
+			return
+		}
 		if answer != "no time" {
 			w.Header().Set("Last-Modified", mod.Format(http.TimeFormat))
 		}
@@ -87,8 +91,15 @@ func TestReads(t *testing.T) {
 			gets++
 		}
 		switch {
+		case r.Method == "HEAD" && answer == "no length":
 		case r.Method == "HEAD":
 			w.Header().Set("Content-Length", "1000")
+		case answer == "short":
+			w.Header().Set("Content-Range", "bytes 5-999/1000")
+			w.WriteHeader(http.StatusPartialContent)
+			io.WriteString(w, body[5:500])
+		case answer == "gone":
+			http.NotFound(w, r)
 		case answer == "whole":
 			io.WriteString(w, body)
 		case answer == "elsewhere":
@@ -119,21 +130,26 @@ func TestReads(t *testing.T) {
 	}
 	f.Close()
 
-	for _, a := range []string{"whole", "elsewhere"} {
+	for a, want := range map[string]string{"whole": "200 OK", "elsewhere": "bytes 0-999", "short": io.ErrUnexpectedEOF.Error(), "gone": fs.ErrNotExist.Error()} {
 		answer = a
 		f, err := s.Open(t.Context(), key)
 		if err != nil {
 			t.Fatal(err)
 		}
 		f.Seek(5, io.SeekStart)
-		if b, err := io.ReadAll(f); err == nil {
-			t.Errorf("%s: read %d bytes, no error", a, len(b))
+		if b, err := io.ReadAll(f); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: read %d bytes, %v", a, len(b), err)
 		}
 		f.Close()
 	}
-	answer = "no time"
-	if _, err := s.Open(t.Context(), key); err == nil {
-		t.Error("open of a file of no Last-Modified: no error")
+	for _, a := range []string{"no time", "no length"} {
+		answer = a
+		if _, err := s.Open(t.Context(), key); err == nil {
+			t.Errorf("open of a file of %s: no error", a)
+		}
+	}
+	if _, err := s.List(t.Context(), ""); err == nil || !strings.Contains(err.Error(), `LastModified "x" is not a time`) {
+		t.Errorf("list of a file of no time: %v", err)
 	}
 }
 

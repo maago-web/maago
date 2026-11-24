@@ -114,9 +114,6 @@ func (s Store) Delete(ctx context.Context, name string) error {
 // List gives a page of at most 1,000 names, the bucket's. A name with a /
 // in it, of a file put there another way, is listed but not deleted.
 func (s Store) List(ctx context.Context, after string) ([]fs.FileInfo, error) {
-	if _, err := s.check(); err != nil {
-		return nil, err
-	}
 	q := url.Values{"list-type": {"2"}}
 	if after != "" {
 		q.Set("start-after", after)
@@ -229,10 +226,10 @@ func isKey(key string) bool {
 // path sets u's path to name's in the bucket, the bucket's for "",
 // escaped as signed.
 func (s Store) path(u *url.URL, name string) {
-	u.Path, u.RawPath = "/"+s.Bucket, "/"+escape(s.Bucket, false)
+	u.Path, u.RawPath = "/"+s.Bucket, "/"+escape(s.Bucket)
 	if name != "" {
 		u.Path += "/" + name
-		u.RawPath += "/" + escape(name, false)
+		u.RawPath += "/" + escape(name)
 	}
 }
 
@@ -284,9 +281,10 @@ func (s Store) do(ctx context.Context, method, name string, query url.Values, he
 	return nil, err
 }
 
-// sign signs req by its header: the host and every header req has now,
-// so Range and Content-Type are signed; what the transport adds later
-// (User-Agent, Content-Length) is not.
+// sign signs req by its query, canonical as do makes it, and its header:
+// the host and every header req has now, so Range and Content-Type are
+// signed; what the transport adds later (User-Agent, Content-Length) is
+// not.
 func (s Store) sign(req *http.Request, payload string, now time.Time) {
 	date := now.UTC().Format("20060102T150405Z")
 	req.Header.Set("X-Amz-Date", date)
@@ -304,17 +302,13 @@ func (s Store) sign(req *http.Request, payload string, now time.Time) {
 		headers.WriteString(k + ":" + values[k] + "\n")
 	}
 	signed := strings.Join(names, ";")
-	q, _ := url.ParseQuery(req.URL.RawQuery)
-	sig := s.signature(date, req.Method, req.URL.EscapedPath(), canonicalQuery(q), headers.String(), signed, payload)
+	sig := s.signature(date, req.Method, req.URL.EscapedPath(), req.URL.RawQuery, headers.String(), signed, payload)
 	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+s.AccessKeyID+"/"+s.scope(date)+",SignedHeaders="+signed+",Signature="+sig)
 }
 
 // presign is u signed in its query for a GET of ttl, with q's values.
 func (s Store) presign(u *url.URL, now time.Time, ttl time.Duration, q url.Values) string {
 	date := now.UTC().Format("20060102T150405Z")
-	if q == nil {
-		q = url.Values{}
-	}
 	q.Set("X-Amz-Algorithm", "AWS4-HMAC-SHA256")
 	q.Set("X-Amz-Credential", s.AccessKeyID+"/"+s.scope(date))
 	q.Set("X-Amz-Date", date)
@@ -349,7 +343,7 @@ func canonicalQuery(q url.Values) string {
 	var parts []string
 	for k, vs := range q {
 		for _, v := range vs {
-			parts = append(parts, escape(k, false)+"="+escape(v, false))
+			parts = append(parts, escape(k)+"="+escape(v))
 		}
 	}
 	slices.Sort(parts)
@@ -357,11 +351,11 @@ func canonicalQuery(q url.Values) string {
 }
 
 // escape is AWS's UriEncode: the unreserved bytes of RFC 3986 as they
-// are, each other as %XX, and / too unless slash.
-func escape(s string, slash bool) string {
+// are, each other as %XX, / too.
+func escape(s string) string {
 	var b strings.Builder
 	for _, c := range []byte(s) {
-		if 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~' || slash && c == '/' {
+		if 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || '0' <= c && c <= '9' || c == '-' || c == '.' || c == '_' || c == '~' {
 			b.WriteByte(c)
 		} else {
 			fmt.Fprintf(&b, "%%%02X", c)
@@ -377,19 +371,14 @@ type object struct {
 	ctx  context.Context
 	info info
 	off  int64         // where the next Read reads
-	body io.ReadCloser // a GET's, from at
-	at   int64
+	body io.ReadCloser // a GET's, from off
 }
 
 func (o *object) Read(p []byte) (int, error) {
 	if o.off >= o.info.size {
 		return 0, io.EOF
 	}
-	if o.body == nil || o.at != o.off {
-		if o.body != nil {
-			o.body.Close()
-			o.body = nil
-		}
+	if o.body == nil {
 		resp, err := o.s.do(o.ctx, "GET", o.info.name, nil, http.Header{"Range": {fmt.Sprintf("bytes=%d-", o.off)}}, nil, 0, emptyHash)
 		if err != nil {
 			return 0, err
@@ -398,11 +387,10 @@ func (o *object) Read(p []byte) (int, error) {
 			resp.Body.Close()
 			return 0, fmt.Errorf("s3: GET %s/%s from byte %d: %s, Content-Range %q", o.s.Bucket, o.info.name, o.off, resp.Status, cr)
 		}
-		o.body, o.at = resp.Body, o.off
+		o.body = resp.Body
 	}
 	n, err := o.body.Read(p)
 	o.off += int64(n)
-	o.at = o.off
 	if err == io.EOF && o.off < o.info.size {
 		err = io.ErrUnexpectedEOF
 	}
@@ -421,6 +409,10 @@ func (o *object) Seek(offset int64, whence int) (int64, error) {
 	}
 	if offset < 0 {
 		return 0, fmt.Errorf("s3: seek to %d, before the start", offset)
+	}
+	if offset != o.off && o.body != nil {
+		o.body.Close()
+		o.body = nil
 	}
 	o.off = offset
 	return offset, nil
