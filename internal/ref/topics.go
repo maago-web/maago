@@ -50,9 +50,9 @@ sqlite:app.db or postgres://….
     forms' errors; maago.DefaultMessages has the English ones), TimeZone
     (where people's times are; nil is UTC), Prefix (the path the site is
     under, such as /app), MaxBody (0 is 10MB), MediaDir or Media (where
-    media is kept, maago doc form). MediaDir is a short form for an app that
-    uses media only in requests: when a worker or the sweep uses it too,
-    main makes one store and gives the same one to Config.Media, the
+    media is kept, maago doc form). MediaDir is a short form for an app
+    that uses media only in requests: when a worker or the sweep uses it
+    too, main makes one store and gives the same one to Config.Media, the
     worker and the sweep.
   - Serve stops on SIGINT or SIGTERM: no new connections, the running
     requests finish within 30 seconds. TLS is a proxy's in front, or an
