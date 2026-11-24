@@ -137,9 +137,10 @@ func saveFrom(t *testing.T, ctx context.Context, s maago.MediaStore) {
 		save(body)
 	}
 	for body, want := range map[string]string{
-		string(pngBytes):               "image/png",
-		strings.Repeat("hello\n", 200): "text/plain", // no charset: as a form's File
-		"":                             "text/plain",
+		string(pngBytes):                  "image/png",
+		strings.Repeat("hello\n", 200):    "text/plain", // no charset: as a form's File
+		"":                                "text/plain",
+		strings.Repeat("a", 300) + "\x00": "application/octet-stream", // the NUL is past 16 bytes, in the first 512
 	} {
 		if m := save([]byte(body)); m.Type != want {
 			t.Errorf("type of %.10q: %q, want %q", body, m.Type, want)

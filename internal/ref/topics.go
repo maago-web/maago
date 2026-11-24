@@ -412,9 +412,9 @@ other: its Valid is false, and its Fail uses the default messages.
 A maago.File field is read from a multipart form (enctype="multipart/form-data"),
 and needs a media store: maago.Config.MediaDir, or Config.Media;
 maago.SaveMedia keeps the file; maago.SaveMediaFrom keeps bytes the app
-made, such as a worker's (maago doc main). A field takes one file, from an HTML form: an API route takes none. Its kind is
-what the content's first bytes say, not its name; zip includes .docx and
-.xlsx. The File lives as long as the request.
+made, such as a worker's (maago doc main). A field takes one file, from
+an HTML form: an API route takes none. Its kind is what the content's
+first bytes say, not its name; zip includes .docx and .xlsx. The File lives as long as the request.
 
 Media stays in Config.MediaDir, on this machine. A file no row points at
 stays: delete it with maago.DeleteMedia when you delete the row (the admin
