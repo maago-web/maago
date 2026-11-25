@@ -269,11 +269,11 @@ D-148이 뒤로 미룬 것과 M10 13번 게이트가 넘긴 것([TODO.md](TODO.m
 작업 목록은 [TASKS-M13.md](TASKS-M13.md). 결정은 D-160~D-163. 범위는 사람의 결정(2026-11-22): Google 로그인·진단 묶음·단계 글은 M14.
 
 완료 조건
-- [ ] 앱이 만든 바이트(백그라운드 일꾼의 것도)를 미디어로 저장한다. 인스턴스가 둘이어도 미디어가 깨지지 않는 저장소(S3 호환, stdlib)가 있고, 서명된 URL은 기한과 attachment를 강제한다(D-160)
-- [ ] 고아 파일을 치우되 쓰는 파일은 지우지 않는다: 열쇠 열은 태그 `media`로 생성기가 안다(D-161)
-- [ ] 마이그레이션이 모델과 달라도 쿼리의 오류가 같은 실행에 나오고, 손 마이그레이션에만 있는 것을 쓰는 쿼리는 거짓 오류를 받지 않는다(D-162)
-- [ ] 조용히 틀리는 런타임 넷이 고쳐져 있다: 시각의 Location, API의 unique 위반 422, admin의 거절된 삭제·잘못된 POST, 사용자 폼의 `default=''`(D-162)
-- [ ] 게시판 튜토리얼이 이것들로 걷고, v0.4.0을 `go install`한 에이전트 게이트가 새 단계 글만 보고 쓴다
+- [x] 앱이 만든 바이트(백그라운드 일꾼의 것도)를 미디어로 저장한다. 인스턴스가 둘이어도 미디어가 깨지지 않는 저장소(S3 호환, stdlib)가 있고, 서명된 URL은 기한과 attachment를 강제한다(D-160). 시험: `TestMedia`·`TestLocalMediaURL`·`TestLocalMediaURLServed`·`TestMemory`(`internal/mediatest.Store`), `TestAddOutbox`(일꾼의 `SaveMediaFrom`), `contrib/s3`의 `TestFake`·`TestVectors`·`TestDisposition`·`TestRedirect`·`TestServer`(CI의 MinIO)
+- [x] 고아 파일을 치우되 쓰는 파일은 지우지 않는다: 열쇠 열은 태그 `media`로 생성기가 안다(D-161). 시험: `TestSweepMedia`, `TestMediaTag`, `TestGenMedia`, gentest `files`·`tags`의 `TestSweep`(두 방언)
+- [x] 마이그레이션이 모델과 달라도 쿼리의 오류가 같은 실행에 나오고, 손 마이그레이션에만 있는 것을 쓰는 쿼리는 거짓 오류를 받지 않는다(D-162). 시험: `TestQueriesBeforeMigration`·`TestQueriesHandMigration`·`TestQueriesDraftFails`
+- [x] 조용히 틀리는 런타임 넷이 고쳐져 있다: 시각의 Location, API의 unique 위반 422, admin의 거절된 삭제·잘못된 POST, 사용자 폼의 `default=''`(D-162). 시험: `TestTimesUTC`·`TestNullTimeUTC`·`TestScanTime`, `TestTaken`, admin의 `TestDelete`·`TestFormErrors`와 `TestAddAuth`(409), `TestModelFormDefaultEmpty`
+- [x] 게시판 튜토리얼이 이것들로 걷고, v0.4.0을 `go install`한 에이전트 게이트가 새 단계 글만 보고 쓴다. 시험: `TestBoardTutorial`·`TestBoardTutorialCatches`·`TestBoardMap`(0041~0044), 게이트 기록 `gate-logs/m13-board-1.md`·`m13-board-2.md`
 
 그다음(M14): Google 로그인(D-163), 진단 묶음, 단계 글의 빈틈
 ---

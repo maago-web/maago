@@ -896,6 +896,8 @@
    - 구현 리뷰는 fable 하나(단계 글·기록): 0042 글은 패치와 맞음, 기록의 여덟("일부러"는 제 읽기, 둘 다 짚은 둘, 형식 짐작의 주어, 2번의 시각, "가장 도왔다"는 2번만, 셸 실패, `TestDeliverUnknownKind`, 경로를 짐작한 쪽)을 모두 고침. 게이트가 고칠 런타임 문제는 없어 v0.4.1은 없다
 12. **M13 끝**: MILESTONES의 M13 체크, README, 다음 마일스톤(M14: Google 로그인, 진단 묶음, 단계 글의 빈틈)의 차례
 
+   기록(2026-11-25): 완료 조건마다 시험 이름을 MILESTONES에, e84a549 위의 이 고침(문서만)에서 PG 전체 시험 초록(`go test exit=0`, `cmd/maago` 564초, 0042 단계 글 고침 뒤 처음), CI 20분 기준은 7aa5d6a의 GitHub Actions 약 11분 반으로 TODO에 적고 체크, DECISIONS의 기록 줄, README의 다음 작업은 `TASKS-M14.md` 초안("M14로 간 셋"과 TODO의 `## M13`)
+
 M14로 간 셋(그 마일스톤의 초안에서 다시 본다): `contrib/auth/oidc.go`(확인: `TestOIDC*`의 틀린 nonce·aud·azp·iss·지난 exp·`email_verified` false·`http://` 엔드포인트 거절), `maago add google`(확인: `TestAddGoogle` 두 방언·User에 필드를 더한 `auth/` 위에서도, 복사본의 `TestGoogle*`가 가짜 제공자와 진짜 쿠키를 왕복해 state·nonce·verifier 재사용·쿠키 속성·탈퇴 계정의 이메일로 온 Google 거절·Q6 (b)의 갈래마다·넘겨받기 중간 실패의 원자성·같은 sub의 동시 콜백 둘), 진단 묶음(import 빠진 `outbox.Admin`·`.App`, 결과 타입 fix의 `<Query>Row`, 버전 칸 fix, `table=maago_…`), 단계 글의 빈틈(0038~0040의 남은 것, 0040 시험의 `adminApp()`, `Maago-Expect` 줄:열).
 
 ## 초안 리뷰 (2026-11-22, codex와 fable)
@@ -915,7 +917,7 @@ M14로 간 셋(그 마일스톤의 초안에서 다시 본다): `contrib/auth/oi
 
 ## M13 끝
 
-- [ ] 1~12 완료
-- [ ] M13 완료 조건을 실제로 돌려 확인, 조건마다 시험 이름
-- [ ] MILESTONES.md의 M13 체크박스
-- [ ] push 뒤 GitHub Actions(1번: `cmd/maago` 20분 아래, TODO 81줄에 잰 값을 적고 체크)
+- [x] 1~12 완료
+- [x] M13 완료 조건을 실제로 돌려 확인, 조건마다 시험 이름(MILESTONES)
+- [x] MILESTONES.md의 M13 체크박스
+- [x] push 뒤 GitHub Actions(1번: 7aa5d6a에서 약 11분 반, 실행 45536511797, TODO에 잰 값을 적고 체크)
