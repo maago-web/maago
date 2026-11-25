@@ -46,7 +46,7 @@ index 153dcfb..f78411d 100644
  
  func TestPostCRUD(t *testing.T) {
 diff --git a/go.mod b/go.mod
-index 3ebfc23..2da48bd 100644
+index aaa2ddb..ef4d839 100644
 --- a/go.mod
 +++ b/go.mod
 @@ -3,18 +3,14 @@ module example.com/board
@@ -54,7 +54,7 @@ index 3ebfc23..2da48bd 100644
  
  require (
 +	github.com/jackc/pgx/v5 v5.11.0
- 	github.com/maago-web/maago v0.3.0
+ 	github.com/maago-web/maago v0.4.0
 -	modernc.org/sqlite v1.59.0
  )
  
@@ -75,7 +75,7 @@ index 3ebfc23..2da48bd 100644
 +	golang.org/x/text v0.29.0 // indirect
  )
 diff --git a/go.sum b/go.sum
-index e75fa6c..8d517ca 100644
+index 36efa7b..ef36cba 100644
 --- a/go.sum
 +++ b/go.sum
 @@ -1,52 +1,28 @@
@@ -98,8 +98,8 @@ index e75fa6c..8d517ca 100644
 +github.com/jackc/pgx/v5 v5.11.0/go.mod h1:mal1tBGAFfLHvZzaYh77YS/eC6IX9OWbRV1QIIM0Jn4=
 +github.com/jackc/puddle/v2 v2.2.2 h1:PR8nw+E/1w0GLuRFSmiioY6UooMp6KJv0/61nB7icHo=
 +github.com/jackc/puddle/v2 v2.2.2/go.mod h1:vriiEXHvEE654aYKXXjOvZM39qJ0q+azkZFrfEOc3H4=
- github.com/maago-web/maago v0.3.0 h1:H5tqpDOB97jDUvLRA7gj4B7eXLN2V0NvL5zdgSAoAIA=
- github.com/maago-web/maago v0.3.0/go.mod h1:WRj2N8ZHvO0DUlJcqR2+kzVR12LymVEWlbE2zL0dF04=
+ github.com/maago-web/maago v0.4.0 h1:C0e0cegd29H6+R2ElgchVvDimM0rbcKPC8KyLAeCgS4=
+ github.com/maago-web/maago v0.4.0/go.mod h1:WRj2N8ZHvO0DUlJcqR2+kzVR12LymVEWlbE2zL0dF04=
 -github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=
 -github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
 -github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=

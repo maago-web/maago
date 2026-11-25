@@ -880,6 +880,7 @@
    - 복사된 auth의 `siteURL`과 식을 한 곳에 모으기: 복사본은 런타임을 import하지만 이 검사는 런타임의 공개 API가 아니다. 같은 거절 목록을 시험이 양쪽에서 문다.
    - `cmd/maago/docs/*.txt`·`doc.go` 골든: 바꿀 것이 없다(위 따라가 본 길).
 10. **v0.4.0**(Q10): 태그(깨지는 API를 태그 글에), 게시판의 `go.mod`(0001·0013) → 확인: 빈 GOPATH에서 `go install …@v0.4.0`, 공개 판으로 걷기의 끝(`GOWORK=off`)
+   기록(2026-11-25): 7aa5d6a(9번 고침을 합친 main)에서 로컬 PG 전체 시험 `go test exit=0`(`cmd/maago` 582초), push 뒤 GitHub Actions 초록(실행 45536511797, 약 11분 반: M13 1번의 CI 20분 기준 아래). `v0.4.0`(주석 태그, 글에 깨지는 API 둘: `WithMediaDir`를 지우고 `WithMedia`, `OpenMedia`는 `MediaFile`)을 7aa5d6a에 달아 push, `git ls-remote --tags origin`의 `v0.4.0^{}`가 7aa5d6a. 빈 `GOPATH`·`GOMODCACHE`·`GOCACHE`·`GOWORK=off`에서 `GOPROXY=direct`와 기본 프록시 둘 다 `go install github.com/maago-web/maago/cmd/maago@v0.4.0`, `maago help`, `go version -m`이 `v0.4.0 h1:C0e0cegd…`(sum.golang.org와 같다, `/go.mod`는 v0.3.0과 같은 `WRj2…`). 게시판: 0001·0013의 v0.3.0 줄을 v0.4.0으로, `unpack`·`pack` 뒤 `git diff --stat`이 다섯 줄씩. 공개 판으로 걷기의 끝: 0044의 `git archive` 사본(`go.work`·`auth/`·`outbox/` 없음)에서 `go list -m`이 `v0.4.0 <nil>`과 모듈 캐시, 설치한 `maago`의 절대 경로로 새 PG 데이터베이스에 `add auth`·`add outbox`·`migrate`·`gen`·`check`, `go mod tidy -diff`·`go mod verify`·`go vet ./...`·`gofmt -l`·`go test ./...` 초록. 바꾼 뒤 PG 전체 시험 `go test exit=0`(`cmd/maago` 562초)
 11. **에이전트 게이트**: `go install …@v0.4.0`부터, 0040의 끝에서 새 단계 글만 보고 서로 모르는 실행 둘 → 확인: 기록, 메시지와 `maago doc`만으로 씀
 12. **M13 끝**: MILESTONES의 M13 체크, README, 다음 마일스톤(M14: Google 로그인, 진단 묶음, 단계 글의 빈틈)의 차례
 

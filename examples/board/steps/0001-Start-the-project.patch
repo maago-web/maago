@@ -16,7 +16,7 @@ imports no driver.
 
 diff --git a/go.mod b/go.mod
 new file mode 100644
-index 0000000..3ebfc23
+index 0000000..aaa2ddb
 --- /dev/null
 +++ b/go.mod
 @@ -0,0 +1,20 @@
@@ -25,7 +25,7 @@ index 0000000..3ebfc23
 +go 1.25.0
 +
 +require (
-+	github.com/maago-web/maago v0.3.0
++	github.com/maago-web/maago v0.4.0
 +	modernc.org/sqlite v1.59.0
 +)
 +
@@ -42,7 +42,7 @@ index 0000000..3ebfc23
 +)
 diff --git a/go.sum b/go.sum
 new file mode 100644
-index 0000000..e75fa6c
+index 0000000..36efa7b
 --- /dev/null
 +++ b/go.sum
 @@ -0,0 +1,52 @@
@@ -54,8 +54,8 @@ index 0000000..e75fa6c
 +github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 +github.com/hashicorp/golang-lru/v2 v2.0.7 h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=
 +github.com/hashicorp/golang-lru/v2 v2.0.7/go.mod h1:QeFd9opnmA6QUJc5vARoKUSoFhyfM2/ZepoAG6RGpeM=
-+github.com/maago-web/maago v0.3.0 h1:H5tqpDOB97jDUvLRA7gj4B7eXLN2V0NvL5zdgSAoAIA=
-+github.com/maago-web/maago v0.3.0/go.mod h1:WRj2N8ZHvO0DUlJcqR2+kzVR12LymVEWlbE2zL0dF04=
++github.com/maago-web/maago v0.4.0 h1:C0e0cegd29H6+R2ElgchVvDimM0rbcKPC8KyLAeCgS4=
++github.com/maago-web/maago v0.4.0/go.mod h1:WRj2N8ZHvO0DUlJcqR2+kzVR12LymVEWlbE2zL0dF04=
 +github.com/mattn/go-isatty v0.0.24 h1:tGZZoVgT/KiqK1c8ocVLeDS8BSWMRd47J3Lbz7vsReI=
 +github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI3HqDio6A=
 +github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOFAw7w=
