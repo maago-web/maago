@@ -95,6 +95,11 @@
 - [ ] 없는 표의 진단이 모델의 표 이름을 말하지 않는다: 새 모델 `ExportFile`의 표를 `board_exportfile`로 짐작해 쓴 쿼리에 `relation "board_exportfile" does not exist … (checked against the models)`뿐이고, 같은 실행의 `table "board_export_file" is missing`을 읽어야 안다. did you mean은 M14 진단 묶음에(M13 8번)
 - [x] 9번 main 문단: 청소나 일꾼이 미디어를 쓰면 `Config.MediaDir` 줄임은 쓸 수 없다(같은 저장소를 `WithMedia`에 줘야 한다). 게시판 0041이 `media := maago.LocalMedia{Dir: "media"}`를 만들어 `Config.Media`·일꾼·청소에 함께 준다: 문서의 예도 이 꼴로, `MediaDir`은 요청 밖에서 미디어를 쓰지 않는 앱의 줄임이라고. 0041·0043이 main에 손으로 쓴 청소 고루틴(약 12줄)과 기동 때의 `List`(약 3줄)도 모든 앱이 같은 꼴로 쓸 것이라 문서의 예에 싣는다(M13 8번). M13 9번에서: `maago doc main`의 예가 `media := maago.LocalMedia{Dir: "media"}` 하나를 `Config.Media`·일꾼·청소에 주고 청소 고루틴과 `handler` 뒤의 기동 `List`를 싣는다. "쓸 수 없다"가 아니라 "`MediaDir`은 요청 안에서만 미디어를 쓰는 앱의 줄임, 일꾼이나 청소가 쓰면 저장소 하나를 같은 값으로"라고 쓴다(따로 만든 같은 디렉터리의 `LocalMedia`도 돈다)
 - [ ] 열쇠 열이 있는 모델마다 `func (x X) media() maago.Media`를 손으로 쓰고, `SaveMediaFrom`이 준 `Media`를 `NewXInput`에 칸마다 옮긴다(게시판의 첨부와 내보내기, 둘째). 태그 `media`가 있는 모델에 생성기가 둘을 만들지는 M14 진단·생성 묶음에서 본다(M13 8번)
+- [ ] 미디어를 다루는 `maago doc` 주제가 따로 없다: 저장소·`SaveMediaFrom`·`MediaURL`·청소의 글이 form과 main 주제에 흩어져 게이트 2번은 `go doc`으로 맞춰 갔다. `maago doc`의 목록에서 미디어를 찾는 길(주제 하나나 form의 이름에 media)을 M14 진단 묶음에서 본다(M13 11번, 게이트 2번)
+- [ ] main의 `deliver`가 Kind로 가르는 것을 아무 도구도 묻지 않는다: 게이트 2번이 일부러 모든 Kind를 `Deliver`에 보내도 `gen`·`check`·`vet`·`test`가 초록이었다(게시판은 `ship`이 문다). 게이트 1번은 package main의 `main_test.go`로 모르는 Kind의 오류를 봤다: `maago doc main`의 예가 그 시험을 싣는지 본다(M13 11번)
+- [ ] 청소가 파일의 수정 시각(저장소의 `List`가 준 시각)으로 나이를 잰다는 말이 `SweepMedia`의 글에 없다: 게이트 1번은 시험에서 `os.Chtimes`로 짐작했다(M13 11번)
+- [ ] 시험에서 로컬 저장소의 `SiteURL`은 `Handler`보다 먼저인데 `httptest.NewServer`의 주소는 서버가 선 뒤에야 있다: 게이트 1번은 handler 변수를 감싸 뒤에 `Handler`를 만들었다. `maago doc`의 시험 예에 이 꼴을 실을지 본다(M13 11번)
+- [ ] `maago doc view`의 "권한 표가 없는 앱은 gen이 거절"이 새 라우트의 행 빠짐도 gen이 잡는 것으로 읽힌다: 행 빠짐은 앱의 `TestPermissions`만 잡는다(게이트 1번). 글을 "표가 없으면 gen, 행이 빠지면 시험"으로(M13 11번)
 
 ## 언젠가
 

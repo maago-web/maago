@@ -25,16 +25,19 @@ board takes a while, and a job that fails goes again.
   board's rows and writes the new ones. No code deletes a file: the
   export before, a run that stopped halfway, and a run again past its
   lease leave files no row keeps, and the sweep deletes them
-- Routes, staff only: board_files lists the files with a button to
-  export again, board_files_export writes the job in the request's
-  transaction, board_file sends a file down by its name, with
-  maago.ServeMedia, as the attachments go
+- Routes, staff only, under /boards/{id}/files: board_files lists the
+  files with a button to export again, board_files_export writes the
+  job, {"id": the board's ID}, in the request's transaction, board_file
+  (/{name}) sends a file down by its name, with maago.ServeMedia, as
+  the attachments go
 
-TestWriteExportFiles runs a job twice, a post a page, makes the files
-two days old and sweeps: the store holds the rows' files, and they read as they should;
-the draft is in none. TestFiles asks as staff, runs the job as main
-does with outbox.RunOnce, by its kind, and gets index.md by its name. TestPermissions
-has the three routes' rows.
+TestWriteExportFiles runs a job twice, a post a page (exportPage = 1),
+makes the files two days old and sweeps: the store holds the rows'
+files, post-ID.md for each post and index.md, and they read as they
+should; the draft is in none. TestFiles asks as staff, runs the job
+with outbox.RunOnce and a handle of its own that goes by the kind
+(main's deliver is in package main, out of a board test's reach), and
+gets index.md by its name. TestPermissions has the three routes' rows.
 
 diff --git a/board/files.go b/board/files.go
 new file mode 100644
